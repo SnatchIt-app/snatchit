@@ -1,80 +1,100 @@
 import Image from "next/image";
 import Link from "next/link";
 import { Container } from "@/components/ui/Container";
-import { LinkButton } from "@/components/ui/Button";
-import { UnreadDot } from "@/components/ui/Badge";
-import { getAuthedUser } from "@/lib/auth/session";
-import { unreadNotificationCount } from "@/lib/notifications";
-
-const nav = [
-  { href: "/browse", label: "Browse" },
-  { href: "/#how-it-works", label: "How it works" },
-  { href: "/#sell", label: "Sell tickets" },
-] as const;
-
-const navLinkCls =
-  "inline-flex min-h-11 items-center whitespace-nowrap text-[11px] font-medium uppercase tracking-[0.3em] text-white/60 transition-colors duration-200 hover:text-primary motion-reduce:transition-none";
+import { LinkButton, iconButtonClasses } from "@/components/ui/Button";
+import { Icon } from "@/components/ui/Icon";
+import { SearchForm } from "@/components/ui/SearchInput";
+import { HeaderNavLink, HideOnBrowse } from "@/components/site/NavLinks";
+import type { AuthedUser } from "@/lib/auth/session";
 
 /**
- * Solid black bar with the site's red hairline underline, carrying the
- * official SN logo asset at a confident size. Auth state is read on every
- * page (getClaims() is a cheap, locally-verified check) so the header can
- * switch between logged-out and logged-in nav without a client round-trip.
+ * Top bar. Desktop: a translucent glass bar (the native dock's material) with
+ * the SN logo, Browse and Sell, a search field and the account controls.
+ * Phone: logo, search and notifications only — primary navigation lives in
+ * the floating dock at the bottom of the screen, as in the native app.
+ *
+ * Auth state is read once per request in the root layout (getClaims() is a
+ * cheap, locally verified check) and passed in, so the header switches between
+ * signed-out and signed-in without a client round-trip.
  */
-export async function Header() {
-  const user = await getAuthedUser();
-  const unread = user ? await unreadNotificationCount() : 0;
+export function Header({ user, unread }: { user: AuthedUser | null; unread: number }) {
+  const bellLabel = unread > 0 ? `Notifications, ${unread} unread` : "Notifications";
 
   return (
-    <header className="sticky top-0 z-40 border-b border-primary/20 bg-black">
-      <Container className="flex h-16 items-center justify-between gap-6">
-        <div className="flex items-center gap-10">
-          <Link href="/" className="flex min-h-11 items-center" aria-label="Snatch It home">
-            <Image
-              src="/brand/sn-logo-white.svg"
-              alt="Snatch It"
-              width={99}
-              height={36}
-              priority
-              className="h-8 w-auto sm:h-9"
-            />
-          </Link>
-          <nav aria-label="Primary" className="hidden items-center gap-7 md:flex">
-            {nav.map((item) => (
-              <Link key={item.href} href={item.href} className={navLinkCls}>
-                {item.label}
-              </Link>
-            ))}
-          </nav>
-        </div>
+    <header className="glass-bar sticky top-0 z-40 border-b border-[var(--sn-glass-line)]">
+      <Container className="flex h-16 items-center gap-3 lg:gap-6">
+        <Link href="/" className="flex min-h-11 shrink-0 items-center pr-2" aria-label="Snatch It home">
+          <Image
+            src="/brand/sn-logo.svg"
+            alt="Snatch It"
+            width={83}
+            height={30}
+            priority
+            className="h-[26px] w-auto dark:invert"
+          />
+        </Link>
 
-        <div className="flex items-center gap-3 sm:gap-5">
-          <Link href="/browse" className={`${navLinkCls} md:hidden`}>
+        <nav aria-label="Primary" className="hidden items-center gap-1 md:flex">
+          <HeaderNavLink href="/browse" section="browse">
             Browse
+          </HeaderNavLink>
+          <HeaderNavLink href="/sell" section="sell">
+            Sell
+          </HeaderNavLink>
+          {user ? (
+            <HeaderNavLink href="/account/purchases" section="purchases">
+              Purchases
+            </HeaderNavLink>
+          ) : null}
+        </nav>
+
+        <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
+          <HideOnBrowse>
+            <SearchForm size="sm" className="w-[min(28vw,340px)] max-lg:hidden" />
+          </HideOnBrowse>
+          <Link href="/browse" className={iconButtonClasses("plain", "lg:hidden max-[299px]:hidden")} aria-label="Search listings">
+            <Icon name="search" />
           </Link>
 
           {user ? (
-            <Link href="/account" className={`${navLinkCls} gap-2`}>
-              {unread > 0 ? <UnreadDot /> : null}
-              Account
-            </Link>
+            <>
+              <Link href="/account/saved" className={iconButtonClasses("plain", "max-md:hidden")} aria-label="Saved listings">
+                <Icon name="bookmark" />
+              </Link>
+              <Link href="/account/notifications" className={iconButtonClasses("plain", "relative")} aria-label={bellLabel}>
+                <Icon name="bell" />
+                {unread > 0 ? (
+                  <span
+                    aria-hidden="true"
+                    className="absolute right-2 top-2 inline-flex min-w-4 items-center justify-center rounded-full bg-brand px-1 text-[10px] font-bold leading-4 text-inverse"
+                  >
+                    {unread > 9 ? "9+" : unread}
+                  </span>
+                ) : null}
+              </Link>
+              <Link
+                href="/account"
+                className="pressable ml-1 inline-flex min-h-10 items-center gap-2 rounded-full border border-line pl-1.5 pr-3.5 text-[14px] font-semibold text-ink hover:border-control max-md:hidden"
+              >
+                <span className="inline-flex size-7 items-center justify-center rounded-full bg-surface text-ink-2">
+                  <Icon name="user" size={16} />
+                </span>
+                Account
+              </Link>
+            </>
           ) : (
-            <Link href="/login" className={navLinkCls}>
-              Log in
-            </Link>
-          )}
-
-          {user ? null : (
-            <span className="hidden lg:inline-block">
-              <LinkButton href="/signup" variant="secondary">
+            <>
+              <Link
+                href="/login"
+                className="pressable inline-flex min-h-10 items-center whitespace-nowrap rounded-full px-3.5 text-[15px] font-semibold text-ink hover:bg-ink/[0.06]"
+              >
+                Log in
+              </Link>
+              <LinkButton href="/signup" size="sm" className="whitespace-nowrap max-sm:hidden">
                 Create account
               </LinkButton>
-            </span>
+            </>
           )}
-          <LinkButton href="https://snatchitapp.com" variant="primary">
-            <span className="sm:hidden">Get app</span>
-            <span className="hidden sm:inline">Get the app</span>
-          </LinkButton>
         </div>
       </Container>
     </header>

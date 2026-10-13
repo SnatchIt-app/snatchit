@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getAuthedUser } from "@/lib/auth/session";
 import { getMyListing } from "@/lib/seller-listings";
 import { canEdit } from "@/lib/seller-listing-status";
 import { EditListingForm } from "@/components/account/EditListingForm";
+import { AccountHeader } from "@/components/account/AccountHeader";
 import { Alert } from "@/components/ui/Alert";
 import { LinkButton } from "@/components/ui/Button";
 
@@ -27,16 +27,12 @@ export default async function EditListingPage({ params }: { params: Promise<{ id
   const editable = canEdit(listing.badge, listing.realBidCount);
 
   return (
-    <div className="max-w-[560px] space-y-6">
-      <Link
-        href="/account/listings"
-        className="text-[10.5px] font-medium uppercase tracking-[0.3em] text-white/60 hover:text-primary"
-      >
-        ← Your listings
-      </Link>
-      <h1 className="font-display text-[24px] font-bold uppercase leading-[0.95] tracking-[-0.02em] text-ink">
-        Edit listing
-      </h1>
+    <div className="max-w-[560px]">
+      {/* A pushed screen under Your listings: the back link stays on desktop too. */}
+      <AccountHeader
+        title="Edit listing"
+        back={{ href: "/account/listings", label: "Your listings", text: "Your listings", desktop: true }}
+      />
 
       {editable ? (
         <EditListingForm
@@ -47,7 +43,7 @@ export default async function EditListingPage({ params }: { params: Promise<{ id
           ticketPlatform={listing.ticket_platform}
         />
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-5">
           <Alert tone="error">
             {listing.realBidCount > 0
               ? "This listing already has bids, so its details are locked. Cancel it from Your listings if you need to pull it."

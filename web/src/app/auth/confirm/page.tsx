@@ -5,10 +5,23 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { AuthCard } from "@/components/auth/AuthCard";
 import { Alert } from "@/components/ui/Alert";
+import { Spinner } from "@/components/ui/Button";
+import { authInlineLinkCls } from "@/components/auth/styles";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { safeInternalPath } from "@/lib/auth/redirect";
 
 type Status = "processing" | "error";
+
+function ConfirmingCard() {
+  return (
+    <AuthCard eyebrow="Account" title="Confirming…">
+      <p role="status" className="t-body flex items-center gap-3 text-muted">
+        <Spinner className="text-ink-2" />
+        One moment while we verify your link.
+      </p>
+    </AuthCard>
+  );
+}
 
 /**
  * Lands here from signup-confirmation and password-reset emails. Supabase's
@@ -85,22 +98,20 @@ function ConfirmClient() {
 
   if (status === "processing") {
     return (
-      <AuthCard eyebrow="Account" title="Confirming…">
-        <p className="text-[14px] text-white/60">One moment while we verify your link.</p>
-      </AuthCard>
+      <ConfirmingCard />
     );
   }
 
   return (
     <AuthCard eyebrow="Account" title="Link expired">
-      <div className="space-y-5">
+      <div className="space-y-6">
         <Alert tone="error">This link is invalid or has already been used.</Alert>
-        <p className="text-[13px] text-white/50">
-          <Link href="/login" className="font-semibold text-primary hover:text-[#ff5f5f]">
+        <p className="t-body text-muted">
+          <Link href="/login" className={authInlineLinkCls}>
             Back to log in
           </Link>{" "}
           or{" "}
-          <Link href="/forgot-password" className="font-semibold text-primary hover:text-[#ff5f5f]">
+          <Link href="/forgot-password" className={authInlineLinkCls}>
             request a new reset link
           </Link>
           .
@@ -114,9 +125,7 @@ export default function AuthConfirmPage() {
   return (
     <Suspense
       fallback={
-        <AuthCard eyebrow="Account" title="Confirming…">
-          <p className="text-[14px] text-white/60">One moment while we verify your link.</p>
-        </AuthCard>
+        <ConfirmingCard />
       }
     >
       <ConfirmClient />

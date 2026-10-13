@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getAuthedUser } from "@/lib/auth/session";
 import { getEvidenceUrl, getTransferForBuyer } from "@/lib/transfers";
@@ -7,6 +6,7 @@ import { countdownFrom } from "@/lib/transfer-format";
 import { TransferStatusBadge } from "@/components/transfer/TransferStatusBadge";
 import { BuyerTransferPanel } from "@/components/transfer/BuyerTransferPanel";
 import { Container } from "@/components/ui/Container";
+import { TransferHeader } from "@/components/transfer/TransferHeader";
 
 export const metadata: Metadata = {
   title: "Your transfer",
@@ -33,24 +33,17 @@ export default async function ReceiveTransferPage({ params }: { params: Promise<
   const countdown = countdownFrom(transfer.status === "pending" ? transfer.expires_at : null);
 
   return (
-    <Container className="max-w-[620px] py-10">
-      <Link
-        href="/account/purchases"
-        className="text-[10.5px] font-medium uppercase tracking-[0.3em] text-white/60 hover:text-primary"
-      >
-        ← Your purchases
-      </Link>
-
-      <div className="mt-6 flex flex-wrap items-center gap-3">
-        <TransferStatusBadge row={transfer} audience="buyer" />
-        {transfer.counterpartyName ? (
-          <span className="text-[12.5px] text-white/50">from {transfer.counterpartyName}</span>
-        ) : null}
-      </div>
-      <h1 className="mt-3 font-display text-[24px] font-bold uppercase leading-[0.95] tracking-[-0.02em] text-ink">
-        {transfer.eventName}
-      </h1>
-      <p className="mt-1 text-[13.5px] text-white/50">{transfer.venue}</p>
+    <Container size="narrow" className="pb-12 pt-3 lg:pt-6">
+      <TransferHeader
+        backHref="/account/purchases"
+        backLabel="Your purchases"
+        screenTitle="Your order"
+        badge={<TransferStatusBadge row={transfer} audience="buyer" />}
+        counterparty={transfer.counterpartyName ? `from ${transfer.counterpartyName}` : null}
+        eventName={transfer.eventName}
+        venue={transfer.venue}
+        coverImagePath={transfer.coverImagePath}
+      />
 
       <div className="mt-7">
         <BuyerTransferPanel transfer={transfer} evidenceUrl={evidenceUrl} countdownLabel={countdown} />

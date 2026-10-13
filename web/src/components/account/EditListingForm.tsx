@@ -71,7 +71,7 @@ export function EditListingForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} noValidate className="space-y-5">
+    <form onSubmit={handleSubmit} noValidate className="space-y-6">
       {error ? <Alert tone="error">{error}</Alert> : null}
 
       <Field label="Event name" htmlFor="eventName">
@@ -93,14 +93,14 @@ export function EditListingForm({
         <Textarea id="restrictions" value={restrictions} onChange={(e) => setRestrictions(e.target.value)} maxLength={500} />
       </Field>
 
-      <p className="text-[12.5px] leading-relaxed text-white/45">
+      <p className="t-body-sm text-muted">
         Price, timing, and quantity can&apos;t be changed after a listing goes live. Cancel and
         relist if those need to change.
       </p>
 
-      <div className="flex gap-3">
-        <Button type="submit" variant="primary" disabled={isPending}>
-          {isPending ? "Saving…" : "Save changes"}
+      <div className="flex flex-wrap gap-3 pt-1">
+        <Button type="submit" variant="primary" disabled={isPending} pending={isPending} pendingLabel="Saving…">
+          Save changes
         </Button>
         <Button type="button" variant="secondary" onClick={() => router.push("/account/listings")}>
           Cancel

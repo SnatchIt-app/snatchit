@@ -1,75 +1,62 @@
 import type { ReactNode } from "react";
 
-type Variant = "live" | "soon" | "sold" | "neutral" | "buyNow";
+export type Tone = "neutral" | "success" | "warning" | "danger" | "info" | "brand";
 
 /**
- * Status marks in the brand voice: square black plates over artwork with
- * tracked uppercase micro type. Red and white only — the marketing site's
- * palette has no other hues.
+ * Native Badge (src/components/ui/Badge.tsx): a small outlined pill in the
+ * tone colour on a transparent fill. Over artwork it sits on a dark plate so
+ * it reads in both themes.
  */
-const styles: Record<Variant, string> = {
-  live: "bg-black/85 text-primary border border-primary/40",
-  soon: "bg-black/85 text-ink border border-white/25",
-  sold: "bg-black/85 text-white/50 border border-white/15",
-  neutral: "bg-white/[0.06] text-white/60 border border-white/10",
-  buyNow: "bg-primary text-black border border-primary",
+const tones: Record<Tone, string> = {
+  neutral: "border-control text-ink-2",
+  success: "border-success text-success",
+  warning: "border-warning text-warning",
+  danger: "border-danger text-danger",
+  info: "border-info text-info",
+  brand: "border-brand-text text-brand-text",
 };
 
 export function Badge({
-  variant = "neutral",
-  children,
-  className = "",
-}: {
-  variant?: Variant;
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <span
-      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] font-bold uppercase leading-none tracking-[0.18em] ${styles[variant]} ${className}`}
-    >
-      {children}
-    </span>
-  );
-}
-
-/** Inline tracked micro-label (e.g. "Buy Now" on cards, "Verified" on sellers). */
-export function Chip({
   tone = "neutral",
+  onArt = false,
   children,
   className = "",
 }: {
-  tone?: "red" | "green" | "neutral";
+  tone?: Tone;
+  onArt?: boolean;
   children: ReactNode;
   className?: string;
 }) {
-  // "green" is kept as an accepted tone name for call-site compatibility but
-  // renders in the brand system (red) — the site's palette has no green.
-  const tones = {
-    red: "text-primary",
-    green: "text-primary",
-    neutral: "text-white/50",
-  } as const;
+  const look = onArt ? "border-white/30 bg-black/60 text-white" : tones[tone];
   return (
     <span
-      className={`inline-flex items-center gap-1.5 text-[10.5px] font-bold uppercase leading-none tracking-[0.22em] ${tones[tone]} ${className}`}
+      className={`inline-flex min-h-[22px] items-center gap-1.5 whitespace-nowrap rounded-[11px] border px-2 text-[12px] font-semibold leading-none ${look} ${className}`}
     >
       {children}
     </span>
   );
 }
 
-/** Small pulsing dot for LIVE state (halo pulse; static when reduced motion). */
+/** Quiet inline mark next to a name ("Verified seller"). */
+export function Chip({ tone = "success", children, className = "" }: { tone?: Tone; children: ReactNode; className?: string }) {
+  return (
+    <Badge tone={tone} className={className}>
+      {children}
+    </Badge>
+  );
+}
+
+/** Small red dot for a live auction (static under reduced motion). */
 export function LiveDot() {
   return (
-    <span
-      aria-hidden="true"
-      className="pulse-red inline-flex size-1.5 rounded-full bg-primary motion-reduce:animate-none"
-    />
+    <span aria-hidden="true" className="relative inline-flex size-2">
+      <span className="absolute inset-0 rounded-full bg-brand opacity-60 motion-safe:[animation:sn-pulse_1.1s_ease-in-out_infinite_alternate]" />
+      <span className="relative inline-flex size-2 rounded-full bg-brand" />
+    </span>
   );
 }
 
-/** Static red dot for "unread" states in nav (header, account menu). */
-export function UnreadDot() {
-  return <span aria-hidden="true" className="inline-flex size-[7px] shrink-0 rounded-full bg-primary" />;
+/** Static red dot for "unread". */
+export function UnreadDot({ className = "" }: { className?: string }) {
+  return <span aria-hidden="true" className={`inline-flex size-2 shrink-0 rounded-full bg-brand ${className}`} />;
 }

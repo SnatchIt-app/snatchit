@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getAuthedUser } from "@/lib/auth/session";
 import { getTransferForSeller } from "@/lib/transfers";
@@ -7,6 +6,7 @@ import { countdownFrom } from "@/lib/transfer-format";
 import { TransferStatusBadge } from "@/components/transfer/TransferStatusBadge";
 import { SellerTransferPanel } from "@/components/transfer/SellerTransferPanel";
 import { Container } from "@/components/ui/Container";
+import { TransferHeader } from "@/components/transfer/TransferHeader";
 
 export const metadata: Metadata = {
   title: "Send tickets",
@@ -34,24 +34,17 @@ export default async function SendTransferPage({ params }: { params: Promise<{ i
   );
 
   return (
-    <Container className="max-w-[620px] py-10">
-      <Link
-        href="/account/listings"
-        className="text-[10.5px] font-medium uppercase tracking-[0.3em] text-white/60 hover:text-primary"
-      >
-        ← Your listings
-      </Link>
-
-      <div className="mt-6 flex flex-wrap items-center gap-3">
-        <TransferStatusBadge row={transfer} audience="seller" />
-        {transfer.counterpartyName ? (
-          <span className="text-[12.5px] text-white/50">for {transfer.counterpartyName}</span>
-        ) : null}
-      </div>
-      <h1 className="mt-3 font-display text-[24px] font-bold uppercase leading-[0.95] tracking-[-0.02em] text-ink">
-        {transfer.eventName}
-      </h1>
-      <p className="mt-1 text-[13.5px] text-white/50">{transfer.venue}</p>
+    <Container size="narrow" className="pb-12 pt-3 lg:pt-6">
+      <TransferHeader
+        backHref="/account/listings"
+        backLabel="Your listings"
+        screenTitle="Send transfer"
+        badge={<TransferStatusBadge row={transfer} audience="seller" />}
+        counterparty={transfer.counterpartyName ? `for ${transfer.counterpartyName}` : null}
+        eventName={transfer.eventName}
+        venue={transfer.venue}
+        coverImagePath={transfer.coverImagePath}
+      />
 
       <div className="mt-7">
         <SellerTransferPanel transfer={transfer} countdownLabel={countdown} />

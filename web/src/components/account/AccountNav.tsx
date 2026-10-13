@@ -3,36 +3,44 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { UnreadDot } from "@/components/ui/Badge";
+import { ACCOUNT_GROUPS, isAccountLinkActive } from "@/components/account/sections";
 
-const TABS = [
-  { href: "/account", label: "Overview" },
-  { href: "/account/listings", label: "Listings" },
-  { href: "/account/purchases", label: "Purchases" },
-  { href: "/account/sales", label: "Sales" },
-  { href: "/account/profile", label: "Profile" },
-  { href: "/account/saved", label: "Saved" },
-  { href: "/account/notifications", label: "Notifications" },
-  { href: "/account/settings", label: "Settings" },
-] as const;
-
+/**
+ * Desktop account sidebar (lg+). Grouped like the native settings hub, each
+ * group a micro label over its links; the current page sits on the native
+ * selected capsule. Phones have no strip at all — /account is the hub there.
+ */
 export function AccountNav({ unreadCount = 0 }: { unreadCount?: number }) {
   const pathname = usePathname();
   return (
-    <nav aria-label="Account" className="flex gap-6 overflow-x-auto border-b border-primary/15">
-      {TABS.map((tab) => {
-        const active = tab.href === "/account" ? pathname === "/account" : pathname.startsWith(tab.href);
+    <nav aria-label="Account" className="space-y-7">
+      {ACCOUNT_GROUPS.map((group) => {
+        const labelId = `account-nav-${group.label.toLowerCase()}`;
         return (
-          <Link
-            key={tab.href}
-            href={tab.href}
-            aria-current={active ? "page" : undefined}
-            className={`inline-flex min-h-11 shrink-0 items-center gap-2 border-b-2 text-[11px] font-medium uppercase tracking-[0.25em] transition-colors duration-200 motion-reduce:transition-none ${
-              active ? "border-primary text-primary" : "border-transparent text-white/50 hover:text-white/80"
-            }`}
-          >
-            {tab.label}
-            {tab.href === "/account/notifications" && unreadCount > 0 ? <UnreadDot /> : null}
-          </Link>
+          <div key={group.label}>
+            <p id={labelId} className="t-micro mb-2 px-4 text-muted">
+              {group.label}
+            </p>
+            <ul aria-labelledby={labelId} className="space-y-0.5">
+              {group.links.map((link) => {
+                const active = isAccountLinkActive(link.href, pathname);
+                return (
+                  <li key={link.href}>
+                    <Link
+                      href={link.href}
+                      aria-current={active ? "page" : undefined}
+                      className={`pressable flex min-h-11 items-center gap-2 rounded-full px-4 text-[15px] font-semibold ${
+                        active ? "bg-ink/[0.07] text-ink" : "text-ink-2 hover:bg-ink/[0.04] hover:text-ink"
+                      }`}
+                    >
+                      <span className="min-w-0 break-words">{link.label}</span>
+                      {link.showsUnread && unreadCount > 0 ? <UnreadDot /> : null}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
         );
       })}
     </nav>

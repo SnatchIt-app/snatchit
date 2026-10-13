@@ -76,9 +76,9 @@ export function BuyerTransferPanel({
 
       {/* ── Delivery info gate ── */}
       {needsDelivery && (transfer.status === "pending" || transfer.status === "seller_sent") ? (
-        <section className="border border-primary/20 bg-card p-5">
-          <p className="eyebrow text-primary/80">Where should the tickets go?</p>
-          <p className="mt-2 text-[13px] leading-relaxed text-white/60">
+        <section className="rounded-panel bg-surface p-5">
+          <h2 className="t-title text-ink">Where should the tickets go?</h2>
+          <p className="t-body-sm mt-1.5 text-muted">
             The seller can&apos;t send until you add this. It&apos;s shared only with them, only
             for this transfer.
           </p>
@@ -116,8 +116,8 @@ export function BuyerTransferPanel({
                 />
               </Field>
             )}
-            <Button type="submit" variant="primary" disabled={isPending}>
-              {isPending ? "Saving…" : "Save delivery info"}
+            <Button type="submit" variant="primary" size="lg" className="w-full sm:w-auto" disabled={isPending} pending={isPending} pendingLabel="Saving…">
+              Save delivery info
             </Button>
           </form>
         </section>
@@ -126,7 +126,7 @@ export function BuyerTransferPanel({
       {/* ── Status-specific body ── */}
       {transfer.status === "pending" && !needsDelivery ? (
         <>
-          <Alert tone="success">
+          <Alert tone="info">
             Waiting for the seller to send your tickets.
             {countdownLabel ? ` They have ${countdownLabel}.` : ""}
           </Alert>
@@ -142,9 +142,9 @@ export function BuyerTransferPanel({
       {transfer.status === "seller_sent" ? (
         <>
           {evidenceUrl ? (
-            <section className="border border-primary/20 bg-card p-5">
-              <p className="eyebrow text-primary/80">Seller&apos;s proof</p>
-              <p className="mt-2 text-[13px] text-white/60">Review this before confirming.</p>
+            <section className="rounded-panel bg-surface p-5">
+              <h2 className="t-title text-ink">Seller&apos;s proof</h2>
+              <p className="t-body-sm mt-1 text-muted">Review this before confirming.</p>
               <a href={evidenceUrl} target="_blank" rel="noopener noreferrer" className="mt-4 block">
                 <Image
                   src={evidenceUrl}
@@ -152,7 +152,7 @@ export function BuyerTransferPanel({
                   width={640}
                   height={480}
                   unoptimized
-                  className="h-auto w-full border border-white/10 object-contain"
+                  className="h-auto max-h-[520px] w-full rounded-media border border-line bg-canvas object-contain"
                 />
               </a>
             </section>
@@ -165,7 +165,7 @@ export function BuyerTransferPanel({
             buyerPhone={transfer.delivery_phone}
           />
 
-          <Alert tone="error">
+          <Alert tone="warning">
             Confirming releases payment to the seller. Only confirm once you can actually see the
             tickets in your account.
           </Alert>
@@ -173,14 +173,18 @@ export function BuyerTransferPanel({
           <div className="flex flex-col gap-3 sm:flex-row">
             <Button
               variant="primary"
+              size="lg"
               className="flex-1"
               disabled={isPending}
+              pending={isPending}
+              pendingLabel="Confirming…"
               onClick={() => run(() => confirmReceiptAction(transfer.id))}
             >
-              {isPending ? "Confirming…" : "I got my tickets"}
+              I got my tickets
             </Button>
             <Button
               variant="secondary"
+              size="lg"
               className="flex-1"
               disabled={isPending}
               onClick={() => {

@@ -3,19 +3,11 @@
 import { useState, useTransition } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { toggleSaveAction } from "@/lib/favorites-actions";
+import { Icon } from "@/components/ui/Icon";
+import { iconButtonClasses, buttonClasses } from "@/components/ui/Button";
 
 function BookmarkIcon({ filled }: { filled: boolean }) {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 16 18" className="size-4">
-      <path
-        d="M2.5 1.5h11a1 1 0 0 1 1 1V16l-6.5-3.5L1.5 16V2.5a1 1 0 0 1 1-1Z"
-        fill={filled ? "currentColor" : "none"}
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
+  return <Icon name="bookmark" size={20} filled={filled} strokeWidth={1.9} />;
 }
 
 /**
@@ -66,9 +58,9 @@ export function SaveButton({
         disabled={isPending}
         aria-pressed={saved}
         aria-label={saved ? "Remove from saved listings" : "Save listing"}
-        className="flex size-9 items-center justify-center bg-black/85 text-white transition-colors duration-200 hover:text-primary disabled:opacity-60 motion-reduce:transition-none"
+        className={iconButtonClasses("onArt", "disabled:opacity-60")}
       >
-        <span className={saved ? "text-primary" : ""}>
+        <span className={saved ? "text-brand" : ""}>
           <BookmarkIcon filled={saved} />
         </span>
       </button>
@@ -81,9 +73,7 @@ export function SaveButton({
       onClick={handleClick}
       disabled={isPending}
       aria-pressed={saved}
-      className={`inline-flex min-h-11 items-center gap-2 text-[11px] font-medium uppercase tracking-[0.25em] transition-colors duration-200 disabled:opacity-60 motion-reduce:transition-none ${
-        saved ? "text-primary" : "text-white/60 hover:text-primary"
-      }`}
+      className={buttonClasses("secondary", "md", saved ? "!border-brand-text text-brand-text" : "")}
     >
       <BookmarkIcon filled={saved} />
       {label}

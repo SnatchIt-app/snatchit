@@ -117,11 +117,11 @@ export function PhoneVerifyForm() {
 
   if (step === "verified") {
     return (
-      <div className="max-w-[380px] space-y-4">
+      <div className="max-w-[440px] space-y-5">
         <Alert tone="success">
           {formatPhoneDisplay(phone)} is verified on your account. You&apos;re all set to sell tickets.
         </Alert>
-        <Button variant="primary" className="w-full" onClick={() => router.push("/account/settings")}>
+        <Button variant="primary" size="lg" className="w-full" onClick={() => router.push("/account/settings")}>
           Done
         </Button>
       </div>
@@ -135,9 +135,9 @@ export function PhoneVerifyForm() {
           e.preventDefault();
           verifyCode();
         }}
-        className="max-w-[380px] space-y-4"
+        className="max-w-[440px] space-y-5"
       >
-        <p className="text-[13.5px] leading-relaxed text-white/60">
+        <p className="t-body text-ink-2">
           We sent a 6-digit code to {formatPhoneDisplay(phone)}.
         </p>
         {error ? <Alert tone="error">{error}</Alert> : null}
@@ -154,29 +154,33 @@ export function PhoneVerifyForm() {
             className="text-center text-[22px] tracking-[0.5em]"
           />
         </Field>
-        <Button type="submit" variant="primary" className="w-full" disabled={isPending || code.trim().length !== 6}>
-          {isPending ? "Verifying…" : "Verify"}
+        <Button
+          type="submit"
+          variant="primary"
+          size="lg"
+          className="w-full"
+          disabled={isPending || code.trim().length !== 6}
+          pending={isPending}
+          pendingLabel="Verifying…"
+        >
+          Verify
         </Button>
-        <div className="flex items-center justify-between gap-4 text-[13px]">
-          <button
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+          <Button type="button" variant="ghost" className="-ml-3" onClick={sendCode} disabled={isPending || cooldown > 0}>
+            <span className="tabular-nums">{cooldown > 0 ? `Resend code in ${cooldown}s` : "Resend code"}</span>
+          </Button>
+          <Button
             type="button"
-            onClick={sendCode}
-            disabled={isPending || cooldown > 0}
-            className="min-h-11 font-semibold text-primary hover:text-[#ff5f5f] disabled:cursor-not-allowed disabled:text-white/35 disabled:hover:text-white/35"
-          >
-            {cooldown > 0 ? `Resend code in ${cooldown}s` : "Resend code"}
-          </button>
-          <button
-            type="button"
+            variant="ghost"
+            className="-mr-3"
             onClick={() => {
               setStep("enter_phone");
               setCode("");
               setError(null);
             }}
-            className="min-h-11 font-semibold text-white/50 hover:text-white/80"
           >
             Use a different number
-          </button>
+          </Button>
         </div>
       </form>
     );
@@ -188,9 +192,9 @@ export function PhoneVerifyForm() {
         e.preventDefault();
         sendCode();
       }}
-      className="max-w-[380px] space-y-4"
+      className="max-w-[440px] space-y-5"
     >
-      <p className="text-[13.5px] leading-relaxed text-white/60">
+      <p className="t-body text-ink-2">
         We&apos;ll text you a 6-digit code. Verifying your number keeps the marketplace safe — it&apos;s never shown
         on your profile or used for marketing.
       </p>
@@ -208,8 +212,16 @@ export function PhoneVerifyForm() {
           autoFocus
         />
       </Field>
-      <Button type="submit" variant="primary" className="w-full" disabled={isPending || !isValidUSPhone(phone)}>
-        {isPending ? "Sending…" : "Send code"}
+      <Button
+        type="submit"
+        variant="primary"
+        size="lg"
+        className="w-full"
+        disabled={isPending || !isValidUSPhone(phone)}
+        pending={isPending}
+        pendingLabel="Sending…"
+      >
+        Send code
       </Button>
     </form>
   );

@@ -7,10 +7,10 @@ import { captureException } from "@/lib/observability";
 
 export default function BrowseError({
   error,
-  reset,
+  retry,
 }: {
   error: Error & { digest?: string };
-  reset: () => void;
+  retry: () => void;
 }) {
   useEffect(() => {
     captureException("browse", error, { digest: error.digest ?? "none" });
@@ -21,7 +21,7 @@ export default function BrowseError({
       <ErrorState
         title="Couldn't load listings"
         message="The marketplace didn't answer in time. Give it another shot."
-        onRetry={reset}
+        onRetry={retry}
       />
     </Container>
   );

@@ -15,7 +15,7 @@ export function ProfileForm({ profile }: { profile: MyProfile }) {
   const [state, formAction, isPending] = useActionState(updateProfileAction, initialState);
 
   return (
-    <form action={formAction} noValidate className="max-w-[440px] space-y-5">
+    <form action={formAction} noValidate className="max-w-[480px] space-y-6">
       {state.error ? <Alert tone="error">{state.error}</Alert> : null}
       {state.success ? <Alert tone="success">{state.message}</Alert> : null}
 
@@ -35,9 +35,11 @@ export function ProfileForm({ profile }: { profile: MyProfile }) {
         <Input id="email" value={profile.email ?? ""} disabled readOnly />
       </Field>
 
-      <Button type="submit" disabled={isPending}>
-        {isPending ? "Saving…" : "Save changes"}
-      </Button>
+      <div className="pt-2">
+        <Button type="submit" disabled={isPending} pending={isPending} pendingLabel="Saving…">
+          Save changes
+        </Button>
+      </div>
     </form>
   );
 }

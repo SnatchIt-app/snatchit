@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
@@ -15,7 +14,7 @@ import {
   type WebListing,
 } from "@/lib/listings";
 import { getSavedListingIdSet, isListingSaved } from "@/lib/favorites";
-import { isUnpaidAuctionWinner } from "@/lib/checkout";
+import { getReservationState, isUnpaidAuctionWinner } from "@/lib/checkout";
 import { getAuthedUser } from "@/lib/auth/session";
 import { SaveButton } from "@/components/SaveButton";
 import { BuyNowButton } from "@/components/listing/BuyNowButton";
@@ -23,20 +22,23 @@ import { BidPanel } from "@/components/listing/BidPanel";
 import {
   categoryLabel,
   fmtEventDate,
-  fmtEventTime,
   listingCardStatus,
   neighborhoodLabel,
   platformLabel,
   deliveryLabel,
 } from "@/lib/format";
+import { eventWhen, quantityLine } from "@/lib/listing-display";
 import { SITE_URL } from "@/lib/env";
 import { Container } from "@/components/ui/Container";
-import { Badge, Chip, LiveDot } from "@/components/ui/Badge";
-import { ArrowLink, Button, LinkButton } from "@/components/ui/Button";
+import { Badge, LiveDot } from "@/components/ui/Badge";
+import { ArrowLink, Button, ButtonLabel, LinkButton } from "@/components/ui/Button";
+import { Icon } from "@/components/ui/Icon";
+import { BackLink } from "@/components/ui/BackLink";
 import { PriceBreakdown, PriceDisplay } from "@/components/ui/PriceDisplay";
 import { SectionHeader } from "@/components/ui/SectionHeader";
 import { ListingCard } from "@/components/ListingCard";
 import { Countdown } from "@/components/listing/Countdown";
+import { Poster } from "@/components/listing/Poster";
 import { JsonLd } from "@/components/site/JsonLd";
 
 type Params = { id: string };
@@ -102,6 +104,13 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
   // The winner owes their winning bid — never the Buy Now price a hybrid
   // listing still carries, which effectiveBase would otherwise surface.
   const priceBase = iWon ? (listing.winning_bid_amount ?? listing.current_bid) : base;
+  const isOwner = currentUser?.id === listing.seller_id;
+
+  // A reserved listing is on hold during someone's Buy Now checkout, not over.
+  // Only the holder can tell it is theirs (checkout reads the same row).
+  const onHold = status === "RESERVED";
+  const heldByMe =
+    onHold && currentUser ? (await getReservationState(listing.id).catch(() => null))?.reservedBy === currentUser.id : false;
 
   const eventJsonLd = {
     "@context": "https://schema.org",
@@ -121,313 +130,290 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
       "@type": "Offer",
       price: (buyerTotalCents(dollarsToCents(base)) / 100).toFixed(2),
       priceCurrency: "USD",
-      availability: isActive
-        ? "https://schema.org/InStock"
-        : "https://schema.org/SoldOut",
+      availability: isActive ? "https://schema.org/InStock" : "https://schema.org/SoldOut",
       url: `${SITE_URL}/listing/${listing.id}`,
-      ...(seller?.display_name
-        ? { offeredBy: { "@type": "Person", name: seller.display_name } }
-        : {}),
+      ...(seller?.display_name ? { offeredBy: { "@type": "Person", name: seller.display_name } } : {}),
     },
   };
 
-  return (
-    <Container className="py-7 lg:py-10">
-      {/* Breadcrumb — tracked uppercase micro with the site's slash motif */}
-      <nav aria-label="Breadcrumb" className="mb-7">
-        <ol className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10.5px] font-medium uppercase tracking-[0.3em] text-white/60">
-          <li>
-            <Link
-              href="/browse"
-              className="inline-flex min-h-9 items-center transition-colors duration-200 hover:text-primary motion-reduce:transition-none"
-            >
-              ← Browse
-            </Link>
-          </li>
-          <li aria-hidden="true" className="text-white/20">/</li>
-          <li>
-            <Link
-              href={`/browse?category=${encodeURIComponent(listing.category)}`}
-              className="inline-flex min-h-9 items-center transition-colors duration-200 hover:text-primary motion-reduce:transition-none"
-            >
-              {categoryLabel(listing.category)}
-            </Link>
-          </li>
-          <li aria-hidden="true" className="text-white/20">/</li>
-          <li aria-current="page" className="truncate text-white/40">
-            {listing.event_name}
-          </li>
-        </ol>
-      </nav>
+  const headline = iWon
+    ? { label: "Your winning bid", dollars: priceBase }
+    : isHybrid && isActive
+      ? { label: "Buy Now", dollars: listing.buy_now_price! }
+      : { label: listing.bid_count > 0 ? (isActive ? "Current bid" : "Final bid") : "Starting bid", dollars: listing.current_bid };
 
-      <div className="grid gap-10 lg:grid-cols-[minmax(0,1.18fr)_400px] lg:gap-12">
-        {/* ── Left column ── */}
-        <div>
-          <figure className="relative aspect-[4/3] overflow-hidden border border-white/10 bg-white/[0.03]">
-            <Image
-              src={coverImageUrl(listing.cover_image_path)}
+  return (
+    <div className="pb-6 lg:pb-10">
+      <Container className="flex items-center justify-between gap-3 py-3 lg:py-5">
+        <div className="flex min-w-0 items-center gap-3">
+          <BackLink href="/browse" label="Back to listings" />
+          <nav aria-label="Breadcrumb" className="min-w-0 max-sm:hidden">
+            <ol className="flex items-center gap-2 text-[14px] text-muted">
+              <li>
+                <Link href="/browse" className="hover:text-ink hover:underline underline-offset-4">
+                  Browse
+                </Link>
+              </li>
+              <li aria-hidden="true">/</li>
+              <li>
+                <Link
+                  href={`/browse?category=${encodeURIComponent(listing.category)}`}
+                  className="hover:text-ink hover:underline underline-offset-4"
+                >
+                  {categoryLabel(listing.category)}
+                </Link>
+              </li>
+              <li aria-hidden="true">/</li>
+              <li aria-current="page" className="truncate text-ink-2">
+                {listing.event_name}
+              </li>
+            </ol>
+          </nav>
+        </div>
+        <SaveButton listingId={listing.id} initialSaved={saved} variant="labeled" />
+      </Container>
+
+      <Container>
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_420px] lg:gap-x-14 lg:gap-y-10">
+          <div className="lg:col-start-1 lg:row-start-1">
+            <Poster
+              path={listing.cover_image_path}
               alt={`${listing.event_name} at ${listing.venue}`}
-              fill
+              sizes="(min-width: 1280px) 600px, (min-width: 1024px) 55vw, 100vw"
               priority
-              sizes="(min-width: 1024px) 58vw, 100vw"
-              className="object-cover"
+              rounded="rounded-none sm:rounded-card"
+              className="-mx-5 w-[calc(100%+40px)] sm:mx-0 sm:w-full lg:max-w-[600px]"
             />
-            <div className="absolute left-3.5 top-3.5 flex gap-1.5">
+          </div>
+
+          {/* Identity + purchase: under the poster on phones (native order), the right column on desktop. */}
+          <aside className="min-w-0 lg:col-start-2 lg:row-span-2 lg:row-start-1" aria-label="Purchase">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge>From a fan</Badge>
               {status === "LIVE" ? (
-                <Badge variant="live">
+                <Badge tone="brand">
                   <LiveDot /> Live auction
                 </Badge>
               ) : status === "ENDING SOON" ? (
-                <Badge variant="soon">Ending soon</Badge>
+                <Badge tone="warning">Ending soon</Badge>
+              ) : status === "SOLD" ? (
+                <Badge>Sold</Badge>
+              ) : status === "RESERVED" ? (
+                <Badge tone="warning">On hold</Badge>
               ) : (
-                <Badge variant="sold">
-                  {status === "SOLD" ? "Sold" : status === "RESERVED" ? "Reserved" : "Ended"}
-                </Badge>
+                <Badge>Ended</Badge>
               )}
-              {listing.buy_now_enabled ? <Badge variant="buyNow">Buy now</Badge> : null}
+              {listing.buy_now_enabled ? <Badge tone="brand">Buy now</Badge> : null}
             </div>
-          </figure>
-
-          {/* Title block — meta eyebrow, Oswald statement, date line */}
-          <div className="mt-9">
-            <p className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] font-medium uppercase leading-none tracking-[0.3em]">
-              <span className="text-primary/80">{categoryLabel(listing.category)}</span>
-              <span aria-hidden="true" className="text-white/20">/</span>
-              <span className="text-white/45">
-                {listing.venue} · {neighborhoodLabel(listing.neighborhood)}
-              </span>
+            <p className="t-body mt-3 text-muted">
+              {eventWhen(listing)} · {listing.venue}
             </p>
-            <h1 className="mt-4 max-w-[24ch] text-balance font-display text-[clamp(2.3rem,5vw,3.6rem)] font-bold uppercase leading-[0.95] tracking-[-0.02em] text-ink">
-              {listing.event_name}
-            </h1>
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
-              <p className="text-[15px] font-semibold text-white/85">
-                {fmtEventDate(listing.event_date)} · {fmtEventTime(listing.event_time)}
-              </p>
-              <SaveButton listingId={listing.id} initialSaved={saved} variant="labeled" />
-            </div>
-          </div>
+            <h1 className="t-name-detail mt-1.5 text-balance text-ink">{listing.event_name}</h1>
 
-          {/* Event facts — hairline definition rows, no box */}
-          <dl className="mt-9 grid grid-cols-2 gap-x-6 gap-y-6 border-y border-primary/15 py-6 sm:grid-cols-4">
-            <Fact label="Ticket type" value={listing.ticket_type} />
-            <Fact label="Quantity" value={`${listing.quantity} ticket${listing.quantity === 1 ? "" : "s"}`} />
-            <Fact label="Platform" value={platform} />
-            <Fact label="Delivery" value={delivery} />
-          </dl>
-
-          {/* Seller */}
-          <section
-            aria-label="Seller"
-            className="flex items-center gap-4 border-b border-primary/15 py-6"
-          >
-            <div
-              aria-hidden="true"
-              className="flex size-11 shrink-0 items-center justify-center bg-white/[0.07] font-display text-[17px] font-bold text-white/70"
-            >
-              {(seller?.display_name ?? "S").slice(0, 1).toUpperCase()}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="flex items-center gap-3 truncate text-[15px] font-bold text-ink">
-                {seller?.display_name ?? "Snatch It seller"}
-                {seller?.is_verified_seller ? <Chip tone="red">Verified</Chip> : null}
-              </p>
-              <p className="mt-1 text-[13px] text-muted">
-                {seller?.created_at
-                  ? `Member since ${new Date(seller.created_at).toLocaleDateString("en-US", { month: "long", year: "numeric" })}`
-                  : "Marketplace seller"}
-              </p>
-            </div>
-            <p className="hidden max-w-[200px] text-right text-[12px] leading-relaxed text-dim sm:block">
-              Seller is paid only after you confirm the transfer arrived.
-            </p>
-          </section>
-
-          {/* Buyer protection — the marketing site's guarantee grammar */}
-          <section aria-label="Buyer protection" className="border-b border-primary/15 py-8">
-            <p className="eyebrow text-primary/80">Buyer Guarantee</p>
-            <h2 className="mt-4 font-display text-[24px] font-bold uppercase leading-[0.95] tracking-[-0.02em] text-ink sm:text-[28px]">
-              You&apos;re covered.
-            </h2>
-            <ul className="mt-5 space-y-3 text-[14px] leading-relaxed text-white/70">
-              <li className="flex gap-3">
-                <span aria-hidden="true" className="font-bold text-primary">·</span>
-                Payment is processed by Stripe. Your card details never touch Snatch It.
-              </li>
-              <li className="flex gap-3">
-                <span aria-hidden="true" className="font-bold text-primary">·</span>
-                Your money is held by Snatch It until you confirm the ticket arrived.
-              </li>
-              <li className="flex gap-3">
-                <span aria-hidden="true" className="font-bold text-primary">·</span>
-                If the seller doesn&apos;t transfer within 24 hours, you&apos;re refunded in
-                full, automatically.
-              </li>
-              <li className="flex gap-3">
-                <span aria-hidden="true" className="font-bold text-primary">·</span>
-                Report a problem before confirming and the seller&apos;s payout freezes while
-                we review.
-              </li>
-            </ul>
-            <ArrowLink href="https://snatchitapp.com/buyer-guarantee" className="mt-4">
-              Read the full guarantee →
-            </ArrowLink>
-          </section>
-        </div>
-
-        {/* ── Purchase panel (desktop sticky) ── */}
-        <aside className="lg:sticky lg:top-28 lg:h-fit" aria-label="Purchase">
-          <div className="border border-primary/20 bg-card p-6">
-            {isActive ? (
-              <p className="flex items-center justify-between border-b border-primary/15 pb-4">
-                <span className="inline-flex items-center gap-2.5 text-[10.5px] font-bold uppercase tracking-[0.25em] text-primary">
-                  <LiveDot /> Ends in
-                </span>
-                <Countdown endsAt={listing.ends_at} />
-              </p>
-            ) : (
-              <p className="border-b border-primary/15 pb-4 text-[10.5px] font-bold uppercase tracking-[0.25em] text-white/50">
-                This listing has ended
-              </p>
-            )}
-
-            <div className="mt-5">
-              {listing.buy_now_enabled && listing.buy_now_price ? (
-                <>
-                  <p className="text-[10.5px] font-medium uppercase tracking-[0.25em] text-white/45">
-                    Buy Now · all-in
+            <div className="mt-6 rounded-card bg-surface p-5 sm:p-6">
+              <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+                <div className="min-w-0">
+                  <p className="t-label text-muted">{headline.label}</p>
+                  <PriceDisplay baseDollars={headline.dollars} size="lg" suffix={null} className="mt-1" />
+                  <p className="t-body-sm mt-1 text-muted">
+                    all-in · {listing.bid_count} bid{listing.bid_count === 1 ? "" : "s"}
                   </p>
-                  <PriceDisplay
-                    baseDollars={listing.buy_now_price}
-                    size="lg"
-                    suffix={null}
-                    className="mt-2.5"
-                  />
-                  <dl className="mt-5 space-y-2 text-[13.5px]">
-                    <div className="flex justify-between">
-                      <dt className="text-muted">Current bid</dt>
-                      <dd className="tabular-nums font-semibold text-white/85">
-                        {allInFromDollars(listing.current_bid)} total
-                      </dd>
-                    </div>
-                    <div className="flex justify-between">
-                      <dt className="text-muted">Starting bid</dt>
-                      <dd className="tabular-nums font-semibold text-white/85">
-                        {allInFromDollars(listing.starting_bid)} total
-                      </dd>
-                    </div>
-                    <div className="flex justify-between">
-                      <dt className="text-muted">Bids placed</dt>
-                      <dd className="tabular-nums font-semibold text-white/85">{listing.bid_count}</dd>
-                    </div>
-                  </dl>
-                </>
-              ) : !isActive ? (
-                <>
-                  <p className="text-[10.5px] font-medium uppercase tracking-[0.25em] text-white/45">
-                    Current bid · all-in
-                  </p>
-                  <PriceDisplay
-                    baseDollars={listing.current_bid}
-                    size="lg"
-                    suffix={null}
-                    className="mt-2.5"
-                  />
-                  <p className="mt-3 text-[13.5px] text-muted">
-                    {listing.bid_count} bid{listing.bid_count === 1 ? "" : "s"} · starting bid{" "}
-                    {allInFromDollars(listing.starting_bid)}
-                  </p>
-                </>
+                </div>
+                <div className="text-right">
+                  <p className="text-[17px] font-semibold text-ink">{quantityLine(listing)}</p>
+                  {listing.quantity > 1 ? <p className="t-body-sm text-muted">sold together</p> : null}
+                </div>
+              </div>
+
+              <div className="mt-4 flex items-center justify-between gap-3 border-t border-line pt-4">
+                {isActive ? (
+                  <>
+                    <span className="inline-flex items-center gap-2 text-[14px] font-semibold text-ink-2">
+                      <Icon name="clock" size={18} /> Ends in
+                    </span>
+                    <Countdown endsAt={listing.ends_at} />
+                  </>
+                ) : onHold ? (
+                  <span className="text-[14px] font-semibold text-warning">
+                    {heldByMe ? "Held for you" : "Held for another buyer"}
+                  </span>
+                ) : (
+                  <span className="text-[14px] font-semibold text-muted">This listing has ended</span>
+                )}
+              </div>
+
+              {isHybrid && isActive ? (
+                <dl className="mt-3 text-[14px]">
+                  <div className="flex flex-wrap justify-between gap-x-4 py-1.5">
+                    <dt className="text-muted">Current bid</dt>
+                    <dd className="t-price text-ink">{allInFromDollars(listing.current_bid)} total</dd>
+                  </div>
+                  <div className="flex flex-wrap justify-between gap-x-4 py-1.5">
+                    <dt className="text-muted">Starting bid</dt>
+                    <dd className="t-price text-ink">{allInFromDollars(listing.starting_bid)} total</dd>
+                  </div>
+                </dl>
               ) : null}
+
+              {!pureAuctionActive && !onHold ? (
+                <div className="mt-4">
+                  <p className="t-micro text-muted">{iWon ? "What you pay" : isHybrid && isActive ? "If you buy now" : "Price breakdown"}</p>
+                  <div className="mt-1">
+                    <PriceBreakdown baseDollars={priceBase} />
+                  </div>
+                </div>
+              ) : null}
+
+              {isActive ? (
+                /* scroll-mt clears the sticky header when the phone bar's #buy anchor jumps here. */
+                <div id="buy" className="mt-5 scroll-mt-24 space-y-4">
+                  {isHybrid && !isOwner ? <BuyNowButton listingId={listing.id} /> : null}
+                  <BidPanel
+                    listingId={listing.id}
+                    sellerId={listing.seller_id}
+                    currentUserId={currentUser?.id ?? null}
+                    initialCurrentBid={listing.current_bid}
+                    initialBidCount={listing.bid_count}
+                    initialAuctionStatus={listing.auction_status}
+                    initialEndsAt={listing.ends_at}
+                    buyNowPrice={listing.buy_now_enabled ? listing.buy_now_price : null}
+                    compact={isHybrid}
+                  />
+                </div>
+              ) : iWon ? (
+                /* The auction is over but this buyer still owes money — the one
+                   case where an ended listing is actionable. */
+                <div id="buy" className="mt-5 scroll-mt-24 space-y-2.5">
+                  <LinkButton href={`/checkout/${listing.id}`} size="lg" className="w-full">
+                    You won — complete payment
+                  </LinkButton>
+                  <p className="t-body-sm text-center text-muted">Pay {allInFromDollars(priceBase)} to claim your ticket.</p>
+                </div>
+              ) : onHold && heldByMe ? (
+                <div id="buy" className="mt-5 scroll-mt-24">
+                  <LinkButton href={`/checkout/${listing.id}`} size="lg" className="w-full">
+                    Finish checkout
+                  </LinkButton>
+                </div>
+              ) : onHold ? (
+                <div className="mt-5">
+                  <Button size="lg" variant="secondary" className="w-full" disabled>
+                    <ButtonLabel label="On hold" sub="Another buyer is in checkout." />
+                  </Button>
+                </div>
+              ) : (
+                <div className="mt-5">
+                  <Button variant="secondary" size="lg" className="w-full" disabled>
+                    This listing has ended
+                  </Button>
+                </div>
+              )}
             </div>
+          </aside>
 
-            {!pureAuctionActive ? (
-              <div className="mt-5 border-t border-primary/15 pt-4">
-                <PriceBreakdown baseDollars={priceBase} />
-              </div>
-            ) : null}
+          <div className="min-w-0 lg:col-start-1 lg:row-start-2">
+            <dl className="border-t border-line">
+              <Fact label="Ticket type" value={listing.ticket_type} />
+              <Fact label="Quantity" value={`${listing.quantity} ticket${listing.quantity === 1 ? "" : "s"}`} />
+              <Fact label="Platform" value={platform} />
+              <Fact label="Delivery" value={delivery} />
+              <Fact label="Neighborhood" value={neighborhoodLabel(listing.neighborhood)} />
+              <Fact label="Category" value={categoryLabel(listing.category)} />
+            </dl>
 
-            {isActive ? (
-              /* scroll-mt clears the sticky header when the mobile bar's
-                 #buy anchor jumps here. */
-              <div id="buy" className="mt-6 space-y-4 scroll-mt-24">
-                {isHybrid ? <BuyNowButton listingId={listing.id} /> : null}
-                <BidPanel
-                  listingId={listing.id}
-                  sellerId={listing.seller_id}
-                  currentUserId={currentUser?.id ?? null}
-                  initialCurrentBid={listing.current_bid}
-                  initialBidCount={listing.bid_count}
-                  initialAuctionStatus={listing.auction_status}
-                  initialEndsAt={listing.ends_at}
-                  buyNowPrice={listing.buy_now_enabled ? listing.buy_now_price : null}
-                  compact={isHybrid}
-                />
+            {/* Seller */}
+            <section aria-label="Seller" className="mt-8 flex items-center gap-4 rounded-panel bg-surface p-4 sm:p-5">
+              <div
+                aria-hidden="true"
+                className="flex size-12 shrink-0 items-center justify-center rounded-full bg-brand-soft font-display text-[20px] font-bold text-brand-text"
+              >
+                {(seller?.display_name ?? "S").slice(0, 1).toUpperCase()}
               </div>
-            ) : iWon ? (
-              /* The auction is over but this buyer still owes money — the one
-                 case where an ended listing is actionable. Everyone else keeps
-                 the dead button below. */
-              <div id="buy" className="mt-6 space-y-2.5 scroll-mt-24">
-                <LinkButton href={`/checkout/${listing.id}`} className="w-full">
-                  You won — complete payment
-                </LinkButton>
-                <p className="text-center text-[11px] text-white/35">
-                  Pay {allInFromDollars(priceBase)} to claim your ticket.
+              <div className="min-w-0 flex-1">
+                <p className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[16px] font-semibold text-ink">
+                  <span className="truncate">{seller?.display_name ?? "Snatch It seller"}</span>
+                  {seller?.is_verified_seller ? <Badge tone="success">Verified</Badge> : null}
+                </p>
+                <p className="t-body-sm mt-0.5 text-muted">
+                  {seller?.created_at
+                    ? `Member since ${new Date(seller.created_at).toLocaleDateString("en-US", { month: "long", year: "numeric" })}`
+                    : "Marketplace seller"}
                 </p>
               </div>
-            ) : (
-              <div className="mt-6 space-y-2.5">
-                <Button variant="secondary" className="w-full" disabled>
-                  This listing has ended
-                </Button>
+              <p className="t-body-sm max-w-[220px] text-right text-muted max-sm:hidden">
+                Seller is paid only after you confirm the transfer arrived.
+              </p>
+            </section>
+
+            {/* Buyer protection */}
+            <section aria-label="Buyer protection" className="mt-8">
+              <div className="flex items-center gap-2.5">
+                <Icon name="shield" size={22} className="text-success" />
+                <p className="t-micro text-muted">Buyer Guarantee</p>
               </div>
-            )}
+              <h2 className="t-name-state mt-2 text-ink">You&apos;re covered.</h2>
+              <ul className="mt-4 border-t border-line">
+                {[
+                  "Payment is processed by Stripe. Your card details never touch Snatch It.",
+                  "Your money is held by Snatch It until you confirm the ticket arrived.",
+                  "If the seller doesn't transfer within 24 hours, you're refunded in full, automatically.",
+                  "Report a problem before confirming and the seller's payout freezes while we review.",
+                ].map((line) => (
+                  <li key={line} className="t-body flex gap-3 border-b border-line py-3 text-ink-2">
+                    <Icon name="check" size={18} strokeWidth={2.2} className="mt-0.5 text-ink" />
+                    {line}
+                  </li>
+                ))}
+              </ul>
+              <ArrowLink href="https://snatchitapp.com/buyer-guarantee" className="mt-2">
+                Read the full guarantee
+              </ArrowLink>
+            </section>
           </div>
-        </aside>
-      </div>
+        </div>
 
-      {/* ── Related ── */}
-      {related.length > 0 ? (
-        <section className="mt-20">
-          <SectionHeader
-            title="More nights like this"
-            action={{ href: `/browse?category=${encodeURIComponent(listing.category)}`, label: "See all" }}
-          />
-          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-            {related.map((l) => (
-              <ListingCard key={l.id} listing={l} isSaved={relatedSavedIds.has(l.id)} />
-            ))}
-          </div>
-        </section>
-      ) : null}
+        {/* ── Related ── */}
+        {related.length > 0 ? (
+          <section className="mt-16 lg:mt-20">
+            <SectionHeader
+              title="More nights like this"
+              action={{ href: `/browse?category=${encodeURIComponent(listing.category)}`, label: "See all" }}
+              className="mb-5"
+            />
+            <div className="grid grid-cols-2 gap-x-4 gap-y-8 sm:gap-x-6 lg:grid-cols-4">
+              {related.map((l) => (
+                <ListingCard key={l.id} listing={l} isSaved={relatedSavedIds.has(l.id)} />
+              ))}
+            </div>
+          </section>
+        ) : null}
+      </Container>
 
-      {/* Mobile sticky CTA — solid black bar with red hairline, per the site */}
-      <div className="h-24 lg:hidden" aria-hidden="true" />
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-primary/30 bg-black lg:hidden">
-        <div className="mx-auto flex max-w-[1200px] items-center justify-between gap-4 px-5 py-3 pb-[max(env(safe-area-inset-bottom),0.75rem)]">
-          <div>
-            <p className="text-[9.5px] font-medium uppercase tracking-[0.25em] text-white/45">
-              {iWon ? "You pay · all-in" : listing.buy_now_enabled ? "Buy Now · all-in" : "Current bid · all-in"}
+      {/* Phone action bar (native stacked footer): the purchase controls live in the
+          panel above; these jump to them, or go onward when there is nothing to do. */}
+      <div className="h-28 lg:hidden" aria-hidden="true" />
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-line-strong bg-elevated lg:hidden">
+        <div className="mx-auto flex max-w-[1200px] items-center gap-4 px-5 pb-[max(env(safe-area-inset-bottom),12px)] pt-3">
+          <div className="min-w-0 flex-1">
+            <p className="t-body-sm text-muted">
+              {iWon ? "You pay" : headline.label}, all-in
             </p>
-            <PriceDisplay baseDollars={priceBase} size="md" suffix={null} className="mt-1" />
+            <PriceDisplay baseDollars={iWon ? priceBase : headline.dollars} size="md" suffix={null} />
           </div>
-          {/* This used to be "Get the app" -> snatchitapp.com. On phones it is
-              the most prominent control on the page, at the exact purchase
-              moment, and it sent the buyer OFF-SITE while the real Buy Now /
-              bid controls sat further down. Now it jumps to them. When the
-              listing is over there is nothing to jump to, so it links onward
-              to browse instead of dead-ending. */}
           {isActive ? (
-            <LinkButton href="#buy" className="shrink-0">
-              {listing.buy_now_enabled ? "Buy now" : "Place bid"}
+            <LinkButton href="#buy" size="lg" className="shrink-0">
+              {isOwner ? "Your listing" : isHybrid ? "Buy now" : "Place bid"}
             </LinkButton>
           ) : iWon ? (
-            <LinkButton href={`/checkout/${listing.id}`} className="shrink-0">
+            <LinkButton href={`/checkout/${listing.id}`} size="lg" className="shrink-0">
               Complete payment
             </LinkButton>
+          ) : onHold && heldByMe ? (
+            <LinkButton href={`/checkout/${listing.id}`} size="lg" className="shrink-0">
+              Finish checkout
+            </LinkButton>
           ) : (
-            <LinkButton href="/browse" variant="secondary" className="shrink-0">
+            <LinkButton href="/browse" variant="secondary" size="lg" className="shrink-0">
               Browse tickets
             </LinkButton>
           )}
@@ -435,15 +421,15 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
       </div>
 
       {isActive ? <JsonLd data={eventJsonLd} /> : null}
-    </Container>
+    </div>
   );
 }
 
 function Fact({ label, value }: { label: string; value: string }) {
   return (
-    <div>
-      <dt className="text-[10px] font-medium uppercase tracking-[0.25em] text-white/40">{label}</dt>
-      <dd className="mt-2 text-[14.5px] font-bold text-ink">{value}</dd>
+    <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-0.5 border-b border-line py-3">
+      <dt className="t-body text-ink-2">{label}</dt>
+      <dd className="t-body text-right font-medium text-ink">{value}</dd>
     </div>
   );
 }

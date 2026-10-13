@@ -7,6 +7,7 @@ import { getAuthedUser } from "@/lib/auth/session";
 import { getMySales, payoutLabel, saleRow } from "@/lib/sales";
 import { coverImageUrl } from "@/lib/listings";
 import { TransferStatusBadge } from "@/components/transfer/TransferStatusBadge";
+import { AccountHeader } from "@/components/account/AccountHeader";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { LinkButton } from "@/components/ui/Button";
 
@@ -26,11 +27,10 @@ export default async function SalesPage() {
 
   if (sales.length === 0) {
     return (
-      <div className="space-y-6">
-        <h1 className="font-display text-[24px] font-bold uppercase leading-[0.95] tracking-[-0.02em] text-ink">
-          Your sales
-        </h1>
+      <div>
+        <AccountHeader title="Your sales" />
         <EmptyState
+          icon="tag"
           title="No sales yet"
           message="Once a ticket sells, it shows up here with its transfer and payout status."
           action={<LinkButton href="/account/listings">Your listings</LinkButton>}
@@ -42,51 +42,58 @@ export default async function SalesPage() {
   const paidOut = sales.filter((s) => s.payoutReleasedAt).reduce((sum, s) => sum + (s.netCents ?? 0), 0);
 
   return (
-    <div className="space-y-6">
-      <h1 className="font-display text-[24px] font-bold uppercase leading-[0.95] tracking-[-0.02em] text-ink">
-        Your sales
-      </h1>
+    <div>
+      <AccountHeader title="Your sales" />
 
-      <dl className="flex flex-wrap gap-8 border-y border-primary/15 py-5">
+      <dl className="flex flex-wrap gap-x-12 gap-y-4 border-t border-line py-5">
         <div>
-          <dt className="text-[10px] font-medium uppercase tracking-[0.25em] text-white/40">Sales</dt>
-          <dd className="mt-1.5 font-display text-[22px] font-bold text-ink">{sales.length}</dd>
+          <dt className="t-micro text-muted">Sales</dt>
+          <dd className="t-price mt-1 text-[26px] leading-tight text-ink">{sales.length}</dd>
         </div>
         <div>
-          <dt className="text-[10px] font-medium uppercase tracking-[0.25em] text-white/40">Paid out</dt>
-          <dd className="mt-1.5 font-display text-[22px] font-bold text-ink">{formatCents(paidOut)}</dd>
+          <dt className="t-micro text-muted">Paid out</dt>
+          <dd className="t-price mt-1 text-[26px] leading-tight text-ink">{formatCents(paidOut)}</dd>
         </div>
       </dl>
 
-      <ul className="space-y-3">
+      <ul className="border-t border-line">
         {sales.map((s) => {
           const line = payoutLabel(s);
           const href = NEEDS_SEND.has(s.status) ? `/transfer/send/${s.id}` : `/listing/${s.listing_id}`;
           return (
-            <li key={s.id} className="border border-primary/20 bg-card p-4">
-              <Link href={href} className="flex gap-4">
-                <span className="relative size-20 shrink-0 overflow-hidden border border-white/10">
+            <li key={s.id} className="border-b border-line">
+              <Link
+                href={href}
+                className="group -mx-3 flex flex-wrap items-start gap-4 rounded-panel px-3 py-4 transition-colors hover:bg-surface sm:gap-5"
+              >
+                <span className="poster relative block h-[78px] w-[62px] shrink-0 overflow-hidden rounded-media sm:h-[100px] sm:w-[80px]">
                   {s.coverImagePath ? (
-                    <Image src={coverImageUrl(s.coverImagePath)} alt="" fill sizes="80px" className="object-cover" />
+                    <Image src={coverImageUrl(s.coverImagePath)} alt="" fill sizes="80px" className="object-contain" />
                   ) : null}
                 </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex flex-wrap items-center gap-2">
+                {/* Beside the poster (under it when the row is too narrow, e.g. 200% zoom). Phones: the amount
+                    sits under the text. Wider: a right-hand column that still wraps before it would be cut. */}
+                <span className="flex min-w-0 grow basis-48 flex-wrap items-start gap-x-5 gap-y-2">
+                  <span className="min-w-0 grow basis-40">
                     <TransferStatusBadge row={saleRow(s)} audience="seller" />
-                    {s.netCents != null ? (
-                      <span className="text-[12.5px] tabular-nums text-white/60">
-                        {formatCents(s.netCents)} to you
-                      </span>
-                    ) : null}
+                    <span className="t-name-row mt-2 block break-words text-ink group-hover:underline group-hover:decoration-2 group-hover:underline-offset-4">
+                      {s.eventName}
+                    </span>
+                    <span className="t-body-sm mt-0.5 block break-words text-muted">
+                      {s.venue}
+                      {s.buyerName ? ` · sold to ${s.buyerName}` : ""}
+                    </span>
+                    <span
+                      className={`t-body-sm mt-1.5 block ${line.urgent ? "font-semibold text-brand-text" : "text-ink-2"}`}
+                    >
+                      {line.text}
+                    </span>
                   </span>
-                  <span className="mt-1.5 block truncate text-[15px] font-bold text-ink">{s.eventName}</span>
-                  <span className="mt-0.5 block truncate text-[12.5px] text-white/50">
-                    {s.venue}
-                    {s.buyerName ? ` · sold to ${s.buyerName}` : ""}
-                  </span>
-                  <span className={`mt-1 block text-[12.5px] ${line.urgent ? "font-bold text-primary" : "text-white/45"}`}>
-                    {line.text}
-                  </span>
+                  {s.netCents != null ? (
+                    <span className="t-body-sm w-full text-muted sm:ml-auto sm:w-auto sm:text-right">
+                      <span className="t-price whitespace-nowrap text-[17px] text-ink">{formatCents(s.netCents)}</span> to you
+                    </span>
+                  ) : null}
                 </span>
               </Link>
             </li>

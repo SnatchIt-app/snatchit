@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { Container } from "@/components/ui/Container";
 
@@ -24,69 +25,53 @@ const company = [
   { href: "https://snatchitapp.com/buyer-guarantee", label: "Buyer Guarantee" },
   { href: "https://snatchitapp.com/privacy", label: "Privacy" },
   { href: "https://snatchitapp.com/terms", label: "Terms" },
+  { href: "https://snatchitapp.com", label: "Get the app" },
 ] as const;
 
-/**
- * Footer as a centered stack, mirroring snatchitapp.com: Oswald red wordmark
- * with subtle glow, tracked tagline, tracked link rows that turn red on
- * hover, interpunct copyright line.
- */
+/** Quiet footer: the logo, three link groups, the marketplace disclaimer and the legal line. */
 export function Footer() {
   return (
-    <footer className="mt-24 border-t border-primary/20 bg-black">
-      <Container className="flex flex-col items-center gap-8 pb-12 pt-16 text-center">
-        <p className="glow-red-subtle font-display text-[34px] font-bold uppercase leading-none tracking-[-0.02em] text-primary sm:text-[38px]">
-          Snatch It
+    <footer className="mt-20 border-t border-line">
+      <Container className="grid gap-10 py-12 md:grid-cols-[1.2fr_1fr_1fr_1fr]">
+        <div>
+          <Image src="/brand/sn-logo.svg" alt="Snatch It" width={72} height={26} className="h-6 w-auto dark:invert" />
+          <p className="t-body-sm mt-4 max-w-xs text-muted">Live auctions for nightlife tickets.</p>
+        </div>
+        <FooterGroup title="Marketplace" links={marketplace} />
+        <FooterGroup title="Neighborhoods" links={neighborhoods} />
+        <FooterGroup title="Company" links={company} />
+      </Container>
+      <Container className="border-t border-line py-8">
+        <p className="t-body-sm max-w-3xl text-muted">
+          All prices shown include fees. Snatch It is a peer-to-peer resale marketplace. Tickets transfer on the
+          original ticketing platform after purchase, and sellers are paid only after delivery. Snatch It is not
+          affiliated with Ticketmaster, AXS, DICE, Posh, or any other ticket issuer.
         </p>
-
-        <p className="text-[10px] font-medium uppercase tracking-[0.4em] text-white/40 sm:text-[11px]">
-          Live auctions for nightlife tickets.
-        </p>
-
-        <nav aria-label="Marketplace" className="flex flex-wrap items-center justify-center gap-x-6 gap-y-3">
-          {marketplace.map((l) => (
-            <FooterLink key={l.href} {...l} />
-          ))}
-          {neighborhoods.map((l) => (
-            <FooterLink key={l.href} {...l} />
-          ))}
-        </nav>
-
-        <nav aria-label="Company" className="flex flex-wrap items-center justify-center gap-x-6 gap-y-3">
-          {company.map((l) => (
-            <FooterLink key={l.href} {...l} />
-          ))}
-        </nav>
-
-        <p className="max-w-2xl text-[12px] leading-relaxed text-white/35">
-          All prices shown include fees. Snatch It is a peer-to-peer resale marketplace.
-          Tickets transfer on the original ticketing platform after purchase, and sellers
-          are paid only after delivery. Snatch It is not affiliated with Ticketmaster,
-          AXS, DICE, Posh, or any other ticket issuer.
-        </p>
-
-        <p className="pt-2 text-[10px] uppercase tracking-[0.4em] text-white/30">
-          © {new Date().getFullYear()} Snatch It · JDT LLC · Miami, FL
-        </p>
+        <p className="t-body-sm mt-4 text-muted">© {new Date().getFullYear()} Snatch It · JDT LLC · Miami, FL</p>
       </Container>
     </footer>
   );
 }
 
-function FooterLink({ href, label }: { href: string; label: string }) {
-  const cls =
-    "inline-flex min-h-9 items-center text-[10px] uppercase tracking-[0.3em] text-white/60 " +
-    "transition-colors duration-200 hover:text-primary motion-reduce:transition-none sm:text-[11px]";
-  if (href.startsWith("http")) {
-    return (
-      <a href={href} target="_blank" rel="noopener noreferrer" className={cls}>
-        {label}
-      </a>
-    );
-  }
+function FooterGroup({ title, links }: { title: string; links: readonly { href: string; label: string }[] }) {
   return (
-    <Link href={href} className={cls}>
-      {label}
-    </Link>
+    <nav aria-label={title}>
+      <p className="t-micro text-muted">{title}</p>
+      <ul className="mt-3 space-y-0.5">
+        {links.map((l) => (
+          <li key={l.href}>
+            {l.href.startsWith("http") ? (
+              <a href={l.href} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-9 items-center text-[14px] text-ink-2 hover:text-ink hover:underline underline-offset-4">
+                {l.label}
+              </a>
+            ) : (
+              <Link href={l.href} className="inline-flex min-h-9 items-center text-[14px] text-ink-2 hover:text-ink hover:underline underline-offset-4">
+                {l.label}
+              </Link>
+            )}
+          </li>
+        ))}
+      </ul>
+    </nav>
   );
 }

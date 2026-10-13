@@ -8,6 +8,7 @@ import { PlatformInstructions } from "@/components/transfer/PlatformInstructions
 import { sellerPayoutParagraph, sellerStateAlert } from "@/lib/transfer-wording";
 import { Button } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
+import { Icon } from "@/components/ui/Icon";
 
 export function SellerTransferPanel({
   transfer,
@@ -80,7 +81,7 @@ export function SellerTransferPanel({
 
       {transfer.status === "pending" ? (
         <>
-          <Alert tone={countdownLabel ? "success" : "error"}>
+          <Alert tone={countdownLabel ? "warning" : "error"}>
             {countdownLabel
               ? `You have ${countdownLabel} to send these tickets. Miss it and the buyer is refunded automatically.`
               : "The transfer window has expired."}
@@ -88,24 +89,24 @@ export function SellerTransferPanel({
 
           {/* Buyer's delivery details — the only buyer PII shown, and only to
               this transfer's seller. */}
-          <section className="border border-primary/20 bg-card p-5">
-            <p className="eyebrow text-primary/80">Send the tickets to</p>
+          <section className="rounded-panel bg-surface p-5">
+            <h2 className="t-title text-ink">Send the tickets to</h2>
             {deliveryMissing ? (
-              <p className="mt-3 text-[13.5px] leading-relaxed text-white/60">
+              <p className="t-body mt-2 text-muted">
                 The buyer hasn&apos;t added their delivery details yet. You&apos;ll be able to send
                 as soon as they do — we&apos;ve already nudged them.
               </p>
             ) : (
-              <dl className="mt-3 space-y-2 text-[13.5px]">
+              <dl className="mt-2 text-[15px]">
                 {transfer.delivery_email ? (
-                  <div className="flex justify-between gap-4">
-                    <dt className="text-muted">Email</dt>
-                    <dd className="font-semibold text-ink">{transfer.delivery_email}</dd>
+                  <div className="flex flex-wrap justify-between gap-x-4 border-b border-line py-2.5 last:border-b-0">
+                    <dt className="text-ink-2">Email</dt>
+                    <dd className="break-all font-semibold text-ink">{transfer.delivery_email}</dd>
                   </div>
                 ) : null}
                 {transfer.delivery_phone ? (
-                  <div className="flex justify-between gap-4">
-                    <dt className="text-muted">Phone</dt>
+                  <div className="flex flex-wrap justify-between gap-x-4 border-b border-line py-2.5 last:border-b-0">
+                    <dt className="text-ink-2">Phone</dt>
                     <dd className="font-semibold text-ink">{transfer.delivery_phone}</dd>
                   </div>
                 ) : null}
@@ -120,14 +121,15 @@ export function SellerTransferPanel({
             buyerPhone={transfer.delivery_phone}
           />
 
-          <section className="border border-primary/20 bg-card p-5">
-            <p className="eyebrow text-primary/80">Proof of transfer</p>
-            <p className="mt-2 text-[13px] leading-relaxed text-white/60">
+          <section className="rounded-panel bg-surface p-5">
+            <h2 className="t-title text-ink">Proof of transfer</h2>
+            <p className="t-body-sm mt-1.5 text-muted">
               Screenshot the confirmation from {transfer.ticketPlatform === "other" ? "the platform" : "the app"}.
               Required — it protects your payout if the buyer reports a problem.
             </p>
-            <label className="mt-4 flex cursor-pointer items-center justify-center border border-dashed border-white/20 bg-white/[0.02] p-5 text-center transition-colors hover:border-primary/40">
-              <span className="text-[12.5px] text-white/55">
+            <label className="mt-4 flex min-h-24 cursor-pointer items-center justify-center gap-2.5 rounded-panel border border-dashed border-control bg-canvas p-5 text-center transition-colors hover:border-ink has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-ink">
+              <Icon name={evidencePath ? "check" : "upload"} size={20} className={evidencePath ? "text-success" : "text-muted"} />
+              <span className="text-[15px] font-medium text-ink">
                 {evidencePath ? `✓ ${evidenceName}` : uploading ? "Uploading…" : "Choose a screenshot"}
               </span>
               {/* sr-only, NOT hidden. `display:none` removes the input from the
@@ -146,7 +148,7 @@ export function SellerTransferPanel({
             </label>
           </section>
 
-          <Alert tone="error">
+          <Alert tone="warning">
             Only mark this sent after you&apos;ve actually completed the transfer in the ticket
             platform. False confirmations put your payout and account at risk.
           </Alert>
@@ -157,23 +159,23 @@ export function SellerTransferPanel({
             className="w-full"
             disabled={isPending || uploading || deliveryMissing || !evidencePath}
             onClick={handleSend}
+            pending={isPending}
+            pendingLabel="Marking sent…"
           >
-            {isPending ? "Marking sent…" : "I've sent the tickets"}
+            I&apos;ve sent the tickets
           </Button>
         </>
       ) : null}
 
       {transfer.status === "seller_sent" ? (
         <>
-          <Alert tone="success">
+          <Alert tone="info">
             Tickets marked sent. Waiting for the buyer to confirm receipt.
           </Alert>
-          <section className="border border-primary/20 bg-card p-5">
-            <p className="eyebrow text-primary/80">Payout</p>
-            {payoutParagraph ? (
-              <p className="mt-3 text-[13.5px] leading-relaxed text-white/70">{payoutParagraph}</p>
-            ) : null}
-            <p className="mt-3 text-[12.5px] text-white/45">
+          <section className="rounded-panel bg-surface p-5">
+            <h2 className="t-title text-ink">Payout</h2>
+            {payoutParagraph ? <p className="t-body mt-2 text-ink-2">{payoutParagraph}</p> : null}
+            <p className="t-body-sm mt-2 text-muted">
               If the buyer reports an issue, your payout is held pending review.
             </p>
           </section>

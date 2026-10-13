@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { deleteAccountAction } from "@/lib/account-deletion-actions";
 import { Alert } from "@/components/ui/Alert";
+import { Button } from "@/components/ui/Button";
 
 export function DeleteAccountButton() {
   const [error, setError] = useState<string | null>(null);
@@ -30,14 +31,16 @@ export function DeleteAccountButton() {
   return (
     <div className="space-y-3">
       {error ? <Alert tone="error">{error}</Alert> : null}
-      <button
+      <Button
         type="button"
+        variant="destructive"
         onClick={handleClick}
         disabled={deleting}
-        className="text-[13px] font-semibold text-primary/70 underline decoration-primary/30 hover:text-primary disabled:opacity-50"
+        pending={deleting}
+        pendingLabel="Deleting…"
       >
-        {deleting ? "Deleting…" : "Delete account"}
-      </button>
+        Delete account
+      </Button>
     </div>
   );
 }

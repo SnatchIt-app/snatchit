@@ -4,8 +4,9 @@ import { Suspense, useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { finalizePurchaseAction } from "@/lib/checkout-actions";
 import { Container } from "@/components/ui/Container";
-import { Button } from "@/components/ui/Button";
+import { Button, Spinner } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
+import { Icon } from "@/components/ui/Icon";
 
 type Status = "processing" | "success" | "unverified" | "error";
 
@@ -72,14 +73,18 @@ function CompleteClient() {
   }, []);
 
   if (status === "processing") {
-    return <p className="text-[13.5px] text-white/60">Confirming your payment…</p>;
+    return (
+      <p className="t-body flex items-center gap-2.5 text-muted" role="status">
+        <Spinner /> Confirming your payment…
+      </p>
+    );
   }
 
   if (status === "error") {
     return (
       <>
         <Alert tone="error">{message}</Alert>
-        <Button variant="primary" className="mt-4 w-full" onClick={() => router.push(`/listing/${params.id}`)}>
+        <Button variant="primary" size="lg" className="mt-5 w-full" onClick={() => router.push(`/listing/${params.id}`)}>
           Back to listing
         </Button>
       </>
@@ -93,7 +98,7 @@ function CompleteClient() {
     return (
       <>
         <Alert tone="error">{message}</Alert>
-        <Button variant="primary" className="mt-4 w-full" onClick={() => router.push("/account/purchases")}>
+        <Button variant="primary" size="lg" className="mt-5 w-full" onClick={() => router.push("/account/purchases")}>
           View your purchases
         </Button>
       </>
@@ -101,14 +106,16 @@ function CompleteClient() {
   }
 
   return (
-    <div className="space-y-4 text-center">
-      <p className="text-[15px] font-bold text-ink">Purchase complete!</p>
+    <div className="space-y-4 text-center" role="status">
+      <span className="mx-auto inline-flex size-14 items-center justify-center rounded-full bg-success-soft text-on-success-soft">
+        <Icon name="check" size={26} strokeWidth={2.2} />
+      </span>
+      <p className="t-name-state text-ink">Purchase complete!</p>
       {message ? <Alert tone="error">{message}</Alert> : null}
-      <p className="text-[13.5px] leading-relaxed text-white/60">
-        Your ticket is confirmed. Next, tell the seller where to send it.
-      </p>
+      <p className="t-body text-muted">Your ticket is confirmed. Next, tell the seller where to send it.</p>
       <Button
         variant="primary"
+        size="lg"
         className="w-full"
         onClick={() => router.push(transferId ? `/transfer/receive/${transferId}` : "/account/purchases")}
       >
@@ -120,10 +127,10 @@ function CompleteClient() {
 
 export default function CheckoutCompletePage() {
   return (
-    <Container className="max-w-[480px] py-16">
-      <h1 className="font-display text-[22px] font-bold uppercase text-ink">Checkout</h1>
-      <div className="mt-6">
-        <Suspense fallback={<p className="text-[13.5px] text-white/60">Loading…</p>}>
+    <Container size="tight" className="py-12 sm:py-16">
+      <h1 className="t-display-lg text-ink">Checkout</h1>
+      <div className="mt-8">
+        <Suspense fallback={<p className="t-body text-muted">Loading…</p>}>
           <CompleteClient />
         </Suspense>
       </div>

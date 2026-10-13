@@ -7,6 +7,7 @@ import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
+import { authFootnoteCls, authInlineLinkCls } from "@/components/auth/styles";
 
 const initialState: ActionState = {};
 
@@ -22,19 +23,19 @@ export function ForgotPasswordForm() {
   }
 
   return (
-    <form action={formAction} noValidate className="space-y-5">
+    <form action={formAction} noValidate className="space-y-6">
       {state.error ? <Alert tone="error">{state.error}</Alert> : null}
 
       <Field label="Email" htmlFor="email">
         <Input id="email" name="email" type="email" autoComplete="email" required />
       </Field>
 
-      <Button type="submit" size="lg" className="w-full" disabled={isPending}>
-        {isPending ? "Sending…" : "Send reset link"}
+      <Button type="submit" size="lg" className="w-full" disabled={isPending} pending={isPending} pendingLabel="Sending…">
+        Send reset link
       </Button>
 
-      <p className="text-center text-[13px] text-white/50">
-        <Link href="/login" className="font-semibold text-primary hover:text-[#ff5f5f]">
+      <p className={authFootnoteCls}>
+        <Link href="/login" className={authInlineLinkCls}>
           Back to log in
         </Link>
       </p>
