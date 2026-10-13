@@ -20,7 +20,86 @@ acceptance.
 | R-3 | **Event artwork 4:5 throughout** (2026-09-25, authorised direction). Full poster content preserved; avatars unchanged | Owner direction; E's baseline inventory at `a5c0bfc6` | Group 1 of 4: `ec61bfa7` (media contract: 10 slots at 4:5 + `fit`; requests carry width+height with `resize=contain`; Home and Search frames). Group 2: `99dd6f36` (Create picker no longer crops: `aspect: null`, so no `allowsEditing`; helper "JPG or PNG, 4:5 portrait — any other shape is fitted whole, never cropped."; listing hero frame 4:5 at ~491pt with the identity still overlaid; My listings card). Group 3: `59658b1a` (Bids and Tickets; the past-ticket 64×64 clipping wrapper removed). Group 4: `cbb2df6b` (Send, receive, checkout OrderIdentity, public profile). All four landed; the tree is clean at `cbb2df6b` | pending (B), per slot, including the corner-marker fixtures | Picker behaviour on iOS (no crop that discards poster pixels); per-slot rendering | Open |
 | R-4 | **Listing identity beneath the poster** (2026-09-25). The listing's date line, name and provenance label sit below the 4:5 poster; no app text or badges on the poster's printed content; back/overflow navigation stays reachable | Owner ruling; B `V3_FOOTER_AND_POSTER_91062ab1.md` Part 2 | `f3f08930` (`ListingHero`, E source check) | pending (B); native Listing artwork cases blocked until the Listing harness gets `?art=` (see restarted loop) | Scrolling; safe area under navigation chips; Dynamic Type on the moved block; Light + Dark | Open |
 
-## CURRENT ACCEPTANCE MATRIX: RC2 `e2b9498b` (E, 2026-10-13). THE ONLY CURRENT SECTION; everything below is dated history
+## CURRENT ACCEPTANCE MATRIX: RC5 `1e491ac4` (E, 2026-10-13, S12). THE ONLY CURRENT SECTION; everything below is dated history
+
+**Candidate:** `integration/rc3-20261013` @ **`1e491ac48a2b7cd4ba73c699d16f815402642a6e`**, tree `8257b5aa`.
+- **Source:** `CANDIDATE_MANIFEST.md` amendment 5; it is PR #101's head. E verified it against the manifest and
+  `git ls-remote origin`.
+- **What it adds to RC2:** RC2 `e2b9498b` (owner-accepted on its coverage, matrix below) plus:
+  - A: migration 152 + pgTAP 219 (`6a02519d`), console suspend/restore (`534d0268`), the 152 header comment (`3091d30c`);
+  - C: RC3 refusals, K1 and Terms (`e42eed5a`), the fixes `e2621154`, `d1111286` and `e9874236`, and the dev Privacy
+    harness case (`f0d174d2`).
+- **Not candidates:**
+  - RC3 `50d8fcf1` and RC4 `c7c4991d` (C-RC3-1 open in both; their build records stand as evidence of the defect);
+  - `6a02519d` / `534d0268` / `3091d30c` alone.
+
+**VERDICT: ACCEPTED at `1e491ac4` on the coverage below. No engineering blocker. The remaining release conditions are owner steps (§5).**
+- **Coverage:** the native evidence is a **simulator Release build** (adhoc, unsigned) with **synthetic fixture** states.
+  - It is not a production-signed device build, TestFlight or distribution.
+  - Nothing ran against production; 152 is applied nowhere in production.
+  - This is not whole-app acceptance.
+
+### 1. Independently verified at `1e491ac4`
+| # | Item | Evidence at this sha | Verified by |
+|---|---|---|---|
+| V-1 | Identity and composition | **36 files** differ from RC2. Each equals its owner branch: `app/`, `src/` and `tests/` = C's `f0d174d2`; `supabase/`, `.github/` and `admin/` = A's `3091d30c`. `web/` = live `0b389584`. **Native-build inputs: 0 vs RC2.** The RC3, RC4 and RC5 merges were checked one by one | E (blob check), A `rc3_verify.sh` |
+| V-2 | CI on push | **Run 38359262792:** `headSha` = `1e491ac4`, 5/5 jobs, **68/68 steps** success | E (`gh`) |
+| V-3 | **Native artifact (O-2) at the exact sha** | **C S11-RC5** (STOP 07:08:27Z): the build worktree's HEAD is `1e491ac4`, **`BUILD EXIT: 0`**. **Digests:** zip `214a7697…e386`, binary `a2fd354c…5e59` and `main.jsbundle` `fc62aa66…b1c7` (Hermes `c61fbc03`). **App:** `com.jdt-inc.snatchit` 1.0.0 (1), no dev launcher. **Pairing:** no live key value, no production URL, no `sk_*` or `service_role`; sandbox URL and test key present as controls. **Launches:** CLI, Light and Dark cold launches reach Sign in with the SANDBOX banner and :8081 at 0 | E: zip, binary and bundle digests recomputed from the archive, plus E's own pairing counts; C (record) |
+| V-4 | **C-RC3-1 fixed on paint** | `rc5-legal-full-terms-6-end-light.png`: §6 ends "…All transactions are denominated in USD." whole. §5's end and Privacy p1–p8 are clean (C-reported; E viewed only §6's end). Root cause: Yoga pixel-grid rounding on a zero-slack, lineHeight'd paragraph in a tall scroll. **Fix:** `paddingBottom: 0.5` on `ftBody`/`bulletText`, local to `legal.tsx` (the other files only link to the route). The lab control (`?variant=noslack`) and a mutant are C's. **The Terms wording is identical to RC4** (E's text compare: 734 words) | E (frame read, text compare), C |
+| V-5 | **K1 on the order screens (C-RC3-2)** | `rc5-order-block-k1-dialog-light.png` and `rc5-send-block-k1-dialog-light.png`: "Block the seller?" with the K1 sentence and the unblock hint. The header "More actions" chip replaces the spacer. The fixture fix is `??` → `\|\|` for `viewerId`. Production is unchanged, because a signed-out `''` is falsy either way | E (frame read, diff), C |
+| V-6 | Server rules (152 + pgTAP 219) | **D:** no blocking defect at `6a02519d`, six follow-ups (`D_152_VERDICT_6a02519d.md`, `review/d-records-20261005` @ `a4b02f2c`). CI 38347870842 green on `6a02519d`. After D's sha, `supabase/` changed only the 152 header comment (`3091d30c`, comment lines only) | D; E (diff) |
+| V-7 | Local stages at RC5 (07:08–07:10Z) | All PASS:<br>• env-pairing, typecheck and lint;<br>• unit 194 files / 3,187;<br>• parity 108;<br>• admin typecheck, lint and unit (119);<br>• replay;<br>• pgTAP 98 files clean, 5,672 assertions (219 = 73/73);<br>• admin build.<br>CI's own pg_prove at RC5: Files=99 / Tests=5678 PASS; census 34 / 116 / 37 / 43 (A-reported from the CI log; E verified the run's jobs and steps, V-2) | A (author-run; not independent) |
+
+### 2. RC3 delta rows (source/test plus the evidence above; not measured passes unless stated)
+| Row | Surface | Evidence | State |
+|---|---|---|---|
+| Δ-R1 | Four refusal dialogs (bid, Buy Now, create, edit) | `serverRefusal.ts` maps the four 152 hints by exact match to POLICY_WORDING K2. `BLOCKED_PARTY` / `ACCOUNT_SUSPENDED` are OK-only with no retry; unknown errors keep their copy (C's `rc3-server-refusal` / `rc3-refusal-screens` tests; A's review). **Not painted:** a refusal needs the server to refuse | SOURCE/TEST only |
+| Δ-R2 | Block confirmation (K1) on listing, profile, receive and send | Painted on receive and send (V-5). Listing and profile use the same `blockConfirmMessage()` in a native Alert (`rc3-block-confirm` test) | Order screens PAINTED; listing/profile SOURCE/TEST |
+| Δ-R3 | Settings → Legal (S6) | POLICY_WORDING §3 in `legal.tsx`. "(or the auto-release window expires)" is removed: 0 at RC5, 2 at RC2 (E). `rc3-legal-wording` LW5 (1,000-character cap) and LW6/LW6b (the half-point slack pinned; sub-point only). Painted whole (V-4) | PAINTED + TEST |
+| Δ-R4 | Console user page (`admin/`, `534d0268`) | A: admin typecheck, lint, unit (17/119) and build, rendered on the local harness (suspend → restore; support sees no form). **No independent review is on record**; S4's stated condition was A's checks. It deploys separately, after M-152 | AUTHOR-VERIFIED only |
+| Δ-R5 | Server rules | V-6 | INDEPENDENTLY REVIEWED (D) |
+
+### 3. Inherited from RC2 (basis: E's `closure.py`, `e2b9498b → 1e491ac4`; native-build inputs 0-diff; root shell unchanged)
+- **Unchanged closure, carried as measured:** Home (M-1), Bids, Checkout (including B-D7 at A3XL), Payout-return,
+  Signup, and the root shell.
+- **Closure changed only in Alert or error paths, so layout and measured frames carry:**
+  - Listing (M-2, M-5): `ListingDetailScreen` refusal branch plus the K1 Alert text;
+  - Profile (M-3): the K1 Alert text;
+  - PlaceBid (B-D7 rows): the refusal branch;
+  - Create and Edit: the refusal branches.
+- **Settings and Appearance (M-4, M-6):** only the `_dev/v3-account` harness gained `legal` and `privacy` cases. The
+  Settings hub links to Legal by route; no import.
+- **Re-shown at RC5 instead of carried:** Order and Send (header chip and K1, V-5) and Legal (V-4).
+- **Limit:** a static closure doesn't see runtime route dispatch.
+
+### 4. Classes kept apart
+- **Owner-waived signed-in checks (unchanged; not passed):** authenticated Home, the Edit refusals, the W-5 picker, the R-3
+  crop, the signed-in sessions, Listing's signed-in states, and a real 3-D Secure device return.
+- **Source/test:** Δ-R1, the listing and profile K1, P-4, W-6 connected, W-5 parity and the VoiceOver labels.
+- **Optional:** spoken VoiceOver, untested.
+- **Synthetic, not production:** every frame and stage. 152 has never run in production.
+
+### 5. Release conditions (the owner's; none executed by any agent)
+1. **R-1, gate merge:** PR #101's "Immutability + ordering" fails **only** on the AUTODEPLOY-1 precondition
+   (runs 38359267812, 38359268439 and 38359272382). The owner confirms in the Supabase dashboard that production
+   auto-deploy is off and adds `AUTODEPLOY-VERIFIED-OFF: YYYY-MM-DD` to the PR description. A fresh `edited` event
+   re-runs it; a re-run reuses the old body. Then merge with the merge method, and A checks the tree equals `8257b5aa`.
+2. **M-152:** apply 152 to production. **This must come before the signed build reaches anyone**, because K1 and the
+   refusal copy describe server behaviour that exists only after 152 (`blockCopy.ts` header; RELEASE_PACKAGE §4).
+3. **Console deploy, after M-152.**
+4. **R-2:** the EAS production-signed build from the exact sha, then TestFlight, then the phone session (G1).
+5. **Website publication** (G's #23 into #22, then `main`), before R-3.
+6. **R-3:** submission. S7 stays separate.
+
+### 6. Recorded follow-ups (not release conditions)
+- D's F-152-1…6. The F-152-3 wording is fixed in `3091d30c`. F-152-6: a suspended seller's live listings stay visible.
+- D-RC2-1 and D-RC2-2 (from RC2).
+- Order's title at A3XL (pre-existing).
+- The refusal dialogs are unpainted until a sandbox refusal can be staged.
+
+---
+
+## Acceptance matrix RC2 `e2b9498b` (E, 2026-10-13). HISTORY: owner-accepted on its coverage and superseded as the candidate by RC5 above; RC2's rows are the inherited basis in RC5 §3
 
 **Candidate:** `integration/rc-20261012` @ **`e2b9498b71191d308a33d00bce87a0832acc8d55`**, tree `3e981375`.
 - **Source:** `CANDIDATE_MANIFEST.md` amendment 2 (A, frozen 23:06Z).
