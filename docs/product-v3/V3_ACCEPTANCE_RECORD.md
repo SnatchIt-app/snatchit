@@ -20,7 +20,63 @@ acceptance.
 | R-3 | **Event artwork 4:5 throughout** (2026-09-25, authorised direction). Full poster content preserved; avatars unchanged | Owner direction; E's baseline inventory at `a5c0bfc6` | Group 1 of 4: `ec61bfa7` (media contract: 10 slots at 4:5 + `fit`; requests carry width+height with `resize=contain`; Home and Search frames). Group 2: `99dd6f36` (Create picker no longer crops: `aspect: null`, so no `allowsEditing`; helper "JPG or PNG, 4:5 portrait — any other shape is fitted whole, never cropped."; listing hero frame 4:5 at ~491pt with the identity still overlaid; My listings card). Group 3: `59658b1a` (Bids and Tickets; the past-ticket 64×64 clipping wrapper removed). Group 4: `cbb2df6b` (Send, receive, checkout OrderIdentity, public profile). All four landed; the tree is clean at `cbb2df6b` | pending (B), per slot, including the corner-marker fixtures | Picker behaviour on iOS (no crop that discards poster pixels); per-slot rendering | Open |
 | R-4 | **Listing identity beneath the poster** (2026-09-25). The listing's date line, name and provenance label sit below the 4:5 poster; no app text or badges on the poster's printed content; back/overflow navigation stays reachable | Owner ruling; B `V3_FOOTER_AND_POSTER_91062ab1.md` Part 2 | `f3f08930` (`ListingHero`, E source check) | pending (B); native Listing artwork cases blocked until the Listing harness gets `?art=` (see restarted loop) | Scrolling; safe area under navigation chips; Dynamic Type on the moved block; Light + Dark | Open |
 
-## CURRENT ACCEPTANCE MATRIX: RC5 `1e491ac4` (E, 2026-10-13, S12). THE ONLY CURRENT SECTION; everything below is dated history
+## CURRENT RELEASE MATRIX: RC5 rollout (E, 2026-10-13 ~22:00Z). THE ONLY CURRENT RELEASE STATUS; the RC5 source acceptance below still stands
+
+**Verdict: the backend and console rollout is VERIFIED. The app is NOT READY for submission:** there is no
+production-signed build yet, and no device check has been done (§2).
+- **Sources:**
+  - A's rollout record (message, token TAMARIND-OSPREY-608);
+  - D's own written verdicts (`sprint-control/D-HANDOFF.md` and
+    `private-evidence/D-session-9651e05a/rc5_152_rollout/`);
+  - C's answer: no production build exists;
+  - E's own reads of git and GitHub.
+- **E read nothing in production.**
+
+### 1. Status by stage (kept separate)
+| Stage | Identity | Status | Evidence and who verified it |
+|---|---|---|---|
+| **Accepted source** | RC5 `1e491ac48a2b7cd4ba73c699d16f815402642a6e`, tree `8257b5aa` | **ACCEPTED** (E, `af134b07`; the section below) | Simulator Release build, synthetic fixtures. Unchanged |
+| **Gate merge** | `release/production-gate-20260918` @ **`6f982f36b487abdf0e43a603f52642b49877c490`** (^1 `abef9506`, ^2 `1e491ac4`) | **MERGED, identity VERIFIED** | E: the tree equals RC5's `8257b5aa`, with 0 files differing. PR #101 MERGED at 21:24:02Z with the line `AUTODEPLOY-VERIFIED-OFF: 2026-10-13`; Migrations guard run 38470049379 succeeded. PR #100 shows MERGED through the same commit (GitHub auto-close: RC2 is an ancestor). `main` is unchanged at `eadd456a` |
+| **Production migration 152** | `20261013000000_marketplace_safety_enforcement.sql`, blob `4222b3e4` (= RC5 / gate; it differs from D's reviewed `6a02519d` blob `e6f4db76` by one SQL comment line, rewritten as two; E diffed it) | **APPLIED 21:42:03–07Z; VERIFIED** | **Before:** fresh verified backup (taken 21:37:25Z, after D's 21:12:57Z prestate; restore test PASS, checked on disk by D; details private), and D's pre-apply PROCEED on C1–C4, with D confirming C3 on disk. **After:** **D's independent read-back at 21:43:10Z VERIFIED, no discrepancy** (ledger 165; row md5 `4d4765ef` = the frozen file; 121/125/126 absent; census 116/43/37/34; all registered md5s exact; 3 triggers; EXECUTE revoked from anon and authenticated; no rows written by the apply). A's read-back at 21:42:22Z agrees. **Limit: write enforcement was not probed in production**; it is proven on a clone of the exact blob (pgTAP 219) |
+| **Deployed console** | `admin/operating-console` @ **`07100a356c86240d06c5e50c0833e557dd12b056`** (PR #103, cherry-pick of `534d0268` onto live `f7e7e85f`) | **DEPLOYED; identity VERIFIED** | E: `admin/` tree `4369ce80` = RC5's. It differs from `f7e7e85f` in exactly the 3 RC5 admin files (control 3); nothing outside `admin/`. GitHub deployment record: vercel[bot], "Production – snatchit-admin", `success`, 21:50:08Z, at this sha. Deployment id `dpl_8q8eeFuy…` and rollback target `dpl_8xPaaBYG…` are A-reported. Unauthenticated redirects are A-reported. **The signed-in render is NOT verified** (owner, aal2) |
+| **Production-signed build** | — | **NOT DONE** | C: "none". The owner directed C to build RC5 with EAS and upload to TestFlight. C's written prerequisites from A and D are both sent. **Not authorised: submission or release** |
+| **Device checks (G1)** | — | **NOT DONE** | The owner's TestFlight phone session and the console's signed-in render |
+| **Submission readiness** | — | **NOT READY** | Needs the production build, TestFlight processing, G1 and E's single reconciliation of C's build; then the owner submits (manual release) |
+| Website (G) | `snatch-it-landing-page` `main` @ `7c6a5f3c` (PR #22, including #23's wording, merged 21:42:15Z) | **PUBLISHED** | E: the branch tip and PR merge. The live-page checks are G-reported |
+| Web app (F, PR #102) | — | Not deployed (owner) | A separate track; it needs A's string check against POLICY_WORDING @ `7f672097` |
+
+### 2. Remaining release conditions (precise, in order)
+1. **C: EAS production build** from exactly RC5 `1e491ac4`, or the gate `6f982f36` (same tree `8257b5aa`), with production
+   env pairing. Then TestFlight upload and processing. The record must name: the build id, commit and tree, profile,
+   pairing evidence, IPA digest and location, and TestFlight build number.
+2. **E:** one reconciliation of that build (identity vs `8257b5aa`, native inputs, pairing).
+3. **Owner G1 on the phone (TestFlight build):** at least sign-in, Settings → Legal §5 and §6 ends, and one K1 Block
+   confirmation. The refusal dialogs are optional, and they write to production if staged.
+4. **Owner: the console's signed-in render** (aal2).
+5. **Owner: submission** with manual release. It is outside every agent's authorisation.
+
+### 3. Flags (no contradiction found; each is recorded)
+- **AUTODEPLOY attestation method:**
+  - The line in PR #101 rests on A's API read of the branch binding (`git_branch ""`), and D's reads agree. It is not
+    the dashboard visual that the guard message and the repo's AUTODEPLOY-1 rule name.
+  - Acceptable for this merge: it went to the gate, which is not a deploy trigger, and `main` is unchanged. It **must
+    not be reused for S7** (gate → `main`). S7 needs the owner's visual dashboard confirmation, as before.
+- **Count wording:** A says "all 7 function def md5s as registered"; D says "all 16 registered md5s exact". Both say
+  every registered md5 matches. These are different count bases, not a disagreement.
+- **Operations:** D's private triage (`private-evidence/D-session-9651e05a/rc5_152_rollout/`, sent to A) names operator
+  alerting and case follow-ups. They are not app-release conditions. They are owner follow-ups: with 152 live, suspension
+  is an operator action in the console.
+- **Not done in production by design:** no write probe of the 152 refusals. Enforcement evidence is the clone (pgTAP
+  219) plus definition md5 identity.
+
+### 4. Unchanged classes
+- **Owner-waived signed-in checks:** waived, not passed.
+- **Spoken VoiceOver:** optional and untested.
+- **Synthetic fixtures:** the simulator evidence stays fixture-class.
+
+---
+
+## RC5 SOURCE ACCEPTANCE `1e491ac4` (E, 2026-10-13, S12). Still valid; the release status is the rollout matrix above. Everything below this section is dated history
 
 **Candidate:** `integration/rc3-20261013` @ **`1e491ac48a2b7cd4ba73c699d16f815402642a6e`**, tree `8257b5aa`.
 - **Source:** `CANDIDATE_MANIFEST.md` amendment 5; it is PR #101's head. E verified it against the manifest and
