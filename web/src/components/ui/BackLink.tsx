@@ -5,11 +5,13 @@ import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { iconButtonClasses } from "@/components/ui/Button";
+import { hasInAppHistory } from "@/lib/nav-history";
 
 /**
  * Back affordance for pushed screens (native 44pt round back chip). When the
- * visitor arrived from another page of this site, it steps back through
- * history — so filters, scroll position and form state on the previous page
+ * visitor reached this page from another page of this site — by an in-app
+ * navigation (NavTracker) or a same-origin page load — it steps back through
+ * history, so filters, scroll position and form state on the previous page
  * survive. Opened directly (a shared link, a new tab), it goes to `href`.
  */
 export function BackLink({
@@ -32,7 +34,7 @@ export function BackLink({
     } catch {
       sameOrigin = false;
     }
-    if (sameOrigin && window.history.length > 1) {
+    if (hasInAppHistory() || (sameOrigin && window.history.length > 1)) {
       e.preventDefault();
       router.back();
     }

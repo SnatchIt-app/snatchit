@@ -7,6 +7,7 @@ import { Header } from "@/components/site/Header";
 import { Footer } from "@/components/site/Footer";
 import { Dock } from "@/components/site/Dock";
 import { OfflineNotice } from "@/components/site/OfflineNotice";
+import { NavTracker } from "@/components/site/NavTracker";
 import { JsonLd } from "@/components/site/JsonLd";
 import { THEME_COOKIE, parseThemePreference } from "@/lib/theme";
 import { getAuthedUser } from "@/lib/auth/session";
@@ -91,6 +92,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <Footer />
         <Dock signedIn={Boolean(user)} unread={unread} />
         <OfflineNotice />
+        <NavTracker />
         <JsonLd data={organizationJsonLd} />
       </body>
     </html>
