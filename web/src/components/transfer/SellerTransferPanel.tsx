@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { TransferView } from "@/lib/transfers";
 import { markTransferSentAction, uploadEvidenceAction } from "@/lib/transfers-actions";
 import { PlatformInstructions } from "@/components/transfer/PlatformInstructions";
+import { sellerPayoutParagraph, sellerStateAlert } from "@/lib/transfer-wording";
 import { Button } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
 
@@ -23,6 +24,8 @@ export function SellerTransferPanel({
   const [isPending, startTransition] = useTransition();
 
   const deliveryMissing = !transfer.delivery_email && !transfer.delivery_phone;
+  const stateAlert = sellerStateAlert(transfer);
+  const payoutParagraph = sellerPayoutParagraph(transfer);
 
   function handlePick(file: File | undefined) {
     if (!file) return;
@@ -167,15 +170,9 @@ export function SellerTransferPanel({
           </Alert>
           <section className="border border-primary/20 bg-card p-5">
             <p className="eyebrow text-primary/80">Payout</p>
-            <p className="mt-3 text-[13.5px] leading-relaxed text-white/70">
-              {transfer.payout_review_status === "manual_review"
-                ? "This payout is under manual review. Contact support@snatchitapp.com if you have questions."
-                : transfer.payout_review_status === "held"
-                  ? "Funds are held until shortly after the event as a standard protection."
-                  : countdownLabel
-                    ? `Buyer review window: ${countdownLabel}. Your payout releases once it clears — sooner if the buyer confirms.`
-                    : "The buyer review window has passed. Your payout is being processed."}
-            </p>
+            {payoutParagraph ? (
+              <p className="mt-3 text-[13.5px] leading-relaxed text-white/70">{payoutParagraph}</p>
+            ) : null}
             <p className="mt-3 text-[12.5px] text-white/45">
               If the buyer reports an issue, your payout is held pending review.
             </p>
@@ -183,25 +180,7 @@ export function SellerTransferPanel({
         </>
       ) : null}
 
-      {transfer.status === "buyer_confirmed" || transfer.status === "auto_released" ? (
-        <Alert tone="success">
-          {transfer.payout_released_at
-            ? "Transfer complete and payout released."
-            : "Transfer complete. Your payout is being processed — make sure payouts are set up in Settings."}
-        </Alert>
-      ) : null}
-
-      {transfer.status === "disputed" ? (
-        <Alert tone="error">
-          The buyer reported a problem. Your payout is on hold while our team reviews it.
-        </Alert>
-      ) : null}
-
-      {transfer.status === "expired" ? (
-        <Alert tone="error">
-          The 24-hour window passed without a transfer, so the buyer was refunded.
-        </Alert>
-      ) : null}
+      {stateAlert ? <Alert tone={stateAlert.tone}>{stateAlert.text}</Alert> : null}
     </div>
   );
 }

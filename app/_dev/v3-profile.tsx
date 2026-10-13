@@ -1,0 +1,137 @@
+/**
+ * app/_dev/v3-profile.tsx — the public seller profile, rendered by the real screen.
+ *
+ * WHY IT EXISTS. `app/profile/[id].tsx` renders an event image (`CHECKOUT_THUMBNAIL`, line 64) and
+ * was mounted by no dev route at all, so it was the one poster surface the 4:5 review could not
+ * reach — and its blocked and stats-unavailable states had never been looked at either.
+ *
+ * WHAT THE FIXTURE STANDS IN FOR. The four reads the screen makes: the block row, the profile, the
+ * trust-stats RPC and the seller's active listings. The viewer still comes from the screen's own
+ * `useAuth()`, which no prop may replace (v3-listing's rule), and Block short-circuits under a
+ * fixture, so nothing here can write a `user_blocks` row. This route imports no client.
+ *
+ * `?art=` puts a bundled poster on the listing rows, same vocabulary as every other harness.
+ *
+ * NOT REACHABLE IN PRODUCTION: a paired sandbox build or a `__DEV__` bundle only.
+ */
+
+import { Redirect, useLocalSearchParams } from 'expo-router';
+import { useEffect, useMemo } from 'react';
+
+import PublicProfileScreen, { type PublicProfileFixture } from '@/app/profile/[id]';
+import { IS_SANDBOX_BUILD } from '@/src/config/envGuard';
+import { listArt } from '@/src/lib/media/harnessArt';
+import { useAppearancePreference } from '@/src/theme/appearance';
+import type { Listing, ProfileTrustStats } from '@/src/types';
+
+declare const __DEV__: boolean;
+
+/** Sample content, not production data (the owner's standing caveat on every fixture). */
+const PROFILE = {
+  id: 'fixture-seller',
+  display_name: 'Lantern Room Regulars',
+  avatar_url: null,
+  avatar_path: null,
+  bio: 'Two or three nights a month, mostly around the harbour.',
+  created_at: '2026-02-11T00:00:00Z',
+  is_verified_seller: true,
+  stripe_onboarding_complete: true,
+};
+
+/*
+ * A REAL `get_profile_trust_stats` row. This was built from `on_time_rate` / `disputes` /
+ * `cancellations` and cast `as unknown as ProfileTrustStats` — fields the RPC does not return —
+ * so the screen read `undefined` for the rate's denominator and printed `null% transfer success`
+ * (B, batch 7). No cast now: the field names are typecheck's problem, not a reviewer's.
+ *
+ * Migration 031's invariant holds here too: `seller_terminal_total` counts the statuses
+ * `completed_sales` counts PLUS disputed/expired/reversed, so it is never the smaller number.
+ */
+const TRUST: ProfileTrustStats = {
+  completed_sales: 14,
+  completed_purchases: 3,
+  active_listings: 2,
+  disputes_opened: 1,
+  disputes_lost: 0,
+  seller_terminal_total: 15,
+  seller_terminal_successful: 15,
+  member_since: '2026-02-11T00:00:00Z',
+};
+
+/*
+ * A seller with no terminal transfer, so there is no success rate to state.
+ *
+ * This row USED to keep TRUST's `completed_sales: 14` beside `seller_terminal_total: 0`, which
+ * migration 031 cannot return — the denominator counts a strict superset of the statuses
+ * `completed_sales` counts, so it is never the smaller number. B classified that as a fixture
+ * fault rather than a product defect, and it is corrected here: the harness now stages a shape
+ * the RPC can actually produce, and the ladder's `rate == null` branch stays pinned where it
+ * belongs, in tests/reputation.test.ts (R1), rather than on a screen that could never show it.
+ */
+const TRUST_NO_RATE: ProfileTrustStats = {
+  ...TRUST,
+  completed_sales: 0,
+  completed_purchases: 0,
+  active_listings: 0,
+  seller_terminal_total: 0,
+  seller_terminal_successful: 0,
+  disputes_opened: 0,
+};
+
+const LISTING_BASE = {
+  seller_id: 'fixture-seller',
+  venue: 'Lantern Room',
+  status: 'active',
+  auction_status: 'active',
+  quantity: 2,
+  ticket_type: 'GA',
+  bid_count: 3,
+  current_bid: 90,
+  starting_bid: 60,
+} as const;
+
+function listings(art: string | undefined): Listing[] {
+  const rows = [
+    { ...LISTING_BASE, id: 'fixture-pl1', event_name: 'Neon Choir', ends_at: '2026-10-24T23:00:00-04:00' },
+    { ...LISTING_BASE, id: 'fixture-pl2', event_name: 'Midnight Arcade', ends_at: '2026-11-06T23:00:00-05:00' },
+  ];
+  // Every row takes the selected poster; `all` cycles the shapes. Same rule as the other lists.
+  const covers = listArt(art, rows.length);
+  return rows.map((l, i) => ({ ...l, cover_image_path: covers[i] })) as unknown as Listing[];
+}
+
+function fixtureFor(variant: string | undefined, art: string | undefined): PublicProfileFixture {
+  switch (variant) {
+    // A row-less answer: the screen's "Profile unavailable" state.
+    case 'not-found': return { profile: null };
+    // The viewer has blocked this seller: stats and listings are withheld by the SCREEN, which is
+    // why the fixture still carries both — a harness that omitted them would prove nothing.
+    case 'blocked': return { profile: PROFILE, blocked: true, trust: TRUST, listings: listings(art) };
+    // The stats read FAILED. Not the same fact as a seller with no history, and worth a look.
+    case 'stats-unavailable': return { profile: PROFILE, statsUnavailable: true, listings: listings(art) };
+    // A seller with history but nothing live right now.
+    case 'no-listings': return { profile: PROFILE, trust: TRUST, listings: [] };
+    // No terminal transfer, so no rate: the screen must read neither 0% nor a verdict.
+    case 'no-rate': return { profile: PROFILE, trust: TRUST_NO_RATE, listings: listings(art) };
+    default: return { profile: PROFILE, trust: TRUST, listings: listings(art) };
+  }
+}
+
+export default function V3ProfileHarness() {
+  const { variant, appearance, art } = useLocalSearchParams<{
+    variant?: string; appearance?: string; art?: string;
+  }>();
+  // `?appearance=light|dark` drives the capture from the app's own stored preference.
+  const { setPreference } = useAppearancePreference();
+  useEffect(() => {
+    if (appearance === 'light' || appearance === 'dark' || appearance === 'system') {
+      setPreference(appearance);
+    }
+  }, [appearance]);
+
+  const fixture = useMemo(() => fixtureFor(variant, art), [variant, art]);
+
+  if (!IS_SANDBOX_BUILD && !__DEV__) return <Redirect href="/" />;
+
+  return <PublicProfileScreen fixture={fixture} />;
+}

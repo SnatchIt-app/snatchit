@@ -84,7 +84,9 @@ export function textStyle(token: TypeToken): TextStyle {
   const style: TextStyle = {
     fontFamily: fontFamily(ROLE_FOR_FAMILY[t.family] ?? 'body'),
     fontSize: t.size,
-    lineHeight: safeLineHeight(t.size, t.lineHeight),
+    // O-4 (V3): the cap-derived floor governs UPPERCASE display only. A mixed-case name token
+    // carries B's drawn step unraised until the device measurement lands — see the token block.
+    lineHeight: 'mixedCaseName' in t && t.mixedCaseName ? t.lineHeight : safeLineHeight(t.size, t.lineHeight),
     letterSpacing: t.letterSpacing,
   };
   if (t.uppercase) style.textTransform = 'uppercase';
@@ -118,6 +120,15 @@ export const EASING_BEZIER = v2.motion.easingBezier;
  * makes up the difference with `hitSlop`.
  */
 export const MIN_TOUCH_TARGET = 44;
+
+/**
+ * How far a monetary amount may be shrunk to keep itself on one line, when the LINE is what bounds
+ * it rather than a multiplier. PlaceBidScreen's bid amount already uses this value for the same
+ * reason: an amount may never clip a digit and may never split across lines, so if the line runs
+ * out it gives up size rather than correctness. 0.6 of the requested size is still far above the
+ * 1.3x cap at any accessibility setting.
+ */
+export const AMOUNT_MIN_FONT_SCALE = 0.6;
 
 /** iOS reports a font scale; the display scale caps its growth so headlines cannot push a CTA off screen. */
 export const MAX_DISPLAY_FONT_SCALE = Platform.OS === 'ios' ? 1.3 : 1.3;

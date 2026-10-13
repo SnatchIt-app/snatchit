@@ -1,0 +1,204 @@
+/**
+ * src/components/transfer/TransferStateBlocks.tsx — the transfer-state blocks, ONE implementation.
+ *
+ * The receive (buyer) and send (seller) screens render these; so does the sandbox-only synthetic
+ * gallery (`app/_dev/transfer-states.tsx`, owner 2026-09-24), which is why they live here and not
+ * inside either screen: "render the same components used by the real screens … do not create
+ * duplicate mock implementations."
+ *
+ * Every sentence comes from `src/lib/transfer/transferState.ts` — A's payment-state wording table
+ * (2026-09-24): the ORDER fact from the transfer status; the REFUND fact only from the buyer's own
+ * payment row; a HOLD only when held AND the server gives the date; never a payout claim before
+ * `payout_released_at`; the word "reversed" never on the buyer's screen. Nothing here reads a
+ * server or performs an action: the blocks are text over a palette surface.
+ */
+
+import { useMemo, type ReactNode } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
+
+import {
+  BUYER_ORDER_CLOSED_COPY,
+  SELLER_NO_PAYOUT_LINE,
+  SELLER_REVERSED_COPY,
+  buyerReviewDeadlineLine,
+  sellerHoldLine,
+  sellerReleaseLine,
+  transferStatusCopy,
+  type PaymentRefundFacts,
+} from '@/src/lib/transfer/transferState';
+import { refundStateLine, type RefundRead } from '@/src/lib/transfer/refundState';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
+import { textStyle } from '@/src/theme/typography';
+import * as v2 from '@/src/theme/v2';
+
+export type StateTone = 'neutral' | 'success' | 'warning';
+
+function useStyles() {
+  const { palette } = useTheme();
+  return { palette, s: useMemo(() => makeStyles(palette), [palette]) };
+}
+
+/** The shared frame: an optional title in the tone's ink, then whatever the state says. */
+export function StateBlock({ title, tone, children }: { title?: string; tone: StateTone; children: ReactNode }) {
+  const { palette, s } = useStyles();
+  const color = tone === 'success' ? palette.status.success : tone === 'warning' ? palette.status.warning : palette.text.primary;
+  // V3 (pkg8-send board): the state reads as a QUOTE — a filled rounded panel with a left accent
+  // bar carrying the tone. Neutral states accent with the strong border ink, so tone still never
+  // paints a claim the words do not make.
+  const accent = tone === 'success' ? palette.status.success : tone === 'warning' ? palette.status.warning : palette.border.strong;
+  return (
+    <View style={[s.block, { borderLeftColor: accent }]}>
+      {title ? <Text style={[textStyle('title'), { color }]}>{title}</Text> : null}
+      {children}
+    </View>
+  );
+}
+
+/**
+ * The buyer's closed order — expired or reversed (A's table 2a / 2c). The order fact from the
+ * status; the refund fact only from the payment row; nothing about the seller's payout event.
+ * `expired` states the refund POLICY when nothing is recorded; `reversed` says only that a refund
+ * will show if one is issued.
+ */
+export function BuyerClosedBlock({ status, refund }: { status: 'expired' | 'reversed'; refund: RefundRead | PaymentRefundFacts | null | undefined }) {
+  const { s } = useStyles();
+  const copy = BUYER_ORDER_CLOSED_COPY[status];
+  // Accepts either the read STATE (the screens) or bare facts (the sandbox gallery, which supplies
+  // fixtures directly). Bare facts are by definition a completed read.
+  const state: RefundRead = refund != null && typeof refund === 'object' && 'kind' in refund
+    ? refund
+    : { kind: 'loaded', facts: (refund as PaymentRefundFacts | null) ?? null };
+  const line = refundStateLine(state, status);
+  return (
+    <StateBlock title={copy.title} tone={status === 'expired' ? 'warning' : 'neutral'}>
+      <Text style={[textStyle('bodySm'), s.text]}>{copy.body}</Text>
+      <Text style={[textStyle('bodySm'), s.text]}>{line}</Text>
+    </StateBlock>
+  );
+}
+
+/**
+ * The buyer's view of the seller's claim: "Seller marked as sent" is the seller's statement, not a
+ * confirmation; then the review deadline from the server's `auto_release_at`, or nothing (B-5).
+ * The confirm / report controls belong to the screen and are passed in as children.
+ */
+export function BuyerSellerSentBlock({ autoReleaseAt, children }: { autoReleaseAt: string | null | undefined; children?: ReactNode }) {
+  const { s } = useStyles();
+  const copy = transferStatusCopy('seller_sent', 'buyer');
+  const deadline = buyerReviewDeadlineLine(autoReleaseAt);
+  return (
+    <View style={s.block}>
+      <Text style={[textStyle('title'), s.claimTitle]}>{copy.title}</Text>
+      <Text style={[textStyle('bodySm'), s.text]}>{copy.body}</Text>
+      {deadline ? <Text style={[textStyle('bodySm'), s.sub]}>{deadline}</Text> : null}
+      {children}
+    </View>
+  );
+}
+
+/** The seller's closed window (server-confirmed expiry): don't transfer; no payout ever moved (A's 2b). */
+export function SellerClosedBlock({ title, body }: { title: string; body: string }) {
+  const { s } = useStyles();
+  return (
+    <StateBlock title={title} tone="warning">
+      <Text style={[textStyle('bodySm'), s.sub]}>{body}</Text>
+      <Text style={[textStyle('bodySm'), s.sub]}>{SELLER_NO_PAYOUT_LINE}</Text>
+    </StateBlock>
+  );
+}
+
+/** The seller's reversed payout — checked BEFORE any payout claim (A's precedence). No amount is stored. */
+export function SellerReversedBlock(_props: Record<string, never>) {
+  const { s } = useStyles();
+  return (
+    <StateBlock title={SELLER_REVERSED_COPY.title} tone="warning">
+      <Text style={[textStyle('bodySm'), s.text]}>{SELLER_REVERSED_COPY.body}</Text>
+    </StateBlock>
+  );
+}
+
+const SELLER_SENT_BODY = 'Waiting for the buyer to confirm they received the tickets.';
+/**
+ * OWNER RULING 2026-09-24 (payout copy): "Do not promise automatic release or invent a payout
+ * timeline. Show a review end date only from an appropriate server field, with missing dates
+ * omitted." Three sentences broke it, in escalating order of wrongness:
+ *
+ *  - "Payout pending, it releases automatically once it clears review." The release DECISION can
+ *    hold the payout, and `payout_released_at` is written only after Stripe confirms the transfer —
+ *    a job that can skip and retry indefinitely. A's verdict: unsupportable. Removed.
+ *  - the held-without-a-date fallback said "funds are held until shortly after the event as a
+ *    standard protection". The hold's end is `payout_hold_until`, chosen per row by the risk
+ *    decision that calls `apply_payout_hold` (039_risk_based_payout.sql) — not an event-relative
+ *    rule. With that column NULL there is no date to state, so the line states the hold instead.
+ *  - "The buyer review window has passed." REMOVED ENTIRELY (A's ruling, owner-applied). It was
+ *    keyed to the device clock, and even with a perfect clock it was false: `buyer_dispute_transfer`
+ *    (0550) gates on `status <> 'seller_sent'` alone and never reads auto_release_at, so while the
+ *    row is still seller_sent the buyer CAN still report an issue and the window has not closed. The
+ *    window closes when the SERVER moves the row — the cron's apply_auto_release, or the buyer's
+ *    confirmation — and each of those statuses has its own copy.
+ *
+ * What is left for a seller_sent row is the scheduled server time, and it no longer branches on the
+ * countdown at all: "Release decision at <date>." names a decision, not an outcome, so it stays true
+ * after the date passes. It appears only when the state warrants it (no hold, no manual review) and
+ * only when the field is there to read.
+ */
+const SELLER_HELD_FALLBACK = 'Payout pending, held for review. No action needed unless the buyer reports an issue.';
+const SELLER_MANUAL_REVIEW = 'Payout pending, this transfer is under manual review. Our team may contact you; you can also reach support@snatchitapp.com.';
+const SELLER_REPORT_WARNING = 'If the buyer reports an issue, your payout will be held for review.';
+
+/**
+ * The seller after marking sent (F-28: body only — the badge already reads "Marked sent"). Then
+ * exactly one payout line: the release DECISION time while the window runs (A's 2e), the
+ * window-passed sentence, the HOLD with the server's date (or the standard-protection fallback when
+ * held without a date), or manual review. Never a payout claim.
+ */
+export function SellerSentBlock({
+  payoutReviewStatus,
+  payoutHoldUntil,
+  autoReleaseAt,
+}: {
+  payoutReviewStatus: string | null | undefined;
+  payoutHoldUntil: string | null | undefined;
+  autoReleaseAt: string | null | undefined;
+}) {
+  const { s } = useStyles();
+  const noReview = payoutReviewStatus == null;
+  // A missing server date suppresses only the corresponding DATE line (owner 2026-09-24): the status
+  // sentence, the held fallback and the warning never depend on it, and no empty line is painted.
+  // The release line no longer branches on the countdown — see the note above the copy constants.
+  const releaseLine = noReview ? sellerReleaseLine(autoReleaseAt) : null;
+  const holdLine = payoutReviewStatus === 'held' ? (sellerHoldLine(payoutReviewStatus, payoutHoldUntil) ?? SELLER_HELD_FALLBACK) : null;
+  return (
+    <StateBlock tone="neutral">
+      <Text style={[textStyle('bodySm'), s.text]}>{SELLER_SENT_BODY}</Text>
+      {releaseLine ? <Text style={[textStyle('bodySm'), s.sub]}>{releaseLine}</Text> : null}
+      {holdLine ? <Text style={[textStyle('bodySm'), s.sub]}>{holdLine}</Text> : null}
+      {payoutReviewStatus === 'manual_review' ? (
+        <Text style={[textStyle('bodySm'), s.sub]}>{SELLER_MANUAL_REVIEW}</Text>
+      ) : null}
+      {/* B's F-91-1 (2026-09-24): "your payout WILL be held for review" is a future conditional, and
+          under `held` or `manual_review` it is already true — the two lines above say so with the
+          server's own fields. Warning a seller about a consequence they are living in reads as a
+          second, weaker copy of it. */}
+      {noReview ? <Text style={[textStyle('bodySm'), s.warn]}>{SELLER_REPORT_WARNING}</Text> : null}
+    </StateBlock>
+  );
+}
+
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+    block: {
+      backgroundColor: p.surface.surface,
+      borderRadius: v2.radius.md,
+      borderLeftWidth: 3,
+      padding: v2.space.lg,
+      marginBottom: v2.space.md,
+      gap: v2.space.xs,
+    },
+    text: { color: p.text.secondary },
+    sub: { color: p.text.muted, marginTop: v2.space.xs },
+    warn: { color: p.status.warning, marginTop: v2.space.sm },
+    claimTitle: { color: p.text.primary },
+  });
+}

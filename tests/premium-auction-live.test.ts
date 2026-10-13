@@ -110,7 +110,9 @@ describe('CFT-502 — the amount moves in place', () => {
   it('the panel pulses the bid amount on change and the hook respects Reduce Motion', () => {
     const panel = stripComments(read('src/components/listing/TransactionPanel.tsx'));
     expect(panel).toContain('const pulse = usePulseOnChange(currentAllIn);');
-    expect(panel).toContain('<Animated.View style={{ opacity: pulse.opacity }}>');
+    // V3 panel: the pulse survives the restyle — same hook, same driven opacity, now merged
+    // into the card-price style array.
+    expect(panel).toMatch(/<Animated\.View style=\{\[styles\.cardPrice, \{ opacity: pulse\.opacity \}\]\}>/);
     const hook = stripComments(read('src/hooks/usePulseOnChange.ts'));
     expect(hook).toContain('if (first || reduceMotion) return;');
     expect(hook).toContain('useNativeDriver: true');

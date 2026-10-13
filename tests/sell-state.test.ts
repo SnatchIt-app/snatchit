@@ -29,8 +29,8 @@ import {
   proceedsLabel,
 } from '../src/lib/sell/sellState';
 import {
-  allInFromDollars,
-  sellerNetFromDollars,
+  allInFromDollarsV3,
+  formatDollarsV3,
   sellerNetDollars,
 } from '../src/lib/money';
 
@@ -148,12 +148,20 @@ describe('price summary — wired to the authoritative helpers', () => {
     expect(priceSummary(NaN).valid).toBe(false);
   });
   it('mirrors money.ts exactly (no local fee math)', () => {
+    // RETARGETED 2026-09-24 (pkg8-create boards): every shown amount carries two decimals, so
+    // the DISPLAY faces route through the V3 formatters. Display only — the amounts are the
+    // same seller-net / buyer-all-in numbers, and the whole-dollar submission is untouched
+    // (the shipped-source guards below still pin the insert).
     const s = priceSummary(100);
     expect(s.valid).toBe(true);
-    expect(s.sellerNet).toBe(sellerNetFromDollars(100));
+    expect(s.sellerNet).toBe(formatDollarsV3(sellerNetDollars(100)));
+    expect(s.sellerNet).toBe('$90.00');
     expect(s.sellerNetValue).toBe(sellerNetDollars(100));
-    expect(s.buyerAllIn).toBe(allInFromDollars(100));
-    expect(s.buyerAllInLabel).toBe(`${allInFromDollars(100)} total`);
+    expect(s.buyerAllIn).toBe(allInFromDollarsV3(100));
+    expect(s.buyerAllIn).toBe('$110.00');
+    expect(s.buyerAllInLabel).toBe(`${allInFromDollarsV3(100)} total`);
+    // A fractional net keeps its exact cents on the face: $95 ask → $85.50 net.
+    expect(priceSummary(95).sellerNet).toBe('$85.50');
   });
 });
 
@@ -236,7 +244,12 @@ describe('create listing — shipped-source guards', () => {
   });
 
   it('routes display type through the shared token renderer (no local font hacks)', () => {
-    expect(screen).toContain("textStyle('displayMd')");
+    // RETARGETED 2026-09-24: the V2 pin was the uppercase Oswald `displayMd` title. The pkg8
+    // boards draw "Sell your ticket" in the sentence-case screen-title voice, so the pin moves
+    // with it; the rule being defended — tokens through textStyle(), no local font literals —
+    // is unchanged.
+    expect(screen).toContain("textStyle('screenTitle')");
+    expect(screen).not.toContain("textStyle('displayMd')");
     expect(screen).not.toMatch(/fontFamily:\s*['"]Oswald/);
   });
 

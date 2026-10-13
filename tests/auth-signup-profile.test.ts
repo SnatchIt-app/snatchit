@@ -8,6 +8,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
+
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -175,7 +176,8 @@ describe('8. the verified number lands on the right account', () => {
   it('the profile write is scoped to the signed-in user', () => {
     expect(signup).toContain('const { data: { user } } = await supabase.auth.getUser()');
     expect(signup).toContain(".eq('id', user.id)");
-    expect(signup).toContain('if (!user) return;');
+    // F3: the no-user exit now reports a failure instead of returning nothing; still no write.
+    expect(signup).toContain('if (!user) return { ok: false');
   });
 
   it('the phone becomes part of the authenticated identity, not just a profile string', () => {
@@ -242,5 +244,52 @@ describe('copy discipline', () => {
       expect(line).not.toMatch(/—/);
       expect(line).not.toMatch(/supabase|gotrue|otp_|rpc|postgres/i);
     }
+  });
+});
+
+describe('10. F3: a failed profile write is surfaced, not swallowed', () => {
+  /*
+   * verifyOtp succeeded, then the profiles update or the demographics RPC failed (RLS, a
+   * network blip). The screen only console.warn'ed, released the onboarding gate, and routed to
+   * Home — the name and gender the person just typed were gone, with no notice and no retry.
+   * Found by the read-only critical-flow audit of d27aa449.
+   *
+   * The contract: persistProfile reports failure; verifyAndFinish releases the gate ONLY on
+   * success, and on failure shows an error that offers to retry the (idempotent) write.
+   */
+  const persist = signupCode.slice(signupCode.indexOf('async function persistProfile'), signupCode.indexOf('const messageRow'));
+  const handler = signupCode.slice(signupCode.indexOf('async function verifyAndFinish'), signupCode.indexOf('async function persistProfile'));
+
+  it('persistProfile returns a result instead of only warning', () => {
+    expect(persist, 'a warn-only failure path is the data-loss path').not.toMatch(/console\.warn\([^)]*profile write failed/);
+    expect(persist).toMatch(/return \{ ok: false/);
+    expect(persist).toMatch(/return \{ ok: true/);
+  });
+
+  it('verifyAndFinish releases the gate only when the write succeeded', () => {
+    const persistAt = handler.indexOf('await persistProfile()');
+    const releaseAt = handler.lastIndexOf('setOnboarding(false)');
+    expect(persistAt).toBeGreaterThan(-1);
+    expect(releaseAt).toBeGreaterThan(persistAt);
+    // between the write and the release, the result is checked and a failure returns early
+    const between = handler.slice(persistAt, releaseAt);
+    expect(between).toMatch(/\.ok\b/);
+    expect(between).toMatch(/return;/);
+  });
+
+  it('the failure copy names what did not save and offers a retry, and no credential is involved', () => {
+    expect(signup).toMatch(/Try again/);
+    expect(handler + persist).not.toMatch(/password/i);
+  });
+
+  it('B-D9: a resend clears the retry flag, so a new code is always verified before the write', () => {
+    /*
+     * B's finding on F3: with the retry flag set, Back → change the number → Send code → any six
+     * digits → Create account skipped verifyOtp and wrote the NEW, unverified number as the verified
+     * one. sendCode() now withdraws the flag the moment a new code is issued.
+     */
+    const send = signupCode.slice(signupCode.indexOf('async function sendCode'), signupCode.indexOf('async function verifyAndFinish'));
+    expect(send).toContain('profileRetryRef.current = false;');
+    expect(send.indexOf('profileRetryRef.current = false;')).toBeLessThan(send.indexOf("setStep('verify')"));
   });
 });

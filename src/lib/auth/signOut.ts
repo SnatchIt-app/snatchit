@@ -41,6 +41,7 @@ import { supabase } from '@/src/lib/supabase';
 import { getRegisteredPushToken } from '@/src/lib/push/registeredToken';
 import type { ErrorLike } from '@/src/lib/push/registration';
 import { EMPTY_REGISTRATION_STATE, saveRegistrationState } from '@/src/lib/push/registrationStore';
+import { clearDockAvatar } from '@/src/lib/nav/dockAvatar';
 
 export const SIGN_OUT_REVOKE_TIMEOUT_MS = 3_000;
 
@@ -120,6 +121,8 @@ export interface SignOutDeps {
   revoke: (token: string, userId: string) => Promise<number>;
   /** Forgets this device's registration record so the next sign-in registers again (after success only). */
   clearRegistration?: () => Promise<void>;
+  /** V3: forget the dock's "You" photo — cleared with the registration record, post-success only. */
+  clearDockAvatar?: () => void;
   /** The actual sign-out; resolves to the SDK's error, null on success. */
   signOut: () => Promise<{ error: ErrorLike | null } | void>;
   timeoutMs?: number;
@@ -168,6 +171,7 @@ export async function revokeThenSignOut(deps: SignOutDeps): Promise<SignOutResul
   }
   // Signed out: the local record is stale now, and only now.
   try { await deps.clearRegistration?.(); } catch { /* never blocks */ }
+  try { deps.clearDockAvatar?.(); } catch { /* never blocks */ }
   return { signedOut: true, revoke: outcome };
 }
 
@@ -190,6 +194,7 @@ async function performSignOut(opts: SignOutOptions): Promise<SignOutResult> {
     },
     revoke: (token) => revokeDeviceToken(liveRevokeDeps, token),
     clearRegistration: () => saveRegistrationState(EMPTY_REGISTRATION_STATE),
+    clearDockAvatar,
     signOut: async () => {
       // The user chose this; the login screen must not call it an expiry (CFT-607).
       markSessionEnd(reason);

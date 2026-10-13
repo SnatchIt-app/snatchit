@@ -12,23 +12,35 @@
  * The settings SUB-screens (edit profile, notifications, preferences, blocked
  * users, payout setup, legal, privacy, support) are separate routes and keep their
  * current UI this batch; the hub only links to them.
+ *
+ * V3 (pkg8-account-settings boards): the pushed-screen header (circular back chip,
+ * centred sentence-case title, no hairline), and the two deletion banners become the
+ * boards' accent-bar panels — a warning bar on the pending banner with an OUTLINED
+ * "Withdraw deletion request" pill, an error bar on the failed-probe banner with a
+ * stacked bold "Retry". Every action, confirm and edge-function call is unchanged.
+ *
+ * The `deletionFixture` prop exists for the `_dev/v3-account` rendering harness only:
+ * it seeds the deletion tri-state as a literal and skips the probe (and its AppState
+ * re-check) so no read leaves the app; the live route passes no fixture.
  */
 
 import { router } from 'expo-router';
 import { Alert, AppState, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { supabase } from '@/src/lib/supabase';
 import { SIGN_OUT_FAILED_COPY, signOutAllDevices, signOutThisDevice } from '@/src/lib/auth/signOut';
-import { Button, IconButton } from '@/src/components/ui';
+import { Button } from '@/src/components/ui';
 import { AccountSection } from '@/src/components/account/AccountSection';
+import { SettingsHeader } from '@/src/components/account/SettingsHeader';
 import { SettingsRow } from '@/src/components/account/SettingsRow';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
-import { useTopInset } from '@/src/lib/nav/navInsets';
+import { IS_SANDBOX_BUILD } from '@/src/config/envGuard';
 
-type SettingsRoute =
-  | '/settings/edit-profile'
+type SettingsRoute = | '/_dev/transfer-states' | '/settings/edit-profile'
   | '/settings/notifications'
   | '/settings/payout-setup'
   | '/settings/verify-phone'
@@ -36,11 +48,16 @@ type SettingsRoute =
   | '/settings/support'
   | '/settings/legal'
   | '/settings/privacy'
-  | '/settings/blocked-users';
+  | '/settings/blocked-users'
+  | '/settings/appearance';
 
-export default function SettingsScreen() {
+/** Harness-only literal in place of the deletion-state probe. */
+export type SettingsDeletionFixture = 'active' | 'pending' | 'probe_failed';
+
+export default function SettingsScreen({ deletionFixture }: { deletionFixture?: SettingsDeletionFixture } = {}) {
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
-  const topPad = useTopInset();
 
   const [signingOut, setSigningOut] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -78,6 +95,12 @@ export default function SettingsScreen() {
   }
 
   useEffect(() => {
+    // Harness fixture: the tri-state is a literal and the probe never runs — no read leaves the app.
+    if (deletionFixture) {
+      setDeletionView(deletionFixture === 'probe_failed' ? 'unknown' : deletionFixture);
+      setDeletionProbeFailed(deletionFixture === 'probe_failed');
+      return;
+    }
     refreshDeletionState();
     const sub = AppState.addEventListener('change', (st) => {
       if (st === 'active') refreshDeletionState();
@@ -283,12 +306,8 @@ export default function SettingsScreen() {
 
   return (
     <View style={s.root}>
-      {/* ── Header ──────────────────────────────────────────── */}
-      <View style={[s.header, { paddingTop: topPad + v2.space.sm }]}>
-        <IconButton glyph="back" onPress={() => router.back()} accessibilityLabel="Back" />
-        <Text style={[textStyle('displaySm'), s.headerTitle]} accessibilityRole="header">Settings</Text>
-        <View style={s.headerSpacer} />
-      </View>
+      {/* ── Header — V3 pushed-screen pattern: circular back chip, centred title ── */}
+      <SettingsHeader title="Settings" />
 
       <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
         {/* ── Deletion banners ──────────────────────────────── */}
@@ -296,7 +315,7 @@ export default function SettingsScreen() {
           <View style={s.probeBanner} accessibilityRole="alert">
             <Text style={[textStyle('bodySm'), s.probeText]}>We could not check your account status.</Text>
             <Pressable onPress={refreshDeletionState} hitSlop={8} accessibilityRole="button" accessibilityLabel="Retry">
-              <Text style={[textStyle('label'), s.retry]}>Retry</Text>
+              <Text style={[textStyle('action'), s.retry]}>Retry</Text>
             </Pressable>
           </View>
         ) : null}
@@ -307,8 +326,10 @@ export default function SettingsScreen() {
             <Text style={[textStyle('bodySm'), s.pendingBody]}>
               Your account deletion request is pending. You can withdraw it to keep your account.
             </Text>
+            {/* The board draws this OUTLINED: a non-destructive exit, never a red block. */}
             <Button
               label="Withdraw deletion request"
+              variant="secondary"
               onPress={handleWithdrawDeletion}
               loading={withdrawing}
               disabled={withdrawing}
@@ -332,6 +353,7 @@ export default function SettingsScreen() {
         {/* ── Preferences ───────────────────────────────────── */}
         <AccountSection title="Preferences">
           <SettingsRow label="Your scene" description="Neighborhoods you follow" onPress={() => nav('/settings/preferences')} />
+          <SettingsRow label="Appearance" description="System, light or dark" onPress={() => nav('/settings/appearance')} />
         </AccountSection>
 
         {/* ── Safety ────────────────────────────────────────── */}
@@ -346,6 +368,14 @@ export default function SettingsScreen() {
           <SettingsRow label="Privacy policy" onPress={() => nav('/settings/privacy')} />
         </AccountSection>
 
+        {/* Sandbox-only (owner 2026-09-24): the synthetic transfer-state gallery. The row exists only in a
+            paired sandbox build; the route itself redirects home anywhere else. Read-only, no actions. */}
+        {IS_SANDBOX_BUILD ? (
+          <AccountSection title="Sandbox">
+            <SettingsRow label="Transfer states (sandbox gallery)" description="Synthetic fixtures, both appearances" onPress={() => nav('/_dev/transfer-states')} />
+          </AccountSection>
+        ) : null}
+
         {/* ── Account actions ───────────────────────────────── */}
         <View style={s.actions}>
           <Button label="Sign out" variant="secondary" onPress={handleSignOut} loading={signingOut} disabled={signingOut} block />
@@ -357,33 +387,29 @@ export default function SettingsScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: v2.surface.canvas },
-
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: v2.space.md, paddingBottom: v2.space.sm,
-    borderBottomWidth: 1, borderBottomColor: v2.border.default,
-  },
-  headerTitle: { color: v2.text.primary },
-  headerSpacer: { width: 44 },
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  root: { flex: 1, backgroundColor: p.surface.canvas },
 
   scroll: { paddingHorizontal: v2.space.lg, paddingBottom: v2.space.xxxl },
 
+  // The boards' accent-bar banner: a filled panel with a status-coloured left bar.
   probeBanner: {
-    marginTop: v2.space.lg, padding: v2.space.md,
-    borderWidth: 1, borderColor: v2.border.strong,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: v2.space.md,
+    marginTop: v2.space.lg, padding: v2.space.lg, gap: v2.space.sm,
+    backgroundColor: p.surface.surface, borderRadius: v2.radius.sm,
+    borderLeftWidth: 3, borderLeftColor: p.status.error,
   },
-  probeText: { color: v2.text.secondary, flex: 1 },
-  retry: { color: v2.brand.red },
+  probeText: { color: p.text.secondary },
+  retry: { color: p.text.primary },
 
   pendingBanner: {
     marginTop: v2.space.lg, padding: v2.space.lg, gap: v2.space.sm,
-    backgroundColor: v2.surface.surface, borderWidth: 1, borderColor: v2.brand.red,
+    backgroundColor: p.surface.surface, borderRadius: v2.radius.sm,
+    borderLeftWidth: 3, borderLeftColor: p.status.warning,
   },
-  pendingTitle: { color: v2.text.primary },
-  pendingBody: { color: v2.text.secondary, marginBottom: v2.space.xs },
+  pendingTitle: { color: p.text.primary },
+  pendingBody: { color: p.text.secondary, marginBottom: v2.space.xs },
 
   actions: { marginTop: v2.space.xxl, gap: v2.space.md },
-});
+  });
+}

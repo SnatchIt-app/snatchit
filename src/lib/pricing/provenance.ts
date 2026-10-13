@@ -40,14 +40,16 @@ const LABELS: Record<InventoryKind, ProvenanceLabel> = {
     kind: 'marketplace_fixed',
     badge: 'From a fan',
     explanation:
-      'Sold by another fan at a set price. Payment is held until the ticket reaches you.',
+      // A's ruling §2f (2026-09-24): the delivery-linked hold is withdrawn everywhere it rendered.
+      // The recourse is the true claim: a report freezes the seller's payout.
+      "Sold by another fan at a set price. If the tickets don't arrive, a report freezes the seller's payout.",
     tone: 'neutral',
   },
   marketplace_auction: {
     kind: 'marketplace_auction',
     badge: 'Fan auction',
     explanation:
-      'Sold by another fan to the highest bidder. Payment is held until the ticket reaches you.',
+      "Sold by another fan to the highest bidder. If the tickets don't arrive, a report freezes the seller's payout.",
     tone: 'neutral',
   },
 };

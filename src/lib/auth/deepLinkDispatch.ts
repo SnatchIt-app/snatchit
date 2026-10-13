@@ -31,6 +31,14 @@ export interface DeepLinkDeps {
   exchangeCodeForSession(code: string): Promise<{ error: { message: string } | null }>;
   /** Route to the reset screen and raise the recovery hold. */
   onRecovery(): void;
+  /**
+   * Release the hold `onRecovery` raised, because the link's claim did not hold up: the token was
+   * rejected (expired, or consumed by a link pre-scanner — AGENTS.md records those), the exchange
+   * threw, or the link carried no token at all. Without this the root route holds on `isRecovery`
+   * with no session, reset-password's updateUser fails "Auth session missing!", and only SIGNED_OUT
+   * or a relaunch clears it (F7).
+   */
+  onRecoveryFailed?(): void;
   warn?: (message: string, ...rest: unknown[]) => void;
 }
 
@@ -72,22 +80,35 @@ export async function dispatchDeepLink(url: string | null | undefined, deps: Dee
 
   // Route to the reset screen for recovery links. The session is established
   // below, never by trusting tokens in the URL. Routing first shows the UI.
-  if (type === 'recovery') deps.onRecovery();
+  // The hold is raised on the link's CLAIM; if the claim fails below, it is released again (F7).
+  const recoveryRaised = type === 'recovery';
+  if (recoveryRaised) deps.onRecovery();
+  const releaseRecovery = () => { if (recoveryRaised) deps.onRecoveryFailed?.(); };
 
   try {
     if (token_hash && type) {
       const { error } = await deps.verifyOtp({ type: type as EmailOtpType, token_hash });
-      if (error) warn('[auth] verifyOtp error:', error.message);
+      if (error) {
+        warn('[auth] verifyOtp error:', error.message);
+        releaseRecovery();
+      }
       return { kind: 'otp', type: type as EmailOtpType, error: error?.message ?? null };
     }
     if (code) {
       const { error } = await deps.exchangeCodeForSession(code);
-      if (error) warn('[auth] exchangeCodeForSession error:', error.message);
+      if (error) {
+        warn('[auth] exchangeCodeForSession error:', error.message);
+        releaseRecovery();
+      }
       return { kind: 'pkce', error: error?.message ?? null };
     }
   } catch (e) {
     warn('[auth] deep-link session exchange failed:', e);
+    releaseRecovery();
+    return { kind: 'no_auth_params' };
   }
+  // A recovery link with nothing to verify is a claim with no credential: do not hold on it.
+  releaseRecovery();
   return { kind: 'no_auth_params' };
 }
 

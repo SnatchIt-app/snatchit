@@ -19,6 +19,13 @@
  * In production the RPC returns [] today (native issuance is disabled server-side).
  * A __DEV__-only fixture toggle (off by default, never written anywhere) lets the
  * populated states be reviewed on a device; real RPC data always takes precedence.
+ *
+ * V3 (pkg8-account-tickets boards). The heading joins the sentence-case screen-title
+ * voice; cards round and carry the board's badge rules (TicketEventGroup/ticketState).
+ * The `fixture` prop exists for the `_dev/v3-tickets` rendering harness only: it
+ * short-circuits ONLY the network read (rows or a failure kind supplied as literals),
+ * and fixture rows render under the same owner-ruled sample caveat as the dev toggle,
+ * so a populated capture can never circulate as issuance working.
  */
 
 import { router } from 'expo-router';
@@ -39,24 +46,31 @@ import { classifyTicketsError, groupByEvent, splitByTimeClass, type EventGroup }
 import type { MyTicketGroup } from '@/src/lib/tickets/types';
 import { phaseAfterError, shouldShowLoading } from '@/src/lib/screens/refreshPolicy';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 type Phase = 'loading' | 'ready' | 'error';
 interface Section { title: string; emphasis: 'upcoming' | 'past'; data: EventGroup[] }
 
-export default function TicketsScreen() {
+/** Harness-only literals in place of the one network read: rows, or a first-load failure. */
+export type TicketsFixture = { rows: MyTicketGroup[] } | { failure: LoadFailureKind };
+
+export default function TicketsScreen({ fixture }: { fixture?: TicketsFixture } = {}) {
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const topPad = useTopInset();
   const dockClearance = useDockClearance();
   const { onScroll: onDockScroll } = useDockScroll('tickets');
 
-  const [phase, setPhase] = useState<Phase>('loading');
+  const [phase, setPhase] = useState<Phase>(fixture ? ('failure' in fixture ? 'error' : 'ready') : 'loading');
   // Which failure the empty screen explains (F-OFF-1: offline used to read as a server error here).
-  const [loadError, setLoadError] = useState<LoadFailureKind>('error');
+  const [loadError, setLoadError] = useState<LoadFailureKind>(fixture && 'failure' in fixture ? fixture.failure : 'error');
   const { isOffline } = useNetworkStatus();
   const offlineRef = useRef(false);
   offlineRef.current = isOffline;
 
-  const [rows, setRows] = useState<MyTicketGroup[]>([]);
+  const [rows, setRows] = useState<MyTicketGroup[]>(fixture && 'rows' in fixture ? fixture.rows : []);
   const [refreshing, setRefreshing] = useState(false);
   // DEV-only: render sample states without any server write. Off by default.
   const [devFixtures, setDevFixtures] = useState(false);
@@ -70,6 +84,8 @@ export default function TicketsScreen() {
 
   const load = useCallback(async () => {
     if (devFixtures) { setPhase('ready'); return; }
+    // The harness fixture replaces the network read and nothing else: no RPC leaves the app.
+    if (fixture) return;
     // Quiet over content: the list stays mounted and rows swap in place. Only a
     // screen that has shown nothing yet gets the loading state.
     const { phase: shownPhase, rowCount } = shown.current;
@@ -88,7 +104,7 @@ export default function TicketsScreen() {
     }
     setRows(data ?? []);
     setPhase('ready');
-  }, [devFixtures]);
+  }, [devFixtures, fixture]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
@@ -100,6 +116,8 @@ export default function TicketsScreen() {
 
   // DEV fixtures only render when the __DEV__ toggle is on; real RPC data wins.
   const effectiveRows: MyTicketGroup[] = devFixtures ? DEV_TICKET_FIXTURES : rows;
+  // Harness fixture rows are on screen: the sample caveat below must show over them too.
+  const fixtureRows = !!fixture && 'rows' in fixture && fixture.rows.length > 0;
 
   const sections = useMemo<Section[]>(() => {
     const { upcoming, past } = splitByTimeClass(effectiveRows);
@@ -114,7 +132,8 @@ export default function TicketsScreen() {
   return (
     <View style={s.container}>
       <View style={[s.header, { paddingTop: topPad + v2.space.sm }]}>
-        <Text style={[textStyle('displayMd'), s.title]} accessibilityRole="header">Your tickets</Text>
+        {/* V3: sentence-case screen title (pkg8-account-tickets), matching Search's tab-root header. */}
+        <Text style={[textStyle('screenTitle'), s.title]} accessibilityRole="header">Your tickets</Text>
         {__DEV__ ? (
           <Text
             style={[textStyle('micro'), s.devToggle]}
@@ -127,11 +146,12 @@ export default function TicketsScreen() {
         ) : null}
       </View>
 
-      {/* Keyed on devFixtures ONLY — not on __DEV__ — so the label follows the
-          fixture rows wherever they go; gating it under __DEV__ would let a future
-          path that sets devFixtures elsewhere render fixtures without the caveat
-          (D's review, 2026-09-17). Body-size text so a screenshot cannot miss it. */}
-      {devFixtures ? (
+      {/* Keyed on the FIXTURE ROWS — devFixtures or the harness fixture — never on __DEV__,
+          so the label follows fixture rows wherever they go; gating it under __DEV__ would let
+          a future path that renders fixtures elsewhere do so without the caveat (D's review,
+          2026-09-17; extended to the v3-tickets harness 2026-09-24). Body-size text so a
+          screenshot cannot miss it. */}
+      {devFixtures || fixtureRows ? (
         <View style={s.sampleLabel} accessibilityRole="alert">
           <Text style={[textStyle('bodySm'), s.sampleLabelText]}>{SAMPLE_TICKETS_LABEL}</Text>
         </View>
@@ -159,7 +179,7 @@ export default function TicketsScreen() {
           scrollEventThrottle={16}
           stickySectionHeadersEnabled={false}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={v2.brand.red} />
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.brand.red} />
           }
           renderSectionHeader={({ section }) => (
             <Text style={[textStyle('label'), s.sectionHeader]} accessibilityRole="header">
@@ -175,8 +195,9 @@ export default function TicketsScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: v2.surface.canvas },
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  container: { flex: 1, backgroundColor: p.surface.canvas },
   header: {
     paddingHorizontal: v2.space.lg,
     paddingBottom: v2.space.md,
@@ -184,11 +205,14 @@ const s = StyleSheet.create({
     alignItems: 'flex-end',
     justifyContent: 'space-between',
   },
-  title: { color: v2.text.primary },
-  devToggle: { color: v2.text.faint, paddingVertical: v2.space.xs, paddingHorizontal: v2.space.sm },
+  title: { color: p.text.primary },
+  devToggle: { color: p.text.faint, paddingVertical: v2.space.xs, paddingHorizontal: v2.space.sm },
   // Owner-ruled caveat for fixture rows: high-contrast, full-width, not dismissable.
-  sampleLabel: { marginHorizontal: v2.space.lg, marginBottom: v2.space.sm, paddingVertical: v2.space.xs, paddingHorizontal: v2.space.sm, backgroundColor: v2.status.warning, borderRadius: v2.radius.none },
-  sampleLabelText: { color: v2.text.inverse, fontWeight: '700', textAlign: 'center' },
+  sampleLabel: { marginHorizontal: v2.space.lg, marginBottom: v2.space.sm, paddingVertical: v2.space.xs, paddingHorizontal: v2.space.sm, backgroundColor: p.status.warning, borderRadius: v2.radius.none },
+  // The ink ON a fill, which flips with the scheme (AP20): black on Midnight's bright amber,
+  // white on Daylight's #8A5400, where black would be 3.35:1.
+  sampleLabelText: { color: p.status.onFill, fontWeight: '700', textAlign: 'center' },
   list: { paddingHorizontal: v2.space.lg, paddingTop: v2.space.sm },
-  sectionHeader: { color: v2.text.muted, marginTop: v2.space.md, marginBottom: v2.space.md },
-});
+  sectionHeader: { color: p.text.muted, marginTop: v2.space.md, marginBottom: v2.space.md },
+  });
+}

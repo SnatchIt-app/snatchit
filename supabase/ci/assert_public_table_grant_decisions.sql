@@ -446,6 +446,13 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   ('sweep_auth_password_changes()',                                  'no-client-execute'),
   ('sync_listing_current_bid()',                                     'no-client-execute'),
   ('validate_and_apply_bid()',                                       'no-client-execute'),
+  -- 152 (20261013000000): the marketplace refusal rule, its three trigger guards and the content list.
+  -- Reached only from triggers; REVOKE PUBLIC/anon/authenticated in the migration itself.
+  ('assert_marketplace_parties(uuid, uuid)',                         'no-client-execute'),
+  ('guard_bid_parties()',                                            'no-client-execute'),
+  ('guard_listing_content()',                                        'no-client-execute'),
+  ('guard_listing_reservation_parties()',                            'no-client-execute'),
+  ('listing_prohibited_term(text[])',                                'no-client-execute'),
 
   -- ── authenticated-execute ────────────────────────────────────────────────
   -- Signed-in RPCs. Each derives caller identity from auth.uid() internally;

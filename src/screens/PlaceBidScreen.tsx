@@ -21,18 +21,20 @@
  */
 
 import { router } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
+import { readServerRefusal } from '@/src/lib/moderation/serverRefusal';
 import { useAuth } from '@/src/hooks/useAuth';
 import { useNetworkStatus } from '@/src/hooks/useNetworkStatus';
 import { useSingleFlight } from '@/src/hooks/useSingleFlight';
 import { APP_CONFIG } from '@/src/config/app';
+import { identityStacks } from '@/src/lib/design/featureMetrics';
 import {
   bidOutcome,
   bidOutcomeCopy,
-  bidPriceLines,
+  bidPriceLinesV3,
   canPlaceBid,
   minNextBid,
   quickAdd,
@@ -40,27 +42,85 @@ import {
   stepUp,
 } from '@/src/lib/bid/bidEntry';
 import { hapticConfirm } from '@/src/lib/feedback/haptics';
-import { formatDollars } from '@/src/lib/money';
+import { rowMeta } from '@/src/lib/listing/feedRowState';
+import { formatDollars, formatDollarsV3 } from '@/src/lib/money';
+import { NameText } from '@/src/components/NameText';
 import ScreenState from '@/src/components/ScreenState';
-import { Button, IconButton, Spinner, StickyBar, Tappable } from '@/src/components/ui';
+import { Button, IconButton, Spinner, Tappable } from '@/src/components/ui';
 import { classifyLoadFailure, type LoadFailureKind } from '@/src/lib/ui/loadState';
-import { textStyle, MAX_DISPLAY_FONT_SCALE } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
+import { AMOUNT_MIN_FONT_SCALE, MAX_DISPLAY_FONT_SCALE, textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
 import type { Listing } from '@/src/types';
 import { useTopInset } from '@/src/lib/nav/navInsets';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-type Props = { id: string };
+type Props = {
+  id: string;
+  /**
+   * DEVELOPMENT RENDERING ONLY (owner 2026-09-24). When supplied, the screen paints this
+   * listing instead of reading one, so the approved boards can be compared against what the
+   * REAL component renders without a session or a sandbox row. Only `app/_dev/v3-screens.tsx`
+   * passes it, and that route redirects unless the bundle is a sandbox or __DEV__ build; the
+   * real `/bid/[id]` route never passes it, so the production path is byte-for-byte the read
+   * path above. It short-circuits the READ only — the bid path, the floor arithmetic and the
+   * insert are untouched.
+   */
+  fixture?: Listing;
+};
 
-/** Whole-dollar bid display, e.g. "$80". Bid amounts are whole dollars. */
-const fmt$ = formatDollars;
+/**
+ * V3 money display (owner 2026-09-24): the approved boards show cents on every amount,
+ * so displayed figures read "$95.00". The bid itself is still chosen and submitted in
+ * whole dollars — `selectedBid` and the `bids` insert are untouched; only the string is
+ * formatted with cents. `fmtStep$` keeps the whole-dollar form for the +$5 / +$10 / +$25
+ * keys and the "$5 steps" hint, which the boards also draw without cents.
+ */
+const fmt$ = formatDollarsV3;
+const fmtStep$ = formatDollars;
 
 const MIN_INCREMENT = APP_CONFIG.MIN_BID_INCREMENT;
 const QUICK_CHIPS = [5, 10, 25] as const;
 
-export default function PlaceBidScreen({ id }: Props) {
+/**
+ * What the bidder is told when the `bids` insert comes back with an error (V3, 2026-09-24).
+ *
+ * It used to be the server's own `error.message` — a raw PostgREST/Postgres string ("new row violates
+ * row-level security policy for table \"bids\"", a trigger's RAISE text, a transport failure's
+ * message) shown verbatim in an Alert on the screen where money is committed. That is not product
+ * copy, it is not written for a bidder, and it can disclose schema and policy names.
+ *
+ * The wording is deliberately silent on whether the bid landed, because the client does not know.
+ * supabase-js returns transport failures in the same `error` channel as a server rejection, so an
+ * error here is consistent with (i) the server rejecting the insert and (ii) the row committing and
+ * the response being lost. "Bid failed" would assert (i); "try again" alone would invite a second
+ * bid on top of a first that may already be in. So it says only what is true — no confirmation came
+ * back — and points at the one place that settles it, the listing's own current bid, which the
+ * insert trigger moves atomically.
+ *
+ * There is no KNOWN-error branch above this in `submitBid`: the only mapped case is the F-5 deletion
+ * guard, which returns BEFORE the insert. So this is the sole unknown-case fallback, not a
+ * replacement for specific copy.
+ */
+const BID_UNCONFIRMED_COPY = {
+  title: "We couldn't confirm your bid",
+  body: "We didn't get a confirmation back for it. Check the listing's current bid before bidding again, in case it did go through.",
+} as const;
+
+export default function PlaceBidScreen({ id, fixture }: Props) {
   const { user } = useAuth();
   // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
   const topPad = useTopInset();
+  const insets = useSafeAreaInsets();
+  // Appearance: every colour on this screen comes from the resolved palette (light or dark).
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
+  const { fontScale } = useWindowDimensions();
+  const stacked = identityStacks(fontScale);
+  // B-D7: the approved rule. Above the shared threshold a money row stacks into one column and
+  // the amount shrinks to fit its full-width line; below it NOTHING changes (default pixel-identical).
+  const amountFit = stacked ? { adjustsFontSizeToFit: true, minimumFontScale: AMOUNT_MIN_FONT_SCALE } : null;
 
   const [listing,    setListing]    = useState<Listing | null>(null);
   const [loading,    setLoading]    = useState(true);
@@ -83,11 +143,21 @@ export default function PlaceBidScreen({ id }: Props) {
   // it invented and a "Current bid" of $0 on the screen where a bid is committed. A thrown read used to skip
   // the handler entirely and leave the spinner up for good.
   const load = useCallback(async () => {
+    if (fixture) {
+      setListing(fixture);
+      setSelectedBid(fixture.current_bid + MIN_INCREMENT);
+      setLoadError(null);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const { data, error } = await supabase
         .from('listings')
-        .select('current_bid, starting_bid, event_name, venue, ends_at')
+        // V3: the header restates the listing (date, venue, whole-listing quantity) and the
+        // market column needs the bid count to avoid claiming a "current bid" nobody placed.
+        // Same authorized row, same policy — only the column list widened.
+        .select('current_bid, starting_bid, event_name, venue, ends_at, event_date, event_time, quantity, ticket_type, bid_count')
         .eq('id', id)
         .single();
       if (error || !data) {
@@ -103,7 +173,7 @@ export default function PlaceBidScreen({ id }: Props) {
       setLoadError(classifyLoadFailure(err, offlineRef.current));
       setLoading(false);
     }
-  }, [id]);
+  }, [id, fixture]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -116,7 +186,7 @@ export default function PlaceBidScreen({ id }: Props) {
   function increase() { setSelectedBid((p) => stepUp(p, MIN_INCREMENT)); }
   function addQuick(n: number) { setSelectedBid((p) => quickAdd(p, n)); }
 
-  const lines = bidPriceLines(selectedBid);
+  const lines = bidPriceLinesV3(selectedBid);
 
   function handleConfirm() {
     // Guard: must be signed in
@@ -135,7 +205,10 @@ export default function PlaceBidScreen({ id }: Props) {
     // A skipped run means a submission is already in flight: nothing to do.
     flight.run(() => submitBid(user.id, selectedBid)).catch(() => {
       setSubmitting(false);
-      Alert.alert('Bid failed', 'Something went wrong. Please try again.');
+      // A THROW has the same unknown outcome as an `{ error }` reply — a transport exception can be
+      // raised after the row committed — so it gets the same wording, which claims neither outcome
+      // and does not invite a second bid (E's finding on ed344659).
+      Alert.alert(BID_UNCONFIRMED_COPY.title, BID_UNCONFIRMED_COPY.body);
     });
   }
 
@@ -173,7 +246,18 @@ export default function PlaceBidScreen({ id }: Props) {
       });
 
       if (error) {
-        Alert.alert('Bid failed', error.message);
+        // RC3 (152): a refusal with a stable hint — blocked party, suspended bidder, suspended
+        // seller — is a KNOWN outcome: the server answered and refused, nothing committed. It gets
+        // the policy sentence, OK-only, no retry offered. The hint is read through one helper; the
+        // screen itself still never reads a server message (BE5).
+        const refusal = readServerRefusal(error);
+        if (refusal) {
+          Alert.alert(refusal.title, refusal.body);
+          return;
+        }
+        // The raw server string never reaches the bidder; see BID_UNCONFIRMED_COPY for why the
+        // wording claims neither outcome.
+        Alert.alert(BID_UNCONFIRMED_COPY.title, BID_UNCONFIRMED_COPY.body);
         return;
       }
 
@@ -202,7 +286,7 @@ export default function PlaceBidScreen({ id }: Props) {
   if (loading) {
     return (
       <View style={[s.root, s.centered]}>
-        <Spinner color={v2.brand.red} />
+        <Spinner color={palette.brand.red} />
       </View>
     );
   }
@@ -222,199 +306,270 @@ export default function PlaceBidScreen({ id }: Props) {
     <View style={s.root}>
       {/* ── Header ──────────────────────────────────────────── */}
       <View style={[s.header, { paddingTop: topPad + v2.space.sm }]}>
-        <IconButton glyph="back" onPress={() => router.back()} accessibilityLabel="Back" />
-        <Text style={[textStyle('displaySm'), s.headerTitle]} accessibilityRole="header">Place bid</Text>
+        <IconButton glyph="back" chip onPress={() => router.back()} accessibilityLabel="Back" />
+        <Text style={[textStyle('screenTitle'), s.headerTitle]} accessibilityRole="header">Place bid</Text>
         <View style={s.headerSpacer} />
       </View>
 
       <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        {/* V3 (pkg2 ①): the listing is RESTATED, not re-sold — the name in the display voice,
+            the dated line home and search also use, and the quantity, because the bid buys the
+            whole listing. */}
         {listing?.event_name ? (
-          <Text style={[textStyle('title'), s.eventName]} numberOfLines={2}>{listing.event_name}</Text>
+          <NameText token="nameOrder" maxLines={2} style={s.eventName}>{listing.event_name}</NameText>
         ) : null}
-        {listing?.venue ? (
-          <Text style={[textStyle('bodySm'), s.venue]} numberOfLines={1}>{listing.venue}</Text>
-        ) : null}
-
-        {/* ── Current vs your bid ───────────────────────────── */}
-        <View style={s.compare}>
-          <View style={s.compareSide}>
-            <Text style={[textStyle('micro'), s.compareLabel]}>Current bid</Text>
-            <Text style={[textStyle('price'), s.compareAmt]} numberOfLines={1}>{fmt$(listing?.current_bid ?? 0)}</Text>
-          </View>
-          <View style={s.compareDivider} />
-          <View style={s.compareSide}>
-            <Text style={[textStyle('micro'), s.compareLabel]}>Your bid</Text>
-            <Text style={[textStyle('price'), s.compareAmt, s.compareYours]} numberOfLines={1}>{fmt$(selectedBid)}</Text>
-          </View>
-        </View>
-
-        {/* ── Amount (the focus) ────────────────────────────── */}
-        <View style={s.amountBlock}>
-          <Text style={s.bigAmount} accessibilityLabel={`Your bid ${fmt$(selectedBid)}`}>{fmt$(selectedBid)}</Text>
-          <Text style={[textStyle('bodySm'), s.stepHint]}>
-            +{fmt$(MIN_INCREMENT)} per step · min {fmt$(minimumBid)}
+        {listing?.venue && listing?.event_date ? (
+          <Text style={[textStyle('bodySm'), s.venue]} numberOfLines={1}>
+            {rowMeta({
+              eventDate: listing.event_date, eventTime: listing.event_time ?? '',
+              venue: listing.venue, quantity: listing.quantity ?? 1,
+              ticketType: listing.ticket_type ?? '', bidCount: listing.bid_count,
+            }).meta1}
           </Text>
+        ) : null}
+        {listing?.quantity && listing?.ticket_type ? (
+          <Text style={[textStyle('bodySm'), s.venue]} numberOfLines={1}>
+            {`${listing.quantity} × ${listing.ticket_type}${listing.quantity > 1 ? ' · sold together' : ''}`}
+          </Text>
+        ) : null}
+
+        {/* V3 (pkg8-bid-*): the market price is a LABELLED ROW between hairlines — the label
+            left, the amount right in the price face — not a middot-joined sentence. The label
+            still depends on the data: "Current bid" only when a bid exists, else "Starting bid".
+            De-dup (owner 2026-09-23) holds: the market price appears once, in the same units as
+            the editable bid, and the buyer's total appears once, in the summary below. */}
+        <View style={[s.rule, s.ruleTop]} />
+        <View style={stacked ? s.marketRowStacked : s.marketRow}>
+          <Text style={[textStyle('body'), s.marketLabel]}>
+            {(listing?.bid_count ?? 0) > 0 ? 'Current bid' : 'Starting bid'}
+          </Text>
+          <Text style={[textStyle('price'), s.marketValue]} numberOfLines={1} {...amountFit}>
+            {fmt$(listing?.current_bid ?? 0)}
+          </Text>
+        </View>
+        <View style={s.rule} />
+
+        {/* ── The editable bid (the focus), clearly labelled ── */}
+        <View style={s.amountBlock}>
+          <Text style={[textStyle('label'), s.bidLabel]}>Your bid</Text>
 
           {/* Stepper and quick-add keys carry the product's press response
               (CFT-201): they are Tappable, not bare Pressables. */}
           <View style={s.stepper}>
+            {/* Frozen while a bid is in flight (E, 2026-09-24). The single-flight guard already stops
+                a second submission, but the AMOUNT could still be changed underneath one: the screen
+                would show $115 while $105 was committed, and the outcome alert — which speaks about
+                the submitted amount — would disagree with the figure on screen. */}
             <Tappable
-              style={[s.stepBtn, atFloor && s.stepBtnOff]}
+              style={[s.stepBtn, (atFloor || submitting) && s.stepBtnOff]}
               onPress={decrease}
-              disabled={atFloor}
+              disabled={atFloor || submitting}
               accessibilityRole="button"
               accessibilityLabel="Lower bid"
-              accessibilityState={{ disabled: atFloor }}
+              accessibilityState={{ disabled: atFloor || submitting }}
               hitSlop={6}
             >
-              <Text style={s.stepGlyph} maxFontSizeMultiplier={MAX_DISPLAY_FONT_SCALE}>{'−'}</Text>
+              <Text style={[s.stepGlyph, s.stepGlyphMinus]} maxFontSizeMultiplier={MAX_DISPLAY_FONT_SCALE}>{'−'}</Text>
             </Tappable>
-            <Text style={[textStyle('price'), s.stepVal]} numberOfLines={1}>{fmt$(selectedBid)}</Text>
+            <Text
+              style={s.bigAmount}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.6}
+              maxFontSizeMultiplier={MAX_DISPLAY_FONT_SCALE}
+              accessibilityLabel={`Your bid ${fmt$(selectedBid)}`}
+            >
+              {fmt$(selectedBid)}
+            </Text>
             <Tappable
-              style={s.stepBtn}
+              style={[s.stepBtn, submitting && s.stepBtnOff]}
               onPress={increase}
+              disabled={submitting}
               accessibilityRole="button"
               accessibilityLabel="Raise bid"
+              accessibilityState={{ disabled: submitting }}
               hitSlop={6}
             >
               <Text style={s.stepGlyph} maxFontSizeMultiplier={MAX_DISPLAY_FONT_SCALE}>+</Text>
             </Tappable>
           </View>
 
+          {/* The board puts the guidance directly under the amount and the quick keys under
+              that, and states the step size as well as the floor. */}
+          <Text style={[textStyle('bodySm'), s.stepHint]}>
+            {`Minimum ${fmt$(minimumBid)} · ${fmtStep$(MIN_INCREMENT)} steps`}
+          </Text>
+
           <View style={s.quickRow}>
             {QUICK_CHIPS.map((n) => (
               <Tappable
                 key={n}
                 wrapperStyle={s.quickWrap}
-                style={s.quick}
+                style={[s.quick, submitting && s.stepBtnOff]}
                 onPress={() => addQuick(n)}
+                disabled={submitting}
                 accessibilityRole="button"
-                accessibilityLabel={`Add ${fmt$(n)}`}
+                accessibilityLabel={`Add ${fmtStep$(n)}`}
+                accessibilityState={{ disabled: submitting }}
                 hitSlop={4}
               >
-                <Text style={[textStyle('label'), s.quickText]}>+{fmt$(n)}</Text>
+                <Text style={[textStyle('action'), s.quickText]}>+{fmtStep$(n)}</Text>
               </Tappable>
             ))}
           </View>
         </View>
 
-        {/* ── Breakdown ─────────────────────────────────────── */}
-        <View style={s.breakdown}>
-          <View style={s.breakRow}>
-            <Text style={[textStyle('body'), s.breakLabel]}>Your bid</Text>
-            <Text style={[textStyle('body'), s.breakVal]}>{lines.bid}</Text>
-          </View>
-          <View style={s.breakRow}>
-            <Text style={[textStyle('body'), s.breakLabel]}>Service fee ({Math.round(APP_CONFIG.BUYER_FEE_RATE * 100)}%)</Text>
-            <Text style={[textStyle('body'), s.breakVal]}>{lines.fee}</Text>
-          </View>
-          <View style={s.breakDivider} />
-          <View style={s.breakRow}>
-            <Text style={[textStyle('title'), s.breakTotalLabel]}>You pay if you win</Text>
-            <Text style={[textStyle('price'), s.breakTotalVal]} numberOfLines={1}>{lines.total} total</Text>
-          </View>
-          <Text style={[textStyle('bodySm'), s.breakNote]}>Only charged if you win the auction.</Text>
-        </View>
+        {/* The one payment sentence, OUTSIDE the summary (owner 2026-09-23). Verified in
+            source: nothing charges on a win — the winner's route is pay_now → winner checkout →
+            payControl's Pay, the only control that moves the buyer's money. */}
+        <Text style={[textStyle('bodySm'), s.breakNote]}>
+          Placing a bid doesn&apos;t charge you. If you win, you pay the total at checkout.
+        </Text>
       </ScrollView>
 
-      {/* ── Sticky action ───────────────────────────────────── */}
-      <StickyBar
-        left={
-          <View>
-            <Text style={[textStyle('micro'), s.stickyKicker]}>If you win</Text>
-            <Text style={[textStyle('price'), s.stickyTotal]} numberOfLines={1} maxFontSizeMultiplier={MAX_DISPLAY_FONT_SCALE}>{lines.total}</Text>
+      {/* ── Summary + action (owner's final direction, 2026-09-23) ──
+          Exactly three rows from the existing calculation — Bid / Fee / Total, Total strongest —
+          and the plain "Place bid" button DIRECTLY below them. No side total, no "all-in", no
+          caption. The bid repeating here is intentional. */}
+      <View testID="bid-footer" style={[s.footer, { paddingBottom: v2.space.md + insets.bottom }]}>
+        <View testID="bid-summary" style={s.summary}>
+          <View style={stacked ? s.summaryRowStacked : s.summaryRow}>
+            <Text style={[textStyle('body'), s.summaryLabel]}>Bid</Text>
+            <Text style={[textStyle('body'), s.summaryValue]} numberOfLines={1} {...amountFit}>{lines.bid}</Text>
           </View>
-        }
-      >
+          <View style={stacked ? s.summaryRowStacked : s.summaryRow}>
+            <Text style={[textStyle('body'), s.summaryLabel]}>{`Fee (${Math.round(APP_CONFIG.BUYER_FEE_RATE * 100)}%)`}</Text>
+            <Text style={[textStyle('body'), s.summaryValue]} numberOfLines={1} {...amountFit}>{lines.fee}</Text>
+          </View>
+          <View testID="bid-summary-total" style={[s.summaryRow, s.summaryTotalRow]}>
+            <Text style={[textStyle('title'), s.summaryTotalLabel]}>Total</Text>
+            <Text
+              style={[textStyle('price'), s.summaryTotalValue]}
+              numberOfLines={1}
+              maxFontSizeMultiplier={MAX_DISPLAY_FONT_SCALE}
+            >
+              {lines.total}
+            </Text>
+          </View>
+        </View>
         <Button
           label="Place bid"
           pendingLabel="Submitting bid…"
           onPress={handleConfirm}
           loading={submitting}
           disabled={submitting}
+          size="lg"
           block
         />
-      </StickyBar>
+      </View>
     </View>
   );
 }
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: v2.surface.canvas },
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  root: { flex: 1, backgroundColor: p.surface.canvas },
   centered: { alignItems: 'center', justifyContent: 'center' },
 
+  // V3: no rule under the header — the board separates the header from the content with
+  // space, and the first hairline on the screen is the one above "Current bid".
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: v2.space.md,
     paddingBottom: v2.space.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: v2.border.default,
   },
-  headerTitle: { color: v2.text.primary },
+  headerTitle: { color: p.text.primary },
   headerSpacer: { width: 44 },
 
   body: { paddingHorizontal: v2.space.lg, paddingTop: v2.space.lg, paddingBottom: v2.space.xxl },
-  eventName: { color: v2.text.primary },
-  venue: { color: v2.text.muted, marginTop: 2 },
+  eventName: { color: p.text.primary },
+  venue: { color: p.text.secondary, marginTop: 2 },
 
-  compare: {
+  // The row supplies its own vertical padding, so only the FIRST hairline adds space above
+  // itself — the board closes the second one up under the row rather than leaving a second gap.
+  rule: { height: 1, backgroundColor: p.border.default },
+  ruleTop: { marginTop: v2.space.lg },
+  marketRow: {
     flexDirection: 'row',
-    marginTop: v2.space.xl,
-    borderWidth: 1,
-    borderColor: v2.border.default,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: v2.space.md,
+    paddingVertical: v2.space.lg,
   },
-  compareSide: { flex: 1, alignItems: 'center', paddingVertical: v2.space.lg },
-  compareDivider: { width: 1, backgroundColor: v2.border.default },
-  compareLabel: { color: v2.text.muted, marginBottom: v2.space.xs },
-  compareAmt: { color: v2.text.primary },
-  compareYours: { color: v2.brand.red },
+  /* Stacked above IDENTITY_STACK_SCALE (B-D7): the same row as a column. */
+  marketRowStacked: { flexDirection: 'column', alignItems: 'flex-start', gap: 2, paddingVertical: v2.space.lg },
+  marketLabel: { color: p.text.primary },
+  marketValue: { color: p.text.primary, fontSize: 24, lineHeight: 28 },
 
-  amountBlock: { alignItems: 'center', marginTop: v2.space.xxl },
+  amountBlock: { alignItems: 'center', marginTop: v2.space.xl },
+  bidLabel: { color: p.text.secondary, alignSelf: 'flex-start' },
+
+  // The amount is the loudest thing on the screen and it is TEXT-coloured, not brand red:
+  // red is the action, and an amount painted in it reads as a button.
   bigAmount: {
+    flex: 1,
+    textAlign: 'center',
     fontFamily: v2.font.bodyBold,
-    fontSize: 56,
+    fontSize: 54,
     lineHeight: 64,
-    color: v2.brand.red,
+    color: p.text.primary,
     fontVariant: ['tabular-nums'],
   },
-  stepHint: { color: v2.text.muted, marginTop: v2.space.xs, marginBottom: v2.space.lg },
+  stepHint: { color: p.text.muted, marginTop: v2.space.md, textAlign: 'center' },
 
-  stepper: { flexDirection: 'row', alignItems: 'center', gap: v2.space.md, alignSelf: 'stretch' },
+  // V3 steppers: tall rounded keys on a transparent fill, flanking the amount.
+  stepper: { flexDirection: 'row', alignItems: 'center', gap: v2.space.md, alignSelf: 'stretch', marginTop: v2.space.lg },
   stepBtn: {
-    width: 52, height: 52,
-    borderWidth: 1, borderColor: v2.border.strong,
+    width: 62, height: 104,
+    borderRadius: v2.radius.md,
+    borderWidth: 1, borderColor: p.border.control,
     alignItems: 'center', justifyContent: 'center',
   },
   stepBtnOff: { opacity: 0.35 },
-  stepGlyph: { color: v2.text.primary, fontSize: 26, lineHeight: 30 },
-  stepVal: { flex: 1, textAlign: 'center', color: v2.text.primary },
+  stepGlyph: { color: p.text.primary, fontSize: 30, lineHeight: 34 },
+  // The board draws the minus quieter than the plus: lowering is the secondary direction.
+  stepGlyphMinus: { color: p.text.muted },
 
-  quickRow: { flexDirection: 'row', gap: v2.space.sm, alignSelf: 'stretch', marginTop: v2.space.md },
+  // V3 quick-add keys: neutral rounded keys, not red rectangles. Red is reserved for the
+  // one committing action, so an increment key can never read as "Place bid".
+  quickRow: { flexDirection: 'row', gap: v2.space.md, alignSelf: 'stretch', marginTop: v2.space.lg },
   quickWrap: { flex: 1 },
   quick: {
-    minHeight: 40, paddingVertical: v2.space.xs,
-    borderWidth: 1, borderColor: v2.brand.red,
-    backgroundColor: v2.brand.redSoft,
+    minHeight: 56,
+    borderRadius: v2.radius.md,
+    borderWidth: 1, borderColor: p.border.control,
     alignItems: 'center', justifyContent: 'center',
   },
-  quickText: { color: v2.brand.red },
+  quickText: { color: p.text.primary },
 
-  breakdown: {
-    marginTop: v2.space.xxl,
-    borderWidth: 1, borderColor: v2.border.default,
-    backgroundColor: v2.surface.surface,
-    padding: v2.space.lg,
+  breakNote: { color: p.text.secondary, marginTop: v2.space.xl },
+
+  // The footer: the filled summary panel, then the action directly below it.
+  footer: {
+    paddingHorizontal: v2.space.lg,
+    paddingTop: v2.space.md,
+    gap: v2.space.md,
+    backgroundColor: p.surface.canvas,
   },
-  breakRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: v2.space.sm },
-  breakLabel: { color: v2.text.secondary },
-  breakVal: { color: v2.text.primary },
-  breakDivider: { height: 1, backgroundColor: v2.border.default, marginVertical: v2.space.sm },
-  breakTotalLabel: { color: v2.text.primary },
-  breakTotalVal: { color: v2.brand.red },
-  breakNote: { color: v2.text.muted, marginTop: v2.space.sm },
+  // Square by design: the board fills this panel and leaves its corners sharp, which is
+  // why `radius.none` is still a value in the scale.
+  summary: {
+    gap: v2.space.xs,
+    backgroundColor: p.surface.surface,
+    borderRadius: v2.radius.none,
+    paddingHorizontal: v2.space.lg,
+    paddingVertical: v2.space.lg,
+  },
+  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: v2.space.md },
+  summaryRowStacked: { flexDirection: 'column', alignItems: 'flex-start', gap: 2 },
+  summaryLabel: { color: p.text.secondary },
+  summaryValue: { color: p.text.primary, fontVariant: ['tabular-nums'] },
+  // Total is the strongest row: heavier label, the price face, a hairline above.
+  summaryTotalRow: { borderTopWidth: 1, borderTopColor: p.border.default, paddingTop: v2.space.md, marginTop: v2.space.xs },
+  summaryTotalLabel: { color: p.text.primary },
+  summaryTotalValue: { color: p.text.primary, fontVariant: ['tabular-nums'], fontSize: 26, lineHeight: 30 },
 
-  stickyKicker: { color: v2.text.muted },
-  stickyTotal: { color: v2.text.primary, marginTop: 2 },
 });
+}

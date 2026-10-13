@@ -19,6 +19,17 @@
  * within Active the most urgent card sorts to the top. No My Tickets, no ticket
  * object: kernel.tickets is not queried and nothing here claims ticket ownership
  * beyond the transfer state machine the client is already granted.
+ *
+ * V3 (pkg6-bids-{clean,active,past,empty,refresh_failed} boards; dark only — no light
+ * board is drawn, so Daylight is palette roles under the same composition). The
+ * heading joins the sentence-case screen-title voice; the segments carry the board's
+ * bare words; the failed-refresh line becomes the board's inline panel — amber edge,
+ * the module's own copy (annotation ④ pins BIDS_REFRESH_FAILED_COPY), Retry at the
+ * right. The row itself is BidCard, rebuilt to the board in its own file.
+ *
+ * The `fixture` prop exists for the `_dev/v3-mylistings-bids` rendering harness only:
+ * it short-circuits ONLY the network reads (merged rows supplied as literals — the
+ * status/grouping/presentation pipeline still runs for real).
  */
 
 import { router } from 'expo-router';
@@ -29,7 +40,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
 import { finalSoldPrice } from '@/src/lib/salePrice';
-import { allInFromDollars } from '@/src/lib/money';
+import { allInFromDollarsV3 } from '@/src/lib/money';
 import { getCoverImageUrl } from '@/src/lib/coverImage';
 import ScreenState from '@/src/components/ScreenState';
 import { useNetworkStatus } from '@/src/hooks/useNetworkStatus';
@@ -37,9 +48,12 @@ import { classifyLoadFailure } from '@/src/lib/ui/loadState';
 import { Chip, EmptyState, Skeleton } from '@/src/components/ui';
 import { useDockScroll } from '@/src/components/nav/dockContext';
 import { useDockClearance, useTopInset } from '@/src/lib/nav/navInsets';
-import { BidCard } from '@/src/components/bids/BidCard';
-import { BIDS_REFRESH_FAILED_COPY, bidPresentation, bidGroupOf, bidStatusOf, compareBidRows, endingSoonLabel, needsAction, type BidGroup } from '@/src/lib/bids/bidState';
+import { BidCard, BID_ROW_ART_H, BID_ROW_ART_W } from '@/src/components/bids/BidCard';
+import { MEDIA_RADIUS } from '@/src/lib/design/featureMetrics';
+import { BIDS_REFRESH_FAILED_COPY, bidPresentation, bidGroupOf, bidStatusOf, compareBidRows, endingSoonLabel, type BidGroup } from '@/src/lib/bids/bidState';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 // ─── Types (data layer — unchanged) ────────────────────────────────────────────
@@ -52,8 +66,8 @@ type ListingJoin = {
   current_bid: number;
   // buy-now reservation status
   status: string;
-  // auction intelligence fields
-  auction_status: 'active' | 'ended' | 'sold';
+  // auction intelligence fields ('cancelled' exists in the data and drives CFT-607)
+  auction_status: 'active' | 'ended' | 'sold' | 'cancelled';
   winner_user_id: string | null;
   winning_bid_amount: number | null;
   cover_image_path: string | null;
@@ -68,11 +82,13 @@ type PurchaseTransferStatus =
   | 'buyer_confirmed'
   | 'auto_released';
 
-type BidRow = {
+export type BidRow = {
   /** When set, this row represents a purchase the buyer has made (auction
    *  win + paid, or Buy Now). The transfer's lifecycle drives the badge.
    *  See getBidStatus(). */
   purchaseTransferStatus?: PurchaseTransferStatus;
+  /** NULL on a `buyer_confirmed` row means an operator resolved a dispute, not a confirmation. */
+  purchaseBuyerConfirmedAt?: string | null;
   /** Transfer id for purchase rows — tap routes to /transfer/receive/[id]. */
   transferId?: string;
   /** True while the buyer still has to provide delivery email/phone. */
@@ -104,20 +120,33 @@ function whenLabel(iso: string | undefined): string {
 
 // ─── Screen ─────────────────────────────────────────────────────────────────
 
-export default function BidsScreen() {
+/**
+ * Harness-only literals in place of the two network reads: merged rows (the shape the
+ * fetch produces), optionally under a failed-refresh notice, or a first-load failure.
+ * `userId` makes the fixture's own winner/bidder ids resolve without a session.
+ */
+export type BidsFixture =
+  | { userId: string; rows: BidRow[]; refreshFailed?: 'offline' | 'error' }
+  | { failure: 'offline' | 'error' };
+
+export default function BidsScreen({ fixture }: { fixture?: BidsFixture } = {}) {
   const { session } = useAuth();
-  const userId = session?.user.id ?? '';
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
+  const userId = (fixture && 'userId' in fixture ? fixture.userId : session?.user.id) ?? '';
   const topPad = useTopInset();
   const dockClearance = useDockClearance();
   const { onScroll: onDockScroll, expand: expandDock } = useDockScroll('bids');
 
-  const [bids,       setBids]       = useState<BidRow[]>([]);
-  const [loading,    setLoading]    = useState(true);
+  const [bids,       setBids]       = useState<BidRow[]>(fixture && 'rows' in fixture ? fixture.rows : []);
+  const [loading,    setLoading]    = useState(!fixture);
   const [refreshing, setRefreshing] = useState(false);
   const { isOffline } = useNetworkStatus();
   const offlineRef = useRef(false);
   offlineRef.current = isOffline;
-  const [loadError,  setLoadError]  = useState<'offline' | 'error' | null>(null);
+  const [loadError,  setLoadError]  = useState<'offline' | 'error' | null>(
+    fixture ? ('failure' in fixture ? fixture.failure : fixture.refreshFailed ?? null) : null,
+  );
   const [segment,    setSegment]    = useState<BidGroup>('active');
 
   const initialLoadDone = useRef(false);
@@ -127,6 +156,8 @@ export default function BidsScreen() {
   const loadGen = useRef(0);
 
   const fetchMyBids = useCallback(async (silent = false) => {
+    // The harness fixture replaces the network reads and nothing else: no query leaves the app.
+    if (fixture) return;
     if (!userId) return;
     const gen = ++loadGen.current;
     const superseded = () => gen !== loadGen.current;
@@ -202,6 +233,7 @@ export default function BidsScreen() {
         id,
         listing_id,
         status,
+        buyer_confirmed_at,
         created_at,
         delivery_email,
         delivery_phone,
@@ -234,6 +266,7 @@ export default function BidsScreen() {
       const needsInfo = !t.delivery_email && !t.delivery_phone;
       if (existing) {
         existing.purchaseTransferStatus = ts;
+        existing.purchaseBuyerConfirmedAt = t.buyer_confirmed_at ?? null;
         existing.transferId             = t.id;
         existing.needsDeliveryInfo      = needsInfo;
       } else {
@@ -249,6 +282,7 @@ export default function BidsScreen() {
           listing:                  listing ?? null,
           coverUrl,
           purchaseTransferStatus:   ts,
+          purchaseBuyerConfirmedAt: t.buyer_confirmed_at ?? null,
         });
       }
     }
@@ -258,7 +292,7 @@ export default function BidsScreen() {
     // Unconditional: the latest load ends loading even when it is a quiet one that
     // overtook a Retry, which returned above without touching the screen.
     setLoading(false);
-  }, [userId]);
+  }, [userId, fixture]);
 
   // Hard load on mount
   useEffect(() => {
@@ -283,13 +317,11 @@ export default function BidsScreen() {
   }
 
   // ── Grouping (replaces the six-pill filter) ─────────────────────────────────
-  const { active, past, needsActionCount } = useMemo(() => {
+  const { active, past } = useMemo(() => {
     const a: BidRow[] = [];
     const p: BidRow[] = [];
-    let n = 0;
     for (const bid of bids) {
       const status = bidStatusOf(toInput(bid), userId);
-      if (needsAction(status)) n++;
       (bidGroupOf(status) === 'active' ? a : p).push(bid);
     }
     // Most urgent first within Active, then the auction closing soonest
@@ -297,7 +329,7 @@ export default function BidsScreen() {
     const now = Date.now();
     a.sort((x, y) =>
       compareBidRows(bidPresentation(toInput(x), userId, now), bidPresentation(toInput(y), userId, now)));
-    return { active: a, past: p, needsActionCount: n };
+    return { active: a, past: p };
   }, [bids, userId]);
 
   const shown = segment === 'active' ? active : past;
@@ -306,17 +338,13 @@ export default function BidsScreen() {
   return (
     <View style={s.container}>
       <View style={[s.header, { paddingTop: topPad + v2.space.sm }]}>
-        <Text style={[textStyle('displayMd'), s.title]} accessibilityRole="header">Your bids</Text>
+        <Text style={[textStyle('screenTitle'), s.title]} accessibilityRole="header">Your bids</Text>
       </View>
 
       {!loading && bids.length > 0 ? (
         <View style={s.segments}>
-          <Chip
-            label="Active"
-            count={needsActionCount > 0 ? needsActionCount : undefined}
-            selected={segment === 'active'}
-            onPress={() => setSegment('active')}
-          />
+          {/* Board: two bare words — the urgency already sorts to the top of Active. */}
+          <Chip label="Active" selected={segment === 'active'} onPress={() => setSegment('active')} />
           <Chip label="Past" selected={segment === 'past'} onPress={() => setSegment('past')} />
         </View>
       ) : null}
@@ -325,7 +353,11 @@ export default function BidsScreen() {
         <View style={s.list}>
           {[0, 1, 2, 3].map((i) => (
             <View key={i} style={s.skeletonRow}>
-              <Skeleton width={72} height={72} />
+              {/* The artwork's own box, from the row that owns it (BID_ROW_ART_*): the poster's
+                  height budget with the width derived from the slot's ratio, not a square typed
+                  here. A placeholder exists to hold the exact geometry the artwork will occupy —
+                  a 72-square one would hand back 14pt of row width when the poster loaded. */}
+              <Skeleton width={BID_ROW_ART_W} height={BID_ROW_ART_H} style={s.skeletonArt} />
               <View style={s.skeletonBody}>
                 <Skeleton height={14} width="40%" />
                 <Skeleton height={16} width="80%" style={{ marginTop: 8 }} />
@@ -345,14 +377,17 @@ export default function BidsScreen() {
           onScroll={onDockScroll}
           scrollEventThrottle={16}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={v2.brand.red} />
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.brand.red} />
           }
           ListHeaderComponent={
             loadError && bids.length > 0 ? (
+              // Board (pkg6-bids-refresh_failed): an inline panel over the kept rows — amber
+              // edge, the module's copy (annotation ④), Retry at the right. Never a full error.
               <View style={s.notice} accessibilityRole="alert">
+                <View style={s.noticeEdge} />
                 <Text style={[textStyle('bodySm'), s.noticeText]}>{BIDS_REFRESH_FAILED_COPY[loadError]}</Text>
                 <Pressable onPress={() => fetchMyBids(true)} hitSlop={8} accessibilityRole="button" accessibilityLabel="Retry loading bids and purchases">
-                  <Text style={[textStyle('label'), s.noticeAction]}>Retry</Text>
+                  <Text style={[textStyle('action'), s.noticeAction]}>Retry</Text>
                 </Pressable>
               </View>
             ) : null
@@ -384,8 +419,8 @@ export default function BidsScreen() {
                 whenLabel={whenLabel(item.listing?.ends_at)}
                 coverPath={coverPath(item)}
                 presentation={p}
-                priceAllIn={allInFromDollars(p.priceDollars)}
-                secondaryAllIn={p.secondaryDollars != null ? allInFromDollars(p.secondaryDollars) : null}
+                priceAllIn={allInFromDollarsV3(p.priceDollars)}
+                secondaryAllIn={p.secondaryDollars != null ? allInFromDollarsV3(p.secondaryDollars) : null}
                 urgencyLabel={p.endingSoon ? endingSoonLabel(p.endsAtMs) : null}
                 onPress={() => router.push(target as never)}
               />
@@ -403,6 +438,7 @@ function toInput(row: BidRow) {
   return {
     amount: row.amount,
     purchaseTransferStatus: row.purchaseTransferStatus,
+    purchaseBuyerConfirmedAt: row.purchaseBuyerConfirmedAt,
     needsDeliveryInfo: row.needsDeliveryInfo,
     transferId: row.transferId,
     listing: row.listing
@@ -420,10 +456,11 @@ function toInput(row: BidRow) {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: v2.surface.canvas },
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  container: { flex: 1, backgroundColor: p.surface.canvas },
   header: { paddingHorizontal: v2.space.lg, paddingBottom: v2.space.md },
-  title: { color: v2.text.primary },
+  title: { color: p.text.primary },
   segments: {
     flexDirection: 'row',
     gap: v2.space.sm,
@@ -434,12 +471,22 @@ const s = StyleSheet.create({
   notice: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: v2.space.sm,
-    paddingBottom: v2.space.md,
+    gap: v2.space.md,
+    backgroundColor: p.surface.surface,
+    borderRadius: v2.radius.sm,
+    paddingVertical: v2.space.md,
+    paddingRight: v2.space.md,
+    marginBottom: v2.space.md,
+    overflow: 'hidden',
   },
-  noticeText: { color: v2.text.muted, flexShrink: 1 },
-  noticeAction: { color: v2.brand.red },
+  noticeEdge: { alignSelf: 'stretch', width: 3, backgroundColor: p.status.warning },
+  noticeText: { color: p.text.secondary, flex: 1 },
+  noticeAction: { color: p.text.primary },
   skeletonRow: { flexDirection: 'row', gap: v2.space.md, paddingVertical: v2.space.md },
+  // The poster frame is rounded at the media step now, so the box standing in for it is too —
+  // otherwise the corners visibly change shape at the moment the artwork arrives. MEDIA_RADIUS is
+  // imported rather than restated: the slot and this placeholder must not drift apart.
+  skeletonArt: { borderRadius: MEDIA_RADIUS },
   skeletonBody: { flex: 1, justifyContent: 'center' },
-});
+  });
+}

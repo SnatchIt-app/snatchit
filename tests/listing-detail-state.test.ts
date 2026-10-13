@@ -14,7 +14,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import {
+import { LISTING_READ_FAILED_COPY,
   detailState,
   listingActions,
   listingStatus,
@@ -96,14 +96,64 @@ describe('transaction mode', () => {
   });
 });
 
-describe('actions — the Buy Now hierarchy', () => {
-  it('leads with Buy Now and offers bidding beside it', () => {
-    // THE REGRESSION THIS LOCKS DOWN: Buy Now used to be the grey outlined
-    // button and Place Bid the red one.
-    const { primary, secondary } = listingActions(withBuyNow());
-    expect(primary.kind).toBe('buy_now');
-    expect(primary.label).toContain('$66');
-    expect(secondary?.kind).toBe('place_bid');
+describe('actions — the hierarchy when both are available', () => {
+  it('leads with the BID and offers Buy Now beneath it (owner ruling 2026-09-25, Option B)', () => {
+    /*
+     * SETTLED, and it supersedes the earlier Buy-Now-first hierarchy this suite used to lock down:
+     * "Place a bid is first, full-width and red. Its minimum all-in amount sits beneath the label
+     * inside the button. Buy Now is second, full-width and outlined."
+     *
+     * Asserted on the RESOLVER rather than on the screen because that is where the owner required
+     * it to live: the footer paints `primary` filled-red first and `secondary` outlined below, so
+     * a screen-level override would let other consumers of the resolver disagree with the footer.
+     */
+    const { primary, secondary } = listingActions(withBuyNow({ nextBidAllIn: '$104.50' }));
+    expect(primary.kind).toBe('place_bid');
+    // The minimum rides INSIDE the leading button, as its sub-label.
+    expect(primary.subLabel).toBe('minimum $104.50 all-in');
+    expect(secondary?.kind).toBe('buy_now');
+    // Buy Now keeps its quantity-aware label, its price and its subline, exactly as approved.
+    expect(secondary?.label).toContain('$66');
+    expect(secondary?.subLabel).toBe('all-in, ends the auction');
+    // And the superseded arrangement is gone, not merely unasserted.
+    expect(primary.kind).not.toBe('buy_now');
+  });
+
+  it('the ruling reaches ONLY the both-available state — every other state keeps its action', () => {
+    /*
+     * The owner was explicit: "Do not force this pair onto reserved, sold, ended, own-listing or
+     * other states with different valid actions." A hierarchy change is the kind of edit that
+     * leaks, so each state is named and pinned rather than covered by a sweep.
+     */
+    const states: [string, DetailStateInput][] = [
+      ['auction only', input()],
+      ['reserved by me', input({ listing: { status: 'reserved' }, reservationActive: true })],
+      ['reserved by someone else', input({ listing: { reserved_by: 'other' }, reservationActive: true })],
+      ['own listing', input({ listing: { seller_id: 'me' }, userId: 'me' })],
+      ['sold', input({ listing: { status: 'sold' } })],
+      ['auction ended', input({ listing: { auction_status: 'ended' } })],
+      ['cancelled', input({ listing: { auction_status: 'cancelled' } })],
+      ['clock ended', input({ clockEnded: true })],
+      ['won it', input({ listing: { auction_status: 'ended', winner_user_id: 'me' }, userId: 'me' })],
+      // The pair itself, as the control: the invariant below must be able to find it.
+      ['both available', withBuyNow()],
+    ];
+    for (const [name, i] of states) {
+      const actions = listingActions(i);
+      const isThePair = actions.primary.kind === 'place_bid' && actions.secondary?.kind === 'buy_now';
+      expect(isThePair, `${name}: the pair appears iff both actions are valid`)
+        .toBe(transactionMode(i) === 'auction_and_buy_now');
+      // Outside that one mode the screen offers a single action, so nothing sits beside it.
+      if (transactionMode(i) !== 'auction_and_buy_now') {
+        expect(actions.secondary, `${name} has no second button`).toBeNull();
+      }
+    }
+    /*
+     * NOT asserted, because it does not exist: a "buy-now-only" state. `transactionMode` has no
+     * branch that drops bidding — every row carries an auction (`starting_bid` and `ends_at` are
+     * NOT NULL), so Buy Now is always an addition. A first draft of this test asserted such a
+     * state and failed, which is the useful kind of failure: the state was mine, not the product's.
+     */
   });
 
   it('leads with bidding, and offers nothing else, when there is no Buy Now', () => {
@@ -112,15 +162,66 @@ describe('actions — the Buy Now hierarchy', () => {
     expect(secondary).toBeNull();
   });
 
+  it('V3 (O-2): the bid CTA says what it does — it OPENS bid entry, it does not submit', () => {
+    // ListingDetailScreen routes place_bid to router.push('/bid/…') — nothing is submitted from
+    // the listing. So the label is "Place a bid", and the minimum travels as an informational
+    // sub-line, never as a price the button would submit.
+    const bidOnly = listingActions(input({ nextBidAllIn: '$104.50' }));
+    expect(bidOnly.primary.kind).toBe('place_bid');
+    expect(bidOnly.primary.label).toBe('Place a bid');
+    expect(bidOnly.primary.subLabel).toBe('minimum $104.50 all-in');
+    expect(bidOnly.primary.label).not.toMatch(/\$/);
+
+    // Beside Buy Now the bid now LEADS (owner 2026-09-25), and it still submits nothing — the
+    // label is the same verb and the minimum is still an informational sub-line.
+    const both = listingActions(withBuyNow({ nextBidAllIn: '$104.50' }));
+    expect(both.primary.kind).toBe('place_bid');
+    expect(both.primary.label).toBe('Place a bid');
+    expect(both.primary.subLabel).toBe('minimum $104.50 all-in');
+    expect(both.primary.label).not.toMatch(/\$/);
+
+    // No all-in supplied (e.g. closed, or the price is still loading): no number is invented.
+    expect(listingActions(input()).primary.subLabel).toBeUndefined();
+
+    // §5: Buy Now beside a live auction carries its truth — all-in, and it ends the auction.
+    expect(both.secondary?.kind).toBe('buy_now');
+    expect(both.secondary?.subLabel).toBe('all-in, ends the auction');
+  });
+
+  it('V3 (owner ruling 2026-09-22): the buy-now verb counts the tickets — the price is the WHOLE listing', () => {
+    // "Buy both now" for two; other quantities named accurately; one ticket needs no counting.
+    // Beside a live auction the buy-now action is the SECONDARY (owner 2026-09-25); its label,
+    // price and subline are unchanged by that ruling, which is what these assertions protect.
+    const two = listingActions(withBuyNow({ listing: { quantity: 2 } }));
+    expect(two.secondary?.label).toBe('Buy both now · $66');
+    const three = listingActions(withBuyNow({ listing: { quantity: 3 } }));
+    expect(three.secondary?.label).toBe('Buy all 3 now · $66');
+    const one = listingActions(withBuyNow({ listing: { quantity: 1 } }));
+    expect(one.secondary?.label).toBe('Buy now · $66');
+    // Quantity unknown to the caller: no count is invented.
+    expect(listingActions(withBuyNow()).secondary?.label).toBe('Buy now · $66');
+    // The whole-listing identification also survives a missing price string. (Built via input():
+    // withBuyNow force-sets buyNowAllIn after its overrides.)
+    const priceless = listingActions(input({
+      listing: { buy_now_enabled: true, buy_now_price: 60, quantity: 2 },
+      buyNowAllIn: null,
+    }));
+    expect(priceless.secondary?.label).toBe('Buy both now');
+    // The bid leads beside Buy Now (owner 2026-09-25).
+    expect(two.primary.kind).toBe('place_bid');
+    expect(two.secondary?.kind).toBe('buy_now');
+  });
+
   it('never shows an auction price as the Buy Now price', () => {
     // No all-in string supplied means no number is invented for the label.
-    const { primary } = listingActions(
+    const { secondary } = listingActions(
       input({
         listing: { ...input().listing, buy_now_enabled: true, buy_now_price: 60 },
         buyNowAllIn: null,
       }),
     );
-    expect(primary.label).toBe('Buy now');
+    // The buy-now action is the SECONDARY beside a live auction (owner 2026-09-25).
+    expect(secondary?.label).toBe('Buy now');
   });
 });
 
@@ -385,3 +486,49 @@ describe('listing detail — shipped-source guards', () => {
     }
   });
 });
+
+describe('V3 §5 — the failed-read copy claims nothing it cannot know', () => {
+  it('says the read failed and that nothing left this screen; never anything about server state', () => {
+    expect(LISTING_READ_FAILED_COPY.title).toBe("We couldn't load this listing");
+    expect(LISTING_READ_FAILED_COPY.body).toBe(
+      "Nothing was sent from this screen — we couldn't read the listing. Check your connection and try again.",
+    );
+    expect(LISTING_READ_FAILED_COPY.retry).toBe('Try again');
+    const all = `${LISTING_READ_FAILED_COPY.title} ${LISTING_READ_FAILED_COPY.body}`.toLowerCase();
+    expect(all).not.toMatch(/your bid|unchanged|reserved|refund|charged|sold|released/);
+  });
+
+  it('the screen renders it on a non-network failure, with Try again wired to the read (source pins)', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync('src/screens/ListingDetailScreen.tsx', 'utf8');
+    expect(src).toContain('title={LISTING_READ_FAILED_COPY.title}');
+    expect(src).toContain('body={LISTING_READ_FAILED_COPY.body}');
+    expect(src).toContain('label: LISTING_READ_FAILED_COPY.retry, onPress: () => fetchData()');
+    expect(src).toContain('<ScreenState state="offline"');   // offline keeps its own state
+  });
+
+  it("F-V3-READFAIL-1: the copy can never render AFTER a reservation left this screen", async () => {
+    // D's trace (2026-09-24, verified line by line): reserve_buy_now succeeds, the post-write
+    // refetch runs NON-silent, a failed read there sets `error`, navigation proceeds anyway, and
+    // on return the screen says "Nothing was sent from this screen" — right after a reservation
+    // WAS sent and checkout may have created a PaymentIntent on mount. The invariant that keeps
+    // the sentence true is structural: only reads that precede any send may set `error`, so the
+    // post-reserve refresh must be SILENT — a refresh failure keeps the loaded screen, it does
+    // not replace it with a false reassurance.
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync('src/screens/ListingDetailScreen.tsx', 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+    const block = src.slice(src.indexOf("supabase.rpc('reserve_buy_now'"), src.indexOf('navigateToCheckout();', src.indexOf("supabase.rpc('reserve_buy_now'")));
+    expect(block.length).toBeGreaterThan(0);
+    expect(block, 'the post-reserve refresh must be silent').toContain('fetchData(true)');
+    expect(block, 'a non-silent read after the write re-opens the defect').not.toMatch(/fetchData\(\)/);
+    // …and the error state remains reachable only from reads that precede any send: the initial
+    // load and the retry controls that render only once error is already set.
+    const bare = [...src.matchAll(/fetchData\(\)/g)].length;
+    const retries = [...src.matchAll(/onPress: \(\) => fetchData\(\)|onRetry=\{\(\) => fetchData\(\)\}/g)].length;
+    expect(bare - retries, 'every bare fetchData() must be a retry control').toBe(0);
+    // …and the one explicit non-silent call is the initial load, which precedes any send.
+    expect([...src.matchAll(/fetchData\(false\)/g)].length).toBe(1);
+  });
+});
+

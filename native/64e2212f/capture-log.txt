@@ -1,0 +1,26 @@
+C-operated capture at 64e2212f (v3/midnight-app) — W-6, the payout line
+========================================================================
+Window declared to C; B had released the device and Metro, and I held both from boot to
+shutdown. Metro through the repaired guard. Frame banner-gated, size read either side.
+
+payout-setup-default-light-Coperated.png
+
+READ THIS BEFORE USING THE FRAME AS EVIDENCE: it does NOT show the changed sentence.
+
+The screen renders its `not_connected` state — "SET UP PAYOUTS", a "Not connected" chip and the
+"Set up payouts" button. The W-6 copy lives in the `connected` branch of the same status map,
+and that status comes from a server probe with no fixture seam, so reaching it needs an
+authenticated account with a connected Stripe account. Repeat sign-in is waived, so that state
+is out of reach from here — the same boundary that blocks the Edit platform picker.
+
+What the frame IS good for: it shows the reachable state of this screen at the served commit,
+unchanged and undisturbed by the edit. What it is not: proof of the new sentence.
+
+The change is held by P-COPY1 and P-COPY2 in tests/transfer-read-and-payout-claims.test.ts,
+which read the source. Three mutants, each predicted and digest-restored: restoring the rate
+kills P-COPY1, dropping the refund clause kills P-COPY1, and re-promising the payout on the SALE
+rather than the release kills P-COPY2 — A's older ruling, which was unguarded until now.
+
+A source pin is weaker than a render, and I am not dressing it up as more: nobody has SEEN this
+sentence on a device. If that matters before release, it needs the one thing this review has not
+had — an authenticated session with a connected Stripe account.

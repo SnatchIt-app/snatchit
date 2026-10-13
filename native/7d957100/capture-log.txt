@@ -1,0 +1,34 @@
+C-operated capture at 7d957100 (v3/midnight-app) — W-2b, the sold panel's fee sentence
+=======================================================================================
+Window declared to C; B had released the device and Metro, and I held both from boot to
+shutdown. Metro through the repaired guard, cwd read from the kernel. Frame banner-gated,
+content size read either side.
+
+listing-sold-default-light-Coperated.png
+  "SOLD FOR  $132.00 total" — the amount is untouched
+  "Price includes the service fee." — the rate is gone
+
+THE PIXEL DIFF, AND WHAT IT DID NOT SHOW
+-----------------------------------------
+Before and after at the same scroll position (top of the sold screen) differ ONLY at x 239-269,
+y 70-107 px — the status-bar clock. That is a true result and a useless one: the fee sentence
+sits below the fold, so the diff proves nothing about the sentence and only that nothing else
+on that screen moved. The frame above, scrolled to the panel, is what actually shows the change.
+Recorded because a clean diff over the wrong region is the kind of evidence that reads as proof
+and is not.
+
+A CORRECTION TO MY OWN EARLIER COUNT
+------------------------------------
+When W-2 landed I reported "three user-facing 10% claims". That came from a grep I had cut off
+with `head`, and it was wrong. The complete list of user-facing claims, as of this commit:
+
+  FIXED by W-2    ListingDetailScreen.tsx  "Service fee (10%)" -> "Service fee"
+  FIXED by W-2    TransactionPanel.tsx:136 the same
+  FIXED by W-2b   TransactionPanel.tsx:80  "Price includes the service fee."
+  NOT CHANGED     src/lib/bid/bidEntry.ts:133 and :143 — the bid confirmation, "If you win,
+                  you'll pay $X total (includes the 10% service fee)". Same claim, different
+                  surface, outside this decision. REPORTED, not fixed.
+  NOT MINE        app/settings/legal.tsx:94, 211-212 — legal text, the owner's.
+  NOT MINE        app/settings/payout-setup.tsx:159 — the SELLER fee, a question for A.
+
+Everything else matching "10%" in the app is a code comment or an unrelated colour value.

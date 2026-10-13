@@ -25,10 +25,20 @@
  *
  * The 18+ gate and the Terms / Privacy disclosure are unchanged and still gate the
  * account-creation step.
+ *
+ * V3 (pkg8-account-auth boards): sentence-case screen titles; the step eyebrow in
+ * the boards' warning ink; the legal disclosure BELOW the step-1 CTA; the 18+
+ * checkbox rounded with a primary-ink fill (red stays actions — the same treatment
+ * Create's commitment checkbox carries); Back on steps 3 and 4 sits at the leading
+ * edge. The password rule STAYS a persistent helper under the field, although the
+ * board letters it inside the field: the owner's 2026-09-24 required-field ruling
+ * (tests/v3-field-prompts FP2) forbids a rule that vanishes on the first keystroke,
+ * and the ruling governs the board. Every supabase.auth call keeps its exact call
+ * and ordering.
  */
 
 import { Link, router } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
@@ -60,10 +70,14 @@ import { AuthScreen } from '@/src/components/auth/AuthScreen';
 import { GenderSelect } from '@/src/components/auth/GenderSelect';
 import { formatPhoneDisplay, normalizeUSPhone, PHONE_DISPLAY_MAXLENGTH } from '@/src/utils/phone';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 
 export default function SignUpScreen() {
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const [step, setStep] = useState<SignupStep>('account');
 
   const [email, setEmail] = useState('');
@@ -80,6 +94,9 @@ export default function SignUpScreen() {
 
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: 'error' | 'success' } | null>(null);
+  // F3: set when the number verified but the profile write failed; the next press retries the
+  // write only (the OTP is single-use and already consumed).
+  const profileRetryRef = useRef(false);
 
   // Never leave the root redirect held because a screen went away.
   useEffect(() => () => {
@@ -158,6 +175,10 @@ export default function SignUpScreen() {
     if (error) { fail(otpErrorCopy(classifyOtpError(error, 'send'))); return; }
 
     setCode('');
+    // B-D9: a new code was issued, so the next Create account must verify it. The F3 retry flag
+    // skips verifyOtp only for the number that already verified; a resend (same or changed number)
+    // withdraws that, or an unverified number could be written as the verified one.
+    profileRetryRef.current = false;
     startCooldown();
     setStep('verify');
   }
@@ -172,15 +193,27 @@ export default function SignUpScreen() {
     setLoading(true);
     setMessage(null);
 
-    const { error } = await supabase.auth.verifyOtp({ phone: e164, token: code.trim(), type: 'phone_change' });
+    // F3: once the number is verified, a failed profile write must not be lost behind a
+    // successful verification. The code is single-use, so the retry skips verifyOtp and only
+    // repeats the (idempotent) write; the gate stays raised until the write succeeds.
+    if (!profileRetryRef.current) {
+      const { error } = await supabase.auth.verifyOtp({ phone: e164, token: code.trim(), type: 'phone_change' });
 
-    if (error) {
-      setLoading(false);
-      fail(otpErrorCopy(classifyOtpError(error, 'verify')));
-      return;
+      if (error) {
+        setLoading(false);
+        fail(otpErrorCopy(classifyOtpError(error, 'verify')));
+        return;
+      }
     }
 
-    await persistProfile();
+    const saved = await persistProfile();
+    if (!saved.ok) {
+      profileRetryRef.current = true;
+      setLoading(false);
+      fail(`Your number is verified, but we couldn't save your ${saved.what}. Try again.`);
+      return;
+    }
+    profileRetryRef.current = false;
 
     setLoading(false);
     // Releasing the gate hands navigation back: _layout sees the session and
@@ -193,16 +226,20 @@ export default function SignUpScreen() {
    * second copy: display_name and phone_number are the ones Edit profile writes,
    * and gender goes through the kernel demographics RPC, which is owner scoped and
    * validates the value itself.
+   *
+   * Returns whether everything was written. A failure names what was not saved, in the
+   * person's words, so the screen can say it and offer to try again (F3). Both writes are
+   * idempotent, so repeating a partially successful one is safe.
    */
-  async function persistProfile() {
+  async function persistProfile(): Promise<{ ok: true } | { ok: false; what: string }> {
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!user) return { ok: false, what: 'details' };
 
     const { error: profileErr } = await supabase
       .from('profiles')
       .update({ display_name: name.trim(), phone_number: normalizeUSPhone(phone) })
       .eq('id', user.id);
-    if (profileErr) console.warn('[signup] profile write failed:', profileErr.message);
+    if (profileErr) return { ok: false, what: 'name' };
 
     if (gender) {
       const { error: genderErr } = await (supabase as any)
@@ -211,8 +248,9 @@ export default function SignUpScreen() {
           p_gender_identity: gender,
           p_notice_version: DEMOGRAPHIC_NOTICE_VERSION,
         });
-      if (genderErr) console.warn('[signup] demographics write failed:', genderErr.message);
+      if (genderErr) return { ok: false, what: 'gender' };
     }
+    return { ok: true };
   }
 
   const messageRow = message ? (
@@ -226,12 +264,12 @@ export default function SignUpScreen() {
 
   const backRow = canGoBack(step) ? (
     <Pressable onPress={() => { setMessage(null); setStep(prevStep(step)); }} style={s.alt} hitSlop={8} accessibilityRole="button">
-      <Text style={[textStyle('bodySm'), s.altText]}>Back</Text>
+      <Text style={[textStyle('action'), s.altText]}>Back</Text>
     </Pressable>
   ) : null;
 
   const progress = stepIndex(step) >= 0 ? (
-    <Text style={[textStyle('micro'), s.progress]}>Step {stepIndex(step) + 1} of {SIGNUP_STEP_COUNT}</Text>
+    <Text style={[textStyle('sectionLabel'), s.progress]}>Step {stepIndex(step) + 1} of {SIGNUP_STEP_COUNT}</Text>
   ) : null;
 
   return (
@@ -240,7 +278,7 @@ export default function SignUpScreen() {
 
       {step === 'account' ? (
         <>
-          <Text style={[textStyle('displayLg'), s.title]} accessibilityRole="header">Create account</Text>
+          <Text style={[textStyle('screenTitle'), s.title]} accessibilityRole="header">Create account</Text>
 
           <View style={s.fields}>
             <Input
@@ -256,7 +294,7 @@ export default function SignUpScreen() {
             />
             <Input
               label="Password"
-              placeholder="At least 6 characters"
+              helper="At least 6 characters"
               value={password}
               onChangeText={setPassword}
               secureTextEntry
@@ -284,14 +322,6 @@ export default function SignUpScreen() {
             <Text style={[textStyle('bodySm'), s.ageText]}>I confirm I am 18 years of age or older.</Text>
           </Pressable>
 
-          {/* Legal disclosure — App Store Guideline 5.1.1 */}
-          <Text style={[textStyle('bodySm'), s.legal]}>
-            By creating an account you agree to our{' '}
-            <Text style={s.legalLink} onPress={() => router.push('/settings/legal')} accessibilityRole="link">Terms of Service</Text>
-            {' '}and{' '}
-            <Text style={s.legalLink} onPress={() => router.push('/settings/privacy')} accessibilityRole="link">Privacy Policy</Text>.
-          </Text>
-
           <Button
             label="Continue"
             onPress={submitAccount}
@@ -300,6 +330,14 @@ export default function SignUpScreen() {
             block
             style={s.cta}
           />
+
+          {/* Legal disclosure — App Store Guideline 5.1.1. The boards set it under the CTA. */}
+          <Text style={[textStyle('bodySm'), s.legal]}>
+            By creating an account you agree to our{' '}
+            <Text style={s.legalLink} onPress={() => router.push('/settings/legal')} accessibilityRole="link">Terms of Service</Text>
+            {' '}and{' '}
+            <Text style={s.legalLink} onPress={() => router.push('/settings/privacy')} accessibilityRole="link">Privacy Policy</Text>.
+          </Text>
 
           <Link href="/(auth)/login" asChild>
             <Pressable style={s.link} accessibilityRole="button">
@@ -313,7 +351,7 @@ export default function SignUpScreen() {
 
       {step === 'about' ? (
         <>
-          <Text style={[textStyle('displayLg'), s.title]} accessibilityRole="header">About you</Text>
+          <Text style={[textStyle('screenTitle'), s.title]} accessibilityRole="header">About you</Text>
 
           <View style={s.fields}>
             <Input
@@ -338,7 +376,7 @@ export default function SignUpScreen() {
 
       {step === 'phone' ? (
         <>
-          <Text style={[textStyle('displayLg'), s.title]} accessibilityRole="header">Mobile number</Text>
+          <Text style={[textStyle('screenTitle'), s.title]} accessibilityRole="header">Mobile number</Text>
           <Text style={[textStyle('body'), s.subtitle]}>
             We text you a 6-digit code. Your number is how you sign in from now on.
           </Text>
@@ -365,7 +403,7 @@ export default function SignUpScreen() {
 
       {step === 'verify' ? (
         <>
-          <Text style={[textStyle('displayLg'), s.title]} accessibilityRole="header">Verify number</Text>
+          <Text style={[textStyle('screenTitle'), s.title]} accessibilityRole="header">Verify number</Text>
           <Text style={[textStyle('body'), s.subtitle]}>Code sent to {formatPhoneDisplay(phone)}</Text>
 
           <Input
@@ -404,7 +442,7 @@ export default function SignUpScreen() {
 
       {step === 'check_email' ? (
         <>
-          <Text style={[textStyle('displayLg'), s.title]} accessibilityRole="header">Check your email</Text>
+          <Text style={[textStyle('screenTitle'), s.title]} accessibilityRole="header">Check your email</Text>
           {messageRow}
           <Button label="Go to sign in" onPress={() => router.replace('/(auth)/login')} block style={s.cta} />
         </>
@@ -413,27 +451,32 @@ export default function SignUpScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  progress: { color: v2.text.muted, marginBottom: v2.space.sm },
-  title: { color: v2.text.primary, marginBottom: v2.space.xl },
-  subtitle: { color: v2.text.secondary, marginBottom: v2.space.lg, marginTop: -v2.space.md },
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  progress: { color: p.status.warning, marginBottom: v2.space.sm },
+  title: { color: p.text.primary, marginBottom: v2.space.xl },
+  subtitle: { color: p.text.secondary, marginBottom: v2.space.lg, marginTop: -v2.space.md },
   fields: { gap: v2.space.lg },
-  error: { color: v2.status.error, marginTop: v2.space.md },
-  success: { color: v2.status.success, marginTop: v2.space.md },
+  error: { color: p.status.error, marginTop: v2.space.md },
+  success: { color: p.status.success, marginTop: v2.space.md },
   ageRow: { flexDirection: 'row', alignItems: 'center', minHeight: 44, marginTop: v2.space.lg },
   checkbox: {
-    width: 22, height: 22, borderWidth: 2, borderColor: v2.border.strong,
+    width: 24, height: 24, borderRadius: v2.radius.sm,
+    borderWidth: 2, borderColor: p.border.control,
     alignItems: 'center', justifyContent: 'center', marginRight: v2.space.sm,
   },
-  checkboxOn: { backgroundColor: v2.brand.red, borderColor: v2.brand.red },
-  checkMark: { color: v2.text.inverse, fontSize: 14, fontWeight: '700', lineHeight: 18 },
-  ageText: { flex: 1, color: v2.text.secondary },
-  legal: { color: v2.text.muted, marginTop: v2.space.sm, marginBottom: v2.space.xs },
-  legalLink: { color: v2.brand.red, textDecorationLine: 'underline' },
+  // Primary-ink fill: red stays actions (the same treatment Create's checkbox carries).
+  checkboxOn: { backgroundColor: p.text.primary, borderColor: p.text.primary },
+  checkMark: { color: p.surface.canvas, fontSize: 14, fontWeight: '700', lineHeight: 18 },
+  ageText: { flex: 1, color: p.text.secondary },
+  legal: { color: p.text.muted, marginTop: v2.space.lg },
+  legalLink: { color: p.brand.redText, textDecorationLine: 'underline' },
   cta: { marginTop: v2.space.lg },
-  alt: { alignItems: 'center', marginTop: v2.space.lg, minHeight: 44, justifyContent: 'center' },
-  altText: { color: v2.text.muted },
+  // The boards set Back at the leading edge on steps 3 and 4.
+  alt: { alignItems: 'flex-start', marginTop: v2.space.xl, minHeight: 44, justifyContent: 'center' },
+  altText: { color: p.text.primary },
   link: { alignItems: 'center', marginTop: v2.space.lg },
-  linkText: { color: v2.text.muted },
-  linkAccent: { color: v2.brand.red },
-});
+  linkText: { color: p.text.muted },
+  linkAccent: { color: p.brand.redText },
+  });
+}

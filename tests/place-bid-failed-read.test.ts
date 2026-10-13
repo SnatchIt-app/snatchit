@@ -39,11 +39,15 @@ const h = vi.hoisted(() => {
 });
 
 vi.mock('react-native', () => ({
+  // B-D7: the screens read fontScale for the shared stacking rule; the default window keeps the unstacked branch.
+  useWindowDimensions: () => ({ width: 393, height: 852, scale: 3, fontScale: 1 }),
   Alert: { alert: () => {} },
   ScrollView: 'ScrollView', Text: 'Text', View: 'View',
   StyleSheet: { create: <T,>(s: T) => s },
 }));
 vi.mock('expo-router', () => ({ router: { push: () => {}, back: () => {} } }));
+// V3 footer: the screen reads the bottom inset itself now (StickyBar used to, behind the ui mock).
+vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) }));
 vi.mock('@/src/hooks/useAuth', () => ({ useAuth: () => ({ user: h.user }) }));
 vi.mock('@/src/hooks/useNetworkStatus', () => ({ useNetworkStatus: () => h.network }));
 vi.mock('@/src/components/ScreenState', () => ({ default: 'ScreenState' }));
@@ -52,7 +56,12 @@ vi.mock('@/src/components/ui', () => ({
 }));
 vi.mock('@/src/lib/feedback/haptics', () => ({ hapticConfirm: () => {} }));
 vi.mock('@/src/lib/nav/navInsets', () => ({ useTopInset: () => 0 }));
-vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3 }));
+vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3, AMOUNT_MIN_FONT_SCALE: 0.6 }));
+vi.mock('@/src/theme/appearance', async () => {
+  const { dark } = await import('@/src/theme/palette');
+  return { useTheme: () => ({ scheme: 'dark', palette: dark }) };
+});
+
 // v2 tokens are pure values — the real module, so the screen's styles resolve exactly as they ship.
 vi.mock('@/src/lib/supabase', () => {
   const chain = () => {
@@ -94,7 +103,11 @@ function view(host: HookHost): View {
   const screen = findElement(tree, (el) => el.type === 'ScreenState');
   if (screen) return { state: screen.props.state };
   if (findElement(tree, (el) => el.type === 'Spinner')) return 'loading';
-  if (buttonByLabel(tree, 'Place bid')) return { form: true, texts: textsOf(tree) };
+  // V3 de-dup (owner 2026-09-23): the total sits BESIDE the action, so the submit label is the
+  // plain verb again.
+  if (findElement(tree, (el) => el.type === 'Button' && el.props.label === 'Place bid')) {
+    return { form: true, texts: textsOf(tree) };
+  }
   return BLANK;
 }
 
@@ -169,8 +182,12 @@ describe('F-BID-1 — a failed listing read never becomes a bid form', () => {
     expect(view(host)).toHaveProperty('form', true);
     const joined = screenText(host.output);
     expect(joined).toContain('Sandbox L6');
-    expect(joined).toContain('$100');   // the current bid the server reported
-    expect(joined).toContain('$105');   // floor = current + MIN_BID_INCREMENT
+    // R-1 (owner 2026-09-23) still holds on the V3 row (pkg8, 2026-09-24): the market price is
+    // the UNDERLYING bid in the editable bid's units — now a labelled row with a 2dp display of
+    // the SERVER's number, never an invented floor - the regression this guards.
+    expect(joined).toContain('Starting bid');
+    expect(joined).toContain('$100.00');
+    expect(joined).toContain('$105.00');   // floor = current + MIN_BID_INCREMENT
     expect(joined).not.toContain('$0');
   });
 

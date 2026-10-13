@@ -222,7 +222,22 @@ export async function decideCheckoutSetup<Intent>(
     if (input.mode === 'buy_now') {
       const listing = await deps.fetchListing(input.listingId);
       if (!listing) return { kind: 'reservation_unverifiable' };
-      if (!holdIsMine(listing, input.buyerId, now)) return { kind: 'not_held' };
+      if (!holdIsMine(listing, input.buyerId, now)) {
+        // F6 (C's audit, 2026-10-12): the payment can settle between read 1 and the listing read. The webhook marks
+        // the listing sold, and this is likeliest on the 3-D Secure return. `not_held` says "Nothing was charged", so
+        // read the settled payments once more first. A failed re-read establishes nothing.
+        let again: Awaited<ReturnType<SetupDeps<Intent>['fetchSettledPayment']>>;
+        try {
+          again = await deps.fetchSettledPayment(input.listingId, input.buyerId);
+        } catch (e) {
+          return { kind: 'payment_status_unknown', detail: e instanceof Error ? e.message : String(e) };
+        }
+        const settledAgain = pickSettled(again);
+        if (settledKind(settledAgain) === 'already_settled') return { kind: 'already_settled' };
+        const refundAgain = refundStateFor(settledAgain);
+        if (refundAgain) return refundAgain;
+        return { kind: 'not_held' };
+      }
     }
 
     // 3. Create (or server-side reuse) the intent — once.
@@ -280,6 +295,20 @@ export async function decideRevalidation(
   if (listing && holdIsMine(listing, input.buyerId, input.now)) {
     return { kind: 'held', reservedUntilMs: new Date(listing.reserved_until as string).getTime() };
   }
+  // F6, the same race as in decideCheckoutSetup: `lost` says "Nothing was charged", so read the settled payments once
+  // more first. settle_verified_payment commits payment 'succeeded' and listing 'sold' in one transaction, so a re-read
+  // that starts after a 'sold' listing read sees the buyer's own succeeded row.
+  let again: SettledRead;
+  try {
+    again = await deps.readSettled();
+  } catch (e) {
+    again = { error: { code: null, message: e instanceof Error ? e.message : String(e) } };
+  }
+  if ('error' in again) return { kind: 'payment_status_unknown', detail: `${again.error.code ?? 'no-code'}: ${again.error.message}` };
+  const settledAgain = pickSettled(again.rows);
+  if (settledKind(settledAgain) === 'already_settled') return { kind: 'already_settled' };
+  const refundAgain = refundStateFor(settledAgain);
+  if (refundAgain) return refundAgain;
   return { kind: 'lost' };
 }
 

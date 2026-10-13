@@ -1,0 +1,187 @@
+C-operated captures at 9bbeaec6c28d0d571bcae105049117b77ba667c0 (v3/midnight-app)
+=================================================================================
+FRESH default-size Settings and Appearance frames, Light and Dark. Taken 2026-10-11 to close
+the one evidence gap the owner named: every earlier default-size claim in this batch rested on
+a comparison whose post-change input no longer existed.
+
+
+WHY THESE FOUR FRAMES EXIST
+---------------------------
+The four default-size frames filed under native/1ab2c8e2/ are BYTE-IDENTICAL to the four under
+native/b64e5dd6/ — same blob hashes, all four. There was exactly one default-size Settings and
+Appearance capture set in the whole batch, taken at b64e5dd6, filed under two commit directories.
+
+The 1ab2c8e2 capture log says so in prose, and justifies the second filing with a re-shoot that
+"differs from the b64e5dd6 frame by ZERO pixels below y=440". That re-shoot was not kept. The
+same pattern repeats at e6a38aef and 1a6ac1c3, where the record states "Default size matches
+1ab2c8e2 by pixel diff (0 differing pixels below the header)" and only the a3xl frames were
+retained. Three default-size claims, and not one of them could be re-checked by anyone.
+
+These four frames are new captures at the served tip. Both inputs of the comparison below are
+now committed, so the claim is checkable by B, E or the owner without taking the device.
+
+
+WHAT WAS SERVED
+---------------
+Served commit     9bbeaec6c28d0d571bcae105049117b77ba667c0, branch v3/midnight-app
+                  Read with `git rev-parse HEAD` while Metro was already listening, not assumed.
+                  The pipeline trap at 2ada44bd is why it is read rather than inferred.
+Working tree      clean of source changes. The only entries are the documented .claude/launch.json
+                  migration edit and B's six untouched -Boperated PNGs.
+Metro             started in a terminal tab through scripts/dev-web-guard.sh, which passed
+                  (exit 0). Its working directory was read back FROM THE KERNEL
+                  (lsof -a -p <pid> -d cwd) as /Volumes/DEV-SSD/01_SNATCH_IT/repos/snatchit-refund
+                  — the SSD checkout, not the Mac original. No preview tool was used.
+Code under test   The last commit touching SettingsHeader.tsx, SettingsRow.tsx, settings/index.tsx
+                  and settings/appearance.tsx is 1a6ac1c3. 9bbeaec6 therefore serves the FINAL
+                  state of that code; the commits between the two are evidence and other screens.
+Device            SN V3 393x852 (52282259-961E-4A1A-B32B-CEFA858CFF48), iOS 26.5.
+Operator          ONE. Window requested from E at 13:21 and taken under conditions verified in the
+                  same minute: 0 booted devices, 0 listeners on :8081, and no B session present in
+                  the peer list at all. E was told on taking it and on releasing it.
+
+ROUTE AND FIXTURE
+-----------------
+Route             snatchit://_dev/v3-account?screen=settings&appearance=<light|dark>
+                  snatchit://_dev/v3-account?screen=appearance&appearance=<light|dark>
+Why the harness   snatchit://settings signed out does NOT reach the hub. The root layout's auth
+                  gate replaces the route, and the frame comes back as the Sign in screen — I shot
+                  that by mistake first and deleted it rather than file it. app/_dev/ is the one
+                  exemption from that gate, and app/_dev/v3-account.tsx renders the REAL
+                  SettingsScreen and the REAL AppearanceScreen, not copies of them.
+Fixture           Settings hub: SettingsDeletionFixture = 'active' (the harness default, "the plain
+                  hub") — it seeds only the account-status read, nothing the header or rows paint.
+                  Appearance screen: NO fixture. The harness passes none; the screen has no read
+                  to short-circuit.
+                  No sign-in, no session, no waived check touched.
+Appearance        Driven by the ROUTE — the harness's ?appearance=<light|dark> param, which
+                  writes the same preference store Settings writes. That is the one that decides
+                  what the app paints. simctl ui appearance was ALSO set to match, for the status
+                  bar and system chrome, and its value is printed per frame below — but it is a
+                  corroborating read, not the control.
+                  B's finding, recorded because it would otherwise look like belt-and-braces
+                  pedantry: simctl ui appearance does NOT drive this app, because the harness
+                  reads the stored preference. B had an A3XL frame come back Dark while simctl
+                  reported light. Setting both and agreeing on both is what keeps that from
+                  producing a frame filed under the wrong appearance.
+                  For screen=appearance the param is also the case under test — the radio.
+
+ASSERTED TEXT SIZE: default, asserted from the PAINT
+-----------------------------------------------------
+simctl content_size was `large` — the default — and was read immediately BEFORE and AFTER each
+capture. A frame whose two reads disagreed would have been void; none did.
+
+That readback alone is not the assertion, because the app reads content size AT LAUNCH and the
+readback has lied here before. So a decision rule was fixed IN ADVANCE, from frames already
+committed, before any frame was shot — it cannot have been tuned to the result:
+
+  measure max ink band over x 100..1079, y 330..900 with tools/v3-capture/ink2.py
+    <= 30 pt  -> painted at DEFAULT
+    >= 40 pt  -> painted at A3XL
+    between   -> indeterminate, frame NOT accepted
+
+  Committed default frames top out at 24.0 pt. Committed a3xl frames start at 41.7 pt.
+
+Measured on these four frames (all DEFAULT by the rule, with room to spare):
+
+  settings-hub-default-light    bands  9.3 / 7.3 / 16.3 / 13.0 pt      max 16.3
+  settings-hub-default-dark     bands  9.3 / 16.3 / 13.0 pt            max 16.3
+  appearance-default-light      bands  9.3 / 16.0 / 12.0 / 24.0 pt     max 24.0
+  appearance-default-dark       bands  9.3 / 16.3 / 12.0 / 16.7 pt     max 16.7
+
+Per-frame device reads, as printed by fastshot.sh:
+
+  settings-hub-default-light   set=large pre=large post=large appearance=light   13:42:37
+  settings-hub-default-dark    set=large pre=large post=large appearance=dark    13:46:22
+  appearance-default-light     set=large pre=large post=large appearance=light   13:44:58
+  appearance-default-dark      set=large pre=large post=large appearance=dark    13:45:27
+
+
+WHAT THE FRAMES SHOW
+--------------------
+settings-hub-default-{light,dark}   "SETTINGS" whole on one line, plain back chevron, no chip.
+                                    Every row label complete on one line with its chevron: Edit
+                                    profile, Notifications, Phone verification, Payout setup,
+                                    Your scene, Appearance, Blocked users, Help & support.
+appearance-default-{light,dark}     The same shared header on the screen the record's original
+                                    count missed, with the selected radio matching the preference.
+
+THE COMPARISON, with both inputs retained
+-----------------------------------------
+Fresh 9bbeaec6 frame vs the retained b64e5dd6 frame of the same name:
+
+  settings-hub-default-light    0 differing px below y=440   diff bbox (166, 69, 264, 106)
+  settings-hub-default-dark     0 differing px below y=440   diff bbox (162, 69, 267, 107)
+  appearance-default-light      0 differing px below y=440   diff bbox (165, 70, 266, 106)
+  appearance-default-dark       0 differing px below y=440   diff bbox (162, 69, 267, 107)
+
+Every difference in all four is inside a ~105x38 px box in the status bar: the clock. Nothing
+else on any of these screens moved between b64e5dd6 and the served tip.
+
+WHAT THIS DIFF DOES AND DOES NOT DO TO THE OLD CLAIMS (E's labelling rule, 2026-10-11)
+---------------------------------------------------------------------------------------
+These four frames establish DEFAULT-SIZE BEHAVIOUR AT THE FINAL CODE, and nothing more.
+
+They do NOT retroactively verify the earlier diffs. The historical S-1 and S-1b claims — "Default
+size matches 1ab2c8e2 by pixel diff (0 differing pixels below the header)" at e6a38aef and at
+1a6ac1c3, and the re-shoot claim in the 1ab2c8e2 log — remain **UNVERIFIABLE**. Their inputs were
+not kept, and no measurement taken today can reach back and check a comparison whose other half
+no longer exists. They stay recorded as unverifiable, not as confirmed.
+
+What is now checkable is only this: at the served tip, both sides of the comparison above are
+committed — native/b64e5dd6/ and native/9bbeaec6/ — so anyone can re-run it without the device.
+
+B reached the same conclusion from the other direction and recorded an error worth repeating
+here: B "re-ran" the original diff, got zero across the whole frame including the clock, and
+briefly read that as confirmation. It was a file compared with itself — the duplicate described
+above. A zero from two identical inputs has exactly the shape of proof and is not one. That is
+the second reason the old claims cannot be rescued by re-running anything.
+
+
+WHAT THIS DOES NOT ESTABLISH — read before citing it
+----------------------------------------------------
+- It is default size ONLY. It says nothing about a3xl; those frames are elsewhere and unchanged.
+- It is the Settings hub and the Appearance screen only. Not the other nine settings screens, not
+  the profile, not any Listing surface.
+- It is not whole-app acceptance, and it closes no waived item. The Edit platform picker is still
+  UNTESTED behind the waived sign-in. The W-6 payout sentence is still SOURCE-PINNED ONLY and has
+  never been rendered on a device. Spoken VoiceOver is still untested and is optional, not a
+  blocker. None of those changed today and none should be reported as tested.
+- The harness renders the real screens, but it is still a harness route. It does not prove the
+  hub is reachable by a signed-in person navigating normally; the auth gate above it was not
+  exercised, because repeat sign-in is waived.
+
+METHOD NOTES, kept because they cost time
+-----------------------------------------
+1. The first capture attempt failed with "app never came up". That was not the method: it was the
+   cold-start bundle (2357 modules, first launch after a fresh Metro) outrunning cap.sh's 90 s
+   banner gate. The splash screenshots and Metro's own "iOS Bundled 10559ms" line confirm it.
+   Warm relaunches afterwards took well under the gate.
+2. Two frames came back as the Sign in screen. The first was the auth gate (snatchit://settings);
+   the second was a dropped deep link on an otherwise identical command. BOTH were deleted, not
+   filed. A frame that reaches the wrong screen still passes the banner gate and still passes the
+   size bracket — the gate proves the app is up, not that it is where you asked it to go. The
+   band fingerprint caught the second one before I looked at it, because the measured structure
+   did not match the retained frame's.
+3. The pixel diff is what finally distinguishes "right screen" from "plausible screen". Zero
+   differing pixels below the status bar against a known-good frame is a stronger identity check
+   than reading the screenshot.
+
+
+HANDBACK
+--------
+Window closed 2026-10-11 13:46. Metro's terminal tab was closed and the device shut down, then
+verified: 0 booted devices, 0 listeners on :8081. Nothing of mine is running.
+
+The simulator goes back to B. B's five usability conditions, stated in its request, are each met
+by these four frames:
+  1. served SHA read from the serving tree in the same window (git rev-parse with Metro already
+     listening) and used as the directory name — native/9bbeaec6/      met
+  2. banner gate on every frame, via cap.sh                            met
+  3. content_size read BEFORE and AFTER each frame, frame void if they disagree — fastshot.sh
+     brackets it; none disagreed                                       met
+  4. appearance driven by the ROUTE param, not by simctl alone         met (see above)
+  5. every frame a claim rests on kept, including the baseline side    met — both native/b64e5dd6/
+     and native/9bbeaec6/ are committed and pushed
+The A3XL pair was not re-shot. B states A3XL is already settled by paint with its own
+discrimination control, and the owner's gap was default size.

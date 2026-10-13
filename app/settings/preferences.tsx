@@ -14,7 +14,7 @@
  */
 
 import { router } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AccessibilityInfo, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
@@ -26,6 +26,8 @@ import { createCoalescedSaver, type CoalescedSaver } from '@/src/lib/settings/co
 import { Button, Chip, Spinner, StickyBar } from '@/src/components/ui';
 import { SettingsHeader } from '@/src/components/account/SettingsHeader';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 import { NEIGHBORHOODS, NEIGHBORHOOD_LABELS } from '@/src/constants/neighborhoods';
 
@@ -34,6 +36,8 @@ const SCENE_ROLLBACK_NOTICE =
   "We couldn't save that change, so it's back to what you had. Check your connection and try again.";
 
 export default function PreferencesScreen() {
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const { user, loading: authLoading } = useAuth();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -97,7 +101,7 @@ export default function PreferencesScreen() {
     <View style={s.root}>
       <SettingsHeader title="Your scene" />
       {loading ? (
-        <View style={s.center}><Spinner color={v2.brand.red} /></View>
+        <View style={s.center}><Spinner color={palette.brand.red} /></View>
       ) : (
         <>
           <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
@@ -122,11 +126,13 @@ export default function PreferencesScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: v2.surface.canvas },
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  root: { flex: 1, backgroundColor: p.surface.canvas },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   body: { paddingHorizontal: v2.space.lg, paddingTop: v2.space.lg, paddingBottom: v2.space.xxl },
-  helper: { color: v2.text.muted, marginBottom: v2.space.lg },
+  helper: { color: p.text.muted, marginBottom: v2.space.lg },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: v2.space.sm },
-  notice: { color: v2.status.error, marginTop: v2.space.lg },
-});
+  notice: { color: p.status.error, marginTop: v2.space.lg },
+  });
+}

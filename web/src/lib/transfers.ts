@@ -46,7 +46,7 @@ export type TransferStatus =
   | "reversed";
 
 const TRANSFER_COLUMNS =
-  "id, listing_id, status, transfer_method, expires_at, auto_release_at, payout_released_at, payout_review_status, delivery_email, delivery_phone, transfer_evidence_path, seller_sent_at, buyer_confirmed_at, disputed_at, created_at";
+  "id, listing_id, status, transfer_method, expires_at, auto_release_at, payout_released_at, payout_review_status, delivery_email, delivery_phone, transfer_evidence_path, seller_sent_at, buyer_confirmed_at, disputed_at, dispute_resolution, dispute_resolved_at, created_at";
 
 export type TransferView = {
   id: string;
@@ -63,6 +63,10 @@ export type TransferView = {
   seller_sent_at: string | null;
   buyer_confirmed_at: string | null;
   disputed_at: string | null;
+  // 065. A decided dispute must not render as open, and a seller-win
+  // decision must never read as a buyer confirmation (WT §2h, §2i).
+  dispute_resolution: string | null;
+  dispute_resolved_at: string | null;
   created_at: string | null;
   counterpartyName: string | null;
   eventName: string;
