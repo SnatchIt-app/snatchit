@@ -49,12 +49,10 @@ describe('RC3 · legal.tsx wording', () => {
 
 describe('RC3 · C-RC3-1 — no Terms paragraph exceeds the length iOS painted whole', () => {
   /*
-   * On the RC3 50d8fcf1 Release binary (iOS 26.5 simulator, default text size) the full-Terms §6
-   * paragraph — 1,145 rendered characters after the owner's wording — painted its last line cut
-   * mid-word ("…are denomina") with the final words missing, while every paragraph of 973
-   * characters or fewer (§5, the long summary bullets) painted whole. The same screen, same styles.
-   * Until the renderer's limit is understood, a Text node on this screen stays at or under the
-   * longest length seen painting whole; longer prose is split into further Text nodes.
+   * Written when §6's last line vanished on the RC3 binary and length looked like the cause. It was
+   * not (the split node still lost its last line on RC4): the cause is pixel-grid rounding of an
+   * on-grid text height at a fractional offset — see LW6 and the textSlack note in legal.tsx. The cap
+   * stays as a readability guard for the Terms, nothing more.
    */
   const MAX_RENDERED_CHARS = 1000;
   const source = readFileSync('app/settings/legal.tsx', 'utf8');
@@ -69,5 +67,39 @@ describe('RC3 · C-RC3-1 — no Terms paragraph exceeds the length iOS painted w
       const t = norm(m[1]); if (t.length > MAX_RENDERED_CHARS) long.push(`Bullet ${t.length}: ${t.slice(0, 50)}…`);
     }
     expect(long).toEqual([]);
+  });
+});
+
+describe('RC3 · C-RC3-1 — the cause: an on-grid paragraph height can lose a third of a point to rounding', () => {
+  /*
+   * iOS, RN 0.81.5 Fabric: a Text measured at exactly N × lineHeight (RN ceils every measurement to the
+   * pixel grid) can be given a frame 1/3 pt shorter by Yoga's rounding at a fractional absolute offset in a
+   * very tall scroll; the renderer draws into that frame and NSLayoutManager drops the whole last line.
+   * Observed on the Legal screen (§6 on RC3/RC4, §5 in the lab with a 2,750-pt spacer; a 1/3-pt shift of the
+   * content above moved it away). Half a point of bottom padding makes the node height fractional, which
+   * makes Yoga round the bottom edge UP, so the text container is never shorter than the text.
+   * Device proof: private-evidence/C-session-12c718b1/rc3-legal-lab/ (variant=noslack is the control).
+   */
+  const src = readFileSync('app/settings/legal.tsx', 'utf8');
+  const style = (name: string) => {
+    const m = new RegExp(`^\\s+${name}:\\s*\\{([^}]*)\\}`, 'm').exec(src);
+    expect(m, `${name} style`).not.toBeNull();
+    return m![1];
+  };
+
+  it('LW6: every long-paragraph style on the Legal screen carries the half-point bottom slack', () => {
+    for (const name of ['ftBody', 'bulletText']) {
+      const body = style(name);
+      expect(body, name).toMatch(/lineHeight:\s*22/);          // the on-grid height this guards
+      expect(body, name).toMatch(/paddingBottom:\s*0\.5\b/);   // the slack
+    }
+  });
+
+  it('LW6b: the slack is a sub-point, never a visible spacing change', () => {
+    for (const name of ['ftBody', 'bulletText']) {
+      const m = /paddingBottom:\s*([0-9.]+)/.exec(style(name));
+      expect(Number(m![1])).toBeGreaterThan(0);
+      expect(Number(m![1])).toBeLessThan(1);
+    }
   });
 });

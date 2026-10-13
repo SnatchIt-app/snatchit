@@ -40,6 +40,182 @@ function Bullet({ children, s }: { children: string; s: Styles }) {
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
+
+/**
+ * The full Terms card. Extracted so the same nodes can be mounted under test conditions by the
+ * _dev lab (C-RC3-1); the screen renders it exactly as before. `wrapParagraphs` is a lab switch.
+ */
+export function FullTermsBody({ s, wrapParagraphs = false }: { s: Styles; wrapParagraphs?: boolean }) {
+  const P = ({ style, children }: { style: object; children: React.ReactNode }) =>
+    wrapParagraphs ? <View><Text style={style}>{children}</Text></View> : <Text style={style}>{children}</Text>;
+  return (
+    <View style={s.fullTermsBody}>
+              <Text style={s.ftSubhead}>1. Acceptance of Terms</Text>
+              <P style={s.ftBody}>
+                These Terms constitute a legally binding agreement between you and JDT LLC
+                (doing business as Snatch It). By creating an account or using the platform
+                in any manner, you agree to be bound by these Terms. Your continued use
+                following any modifications constitutes acceptance of the revised Terms.
+              </P>
+
+              <Text style={s.ftSubhead}>2. Eligibility</Text>
+              <P style={s.ftBody}>
+                You must be at least 18 years of age, have the legal capacity to enter
+                binding contracts, not be barred by applicable law, and not have been
+                previously suspended from the platform.
+              </P>
+
+              <Text style={s.ftSubhead}>3. Account Registration</Text>
+              <P style={s.ftBody}>
+                You agree to provide accurate information, maintain the confidentiality of
+                your credentials, and immediately notify Snatch It of any unauthorized access.
+                You may not transfer or sell your account. Snatch It may suspend or terminate
+                any account at its sole discretion.
+              </P>
+
+              <Text style={s.ftSubhead}>4. Marketplace Role & Disclaimer</Text>
+              <P style={s.ftBody}>
+                Snatch It operates solely as a technology platform. It is NOT a party to
+                any transaction, does not act as an escrow service, financial intermediary,
+                broker, agent, or ticket vendor. All transactions are conducted directly
+                between users. Snatch It bears no responsibility for the outcome of any
+                transaction.
+              </P>
+
+              <Text style={s.ftSubhead}>5. Transactions Between Users</Text>
+              <P style={s.ftBody}>
+                All transactions are strictly between buyer and seller. Snatch It assumes no
+                responsibility for performance, quality, safety, or legality. Sellers are solely
+                responsible for listing accuracy and ticket validity. Buyers are solely responsible
+                for reviewing listings and confirming receipt. Transactions are final once
+                payment is confirmed. Snatch It does not guarantee refunds, returns, or exchanges.
+                If the seller doesn&apos;t mark the tickets as sent within 24 hours after your
+                payment goes through, the order is cancelled automatically and a full refund of
+                what you paid, including the service fee, is issued to your original payment
+                method. Issuing a refund starts it with our payment processor, Stripe. It can
+                show as pending for a while, and in rare cases a refund fails. Once it
+                completes, how long it takes to appear depends on your bank or card issuer,
+                typically 5 to 10 business days. If a refund hasn&apos;t appeared after 10
+                business days, contact support@snatchitapp.com.
+              </P>
+
+              <Text style={s.ftSubhead}>6. Payments & Fees</Text>
+              {/* C-RC3-1: one paragraph of 1,145 characters painted its last line cut off on the
+                  iOS 26.5 simulator (RC3 50d8fcf1); every paragraph under ~1,000 painted whole.
+                  Same sentences, two Text nodes. */}
+              <P style={s.ftBody}>
+                Payments are processed by Stripe. Buyers pay a service fee of 10% of the sale
+                price (the Buy Now price or the winning bid, for the whole listing). It is added
+                to the total at checkout and shown before you confirm. Sellers pay a marketplace
+                fee of 10% of the same sale price, deducted from the payout. Snatch It does not
+                store payment card details.
+              </P>
+              <P style={[s.ftBody, s.ftBodyGap]}>
+                Payment funds are held by Stripe on Snatch It&apos;s behalf until the order is
+                released. When the buyer confirms they received the tickets, Snatch It starts the
+                seller&apos;s payout straight away. If the payout can&apos;t be made at that
+                moment, for example because the seller&apos;s payout account isn&apos;t ready, it
+                waits for review by our team. If the buyer neither confirms nor reports a problem
+                within 72 hours after the seller marks the tickets as sent, the order becomes
+                eligible for release. Snatch It runs risk checks first: depending on the order,
+                the payout is released, held until after the event, or held for manual review.
+                Once a payout is sent, when it reaches the seller&apos;s bank depends on
+                Stripe&apos;s payout schedule and the bank. Snatch It doesn&apos;t guarantee a
+                date. All transactions are denominated in USD.
+              </P>
+
+              <Text style={s.ftSubhead}>6a. Chargebacks, Refunds & Negative Balances</Text>
+              <P style={s.ftBody}>
+                If a buyer disputes a charge through their bank, or if a refund is issued
+                after a payout has been released to the seller, Stripe may debit the disputed
+                or refunded amount from the seller&apos;s future payouts to recover the funds. By
+                accepting payouts through Snatch It, sellers authorize Stripe to debit their
+                connected Stripe Express account balance as needed. Sellers remain responsible
+                for any negative balance not covered by future payouts.
+              </P>
+
+              <Text style={s.ftSubhead}>6b. Tax Reporting (Form 1099-K)</Text>
+              <P style={s.ftBody}>
+                Stripe issues IRS Form 1099-K to US sellers whose annual gross payment volume
+                meets or exceeds the IRS reporting threshold for the applicable tax year, and
+                files the form directly with the IRS on the seller&apos;s behalf. Sellers are
+                responsible for keeping their tax information (SSN/EIN) accurate within
+                Stripe&apos;s onboarding and for reporting their income to the relevant tax
+                authorities. Snatch It does not provide tax advice.
+              </P>
+
+              <Text style={s.ftSubhead}>7. Prohibited Activities</Text>
+              <P style={s.ftBody}>
+                You agree not to list counterfeit, stolen, invalid, or fraudulent tickets;
+                engage in fraud or misrepresentation; manipulate bids or auction outcomes;
+                use automated tools to access the platform; harass other users; or violate
+                any applicable law, including ticket resale regulations. Snatch It has no
+                tolerance for objectionable content or abusive behavior — violating
+                listings are removed and offending accounts may be suspended or banned.
+              </P>
+
+              <Text style={s.ftSubhead}>8. Listings & Accuracy</Text>
+              <P style={s.ftBody}>
+                Sellers warrant that all tickets are genuine, in their lawful possession, and
+                that all listing information is accurate and complete. Snatch It does not verify
+                or endorse any listing.
+              </P>
+
+              <Text style={s.ftSubhead}>9. Disputes Between Users</Text>
+              <P style={s.ftBody}>
+                Snatch It is not a party to user disputes and is not responsible for resolving
+                them. Users agree to attempt resolution in good faith before seeking external
+                remedies. You agree to hold Snatch It harmless from any claims arising from
+                disputes between users.
+              </P>
+
+              <Text style={s.ftSubhead}>10. Limitation of Liability</Text>
+              <P style={s.ftBody}>
+                To the maximum extent permitted by law, Snatch It shall not be liable for any
+                indirect, incidental, special, consequential, or exemplary damages. Total
+                aggregate liability shall not exceed the greater of service fees paid by you
+                in the preceding 12 months or $100.00.
+              </P>
+
+              <Text style={s.ftSubhead}>11. Disclaimer of Warranties</Text>
+              <P style={s.ftBody}>
+                The platform is provided &quot;as is&quot; and &quot;as available&quot; without warranties of any
+                kind. Snatch It does not warrant that the platform will be uninterrupted or
+                error-free, or that any ticket listed is genuine, valid, or transferable.
+              </P>
+
+              <Text style={s.ftSubhead}>12. Beta Disclaimer</Text>
+              <P style={s.ftBody}>
+                The platform is currently in beta / early access. It is under active development
+                and may contain bugs, errors, or defects. Features and functionality may change
+                at any time without notice.
+              </P>
+
+              <Text style={s.ftSubhead}>13. Governing Law & Arbitration</Text>
+              <P style={s.ftBody}>
+                These Terms are governed by the laws of the State of Florida. Any dispute shall
+                be resolved through binding individual arbitration administered by the AAA under
+                its Consumer Arbitration Rules, in Miami-Dade County, Florida. Class action
+                claims are waived. Before initiating arbitration, contact support@snatchitapp.com
+                and attempt informal resolution for at least 30 days.
+              </P>
+
+              <Text style={s.ftSubhead}>14. Indemnification</Text>
+              <P style={s.ftBody}>
+                You agree to indemnify and hold harmless Snatch It and its officers, directors,
+                employees, and affiliates from any claims, damages, or expenses arising from your
+                use of the platform, your listings, any transaction you enter into, or your
+                violation of these Terms.
+              </P>
+
+              <Text style={s.ftNote}>
+                JDT LLC · Snatch It · support@snatchitapp.com{'\n'}
+                Effective March 20, 2026
+              </Text>
+    </View>
+  );
+}
+
 export default function LegalScreen() {
   const { palette } = useTheme();
   const s = useMemo(() => makeStyles(palette), [palette]);
@@ -180,172 +356,7 @@ export default function LegalScreen() {
             <Text style={s.chevron}>{fullTermsOpen ? '▲' : '▼'}</Text>
           </Pressable>
 
-          {fullTermsOpen && (
-            <View style={s.fullTermsBody}>
-              <Text style={s.ftSubhead}>1. Acceptance of Terms</Text>
-              <Text style={s.ftBody}>
-                These Terms constitute a legally binding agreement between you and JDT LLC
-                (doing business as Snatch It). By creating an account or using the platform
-                in any manner, you agree to be bound by these Terms. Your continued use
-                following any modifications constitutes acceptance of the revised Terms.
-              </Text>
-
-              <Text style={s.ftSubhead}>2. Eligibility</Text>
-              <Text style={s.ftBody}>
-                You must be at least 18 years of age, have the legal capacity to enter
-                binding contracts, not be barred by applicable law, and not have been
-                previously suspended from the platform.
-              </Text>
-
-              <Text style={s.ftSubhead}>3. Account Registration</Text>
-              <Text style={s.ftBody}>
-                You agree to provide accurate information, maintain the confidentiality of
-                your credentials, and immediately notify Snatch It of any unauthorized access.
-                You may not transfer or sell your account. Snatch It may suspend or terminate
-                any account at its sole discretion.
-              </Text>
-
-              <Text style={s.ftSubhead}>4. Marketplace Role & Disclaimer</Text>
-              <Text style={s.ftBody}>
-                Snatch It operates solely as a technology platform. It is NOT a party to
-                any transaction, does not act as an escrow service, financial intermediary,
-                broker, agent, or ticket vendor. All transactions are conducted directly
-                between users. Snatch It bears no responsibility for the outcome of any
-                transaction.
-              </Text>
-
-              <Text style={s.ftSubhead}>5. Transactions Between Users</Text>
-              <Text style={s.ftBody}>
-                All transactions are strictly between buyer and seller. Snatch It assumes no
-                responsibility for performance, quality, safety, or legality. Sellers are solely
-                responsible for listing accuracy and ticket validity. Buyers are solely responsible
-                for reviewing listings and confirming receipt. Transactions are final once
-                payment is confirmed. Snatch It does not guarantee refunds, returns, or exchanges.
-                If the seller doesn&apos;t mark the tickets as sent within 24 hours after your
-                payment goes through, the order is cancelled automatically and a full refund of
-                what you paid, including the service fee, is issued to your original payment
-                method. Issuing a refund starts it with our payment processor, Stripe. It can
-                show as pending for a while, and in rare cases a refund fails. Once it
-                completes, how long it takes to appear depends on your bank or card issuer,
-                typically 5 to 10 business days. If a refund hasn&apos;t appeared after 10
-                business days, contact support@snatchitapp.com.
-              </Text>
-
-              <Text style={s.ftSubhead}>6. Payments & Fees</Text>
-              {/* C-RC3-1: one paragraph of 1,145 characters painted its last line cut off on the
-                  iOS 26.5 simulator (RC3 50d8fcf1); every paragraph under ~1,000 painted whole.
-                  Same sentences, two Text nodes. */}
-              <Text style={s.ftBody}>
-                Payments are processed by Stripe. Buyers pay a service fee of 10% of the sale
-                price (the Buy Now price or the winning bid, for the whole listing). It is added
-                to the total at checkout and shown before you confirm. Sellers pay a marketplace
-                fee of 10% of the same sale price, deducted from the payout. Snatch It does not
-                store payment card details.
-              </Text>
-              <Text style={[s.ftBody, s.ftBodyGap]}>
-                Payment funds are held by Stripe on Snatch It&apos;s behalf until the order is
-                released. When the buyer confirms they received the tickets, Snatch It starts the
-                seller&apos;s payout straight away. If the payout can&apos;t be made at that
-                moment, for example because the seller&apos;s payout account isn&apos;t ready, it
-                waits for review by our team. If the buyer neither confirms nor reports a problem
-                within 72 hours after the seller marks the tickets as sent, the order becomes
-                eligible for release. Snatch It runs risk checks first: depending on the order,
-                the payout is released, held until after the event, or held for manual review.
-                Once a payout is sent, when it reaches the seller&apos;s bank depends on
-                Stripe&apos;s payout schedule and the bank. Snatch It doesn&apos;t guarantee a
-                date. All transactions are denominated in USD.
-              </Text>
-
-              <Text style={s.ftSubhead}>6a. Chargebacks, Refunds & Negative Balances</Text>
-              <Text style={s.ftBody}>
-                If a buyer disputes a charge through their bank, or if a refund is issued
-                after a payout has been released to the seller, Stripe may debit the disputed
-                or refunded amount from the seller&apos;s future payouts to recover the funds. By
-                accepting payouts through Snatch It, sellers authorize Stripe to debit their
-                connected Stripe Express account balance as needed. Sellers remain responsible
-                for any negative balance not covered by future payouts.
-              </Text>
-
-              <Text style={s.ftSubhead}>6b. Tax Reporting (Form 1099-K)</Text>
-              <Text style={s.ftBody}>
-                Stripe issues IRS Form 1099-K to US sellers whose annual gross payment volume
-                meets or exceeds the IRS reporting threshold for the applicable tax year, and
-                files the form directly with the IRS on the seller&apos;s behalf. Sellers are
-                responsible for keeping their tax information (SSN/EIN) accurate within
-                Stripe&apos;s onboarding and for reporting their income to the relevant tax
-                authorities. Snatch It does not provide tax advice.
-              </Text>
-
-              <Text style={s.ftSubhead}>7. Prohibited Activities</Text>
-              <Text style={s.ftBody}>
-                You agree not to list counterfeit, stolen, invalid, or fraudulent tickets;
-                engage in fraud or misrepresentation; manipulate bids or auction outcomes;
-                use automated tools to access the platform; harass other users; or violate
-                any applicable law, including ticket resale regulations. Snatch It has no
-                tolerance for objectionable content or abusive behavior — violating
-                listings are removed and offending accounts may be suspended or banned.
-              </Text>
-
-              <Text style={s.ftSubhead}>8. Listings & Accuracy</Text>
-              <Text style={s.ftBody}>
-                Sellers warrant that all tickets are genuine, in their lawful possession, and
-                that all listing information is accurate and complete. Snatch It does not verify
-                or endorse any listing.
-              </Text>
-
-              <Text style={s.ftSubhead}>9. Disputes Between Users</Text>
-              <Text style={s.ftBody}>
-                Snatch It is not a party to user disputes and is not responsible for resolving
-                them. Users agree to attempt resolution in good faith before seeking external
-                remedies. You agree to hold Snatch It harmless from any claims arising from
-                disputes between users.
-              </Text>
-
-              <Text style={s.ftSubhead}>10. Limitation of Liability</Text>
-              <Text style={s.ftBody}>
-                To the maximum extent permitted by law, Snatch It shall not be liable for any
-                indirect, incidental, special, consequential, or exemplary damages. Total
-                aggregate liability shall not exceed the greater of service fees paid by you
-                in the preceding 12 months or $100.00.
-              </Text>
-
-              <Text style={s.ftSubhead}>11. Disclaimer of Warranties</Text>
-              <Text style={s.ftBody}>
-                The platform is provided &quot;as is&quot; and &quot;as available&quot; without warranties of any
-                kind. Snatch It does not warrant that the platform will be uninterrupted or
-                error-free, or that any ticket listed is genuine, valid, or transferable.
-              </Text>
-
-              <Text style={s.ftSubhead}>12. Beta Disclaimer</Text>
-              <Text style={s.ftBody}>
-                The platform is currently in beta / early access. It is under active development
-                and may contain bugs, errors, or defects. Features and functionality may change
-                at any time without notice.
-              </Text>
-
-              <Text style={s.ftSubhead}>13. Governing Law & Arbitration</Text>
-              <Text style={s.ftBody}>
-                These Terms are governed by the laws of the State of Florida. Any dispute shall
-                be resolved through binding individual arbitration administered by the AAA under
-                its Consumer Arbitration Rules, in Miami-Dade County, Florida. Class action
-                claims are waived. Before initiating arbitration, contact support@snatchitapp.com
-                and attempt informal resolution for at least 30 days.
-              </Text>
-
-              <Text style={s.ftSubhead}>14. Indemnification</Text>
-              <Text style={s.ftBody}>
-                You agree to indemnify and hold harmless Snatch It and its officers, directors,
-                employees, and affiliates from any claims, damages, or expenses arising from your
-                use of the platform, your listings, any transaction you enter into, or your
-                violation of these Terms.
-              </Text>
-
-              <Text style={s.ftNote}>
-                JDT LLC · Snatch It · support@snatchitapp.com{'\n'}
-                Effective March 20, 2026
-              </Text>
-            </View>
-          )}
+          {fullTermsOpen && <FullTermsBody s={s} />}
         </View>
 
         <View style={s.bottomPad} />
@@ -356,7 +367,7 @@ export default function LegalScreen() {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
-function makeStyles(p: Palette) {
+export function makeStyles(p: Palette) {
   return StyleSheet.create({
   safe:         { flex: 1, backgroundColor: p.surface.canvas },
 
@@ -376,7 +387,18 @@ function makeStyles(p: Palette) {
 
   bulletRow:    { flexDirection: 'row', marginBottom: v2.space.xs, paddingLeft: v2.space.xs },
   bulletDot:    { color: p.brand.redText, fontSize: 15, marginRight: v2.space.sm, lineHeight: 22 },
-  bulletText:   { flex: 1, fontFamily: v2.font.body, fontSize: 15, lineHeight: 22, color: p.text.secondary },
+  /*
+   * C-RC3-1 (RC3/RC4, iOS 26.5 simulator): a paragraph whose measured height sits exactly on the pixel
+   * grid (N lines × lineHeight 22, zero slack — RN ceils every text measurement to the grid) can be handed
+   * a frame a third of a point SHORTER by Yoga's pixel-grid rounding when its absolute offset in this very
+   * tall scroll is fractional; the renderer draws into exactly that frame, and NSLayoutManager then drops
+   * the whole last line (the words "denominated in USD." vanished; another offset moved the loss to §5).
+   * Half a point of bottom padding takes the node height OFF the grid, which makes Yoga round the bottom
+   * edge up instead of down, so the text container is never shorter than the text. Reproduction and the
+   * control: app/_dev/v3-legal-lab.tsx (?variant=noslack&pad=2750).
+   */
+  textSlack:    { paddingBottom: 0.5 },
+  bulletText:   { flex: 1, fontFamily: v2.font.body, fontSize: 15, lineHeight: 22, color: p.text.secondary, paddingBottom: 0.5 },
 
   contactEmail: { fontFamily: v2.font.bodySemi, fontSize: 15, lineHeight: 22, color: p.text.primary,
                   marginBottom: v2.space.sm },
@@ -387,7 +409,7 @@ function makeStyles(p: Palette) {
                      borderWidth: 1, borderColor: p.border.default },
   ftSubhead:       { fontFamily: v2.font.bodySemi, fontSize: 15, lineHeight: 22, color: p.text.primary,
                      marginTop: v2.space.md, marginBottom: v2.space.xs },
-  ftBody:          { fontFamily: v2.font.body, fontSize: 15, lineHeight: 22, color: p.text.muted },
+  ftBody:          { fontFamily: v2.font.body, fontSize: 15, lineHeight: 22, color: p.text.muted, paddingBottom: 0.5 },
   ftBodyGap:       { marginTop: v2.space.sm },
   ftNote:          { fontFamily: v2.font.body, fontSize: 13, lineHeight: 18, color: p.text.muted,
                      marginTop: v2.space.lg, textAlign: 'center' },

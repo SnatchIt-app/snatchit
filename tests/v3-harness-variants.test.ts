@@ -71,6 +71,7 @@ vi.mock('@/app/profile/[id]', () => ({ default: 'PublicProfileScreen' }));
 vi.mock('@/app/settings/index', () => ({ default: 'SettingsScreen' }));
 vi.mock('@/app/settings/appearance', () => ({ default: 'AppearanceScreen' }));
 vi.mock('@/app/settings/legal', () => ({ default: 'LegalScreen' }));   // RC3 S6: screen=legal
+vi.mock('@/app/settings/privacy', () => ({ default: 'PrivacyScreen' }));   // C-RC3-1 follow-up: screen=privacy
 // Checkout's presentation is its own suite's subject; here only the route's fixture map matters, and
 // stubbing the view keeps its component graph out of a node test.
 vi.mock('@/src/screens/checkout/CheckoutView', () => ({
@@ -619,6 +620,7 @@ describe('v3-account — an avatar that is actually present', () => {
     expect((await accountRender({ screen: 'settings' }))?.props.deletionFixture).toBe('active');
     expect((await accountRender({ screen: 'appearance' }))?.type).toBe('AppearanceScreen');
     expect((await accountRender({ screen: 'legal' }))?.type).toBe('LegalScreen');   // RC3 S6
+    expect((await accountRender({ screen: 'privacy' }))?.type).toBe('PrivacyScreen');
   });
 
   it('HV13: the dock half is out of reach from here, and the harness does not pretend otherwise', async () => {
