@@ -1,6 +1,8 @@
 # RC-20261012: the integrated release candidate (A, 2026-10-12)
 
-## RC2 FROZEN: `e2b9498b` is the release candidate (A, 2026-10-13 ~00:10Z)
+## RC2 FROZEN: `e2b9498b` is the release candidate (A, 2026-10-13 ~00:10Z; all five lanes closed ~04:00Z)
+
+**The release decision, the owner action list and the release boundaries are in `RELEASE_DECISION_PACKAGE.md`.**
 
 | | |
 |---|---|
@@ -19,7 +21,7 @@
 | C: fresh-install Release build | **BUILD EXIT 0** at exactly `e2b9498b`. Embedded Hermes bundle; sandbox pairing PASS at value level; fresh install; Light + Dark cold launches reach Sign in (SANDBOX). Attempt 1 failed on CocoaPods' UTF-8 locale check (environment: no LANG in the shell); attempt 2 is the record, and both logs are kept | private evidence on the SSD; C-HANDOFF 23:31Z |
 | B: consumer review on C's binary | **PASS, no blocker.** 15 mutants with exact kills; F1–F7, D-RC-4, B-D9, B-D10, guard pins and strings. **B-D7 meets the agreed criterion:** 0 money pixels past the edge at A3XL on Bids, Checkout, PlaceBid and Order, Light and Dark; default pixel-identical to RC1 where comparable. Listing captured with `screen=listing` | `design/frontend-audit-20260917` @ `967c29e6`, `B_RC2_VERDICT_e2b9498b.md` |
 | D: source/schema contracts | **No blocking defect.** Identity blob by blob; C4 PASS on both roots (63/25/0/16; 30/9/0/16), reconciled; only one query changed (F2's `.select('id')`); every producer of a checkout navigation enumerated (2 pushes + the returnURL; the `auction_won` notification link does not reach mobile checkout) | `review/d-records-20261005` @ `1e6e1e82`, `D_RC2_VERDICT_e2b9498b.md` |
-| E: acceptance reconciliation | **OUTSTANDING.** E has been unreachable since ~23:08Z, and its handoff predates RC2. Every row E closes has evidence at `e2b9498b` (the four lines above). Not a defect | E-HANDOFF (private) |
+| E: acceptance reconciliation | **ACCEPTED on the stated coverage** (2026-10-13). Delta rows closed; M-1..M-6 carried by an import-closure diff; D-RC2-1/-2 accepted as non-blocking; E9 recorded as weaker in one region (B's "stronger" claim not adopted) | `design/frontend-audit-20260917` @ `fc257fc6`, `V3_ACCEPTANCE_RECORD.md` "CURRENT ACCEPTANCE MATRIX: RC2" |
 
 **Known, non-gating (fix in the next build; RC2 is not re-keyed for them):**
 - **D-RC2-1:** in checkout's no-mode branch, a FAILED settled read reaches the generic catch. It shows "We couldn't start
