@@ -38,6 +38,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, AppState, KeyboardAvoidingView, Linking, Platform, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
+import { confirmBlock, showMoreActions } from '@/src/lib/moderation/blockFlow';
 import { useAuth } from '@/src/hooks/useAuth';
 import { useSingleFlight } from '@/src/hooks/useSingleFlight';
 import { hapticSuccess } from '@/src/lib/feedback/haptics';
@@ -113,6 +114,8 @@ type TransferData = {
   delivery_phone: string | null;
   transfer_evidence_path: string | null;
   seller: { display_name: string | null };
+  /** RC3: the counterparty, for the Block entry only — never used to change this order. */
+  seller_id?: string | null;
   listing: {
     event_name: string | null;
     ticket_platform: TicketPlatform | null;
@@ -236,7 +239,7 @@ export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixt
     const { data, error: fetchErr } = await supabase
       .from('transfers')
       .select(
-        'id, listing_id, status, transfer_method, expires_at, auto_release_at, payout_released_at, buyer_confirmed_at, dispute_resolution, dispute_resolved_at, ' +
+        'id, listing_id, seller_id, status, transfer_method, expires_at, auto_release_at, payout_released_at, buyer_confirmed_at, dispute_resolution, dispute_resolved_at, ' +
         'delivery_email, delivery_phone, transfer_evidence_path, ' +
         'seller:profiles!seller_id(display_name), ' +
         // V3 summary columns: all live `listings` columns (Home selects `*` from the same table).
@@ -444,12 +447,25 @@ export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixt
     Linking.openURL(link.url).catch(() => setHandoff(HANDOFF_IDLE));
   }
 
+  // RC3 (152): the Block entry. It offers the K1 confirmation and writes one user_blocks row; it
+  // never touches this order — existing orders are exempt on the server, and the screen stays put.
+  const counterpartyId = transfer?.seller_id ?? null;
+  function openMoreActions() {
+    if (!counterpartyId || !userId) return;
+    const name = transfer?.seller?.display_name?.trim() || 'this seller';
+    showMoreActions([
+      { label: `Block ${name}`, destructive: true, handler: () => confirmBlock({ viewerId: userId, targetId: counterpartyId, targetName: name, write: !fixture }) },
+    ]);
+  }
+
   function Header() {
     return (
       <View style={[s.header, { paddingTop: topPad + v2.space.sm }]}>
         <IconButton glyph="back" chip onPress={() => router.back()} accessibilityLabel="Back" />
         <Text style={[textStyle('screenTitle'), s.headerTitle]} accessibilityRole="header">Your order</Text>
-        <View style={s.headerSpacer} />
+        {counterpartyId && userId
+          ? <IconButton glyph="more" chip onPress={openMoreActions} accessibilityLabel="More actions" />
+          : <View style={s.headerSpacer} />}
       </View>
     );
   }

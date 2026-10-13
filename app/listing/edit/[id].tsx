@@ -17,6 +17,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View, type TextStyle } from 'react-native';
 import { TICKET_PLATFORMS } from '@/src/lib/listing/ticketPlatforms';
+import { readServerRefusal } from '@/src/lib/moderation/serverRefusal';
 import { useTopInset } from '@/src/lib/nav/navInsets';
 
 import { supabase } from '@/src/lib/supabase';
@@ -164,7 +165,13 @@ export default function EditListingScreen({ fixture }: { fixture?: EditListingFi
         .eq('id', listing.id)
         .eq('seller_id', user.id)
         .select('id');
-      if (error) { Alert.alert('Save failed', error.message); return; }
+      if (error) {
+        // RC3 (152): a suspended seller or prohibited text is the server's refusal — the policy
+        // sentence, form kept, no retry offered. Anything else keeps today's copy.
+        const refusal = readServerRefusal(error);
+        if (refusal) { Alert.alert(refusal.title, refusal.body); return; }
+        Alert.alert('Save failed', error.message); return;
+      }
       if (!Array.isArray(written) || written.length === 0) {
         // Nothing was written: say so and keep the form, so nothing typed is lost.
         Alert.alert('Save failed', "This listing couldn't be updated. It may have changed or been removed — go back and reopen it.");

@@ -46,6 +46,7 @@ import {
 } from 'react-native';
 import { useKeyboardUp } from '@/src/hooks/useKeyboardUp';
 import { TICKET_PLATFORMS } from '@/src/lib/listing/ticketPlatforms';
+import { readServerRefusal } from '@/src/lib/moderation/serverRefusal';
 import { ctaLift } from '@/src/lib/nav/keyboardLift';
 
 import { supabase } from '@/src/lib/supabase';
@@ -635,7 +636,17 @@ export default function CreateListingScreen({ fixture }: { fixture?: CreateFixtu
         .select('id')
         .single();
 
-      if (error) throw new Error(error.message);
+      if (error) {
+        // RC3 (152): a suspended seller or prohibited text is a refusal the seller can act on. It is
+        // shown as the policy sentence and the form is KEPT for revision — nothing is reset. Anything
+        // else is the unknown error it always was.
+        const refusal = readServerRefusal(error);
+        if (refusal) {
+          if (Platform.OS === 'web') { window.alert(refusal.body); } else { Alert.alert(refusal.title, refusal.body); }
+          return;
+        }
+        throw new Error(error.message);
+      }
 
       // 4. Reset form
       setEventName(''); setVenue(''); setNeighborhood(null);
