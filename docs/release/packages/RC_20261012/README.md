@@ -1,5 +1,55 @@
 # RC-20261012: the integrated release candidate (A, 2026-10-12)
 
+## RC2 FROZEN: `e2b9498b` is the release candidate (A, 2026-10-13 ~00:10Z)
+
+| | |
+|---|---|
+| **RC2** | `integration/rc-20261012` @ **`e2b9498b71191d308a33d00bce87a0832acc8d55`**, tree `3e9813751a248ee892be37a6d7a258db4628361e`; draft PR #100 head |
+| **Composition** | `48d20ca1` (RC1) → `53a16239` (C `287e938b`) → `d2651782` (A F6 `084de270` ⊃ `50e74efb`) → `e2b9498b` (C `caa3fa03`). The tree equals the clean composition `48d20ca1` + `caa3fa03` + `084de270` |
+| **Not candidates** | `48d20ca1` (F1–F7, B-D7) and `d2651782` (B-D10: the winner checkout pushed mode 'bid', so every auction winner was stranded) |
+| **Changes vs RC1** | 41 files: `app/` 4, `src/` 11, `tests/` 26. Gated client surface: `setupDecision.ts` only (F6). `supabase/`, `.github/`, `web/`, `admin/` and the native-build inputs are unchanged |
+
+**Checks and reviews at `e2b9498b`:**
+
+| Check / lane | Result | Evidence |
+|---|---|---|
+| CI | **5/5 jobs, 68/68 steps success**. Unit 188 files / 3,151 tests; parity 3 / 108; web 13 / 218; admin 16 / 117; pgTAP 98 / 5,605 `Result: PASS` | run 38319986862, push, head `e2b9498b` |
+| Gate PR #100 | all 6 required checks green; Immutability + ordering (run 38319995006); "Supabase Preview" skipping; CLEAN; draft | PR #100 |
+| A: integration | `rc_verify.sh` PASS (0 mismatches, unexpected changes or new blobs at all three merges; fixed surfaces identical, with controls); local stages PASS; C4 MISSING 0, the same 16 sites | this package |
+| C: fresh-install Release build | **BUILD EXIT 0** at exactly `e2b9498b`. Embedded Hermes bundle; sandbox pairing PASS at value level; fresh install; Light + Dark cold launches reach Sign in (SANDBOX). Attempt 1 failed on CocoaPods' UTF-8 locale check (environment: no LANG in the shell); attempt 2 is the record, and both logs are kept | private evidence on the SSD; C-HANDOFF 23:31Z |
+| B: consumer review on C's binary | **PASS, no blocker.** 15 mutants with exact kills; F1–F7, D-RC-4, B-D9, B-D10, guard pins and strings. **B-D7 meets the agreed criterion:** 0 money pixels past the edge at A3XL on Bids, Checkout, PlaceBid and Order, Light and Dark; default pixel-identical to RC1 where comparable. Listing captured with `screen=listing` | `design/frontend-audit-20260917` @ `967c29e6`, `B_RC2_VERDICT_e2b9498b.md` |
+| D: source/schema contracts | **No blocking defect.** Identity blob by blob; C4 PASS on both roots (63/25/0/16; 30/9/0/16), reconciled; only one query changed (F2's `.select('id')`); every producer of a checkout navigation enumerated (2 pushes + the returnURL; the `auction_won` notification link does not reach mobile checkout) | `review/d-records-20261005` @ `1e6e1e82`, `D_RC2_VERDICT_e2b9498b.md` |
+| E: acceptance reconciliation | **OUTSTANDING.** E has been unreachable since ~23:08Z, and its handoff predates RC2. Every row E closes has evidence at `e2b9498b` (the four lines above). Not a defect | E-HANDOFF (private) |
+
+**Known, non-gating (fix in the next build; RC2 is not re-keyed for them):**
+- **D-RC2-1:** in checkout's no-mode branch, a FAILED settled read reaches the generic catch. It shows "We couldn't start
+  payment. Please try again.", the escrow note renders while the status is unknown, and the Sentry stage is
+  mislabelled. It needs a mode-less arrival AND a read failure. No intent is created and nothing claims a charge.
+- **D-RC2-2:** the restated E9 guard matches one spelling. A variant such as `(false as const)` would pass it. The
+  shipped source is correct.
+- **The Order screen at A3XL:** the header title "Your order" overflows the right edge (B's corrected attribution). It is
+  identical on RC1 and RC2 and is not money.
+- **B's probe notes:**
+  - In the cold 3-D Secure pre-webhook window, the screen shows "Payment already completed" with "Try again" until the
+    webhook lands. Money-safe.
+  - Stripe's returnURL query matching is evidenced only on a device.
+  - The no-mode completed face has no "View transfer".
+- **D's residuals (record §9):**
+  - Sentry noise on every legitimate mode-less open.
+  - CM12 counts only the object-form push.
+  - A possible resend dead end after an F3 failure, if the provider issues no new OTP.
+- **Not tested, by design:** signed-in flows (owner-waived), real 3-D Secure returns on a device, VoiceOver (optional).
+
+**Owner decisions** (A's recommendation):
+
+| # | Decision | Recommend | Consequence | Gates distribution? |
+|---|---|---|---|---|
+| 1 | Migration 152, server-enforced blocking | Not in this release; first follow-up | A blocked person can still see, bid on, buy from and report the blocker; today's control hides that seller's listings and profile from the blocker. Guideline 1.2 compliance is Apple's call; **not claimed** | **Yes, as your decision** to accept the App Review risk before submission |
+| 2 | F8: the device clock puts a still-active auction in "Ended" (leading bidder too) | Follow-up: the "Confirming result" state | A brief Bids-tab/listing mismatch until the server closes the auction (about 2 min). No money effect | No |
+| 3 | B-D6: PlaceBid's Total is capped at 1.3× at A3XL | Follow-up, decided with the Badge cap | Readability only; no clipping after B-D7 | No |
+| 4 | D-RC-3: the buyer never sees a FAILED refund (the app reads no failed-refund field) | Follow-up; O-R3 handles refund_failed cases daily | What a buyer sees after a failed refund is unverified. Rare | No |
+| 5 | Live console/server: duplicate parked refund/payout action; relist without `expected`; Next.js 16.3.3 on web/console | Separate owner-gated packages | Live risk, independent of the app release | No |
+
 **Status update (A, 2026-10-12 ~04:40Z): `48d20ca1` is NOT the shipping candidate.**
 - C's read-only critical-flow audit of this code found consumer defects. A and C confirmed each against the source.
   - F4: the 3-D Secure return drops the checkout mode.
@@ -112,7 +162,7 @@ locally and keeps the overall result failed. The `ci.yml` change itself stays pa
     **before** distribution; the §5.3 checks rerun.
   - Distribution waits for all of that.
 
-## RC2: the shipping candidate. State at A's final report (2026-10-12 ~06:10Z)
+## (History, superseded by "RC2 FROZEN" above) RC2 state at A's first final report (2026-10-12 ~06:10Z)
 
 **Not frozen yet. The blocker is C's session: not running since 05:12Z, absent from ListAgents, socket gone.** C's
 fixes are committed locally and unpushed. A does not push another session's branch.

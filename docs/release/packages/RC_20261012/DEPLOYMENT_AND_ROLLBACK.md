@@ -1,8 +1,9 @@
 # RC-20261012: proposed deployment and rollback plan (A, 2026-10-12; D reviews)
 
-**Applies to the frozen shipping candidate.** That will be RC2 once frozen (README, RC2 section). `48d20ca1` (RC1)
-must NOT be shipped: it carries F1–F7 and the A3XL money clipping. Every `48d20ca1` below stands for the frozen
-candidate's sha, and its checks are re-run at that sha.
+**Applies to RC2 = `e2b9498b71191d308a33d00bce87a0832acc8d55`** (README, "RC2 FROZEN"). Read every `48d20ca1` below as
+`e2b9498b`: its CI is run 38319986862 and its gate PR #100 checks are green at that head. `48d20ca1` (RC1) and `d2651782`
+must NOT ship. Step 1's tree check: the gate merge commit's tree must equal `3e981375…`. G2 builds from `e2b9498b`, or
+from that merge commit after the tree check.
 
 Nothing here is authorised in this sprint. Every step is a separate owner approval, in this order. Each step names
 its production effect and whether it can apply migrations automatically.
