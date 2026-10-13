@@ -82,7 +82,8 @@ export function PayoutSetup() {
       <p className="t-body text-ink-2">{copy.description}</p>
       <Button
         type="button"
-        variant="secondary"
+        variant={status === "connected" ? "secondary" : "primary"}
+        className="self-start"
         onClick={handleClick}
         disabled={submitting}
         pending={submitting}
