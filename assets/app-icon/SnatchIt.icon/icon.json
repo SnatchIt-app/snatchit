@@ -19,7 +19,7 @@
       "layers" : [
         {
           "name" : "SN ticket",
-          "image-name" : "snatchit-app-icon-1024-v3-transparent.png",
+          "image-name" : "snatchit-app-icon-1024-v4-opaque-red.png",
           "glass" : false,
           "blend-mode" : "normal",
           "opacity" : 1,
