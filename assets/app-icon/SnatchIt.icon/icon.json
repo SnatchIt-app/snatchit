@@ -1,0 +1,35 @@
+{
+  "fill" : "none",
+  "groups" : [
+    {
+      "name" : "Ticket",
+      "lighting" : "individual",
+      "specular" : false,
+      "shadow" : {
+        "kind" : "none",
+        "opacity" : 0
+      },
+      "translucency" : {
+        "enabled" : false,
+        "value" : 0
+      },
+      "blend-mode" : "normal",
+      "opacity" : 1,
+      "hidden" : false,
+      "layers" : [
+        {
+          "name" : "SN ticket",
+          "image-name" : "snatchit-app-icon-1024-v3-transparent.png",
+          "glass" : false,
+          "blend-mode" : "normal",
+          "opacity" : 1,
+          "hidden" : false
+        }
+      ]
+    }
+  ],
+  "supported-platforms" : {
+    "squares" : "shared",
+    "circles" : [ "watchOS" ]
+  }
+}

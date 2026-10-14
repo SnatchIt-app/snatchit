@@ -19,7 +19,8 @@
       },
       "entitlements": {
         "aps-environment": "production"
-      }
+      },
+      "icon": "./assets/app-icon/SnatchIt.icon"
     },
     "android": {
       "versionCode": 1,
