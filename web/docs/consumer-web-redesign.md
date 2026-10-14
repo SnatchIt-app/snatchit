@@ -144,6 +144,18 @@ touches the database, migrations, the native app, the console or the dashboards.
 - A 152 rollback needs no web change: the hints stop arriving and web falls back to its
   previous copy; the pre-check stays equal to the app's.
 
+## Production release record (2026-10-14)
+- **Live at https://app.snatchitapp.com.** Merge commit `fb903ead` on `feature/web-accounts-foundation`
+  (^1 `0b389584`, ^2 `afe22d7c`); Vercel production deployment `dpl_8cEFpqMb2WQ8Kfvxr9s4CS4Vh248`.
+- `NEXT_PUBLIC_SITE_URL=https://app.snatchitapp.com` (was `https://snatchti.com`). DNS: none needed; the
+  Cloudflare wildcard on snatchitapp.com already reaches Vercel, edge certificate covers `*.snatchitapp.com`.
+- Supabase Auth: `https://app.snatchitapp.com/**` added to Redirect URLs (Site URL and the other 10 entries
+  unchanged, `snatchit://` kept).
+- `snatchti.com` and `www.snatchti.com`: Vercel domain redirects, 308 to `https://app.snatchitapp.com`,
+  path and query kept (listing, checkout return, `/auth/confirm`, `/api/public/events` checked).
+- Rollback: remove the snatchti.com redirect first, Instant Rollback to `dpl_9n8Jps9WdkGCmjEEgpTf8ryVLvon`
+  (`0b389584`, old origin baked in), then set `NEXT_PUBLIC_SITE_URL` back to `https://snatchti.com`.
+
 ## Native reference captures used (all CURRENT at `e2b9498b`)
 | Screen | Capture | Why current |
 |---|---|---|

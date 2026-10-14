@@ -3,11 +3,11 @@
 **One thing to consume:**
 
 ```
-GET https://snatchti.com/api/public/events
+GET https://app.snatchitapp.com/api/public/events
 ```
 
 No key, no auth, GET only. This is the discovery boundary: the marketing site
-renders these cards and deep-links into snatchti.com, which remains the
+renders these cards and deep-links into app.snatchitapp.com, which remains the
 product and transaction layer.
 
 ## Query params
@@ -24,7 +24,7 @@ product and transaction layer.
 {
   "city": "Miami",
   "count": 1,
-  "browseUrl": "https://snatchti.com/browse",
+  "browseUrl": "https://app.snatchitapp.com/browse",
   "generatedAt": "2026-09-01T12:00:00.000Z",
   "events": [
     {
@@ -39,7 +39,7 @@ product and transaction layer.
       "dateLabel": "Sat, Sep 12, 2026",
       "timeLabel": "8:00 PM",
       "imageUrl": "https://…supabase.co/storage/v1/object/public/auction-media/…png",
-      "url": "https://snatchti.com/listing/8e0f…uuid",
+      "url": "https://app.snatchitapp.com/listing/8e0f…uuid",
       "status": "live",
       "listingEndsAt": "2026-09-10T00:00:00+00:00",
       "ticketType": "GA",

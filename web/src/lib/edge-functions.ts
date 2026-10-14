@@ -10,7 +10,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY } from "@/lib/env";
  * Several existing edge functions (create-connect-account, delete-account,
  * create-payment-intent, confirm-payment, confirm-and-release) hardcode
  * their CORS allowlist to snatchitapp.com only — calling them from browser
- * JS on snatchti.com would be blocked. Server-to-server fetch isn't subject
+ * JS on app.snatchitapp.com would be blocked. Server-to-server fetch isn't subject
  * to CORS at all, and matches this app's existing pattern of doing all
  * Supabase access through the server client — use this for every edge
  * function call from web, not direct client-side supabase.functions.invoke.

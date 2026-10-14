@@ -9,6 +9,7 @@ import { CATEGORY_LABELS, NEIGHBORHOOD_LABELS } from "@snatchit/core";
 import { Container } from "@/components/ui/Container";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { LinkButton } from "@/components/ui/Button";
+import { isNarrowed } from "@/lib/browse-state";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { SearchForm } from "@/components/ui/SearchInput";
 import { FeedRow } from "@/components/listing/FeedRow";
@@ -121,6 +122,14 @@ export default async function BrowsePage({
                 </li>
               ))}
             </ul>
+          ) : !isNarrowed(filters) ? (
+            // Nothing is live at all: the same state as Home, not a "no matches" for filters nobody set.
+            <EmptyState
+              icon="ticket"
+              title="No live listings right now"
+              message="New tickets drop all week. Selling something? List it in under a minute."
+              action={<LinkButton href="/sell">Sell your tickets</LinkButton>}
+            />
           ) : (
             <EmptyState
               icon="search"
