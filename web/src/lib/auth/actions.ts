@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { SITE_URL } from "@/lib/env";
 import { safeInternalPath } from "@/lib/auth/redirect";
+import { emailLinkAuth, requestEmailChange } from "@/lib/auth/email-links";
 import {
   friendlyAuthError,
   isValidEmail,
@@ -49,8 +50,8 @@ export async function signUpAction(_prev: ActionState, formData: FormData): Prom
   }
 
   const fullName = `${firstName} ${lastName}`.trim();
-  const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase.auth.signUp({
+  // Implicit flow, so the confirmation link works on any device (see lib/auth/email-links.ts).
+  const { data, error } = await emailLinkAuth().signUp({
     email,
     password: password as string,
     options: {
@@ -72,6 +73,13 @@ export async function signUpAction(_prev: ActionState, formData: FormData): Prom
     };
   }
 
+  // Confirmation off: the sign-up returned a session. The email client keeps nothing, so hand it
+  // to the cookie client before redirecting.
+  const supabase = await createSupabaseServerClient();
+  await supabase.auth.setSession({
+    access_token: data.session.access_token,
+    refresh_token: data.session.refresh_token,
+  });
   redirect(next);
 }
 
@@ -113,8 +121,8 @@ export async function requestPasswordResetAction(
   };
   if (!isValidEmail(email)) return generic;
 
-  const supabase = await createSupabaseServerClient();
-  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+  // Implicit flow, so the reset link works on any device (see lib/auth/email-links.ts).
+  const { error } = await emailLinkAuth().resetPasswordForEmail(email, {
     redirectTo: `${SITE_URL}/auth/confirm?next=${encodeURIComponent("/reset-password")}`,
   });
   if (error) {
@@ -134,10 +142,11 @@ export async function updateEmailAction(_prev: ActionState, formData: FormData):
   const { data: claimsData } = await supabase.auth.getClaims();
   if (!claimsData?.claims?.sub) return { error: "Your session expired. Log in again." };
 
-  const { error } = await supabase.auth.updateUser(
-    { email: newEmail },
-    { emailRedirectTo: `${SITE_URL}/auth/confirm` },
-  );
+  // Implicit flow, so the confirmation link works on any device (see lib/auth/email-links.ts).
+  const { data: sessionData } = await supabase.auth.getSession();
+  const accessToken = sessionData.session?.access_token;
+  if (!accessToken) return { error: "Your session expired. Log in again." };
+  const { error } = await requestEmailChange(accessToken, newEmail, `${SITE_URL}/auth/confirm`);
   if (error) {
     console.error("[auth] updateUser (email) failed", { status: error.status, name: error.name });
     return { error: friendlyAuthError(error.message) };

@@ -29,9 +29,10 @@ function ConfirmingCard() {
  * an implicit-flow request carries the session as a URL hash fragment
  * (#access_token=...&refresh_token=...&type=...) — fragments never reach the
  * server, so this has to be a client page that establishes the session
- * itself, exactly like the mobile app's deep-link handler does. The web's own
- * requests use the PKCE flow (@supabase/ssr's default), so their links come
- * back as ?code=; a token_hash link is accepted too. See lib/auth/confirm-link.
+ * itself, exactly like the mobile app's deep-link handler does. The web sends
+ * its auth emails on the implicit flow (lib/auth/email-links.ts) so a link works
+ * on any device; PKCE ?code= and token_hash links are accepted too. See
+ * lib/auth/confirm-link.
  */
 function ConfirmClient() {
   const [status, setStatus] = useState<Status>("processing");
@@ -45,6 +46,12 @@ function ConfirmClient() {
       // Read the link BEFORE creating the client: after a successful PKCE exchange the client
       // deletes ?code= from the address bar (history.replaceState).
       const link = readConfirmLink(new URLSearchParams(window.location.search), window.location.hash);
+      // An implicit link carries the session in the fragment: drop it from the address bar and
+      // history before anything else, so the tokens are not left behind or copied. (A PKCE ?code=
+      // must stay until the client has read it.)
+      if (link.kind === "implicit") {
+        window.history.replaceState(window.history.state, "", window.location.pathname + window.location.search);
+      }
       const supabase = getSupabaseBrowserClient();
 
       let ok = false;
