@@ -116,7 +116,19 @@ const nextConfig: NextConfig = {
     ...(localHarnessOrigin ? { dangerouslyAllowLocalIP: true } : {}),
   },
   async headers() {
-    return [{ source: "/(.*)", headers: securityHeaders }];
+    return [
+      { source: "/(.*)", headers: securityHeaders },
+      // An emailed auth link can land here with a session in the fragment until the page strips
+      // it. Browsers never send fragments as a Referer, but this page also sends none at all and
+      // is never cached (the later rule wins for the same key).
+      {
+        source: "/auth/confirm",
+        headers: [
+          { key: "Referrer-Policy", value: "no-referrer" },
+          { key: "Cache-Control", value: "no-store" },
+        ],
+      },
+    ];
   },
 };
 

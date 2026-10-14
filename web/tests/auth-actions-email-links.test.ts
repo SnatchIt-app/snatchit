@@ -61,7 +61,7 @@ describe("auth actions send their emails through the implicit email client", () 
       }),
     );
     expect(h.email.signUp).toHaveBeenCalledTimes(1);
-    const arg = h.email.signUp.mock.calls[0][0] as { options: { emailRedirectTo: string } };
+    const arg = (h.email.signUp.mock.calls[0] as unknown[])[0] as { options: { emailRedirectTo: string } };
     expect(arg.options.emailRedirectTo).toBe("https://app.example.test/auth/confirm?next=%2Fsell");
     expect(h.ssr.signUp).not.toHaveBeenCalled();
   });
