@@ -189,7 +189,7 @@ export default function PublicProfileScreen({ fixture }: { fixture?: PublicProfi
     }
 
     const { data: actives } = await supabase
-      .from('listings').select('*').eq('seller_id', sellerId).eq('status', 'active').eq('auction_status', 'active').order('ends_at', { ascending: true });
+      .from('listings').select('*').eq('seller_id', sellerId).eq('status', 'active').eq('auction_status', 'active').gt('ends_at', new Date().toISOString()).order('ends_at', { ascending: true }).order('id', { ascending: false });
     setActiveListings((actives as Listing[]) ?? []);
     setLoading(false);
   }, [sellerId, user?.id, isSelf, fixture]);

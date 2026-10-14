@@ -68,7 +68,7 @@ vi.mock('@/src/lib/nav/dockAvatar', () => ({ setDockAvatar: () => {} }));
 vi.mock('@/src/lib/supabase', () => {
   const query = () => {
     const q: Record<string, unknown> = {};
-    for (const m of ['select', 'eq', 'neq', 'order', 'limit']) q[m] = () => q;
+    for (const m of ['select', 'eq', 'neq', 'gt', 'not', 'order', 'limit']) q[m] = () => q;
     q.then = (ok: (v: Reply) => unknown) => Promise.resolve({ data: h.rows, error: null } as Reply).then(ok);
     return q;
   };

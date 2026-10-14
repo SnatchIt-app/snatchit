@@ -77,6 +77,7 @@ import {
 } from '@/src/lib/home/filterModel';
 import { DiscoveryGridSkeleton } from '@/src/components/discovery/DiscoveryGridSkeleton';
 import { FeedRow } from '@/src/components/discovery/FeedRow';
+import { APP_REVIEW_SEED_SELLER_IDS } from '@/src/lib/home/appReviewSeedAccounts';
 import { FilterSheet } from '@/src/components/discovery/FilterSheet';
 import { HomeFeature } from '@/src/components/discovery/HomeFeature';
 import { HomeHeader } from '@/src/components/discovery/HomeHeader';
@@ -248,7 +249,14 @@ export default function HomeScreen({ fixture: rawFixture }: HomeScreenProps = {}
       .from('listings')
       .select('*')
       .eq('status', 'active')
+      // Live auctions only, decided server-side. Ended and cancelled auctions keep status 'active'
+      // forever, so filtering them on the client let dead rows fill the 50-row window (prod
+      // 2026-10-14: 49 of 50 fetched rows discarded) and hid any live listing ranked past them.
+      .eq('auction_status', 'active')
+      .gt('ends_at', new Date().toISOString())
       .order('created_at', { ascending: false })
+      // Tie-breaker: equal created_at values exist in production; without it the 50-row cut is unstable.
+      .order('id', { ascending: false })
       .limit(50);
     const { data, error } = await applyBlockedSellerFilter(baseQuery, blockedIdsRef.current);
 
@@ -272,6 +280,8 @@ export default function HomeScreen({ fixture: rawFixture }: HomeScreenProps = {}
       .from('listings')
       .select('*')
       .eq('status', 'sold')
+      // The App Review seed accounts' demo sales stay out of public discovery (see the constant's note).
+      .not('seller_id', 'in', `(${APP_REVIEW_SEED_SELLER_IDS.join(',')})`)
       .order('sold_at', { ascending: false })
       .limit(30);
     const { data, error } = await applyBlockedSellerFilter(baseQuery, blockedIdsRef.current);
@@ -403,7 +413,8 @@ export default function HomeScreen({ fixture: rawFixture }: HomeScreenProps = {}
 
   // ── Helper: is a listing ended (auction over but not sold)? ─────────────
   function isListingEnded(l: Listing): boolean {
-    return l.auction_status === 'ended' || new Date(l.ends_at).getTime() <= now;
+    // Anything not a live auction is out of the default feed — cancelled included, not just 'ended'.
+    return l.auction_status !== 'active' || new Date(l.ends_at).getTime() <= now;
   }
 
   // ── Apply filters ─────────────────────────────────────────────────────────

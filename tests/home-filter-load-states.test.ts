@@ -86,7 +86,7 @@ vi.mock('@/src/lib/supabase', () => {
     const d = h.deferred();
     queue.push(d);
     const q: Record<string, unknown> = {};
-    for (const m of ['select', 'eq', 'neq', 'order', 'limit']) q[m] = () => q;
+    for (const m of ['select', 'eq', 'neq', 'gt', 'not', 'order', 'limit']) q[m] = () => q;
     q.then = (ok: (v: Reply) => unknown, bad?: (e: unknown) => unknown) => d.promise.then(ok, bad);
     return q;
   };
@@ -101,6 +101,8 @@ vi.mock('@/src/lib/supabase', () => {
       return q;
     };
     q.neq = () => q;
+    q.gt = () => q;
+    q.not = () => q;
     q.order = () => q;
     q.limit = () => {
       const queue = kind === 'sold' ? h.sold : kind === 'ended' ? h.ended : h.active;

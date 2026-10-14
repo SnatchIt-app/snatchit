@@ -162,8 +162,10 @@ export default function SearchScreen({ fixture }: { fixture?: SearchFixture } = 
       .select('*')
       .eq('status', 'active')
       .eq('auction_status', 'active')
+      .gt('ends_at', new Date().toISOString())
       .or(`event_name.ilike.%${clean}%,venue.ilike.%${clean}%`)
       .order('ends_at', { ascending: true })
+      .order('id', { ascending: false })
       .limit(40);
 
     const { data, error } = await applyBlockedSellerFilter(base, blockedIds);
