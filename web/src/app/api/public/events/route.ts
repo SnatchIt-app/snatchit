@@ -18,7 +18,7 @@ import {
  * projection of EXACTLY what /browse shows: same getActiveListings call, same
  * predicate, same RLS — so there is one definition of "publicly discoverable"
  * and this route can never drift from the product. Marketing discovers;
- * snatchti.com transacts.
+ * app.snatchitapp.com transacts.
  *
  * Query params:
  *   limit  1–50 (default 12)
