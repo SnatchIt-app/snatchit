@@ -12,7 +12,10 @@ const read = (p: string) => readFileSync(path.resolve(__dirname, "..", p), "utf8
 describe("/auth/confirm handles a session-bearing fragment safely", () => {
   it("strips an implicit fragment before creating the Supabase client", () => {
     const page = read("src/app/auth/confirm/page.tsx");
-    const strip = page.indexOf('window.history.replaceState(window.history.state, "", window.location.pathname + window.location.search)');
+    // null state: Next's patched replaceState then syncs the router URL too (passing history.state
+    // would skip that, and the router could write the fragment back on a later update).
+    expect(page).not.toContain("replaceState(window.history.state");
+    const strip = page.indexOf('window.history.replaceState(null, "", window.location.pathname + window.location.search)');
     const client = page.indexOf("const supabase = getSupabaseBrowserClient();");
     expect(strip).toBeGreaterThan(-1);
     expect(client).toBeGreaterThan(strip);

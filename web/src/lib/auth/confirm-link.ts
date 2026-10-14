@@ -10,6 +10,8 @@ export type ConfirmLink =
   | { kind: "implicit"; accessToken: string; refreshToken: string; type: string | null }
   | { kind: "token_hash"; tokenHash: string; type: string }
   | { kind: "pkce"; code: string }
+  /** GoTrue accepted the first of two email-change confirmations; the session comes with the second. */
+  | { kind: "message" }
   | { kind: "none" };
 
 export function readConfirmLink(search: URLSearchParams, hash: string): ConfirmLink {
@@ -24,6 +26,10 @@ export function readConfirmLink(search: URLSearchParams, hash: string): ConfirmL
 
   const code = search.get("code");
   if (code) return { kind: "pkce", code };
+
+  // No credential, but GoTrue says it accepted the link (secure email change, first address).
+  // Errors come as error=/error_code= and stay "none".
+  if ((h.get("message") || search.get("message")) && !h.get("error") && !search.get("error")) return { kind: "message" };
 
   return { kind: "none" };
 }

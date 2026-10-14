@@ -89,6 +89,13 @@ describe("auth emails are requested on the implicit flow (work on any device)", 
     expect(c.body).toEqual({ email: "next@example.test" });
   });
 
+  it("email change on a network failure returns an error instead of throwing", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("fetch failed"); }));
+    const { requestEmailChange } = await import("@/lib/auth/email-links");
+    const out = await requestEmailChange("t", "x@example.test", "https://app.example.test/auth/confirm");
+    expect(out.error).toMatchObject({ status: 0 });
+  });
+
   it("email change surfaces GoTrue's error message", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ msg: "Email rate limit exceeded" }), { status: 429 })));
     const { requestEmailChange } = await import("@/lib/auth/email-links");

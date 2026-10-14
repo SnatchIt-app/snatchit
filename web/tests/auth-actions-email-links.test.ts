@@ -20,7 +20,8 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock("server-only", () => ({}));
-vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
+const nav = vi.hoisted(() => ({ redirect: vi.fn() }));
+vi.mock("next/navigation", () => nav);
 vi.mock("@/lib/env", () => ({ SITE_URL: "https://app.example.test" }));
 vi.mock("@/lib/auth/email-links", () => ({ emailLinkAuth: () => h.email, requestEmailChange: h.requestEmailChange }));
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () => ({ auth: h.ssr }) }));
@@ -76,6 +77,21 @@ describe("auth actions send their emails through the implicit email client", () 
       form({ firstName: "A", lastName: "B", email: "a@example.test", password: "long-enough-pass", confirmPassword: "long-enough-pass", acceptedTerms: "on" }),
     );
     expect(h.ssr.setSession).toHaveBeenCalledWith({ access_token: "a", refresh_token: "r" });
+    expect(nav.redirect).toHaveBeenCalledWith("/account");
+  });
+
+  it("sign-up with confirmation off: if the session cannot be stored, no redirect into a signed-out page", async () => {
+    h.email.signUp.mockResolvedValueOnce({
+      data: { session: { access_token: "a", refresh_token: "r" }, user: { id: "u1" } },
+      error: null,
+    } as never);
+    h.ssr.setSession.mockResolvedValueOnce({ error: { status: 401, name: "AuthApiError" } } as never);
+    const out = await signUpAction(
+      {},
+      form({ firstName: "A", lastName: "B", email: "a@example.test", password: "long-enough-pass", confirmPassword: "long-enough-pass", acceptedTerms: "on" }),
+    );
+    expect(nav.redirect).not.toHaveBeenCalled();
+    expect(out.message).toMatch(/Log in to continue/);
   });
 
   it("email change", async () => {

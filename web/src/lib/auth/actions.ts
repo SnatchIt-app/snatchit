@@ -76,10 +76,14 @@ export async function signUpAction(_prev: ActionState, formData: FormData): Prom
   // Confirmation off: the sign-up returned a session. The email client keeps nothing, so hand it
   // to the cookie client before redirecting.
   const supabase = await createSupabaseServerClient();
-  await supabase.auth.setSession({
+  const { error: sessionError } = await supabase.auth.setSession({
     access_token: data.session.access_token,
     refresh_token: data.session.refresh_token,
   });
+  if (sessionError) {
+    console.error("[auth] setSession after signUp failed", { status: sessionError.status, name: sessionError.name });
+    return { success: true, message: "Your account is ready. Log in to continue." };
+  }
   redirect(next);
 }
 

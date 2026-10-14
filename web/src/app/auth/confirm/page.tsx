@@ -8,10 +8,10 @@ import { Alert } from "@/components/ui/Alert";
 import { Spinner } from "@/components/ui/Button";
 import { authInlineLinkCls } from "@/components/auth/styles";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import { safeInternalPath } from "@/lib/auth/redirect";
 import { readConfirmLink } from "@/lib/auth/confirm-link";
+import { completeConfirm } from "@/lib/auth/complete-confirm";
 
-type Status = "processing" | "error";
+type Status = "processing" | "first_confirmation" | "error";
 
 function ConfirmingCard() {
   return (
@@ -50,55 +50,16 @@ function ConfirmClient() {
       // history before anything else, so the tokens are not left behind or copied. (A PKCE ?code=
       // must stay until the client has read it.)
       if (link.kind === "implicit") {
-        window.history.replaceState(window.history.state, "", window.location.pathname + window.location.search);
+        // null state, not history.state: Next's patched replaceState then also updates the router
+        // URL; passing its own state would skip that and the router could write the fragment back.
+        window.history.replaceState(null, "", window.location.pathname + window.location.search);
       }
       const supabase = getSupabaseBrowserClient();
-
-      let ok = false;
-      let type: string | null = null;
-
-      if (link.kind === "implicit") {
-        const { error } = await supabase.auth.setSession({
-          access_token: link.accessToken,
-          refresh_token: link.refreshToken,
-        });
-        ok = !error;
-        type = link.type;
-      } else if (link.kind === "token_hash") {
-        const { error } = await supabase.auth.verifyOtp({
-          type: link.type as "signup" | "recovery" | "email" | "email_change" | "invite" | "magiclink",
-          token_hash: link.tokenHash,
-        });
-        ok = !error;
-        type = link.type;
-      } else if (link.kind === "pkce") {
-        // The browser client exchanges the code itself while it initialises (detectSessionInUrl),
-        // with the verifier the reset or sign-up request left in this browser. initialize()
-        // resolves with that exchange's error, if any. Before this branch the page ignored ?code=
-        // and said "Link expired" right after the exchange had signed the person in.
-        const { error } = await supabase.auth.initialize();
-        const { data } = await supabase.auth.getSession();
-        ok = !error && !!data.session;
-      }
+      const outcome = await completeConfirm(link, supabase.auth, searchParams.get("next"));
 
       if (cancelled) return;
-
-      if (!ok) {
-        setStatus("error");
-        return;
-      }
-
-      if (type === "recovery") {
-        router.replace("/reset-password");
-        return;
-      }
-      if (type === "email_change") {
-        router.replace("/account/settings?email_changed=1");
-        return;
-      }
-
-      const next = safeInternalPath(searchParams.get("next"), "/account");
-      router.replace(next);
+      if (outcome.status === "signed_in") router.replace(outcome.route);
+      else setStatus(outcome.status === "first_confirmation" ? "first_confirmation" : "error");
     }
 
     run();
@@ -111,6 +72,14 @@ function ConfirmClient() {
   if (status === "processing") {
     return (
       <ConfirmingCard />
+    );
+  }
+
+  if (status === "first_confirmation") {
+    return (
+      <AuthCard eyebrow="Account" title="One more step">
+        <Alert tone="success">First confirmation accepted. Open the link we sent to your other email address to finish.</Alert>
+      </AuthCard>
     );
   }
 

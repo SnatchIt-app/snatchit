@@ -43,16 +43,22 @@ export async function requestEmailChange(
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
     throw new Error("Supabase env missing — check NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY");
   }
-  const res = await fetch(`${SUPABASE_URL}/auth/v1/user?redirect_to=${encodeURIComponent(redirectTo)}`, {
-    method: "PUT",
-    headers: {
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ email: newEmail }),
-    cache: "no-store",
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${SUPABASE_URL}/auth/v1/user?redirect_to=${encodeURIComponent(redirectTo)}`, {
+      method: "PUT",
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ email: newEmail }),
+      cache: "no-store",
+    });
+  } catch {
+    // Same outcome auth-js gave: an error the form shows, not a thrown server action.
+    return { error: { message: "Email change failed (network)", status: 0, name: "AuthRetryableFetchError" } };
+  }
   if (res.ok) return { error: null };
   let message = `Email change failed (${res.status})`;
   try {
