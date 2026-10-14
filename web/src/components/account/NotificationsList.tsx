@@ -8,6 +8,8 @@ import {
 } from "@/lib/notifications-actions";
 import type { AppNotification } from "@/lib/notifications";
 import { UnreadDot } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { Icon } from "@/components/ui/Icon";
 import { safeInternalPath } from "@/lib/auth/redirect";
 
 function timeAgo(iso: string): string {
@@ -44,61 +46,52 @@ export function NotificationsList({ notifications }: { notifications: AppNotific
   return (
     <div>
       {unreadCount > 0 ? (
-        <div className="mb-5 flex justify-end">
-          <button
-            type="button"
-            onClick={markAllReadLocal}
-            className="inline-flex min-h-11 items-center text-[11px] font-medium uppercase tracking-[0.25em] text-primary hover:text-[#ff5f5f]"
-          >
+        <div className="-mt-2 mb-3 flex justify-end">
+          <Button variant="ghost" size="sm" onClick={markAllReadLocal}>
             Mark all as read
-          </button>
+          </Button>
         </div>
       ) : null}
 
-      <ul className="divide-y divide-primary/15 border-y border-primary/15">
+      <ul className="border-t border-line">
         {items.map((n) => {
           const unread = !n.read_at;
           const content = (
-            <>
-              <div className="flex items-start gap-3">
-                {unread ? <span className="mt-1.5"><UnreadDot /></span> : <span className="mt-1.5 size-[7px] shrink-0" />}
-                <div className="min-w-0 flex-1">
-                  <p className={`text-[14.5px] leading-snug ${unread ? "font-bold text-ink" : "font-medium text-white/70"}`}>
-                    {n.title}
-                  </p>
-                  {n.body ? <p className="mt-1 text-[13px] leading-relaxed text-white/50">{n.body}</p> : null}
-                  <p className="mt-1.5 text-[11px] uppercase tracking-[0.2em] text-white/35">{timeAgo(n.created_at)}</p>
-                </div>
+            <div className="flex items-start gap-3">
+              <span className="flex h-[22px] w-2 shrink-0 items-center">{unread ? <UnreadDot /> : null}</span>
+              <div className="min-w-0 flex-1">
+                <p className={`text-[15px] leading-snug break-words ${unread ? "font-semibold text-ink" : "font-medium text-ink-2"}`}>
+                  {n.title}
+                </p>
+                {n.body ? <p className="t-body-sm mt-1 break-words text-muted">{n.body}</p> : null}
+                <p className="mt-1.5 text-[12px] text-muted">{timeAgo(n.created_at)}</p>
               </div>
-            </>
+            </div>
           );
 
           if (n.link) {
             return (
-              <li key={n.id}>
+              <li key={n.id} className="border-b border-line">
                 <Link
                   href={safeInternalPath(n.link, "/account/notifications")}
                   onClick={() => unread && markReadLocal(n.id)}
-                  className="block py-4 transition-colors duration-200 hover:bg-white/[0.03] motion-reduce:transition-none"
+                  className="group -mx-3 flex items-center gap-3 rounded-panel px-3 py-4 transition-colors hover:bg-surface"
                 >
-                  {content}
+                  <div className="min-w-0 flex-1">{content}</div>
+                  <Icon name="chevronRight" size={18} strokeWidth={2} className="text-faint group-hover:text-muted" />
                 </Link>
               </li>
             );
           }
 
           return (
-            <li key={n.id} className="py-4">
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0 flex-1">{content}</div>
+            <li key={n.id} className="border-b border-line py-4">
+              <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+                <div className="min-w-0 grow basis-48">{content}</div>
                 {unread ? (
-                  <button
-                    type="button"
-                    onClick={() => markReadLocal(n.id)}
-                    className="shrink-0 text-[10.5px] font-medium uppercase tracking-[0.2em] text-white/45 hover:text-primary"
-                  >
+                  <Button variant="ghost" size="sm" className="-my-1" onClick={() => markReadLocal(n.id)}>
                     Mark read
-                  </button>
+                  </Button>
                 ) : null}
               </div>
             </li>

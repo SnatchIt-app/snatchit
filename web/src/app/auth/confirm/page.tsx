@@ -5,19 +5,33 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { AuthCard } from "@/components/auth/AuthCard";
 import { Alert } from "@/components/ui/Alert";
+import { Spinner } from "@/components/ui/Button";
+import { authInlineLinkCls } from "@/components/auth/styles";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { safeInternalPath } from "@/lib/auth/redirect";
+import { readConfirmLink } from "@/lib/auth/confirm-link";
 
 type Status = "processing" | "error";
 
+function ConfirmingCard() {
+  return (
+    <AuthCard eyebrow="Account" title="Confirming…">
+      <p role="status" className="t-body flex items-center gap-3 text-muted">
+        <Spinner className="text-ink-2" />
+        One moment while we verify your link.
+      </p>
+    </AuthCard>
+  );
+}
+
 /**
- * Lands here from signup-confirmation and password-reset emails. Supabase's
- * default templates deliver the session as a URL hash fragment
+ * Lands here from signup-confirmation and password-reset emails. A link from
+ * an implicit-flow request carries the session as a URL hash fragment
  * (#access_token=...&refresh_token=...&type=...) — fragments never reach the
  * server, so this has to be a client page that establishes the session
- * itself, exactly like the mobile app's deep-link handler does. This
- * deliberately avoids the token_hash/type query-param flow, which would
- * require editing the shared email templates mobile also depends on.
+ * itself, exactly like the mobile app's deep-link handler does. The web's own
+ * requests use the PKCE flow (@supabase/ssr's default), so their links come
+ * back as ?code=; a token_hash link is accepted too. See lib/auth/confirm-link.
  */
 function ConfirmClient() {
   const [status, setStatus] = useState<Status>("processing");
@@ -28,32 +42,36 @@ function ConfirmClient() {
     let cancelled = false;
 
     async function run() {
+      // Read the link BEFORE creating the client: after a successful PKCE exchange the client
+      // deletes ?code= from the address bar (history.replaceState).
+      const link = readConfirmLink(new URLSearchParams(window.location.search), window.location.hash);
       const supabase = getSupabaseBrowserClient();
-      const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-      const accessToken = hashParams.get("access_token");
-      const refreshToken = hashParams.get("refresh_token");
-      const hashType = hashParams.get("type");
-
-      const queryTokenHash = searchParams.get("token_hash");
-      const queryType = searchParams.get("type");
 
       let ok = false;
       let type: string | null = null;
 
-      if (accessToken && refreshToken) {
+      if (link.kind === "implicit") {
         const { error } = await supabase.auth.setSession({
-          access_token: accessToken,
-          refresh_token: refreshToken,
+          access_token: link.accessToken,
+          refresh_token: link.refreshToken,
         });
         ok = !error;
-        type = hashType;
-      } else if (queryTokenHash && queryType) {
+        type = link.type;
+      } else if (link.kind === "token_hash") {
         const { error } = await supabase.auth.verifyOtp({
-          type: queryType as "signup" | "recovery" | "email" | "email_change" | "invite" | "magiclink",
-          token_hash: queryTokenHash,
+          type: link.type as "signup" | "recovery" | "email" | "email_change" | "invite" | "magiclink",
+          token_hash: link.tokenHash,
         });
         ok = !error;
-        type = queryType;
+        type = link.type;
+      } else if (link.kind === "pkce") {
+        // The browser client exchanges the code itself while it initialises (detectSessionInUrl),
+        // with the verifier the reset or sign-up request left in this browser. initialize()
+        // resolves with that exchange's error, if any. Before this branch the page ignored ?code=
+        // and said "Link expired" right after the exchange had signed the person in.
+        const { error } = await supabase.auth.initialize();
+        const { data } = await supabase.auth.getSession();
+        ok = !error && !!data.session;
       }
 
       if (cancelled) return;
@@ -85,22 +103,20 @@ function ConfirmClient() {
 
   if (status === "processing") {
     return (
-      <AuthCard eyebrow="Account" title="Confirming…">
-        <p className="text-[14px] text-white/60">One moment while we verify your link.</p>
-      </AuthCard>
+      <ConfirmingCard />
     );
   }
 
   return (
     <AuthCard eyebrow="Account" title="Link expired">
-      <div className="space-y-5">
+      <div className="space-y-6">
         <Alert tone="error">This link is invalid or has already been used.</Alert>
-        <p className="text-[13px] text-white/50">
-          <Link href="/login" className="font-semibold text-primary hover:text-[#ff5f5f]">
+        <p className="t-body text-muted">
+          <Link href="/login" className={authInlineLinkCls}>
             Back to log in
           </Link>{" "}
           or{" "}
-          <Link href="/forgot-password" className="font-semibold text-primary hover:text-[#ff5f5f]">
+          <Link href="/forgot-password" className={authInlineLinkCls}>
             request a new reset link
           </Link>
           .
@@ -114,9 +130,7 @@ export default function AuthConfirmPage() {
   return (
     <Suspense
       fallback={
-        <AuthCard eyebrow="Account" title="Confirming…">
-          <p className="text-[14px] text-white/60">One moment while we verify your link.</p>
-        </AuthCard>
+        <ConfirmingCard />
       }
     >
       <ConfirmClient />

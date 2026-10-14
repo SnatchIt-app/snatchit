@@ -10,13 +10,16 @@ import { captureException } from "@/lib/observability";
  * more specific boundary did not already handle — previously only /browse had
  * one, so a failure anywhere else showed Next's default error screen and was
  * reported nowhere.
+ *
+ * `retry` (Next 16) re-fetches and re-renders the segment; the older `reset`
+ * only re-rendered, so a transient server failure stayed stuck on this screen.
  */
 export default function RootError({
   error,
-  reset,
+  retry,
 }: {
   error: Error & { digest?: string };
-  reset: () => void;
+  retry: () => void;
 }) {
   useEffect(() => {
     // digest is the only handle on the server-side stack, which Next redacts
@@ -26,11 +29,12 @@ export default function RootError({
   }, [error]);
 
   return (
-    <Container className="py-16">
+    <Container className="py-10 sm:py-16">
       <ErrorState
+        as="h1"
         title="Something went wrong"
         message="We hit an unexpected error. Try again — if it keeps happening, please contact support."
-        onRetry={reset}
+        onRetry={retry}
       />
     </Container>
   );

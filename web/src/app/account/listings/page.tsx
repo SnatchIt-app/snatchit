@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getAuthedUser } from "@/lib/auth/session";
 import { getMyListings } from "@/lib/seller-listings";
 import { SellerListings } from "@/components/account/SellerListings";
+import { AccountHeader } from "@/components/account/AccountHeader";
 import { LinkButton } from "@/components/ui/Button";
 
 export const metadata: Metadata = {
@@ -17,15 +18,15 @@ export default async function AccountListingsPage() {
   const listings = await getMyListings(user.id);
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <h1 className="font-display text-[24px] font-bold uppercase leading-[0.95] tracking-[-0.02em] text-ink">
-          Your listings
-        </h1>
-        <LinkButton href="/sell" size="md">
-          List a ticket
-        </LinkButton>
-      </div>
+    <div>
+      <AccountHeader
+        title="Your listings"
+        action={
+          <LinkButton href="/sell" size="md">
+            List a ticket
+          </LinkButton>
+        }
+      />
       <SellerListings listings={listings} />
     </div>
   );

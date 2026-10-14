@@ -1,34 +1,38 @@
+import { Icon } from "@/components/ui/Icon";
+
 /**
- * Search entry point — a plain GET form to /browse, so it works without
- * JavaScript and lands on a shareable, crawlable URL (?q=…).
- * Styled in the site's form idiom: square underline field + square red button.
+ * Search field (native Search screen: pill, min height 52, elevated fill,
+ * "Event or venue"). A plain GET form to /browse, so it works without
+ * JavaScript and lands on a shareable URL (?q=…). Hidden filters carry over.
  */
 export function SearchForm({
   defaultValue = "",
   size = "md",
   className = "",
+  keep = {},
+  autoFocus = false,
 }: {
   defaultValue?: string;
-  size?: "md" | "lg";
+  size?: "sm" | "md";
   className?: string;
+  keep?: Record<string, string | undefined>;
+  autoFocus?: boolean;
 }) {
-  const h = size === "lg" ? "h-14" : "h-12";
+  const h = size === "sm" ? "h-10 text-[14px]" : "h-[52px] text-[16px]";
   return (
-    <form action="/browse" method="get" role="search" className={`flex items-stretch gap-4 ${className}`}>
+    <form action="/browse" method="get" role="search" className={`relative ${className}`}>
+      <Icon name="search" size={size === "sm" ? 18 : 20} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-muted" />
       <input
         type="search"
         name="q"
         defaultValue={defaultValue}
-        placeholder="Search events, venues, artists"
-        aria-label="Search listings"
-        className={`${h} w-full min-w-0 rounded-none border-0 border-b border-white/25 bg-transparent px-0 text-[15px] font-medium text-ink placeholder:text-placeholder transition-colors duration-200 hover:border-white/45 focus:border-primary focus:outline-none motion-reduce:transition-none`}
+        placeholder="Event or venue"
+        aria-label="Search listings by event or venue"
+        autoFocus={autoFocus}
+        enterKeyHint="search"
+        className={`${h} w-full min-w-0 rounded-full border border-transparent bg-surface pl-11 pr-5 text-ink placeholder:text-muted transition-colors focus:border-control focus:bg-elevated [&::-webkit-search-cancel-button]:appearance-none`}
       />
-      <button
-        type="submit"
-        className={`${h} btn-glow shrink-0 bg-primary px-7 text-[13px] font-bold uppercase tracking-wider text-black transition-all duration-200 hover:bg-primary-muted active:scale-[0.99] motion-reduce:transition-none`}
-      >
-        Search
-      </button>
+      {Object.entries(keep).map(([k, v]) => (v ? <input key={k} type="hidden" name={k} value={v} /> : null))}
     </form>
   );
 }

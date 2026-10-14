@@ -845,6 +845,14 @@ jobs:
         if: steps.detect.outputs.exists == 'yes'
         run: npm ci
 
+      - name: Unit tests (incl. FU-1 parity with the app list and migration 152)
+        if: steps.detect.outputs.exists == 'yes'
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://ci-placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
+          NEXT_PUBLIC_SITE_URL: https://ci-placeholder.snatchitapp.com
+        run: npm test
+
       - name: Build
         if: steps.detect.outputs.exists == 'yes'
         # The web app fails closed without these (by design — see web/src/lib/env).

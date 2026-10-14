@@ -18,7 +18,7 @@ export function EmailChangeForm({ currentEmail }: { currentEmail: string | null 
   }
 
   return (
-    <form action={formAction} noValidate className="max-w-[380px] space-y-4">
+    <form action={formAction} noValidate className="max-w-[440px] space-y-5">
       {state.error ? <Alert tone="error">{state.error}</Alert> : null}
       <Field label="Current email" htmlFor="currentEmail">
         <Input id="currentEmail" value={currentEmail ?? ""} disabled readOnly />
@@ -26,8 +26,8 @@ export function EmailChangeForm({ currentEmail }: { currentEmail: string | null 
       <Field label="New email" htmlFor="newEmail" error={state.fieldErrors?.newEmail}>
         <Input id="newEmail" name="newEmail" type="email" autoComplete="email" required />
       </Field>
-      <Button type="submit" variant="secondary" disabled={isPending}>
-        {isPending ? "Sending…" : "Change email"}
+      <Button type="submit" variant="secondary" disabled={isPending} pending={isPending} pendingLabel="Sending…">
+        Change email
       </Button>
     </form>
   );

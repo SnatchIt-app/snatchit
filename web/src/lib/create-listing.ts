@@ -3,6 +3,7 @@ import "server-only";
 import { APP_CONFIG } from "@snatchit/core";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getPayoutStatus, type PayoutStatus } from "@/lib/payouts";
+import { readServerRefusal } from "@/lib/server-refusal";
 
 export type RiskGate = { allowed: boolean; reason: string; riskTier: string | null };
 
@@ -141,6 +142,6 @@ export async function createListing(
     .select("id")
     .single();
 
-  if (error) return { error: mapListingError(error.message) };
+  if (error) return { error: readServerRefusal(error)?.message ?? mapListingError(error.message) };
   return { id: (data as { id: string }).id };
 }

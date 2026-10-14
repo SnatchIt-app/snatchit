@@ -7,8 +7,13 @@ import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
+import { authFootnoteCls, authInlineLinkCls } from "@/components/auth/styles";
 
 const initialState: ActionState = {};
+
+// Inline links inside the checkbox label: vertical padding on an inline box
+// grows the tap target to 44px without changing the line's layout.
+const termsLinkCls = "py-[13px] font-semibold text-ink underline underline-offset-2 hover:decoration-2";
 
 export function SignUpForm({ next }: { next: string }) {
   const [state, formAction, isPending] = useActionState(signUpAction, initialState);
@@ -29,12 +34,12 @@ export function SignUpForm({ next }: { next: string }) {
       key={state.fieldErrors || state.error ? JSON.stringify(state.values) : "initial"}
       action={formAction}
       noValidate
-      className="space-y-5"
+      className="space-y-6"
     >
       <input type="hidden" name="next" value={next} />
       {state.error ? <Alert tone="error">{state.error}</Alert> : null}
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid gap-6 min-[380px]:grid-cols-2 min-[380px]:gap-4">
         <Field label="First name" htmlFor="firstName" error={state.fieldErrors?.firstName}>
           <Input
             id="firstName"
@@ -97,41 +102,41 @@ export function SignUpForm({ next }: { next: string }) {
       </Field>
 
       <div>
-        <label htmlFor="acceptedTerms" className="flex items-start gap-3 py-1 text-[13px] leading-relaxed text-white/70">
+        <label htmlFor="acceptedTerms" className="flex min-h-11 cursor-pointer items-start gap-3 py-1 t-body text-ink-2">
           <input
             id="acceptedTerms"
             name="acceptedTerms"
             type="checkbox"
-            className="mt-0.5 size-[18px] shrink-0 accent-[#ff1a1a]"
+            className="mt-0.5 size-5 shrink-0 cursor-pointer accent-brand"
             aria-invalid={Boolean(state.fieldErrors?.acceptedTerms)}
             aria-describedby={state.fieldErrors?.acceptedTerms ? "acceptedTerms-error" : undefined}
           />
           <span>
             I agree to the{" "}
-            <a href="https://snatchitapp.com/terms" target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2 hover:text-[#ff5f5f]">
+            <a href="https://snatchitapp.com/terms" target="_blank" rel="noopener noreferrer" className={termsLinkCls}>
               Terms
             </a>{" "}
             and{" "}
-            <a href="https://snatchitapp.com/privacy" target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2 hover:text-[#ff5f5f]">
+            <a href="https://snatchitapp.com/privacy" target="_blank" rel="noopener noreferrer" className={termsLinkCls}>
               Privacy Policy
             </a>
             .
           </span>
         </label>
         {state.fieldErrors?.acceptedTerms ? (
-          <p id="acceptedTerms-error" role="alert" className="mt-2 text-[12.5px] font-medium text-primary">
+          <p id="acceptedTerms-error" role="alert" className="t-body-sm mt-2 font-medium text-danger">
             {state.fieldErrors.acceptedTerms}
           </p>
         ) : null}
       </div>
 
-      <Button type="submit" size="lg" className="w-full" disabled={isPending}>
-        {isPending ? "Creating account…" : "Create account"}
+      <Button type="submit" size="lg" className="w-full" disabled={isPending} pending={isPending} pendingLabel="Creating account…">
+        Create account
       </Button>
 
-      <p className="text-center text-[13px] text-white/50">
+      <p className={authFootnoteCls}>
         Already have an account?{" "}
-        <Link href={`/login?next=${encodeURIComponent(next)}`} className="font-semibold text-primary hover:text-[#ff5f5f]">
+        <Link href={`/login?next=${encodeURIComponent(next)}`} className={authInlineLinkCls}>
           Log in
         </Link>
       </p>

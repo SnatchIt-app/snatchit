@@ -16,6 +16,28 @@ const extraHost = envHost && envHost !== SUPABASE_HOST ? envHost : null;
 const isDev = process.env.NODE_ENV === "development";
 
 /**
+ * Local preview harness (synthetic data on this machine only). When
+ * SNATCHIT_LOCAL_HARNESS=1 and NEXT_PUBLIC_SUPABASE_URL is an http loopback
+ * origin, that exact origin is allowed for images and connections (http, and
+ * ws for Realtime, as production allows https + wss), and next/image may
+ * optimize it. Never active on Vercel (VERCEL is set there),
+ * and with the flag unset every header and image rule below is unchanged
+ * (tests/next-config-headers.test.ts).
+ */
+const localHarnessOrigin = (() => {
+  if (process.env.SNATCHIT_LOCAL_HARNESS !== "1" || process.env.VERCEL) return null;
+  try {
+    const u = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "");
+    const loopback = u.hostname === "127.0.0.1" || u.hostname === "localhost";
+    return u.protocol === "http:" && loopback ? u : null;
+  } catch {
+    return null;
+  }
+})();
+const harnessSrc = localHarnessOrigin ? ` ${localHarnessOrigin.origin}` : "";
+const harnessConnect = localHarnessOrigin ? `${harnessSrc} ws://${localHarnessOrigin.host}` : "";
+
+/**
  * Content Security Policy.
  * Scope: self + Supabase (REST/Storage/Realtime) + Stripe (Payment Element,
  * added for web checkout — js.stripe.com in script/frame, api.stripe.com in
@@ -29,12 +51,12 @@ const csp = [
   "default-src 'self'",
   `script-src 'self' 'unsafe-inline' https://js.stripe.com${isDev ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
-  `img-src 'self' data: blob: https://${SUPABASE_HOST}${extraHost ? ` https://${extraHost}` : ""}`,
+  `img-src 'self' data: blob: https://${SUPABASE_HOST}${extraHost ? ` https://${extraHost}` : ""}${harnessSrc}`,
   "font-src 'self'",
   // Sentry: *.ingest.sentry.io covers EU and regionless DSNs too. Allowing
   // only the US host would have CSP-blocked error reporting on any other
   // region — silently, since a blocked report cannot report itself.
-  `connect-src 'self' https://${SUPABASE_HOST} wss://${SUPABASE_HOST}${extraHost ? ` https://${extraHost} wss://${extraHost}` : ""} https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://*.ingest.de.sentry.io https://api.stripe.com`,
+  `connect-src 'self' https://${SUPABASE_HOST} wss://${SUPABASE_HOST}${extraHost ? ` https://${extraHost} wss://${extraHost}` : ""} https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://*.ingest.de.sentry.io https://api.stripe.com${harnessConnect}`,
   "frame-src https://js.stripe.com https://hooks.stripe.com",
   "object-src 'none'",
   "base-uri 'self'",
@@ -80,7 +102,18 @@ const nextConfig: NextConfig = {
             },
           ]
         : []),
+      ...(localHarnessOrigin
+        ? [
+            {
+              protocol: "http" as const,
+              hostname: localHarnessOrigin.hostname,
+              port: localHarnessOrigin.port,
+              pathname: "/storage/v1/object/public/**",
+            },
+          ]
+        : []),
     ],
+    ...(localHarnessOrigin ? { dangerouslyAllowLocalIP: true } : {}),
   },
   async headers() {
     return [{ source: "/(.*)", headers: securityHeaders }];

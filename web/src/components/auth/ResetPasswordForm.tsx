@@ -13,7 +13,7 @@ export function ResetPasswordForm() {
   const [state, formAction, isPending] = useActionState(updatePasswordAction, initialState);
 
   return (
-    <form action={formAction} noValidate className="space-y-5">
+    <form action={formAction} noValidate className="space-y-6">
       {state.error ? <Alert tone="error">{state.error}</Alert> : null}
 
       <Field label="New password" htmlFor="password" error={state.fieldErrors?.password} hint="At least 8 characters.">
@@ -23,6 +23,7 @@ export function ResetPasswordForm() {
           type="password"
           autoComplete="new-password"
           aria-invalid={Boolean(state.fieldErrors?.password)}
+          aria-describedby={state.fieldErrors?.password ? "password-error" : "password-hint"}
           required
         />
       </Field>
@@ -34,12 +35,13 @@ export function ResetPasswordForm() {
           type="password"
           autoComplete="new-password"
           aria-invalid={Boolean(state.fieldErrors?.confirmPassword)}
+          aria-describedby={state.fieldErrors?.confirmPassword ? "confirmPassword-error" : undefined}
           required
         />
       </Field>
 
-      <Button type="submit" size="lg" className="w-full" disabled={isPending}>
-        {isPending ? "Saving…" : "Set new password"}
+      <Button type="submit" size="lg" className="w-full" disabled={isPending} pending={isPending} pendingLabel="Saving…">
+        Set new password
       </Button>
     </form>
   );

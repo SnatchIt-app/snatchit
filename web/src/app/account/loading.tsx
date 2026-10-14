@@ -1,4 +1,4 @@
-import { Skeleton } from "@/components/ui/Skeleton";
+import { FeedRowSkeleton, Skeleton } from "@/components/ui/Skeleton";
 
 /**
  * Covers every /account/* child route — they all render inside the account
@@ -7,13 +7,13 @@ import { Skeleton } from "@/components/ui/Skeleton";
 export default function AccountLoading() {
   return (
     <div>
-      <Skeleton className="h-10 w-64" />
-      <div className="mt-6 border-y border-primary/15 py-5">
-        <Skeleton className="h-4 w-48" />
-      </div>
-      <div className="mt-9 space-y-4">
+      <Skeleton className="mb-3 size-11 rounded-full lg:hidden" />
+      <Skeleton className="h-9 w-56 lg:h-11 lg:w-72" />
+      <div className="mt-6 border-t border-line lg:mt-8">
         {Array.from({ length: 4 }).map((_, i) => (
-          <Skeleton key={i} className="h-24 w-full" />
+          <div key={i} className="border-b border-line">
+            <FeedRowSkeleton />
+          </div>
         ))}
       </div>
     </div>

@@ -1,45 +1,94 @@
 import Link from "next/link";
 import type { AnchorHTMLAttributes, ButtonHTMLAttributes, ReactNode } from "react";
+import { Icon } from "@/components/ui/Icon";
 
-type Variant = "primary" | "secondary" | "ghost";
-type Size = "md" | "lg";
+type Variant = "primary" | "secondary" | "ghost" | "destructive";
+type Size = "sm" | "md" | "lg";
 
 /**
- * Buttons in the snatchitapp.com language: square, uppercase Inter bold with
- * tracking-wider, black type on brand red, red glow that deepens on hover.
- * Disabled is a real state (dark fill, no glow), not a faded primary.
+ * The native Button (src/components/ui/Button.tsx): pill shape, Inter Bold
+ * 16/20, minimum heights 36 / 44 / 52.
+ *   primary      brand red fill, black label (5.4:1), pressed #FF5353
+ *   secondary    1px control outline, ink label
+ *   destructive  1px error outline + error label — never filled
+ *   ghost        no border
+ * Disabled dims the whole control to 0.4. Press scales to 0.98.
  */
 const base =
-  "inline-flex items-center justify-center gap-2 select-none whitespace-nowrap " +
-  "font-bold uppercase tracking-wider transition-all duration-200 " +
-  "active:scale-[0.99] " +
-  "disabled:cursor-not-allowed disabled:bg-white/[0.06] disabled:text-white/35 disabled:shadow-none disabled:active:scale-100 " +
-  "motion-reduce:transition-none motion-reduce:active:scale-100";
+  "pressable relative inline-flex items-center justify-center gap-2 select-none rounded-full text-center font-bold leading-tight";
+const dimmed = "disabled:cursor-not-allowed disabled:opacity-40 aria-disabled:cursor-not-allowed aria-disabled:opacity-40";
 
 const variants: Record<Variant, string> = {
-  primary: "bg-primary text-black hover:bg-primary-muted btn-glow",
-  secondary: "bg-white/[0.08] text-ink hover:bg-white/[0.14]",
-  ghost: "text-white/60 hover:text-primary",
+  primary: "bg-brand text-inverse hover:bg-brand-pressed",
+  secondary: "border border-control text-ink hover:border-ink hover:bg-ink/[0.04]",
+  ghost: "text-ink hover:bg-ink/[0.06]",
+  destructive: "border border-danger text-danger hover:bg-danger/[0.06]",
 };
 
-// 44px minimum touch target at every size.
 const sizes: Record<Size, string> = {
-  md: "h-11 px-6 text-[13px]",
-  lg: "h-14 px-10 text-[15px]",
+  sm: "min-h-9 px-4 text-[14px]",
+  md: "min-h-11 px-5 text-[15px]",
+  lg: "min-h-[52px] px-6 text-[16px]",
 };
 
-export function buttonClasses(variant: Variant = "primary", size: Size = "md", extra = "") {
-  return `${base} ${variants[variant]} ${sizes[size]} ${extra}`;
+export function buttonClasses(variant: Variant = "primary", size: Size = "md", extra = "", dimWhenDisabled = true) {
+  return `${base} ${dimWhenDisabled ? dimmed : "disabled:cursor-wait"} ${variants[variant]} ${sizes[size]} ${extra}`;
+}
+
+/** A spinner that inherits the label colour (native pendingLabel treatment). */
+export function Spinner({ className = "" }: { className?: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={`inline-block size-4 shrink-0 rounded-full border-2 border-current border-r-transparent [animation:sn-spin_0.7s_linear_infinite] ${className}`}
+    />
+  );
+}
+
+/** Two-line pill label: action on top, the qualifying sub-line under it ("minimum $X all-in"). */
+export function ButtonLabel({ label, sub }: { label: ReactNode; sub?: ReactNode }) {
+  return (
+    <span className="flex flex-col items-center py-1.5">
+      <span>{label}</span>
+      {sub ? <span className="text-[13px] font-medium leading-snug opacity-80">{sub}</span> : null}
+    </span>
+  );
 }
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant;
   size?: Size;
+  /** Shows a spinner and swaps the label for `pendingLabel` (the control stays full strength). */
+  pending?: boolean;
+  pendingLabel?: ReactNode;
   children: ReactNode;
 }
 
-export function Button({ variant = "primary", size = "md", className = "", ...props }: ButtonProps) {
-  return <button className={buttonClasses(variant, size, className)} {...props} />;
+export function Button({
+  variant = "primary",
+  size = "md",
+  className = "",
+  pending = false,
+  pendingLabel,
+  children,
+  ...props
+}: ButtonProps) {
+  return (
+    <button
+      className={buttonClasses(variant, size, className, !pending)}
+      aria-busy={pending || undefined}
+      {...props}
+    >
+      {pending ? (
+        <>
+          <Spinner />
+          {pendingLabel ?? children}
+        </>
+      ) : (
+        children
+      )}
+    </button>
+  );
 }
 
 interface LinkButtonProps extends AnchorHTMLAttributes<HTMLAnchorElement> {
@@ -50,15 +99,8 @@ interface LinkButtonProps extends AnchorHTMLAttributes<HTMLAnchorElement> {
 }
 
 /** Real anchor semantics for navigation that looks like a button. */
-export function LinkButton({
-  href,
-  variant = "primary",
-  size = "md",
-  className = "",
-  ...props
-}: LinkButtonProps) {
-  const external = href.startsWith("http");
-  if (external) {
+export function LinkButton({ href, variant = "primary", size = "md", className = "", ...props }: LinkButtonProps) {
+  if (href.startsWith("http")) {
     return (
       <a
         href={href}
@@ -72,30 +114,37 @@ export function LinkButton({
   return <Link href={href} className={buttonClasses(variant, size, className)} {...props} />;
 }
 
-/**
- * The site's secondary-action idiom: a tracked uppercase text link with an
- * arrow, red on hover. Use for "See all →" / "Read the guarantee →" actions.
- */
-export function ArrowLink({
-  href,
-  children,
-  className = "",
-  ...props
-}: LinkButtonProps) {
+/** Quiet text action with a chevron ("Browse all", "Read the full guarantee"). */
+export function ArrowLink({ href, children, className = "", ...props }: LinkButtonProps) {
   const cls =
-    "inline-flex min-h-11 items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.3em] " +
-    "text-primary transition-colors duration-200 hover:text-[#ff5f5f] motion-reduce:transition-none " +
+    "group inline-flex min-h-11 items-center gap-1 text-[14px] font-semibold text-ink underline-offset-4 hover:underline " +
     className;
+  const inner = (
+    <>
+      {children}
+      <Icon name="chevronRight" size={16} strokeWidth={2.2} className="transition-transform group-hover:translate-x-0.5" />
+    </>
+  );
   if (href.startsWith("http")) {
     return (
       <a href={href} className={cls} target="_blank" rel="noopener noreferrer" {...props}>
-        {children}
+        {inner}
       </a>
     );
   }
   return (
     <Link href={href} className={cls} {...props}>
-      {children}
+      {inner}
     </Link>
   );
+}
+
+/** 44pt round icon control (native IconButton). `onArt` sits over artwork. */
+export function iconButtonClasses(tone: "chip" | "plain" | "onArt" = "chip", extra = "") {
+  const tones = {
+    chip: "bg-surface text-ink hover:bg-line",
+    plain: "text-ink hover:bg-ink/[0.06]",
+    onArt: "bg-black/55 text-white hover:bg-black/70",
+  } as const;
+  return `pressable inline-flex size-11 shrink-0 items-center justify-center rounded-full ${tones[tone]} ${extra}`;
 }

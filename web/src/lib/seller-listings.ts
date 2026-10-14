@@ -3,6 +3,7 @@ import "server-only";
 import { cache } from "react";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { findBannedTerm } from "@/lib/content-moderation";
+import { prohibitedContentMessage, readServerRefusal } from "@/lib/server-refusal";
 import { sellerBadge, type SellerBadge } from "@/lib/seller-listing-status";
 
 /**
@@ -178,8 +179,8 @@ export async function updateSellerListing(
     return { error: "This listing already has bids. Cancel it instead if you need to remove it." };
   }
 
-  const flagged = findBannedTerm(`${fields.eventName} ${fields.venue} ${fields.restrictions ?? ""}`);
-  if (flagged) return { error: "Listing details can't mention prohibited content — please rephrase." };
+  const flagged = findBannedTerm([fields.eventName, fields.venue, fields.restrictions]);
+  if (flagged) return { error: prohibitedContentMessage(flagged) };
 
   if (!fields.eventName.trim()) return { error: "Event name is required." };
   if (!fields.venue.trim()) return { error: "Venue is required." };
@@ -196,7 +197,7 @@ export async function updateSellerListing(
     .eq("id", listingId)
     .eq("seller_id", userId); // defence in depth; RLS enforces this too
 
-  if (error) return { error: mapSellerError(error.message) };
+  if (error) return { error: readServerRefusal(error)?.message ?? mapSellerError(error.message) };
   return { ok: true };
 }
 

@@ -1,22 +1,23 @@
 import { Container } from "@/components/ui/Container";
-import { ListingCardSkeleton, Skeleton } from "@/components/ui/Skeleton";
+import { FeedRowSkeleton, Skeleton } from "@/components/ui/Skeleton";
 
 export default function BrowseLoading() {
   return (
-    <Container className="py-10 lg:py-14">
-      <Skeleton className="h-3 w-24" />
-      <Skeleton className="mt-4 h-11 w-80" />
-      <Skeleton className="mt-4 h-4 w-64" />
-      <div className="mt-10 grid gap-10 lg:grid-cols-[264px_minmax(0,1fr)] lg:gap-12">
-        <div className="hidden lg:block">
-          <Skeleton className="h-[520px]" />
-        </div>
-        <div>
-          <Skeleton className="mb-6 h-11 lg:hidden" />
-          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <ListingCardSkeleton key={i} />
-            ))}
+    <Container className="pb-10 pt-6 lg:pb-14 lg:pt-10" >
+      <div role="status" aria-label="Loading listings">
+        <Skeleton className="h-10 w-48" />
+        <Skeleton className="mt-3 h-4 w-72" />
+        <div className="mt-8 grid gap-8 lg:grid-cols-[256px_minmax(0,1fr)] lg:gap-14">
+          <div className="max-lg:hidden">
+            <Skeleton className="h-[420px]" />
+          </div>
+          <div>
+            <Skeleton className="h-[52px] rounded-full" />
+            <div className="mt-6 divide-y divide-line">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <FeedRowSkeleton key={i} />
+              ))}
+            </div>
           </div>
         </div>
       </div>

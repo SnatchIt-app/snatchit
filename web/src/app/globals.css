@@ -2,56 +2,434 @@
 @import "@snatchit/design-tokens/tokens.css";
 
 /*
- * Snatch It web theme — aligned to the snatchitapp.com brand system
- * (measured values documented in web/docs/brand-system.md).
+ * Snatch It web — the approved native app's visual system (RC2, "Midnight"
+ * dark and "Daylight" light), adapted for desktop and mobile web.
  *
- * The marketing site's own tokens: #000 canvas, #0a0a0a card, #FF1A1A red
- * with black-on-red CTAs, red-tinted hairlines, radius 0 everywhere.
- * Oswald carries display type (uppercase, tight), Inter carries body/UI.
+ * Source of truth for every value below: the native theme
+ * (src/theme/v2.ts dark, src/theme/palette.ts light, src/components/ui/*,
+ * src/lib/nav/navInsets.ts) at the frozen candidate e2b9498b. The web keeps
+ * the same tokens so a listing, a price or a status reads the same in both
+ * apps.
+ *
+ * Theme: the server writes data-theme on <html> from the sn-theme cookie
+ * (system | light | dark; see lib/theme.ts). "system" follows the OS through
+ * prefers-color-scheme, exactly like the native Appearance setting.
  */
+
+/* ---- Daylight (light) ------------------------------------------------- */
+:root {
+  color-scheme: light;
+  --sn-canvas: #ffffff;
+  --sn-surface: #f4f4f6;
+  --sn-elevated: #ffffff;
+  --sn-overlay: rgba(0, 0, 0, 0.4);
+
+  --sn-ink: #0b0c0e;
+  --sn-ink-2: #4a4d53;
+  --sn-muted: #686c73;
+  --sn-faint: rgba(11, 12, 14, 0.36);
+  --sn-inverse: #000000;
+
+  --sn-brand: #ff1a1a;
+  --sn-brand-pressed: #ff5353;
+  --sn-brand-soft: rgba(255, 26, 26, 0.08);
+  --sn-brand-text: #d31212;
+
+  --sn-line: #dfe0e4;
+  --sn-line-strong: #8a8b90;
+  --sn-control: #8a8b90;
+
+  --sn-success: #0b7a3c;
+  --sn-warning: #8a5400;
+  --sn-danger: #c41414;
+  --sn-info: #1b5fb8;
+  --sn-on-fill: #ffffff;
+  --sn-success-soft: #103a22;
+  --sn-on-success-soft: #3ddc84;
+
+  --sn-glass: rgba(255, 255, 255, 0.84);
+  --sn-glass-line: rgba(11, 12, 14, 0.12);
+  --sn-glass-selected: rgba(11, 12, 14, 0.07);
+  --sn-shadow-float: 0 12px 32px rgba(11, 12, 14, 0.12), 0 2px 6px rgba(11, 12, 14, 0.06);
+}
+
+/* ---- Midnight (dark) — chosen explicitly, or by the OS under "system" ---- */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --sn-canvas: #000000;
+  --sn-surface: #0a0a0a;
+  --sn-elevated: #111111;
+  --sn-overlay: rgba(0, 0, 0, 0.72);
+  --sn-ink: #ffffff;
+  --sn-ink-2: rgba(255, 255, 255, 0.7);
+  --sn-muted: rgba(255, 255, 255, 0.58);
+  --sn-faint: rgba(255, 255, 255, 0.3);
+  --sn-brand-soft: rgba(255, 26, 26, 0.1);
+  --sn-brand-text: #ff1a1a;
+  --sn-line: #28292d;
+  --sn-line-strong: #64656a;
+  --sn-control: #64656a;
+  --sn-success: #3ddc84;
+  --sn-warning: #ffb020;
+  --sn-danger: #ff4d4d;
+  --sn-info: #60a5fa;
+  --sn-on-fill: #000000;
+  --sn-glass: rgba(18, 18, 20, 0.72);
+  --sn-glass-line: rgba(255, 255, 255, 0.1);
+  --sn-glass-selected: rgba(255, 255, 255, 0.12);
+  --sn-shadow-float: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --sn-canvas: #000000;
+    --sn-surface: #0a0a0a;
+    --sn-elevated: #111111;
+    --sn-overlay: rgba(0, 0, 0, 0.72);
+    --sn-ink: #ffffff;
+    --sn-ink-2: rgba(255, 255, 255, 0.7);
+    --sn-muted: rgba(255, 255, 255, 0.58);
+    --sn-faint: rgba(255, 255, 255, 0.3);
+    --sn-brand-soft: rgba(255, 26, 26, 0.1);
+    --sn-brand-text: #ff1a1a;
+    --sn-line: #28292d;
+    --sn-line-strong: #64656a;
+    --sn-control: #64656a;
+    --sn-success: #3ddc84;
+    --sn-warning: #ffb020;
+    --sn-danger: #ff4d4d;
+    --sn-info: #60a5fa;
+    --sn-on-fill: #000000;
+    --sn-glass: rgba(18, 18, 20, 0.72);
+    --sn-glass-line: rgba(255, 255, 255, 0.1);
+    --sn-glass-selected: rgba(255, 255, 255, 0.12);
+    --sn-shadow-float: 0 12px 32px rgba(0, 0, 0, 0.5);
+  }
+}
+
+/* `dark:` follows the resolved theme: explicit data-theme="dark", or the OS
+   preference while the user's choice is "system". */
+@custom-variant dark {
+  &:where([data-theme="dark"], [data-theme="dark"] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-theme="light"]), :root:not([data-theme="light"]) *) {
+      @slot;
+    }
+  }
+}
+
 @theme inline {
-  --color-bg: #000;
-  --color-card: #0a0a0a;
-  --color-field: #0a0a0a;
-  --color-overlay: rgba(0, 0, 0, 0.72);
+  --color-canvas: var(--sn-canvas);
+  --color-surface: var(--sn-surface);
+  --color-elevated: var(--sn-elevated);
+  --color-overlay: var(--sn-overlay);
 
-  --color-ink: #fff;
-  --color-muted: rgba(255, 255, 255, 0.7);
-  --color-dim: rgba(255, 255, 255, 0.45);
-  --color-placeholder: rgba(255, 255, 255, 0.3);
+  --color-ink: var(--sn-ink);
+  --color-ink-2: var(--sn-ink-2);
+  --color-muted: var(--sn-muted);
+  --color-faint: var(--sn-faint);
+  --color-inverse: var(--sn-inverse);
 
-  --color-primary: #ff1a1a;
-  --color-primary-muted: #cc0000;
-  --color-primary-soft: rgba(255, 26, 26, 0.1);
+  --color-brand: var(--sn-brand);
+  --color-brand-pressed: var(--sn-brand-pressed);
+  --color-brand-soft: var(--sn-brand-soft);
+  --color-brand-text: var(--sn-brand-text);
 
-  /* Hairlines are red-tinted on the brand site, not gray. */
-  --color-line: rgba(255, 26, 26, 0.15);
-  --color-line-strong: rgba(255, 26, 26, 0.3);
+  --color-line: var(--sn-line);
+  --color-line-strong: var(--sn-line-strong);
+  --color-control: var(--sn-control);
 
-  --color-success: var(--sn-color-success);
-  --color-warning: var(--sn-color-warning);
-  --color-danger: var(--sn-color-error);
-  --color-badge: var(--sn-color-badge);
+  --color-success: var(--sn-success);
+  --color-warning: var(--sn-warning);
+  --color-danger: var(--sn-danger);
+  --color-info: var(--sn-info);
+  --color-on-fill: var(--sn-on-fill);
+  --color-success-soft: var(--sn-success-soft);
+  --color-on-success-soft: var(--sn-on-success-soft);
 
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system,
-    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* Over artwork the native app uses fixed colours in both themes. */
+  --color-letterbox: #0a0a0a;
+  --color-plate: #141519;
+  --color-on-art: #ffffff;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
   --font-display: var(--font-oswald), Impact, "Arial Black", sans-serif;
+
+  --radius-media: 8px;
+  --radius-control: 10px;
+  --radius-panel: 14px;
+  --radius-card: 20px;
 
   --ease-swift: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-:root {
-  color-scheme: dark;
+html {
+  background: var(--sn-canvas);
+  -webkit-text-size-adjust: 100%;
 }
 
-html {
-  scroll-behavior: smooth;
+body {
+  background: var(--sn-canvas);
+  color: var(--sn-ink);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.47;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--sn-brand);
+  color: #000;
+}
+
+/* In the base layer so a component can choose its own focus treatment
+   (the underline fields thicken their red underline instead of boxing). */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--sn-ink);
+    outline-offset: 2px;
+  }
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--sn-line-strong) transparent;
+}
+
+/* ---- Type (native v2.type tokens, web sizes in px) ----------------------
+   Utilities, so responsive variants work (e.g. lg:t-display-lg). */
+@utility t-display-xl {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 44px;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  @media (width >= 64rem) {
+    font-size: 64px;
+  }
+}
+@utility t-display-lg {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 34px;
+  line-height: 1.02;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  @media (width >= 64rem) {
+    font-size: 44px;
+  }
+}
+@utility t-display-md {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 26px;
+  line-height: 1.05;
+  letter-spacing: -0.015em;
+  text-transform: uppercase;
+}
+@utility t-display-sm {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 20px;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
+}
+@utility t-name-detail {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 31px;
+  line-height: 1.16;
+  letter-spacing: 0.003em;
+  @media (width >= 64rem) {
+    font-size: 44px;
+    line-height: 1.08;
+  }
+}
+@utility t-name-feature {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 30px;
+  line-height: 1.17;
+  letter-spacing: 0.003em;
+  @media (width >= 64rem) {
+    font-size: 38px;
+    line-height: 1.1;
+  }
+}
+@utility t-name-state {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 26px;
+  line-height: 1.12;
+  letter-spacing: 0.003em;
+}
+@utility t-name-order {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 21px;
+  line-height: 1.19;
+  letter-spacing: 0.005em;
+}
+@utility t-name-row {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 17px;
+  line-height: 1.24;
+  letter-spacing: 0.006em;
+}
+@utility t-screen-title {
+  font-weight: 700;
+  font-size: 19px;
+  line-height: 1.26;
+  letter-spacing: -0.01em;
+}
+@utility t-title {
+  font-weight: 600;
+  font-size: 17px;
+  line-height: 1.3;
+}
+@utility t-body {
+  font-size: 15px;
+  line-height: 1.47;
+}
+@utility t-body-sm {
+  font-size: 13px;
+  line-height: 1.4;
+}
+@utility t-label {
+  font-weight: 700;
+  font-size: 12px;
+  line-height: 1.33;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+@utility t-micro {
+  font-weight: 600;
+  font-size: 11px;
+  line-height: 1.45;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+@utility t-section {
+  font-weight: 700;
+  font-size: 15px;
+  line-height: 1.33;
+  letter-spacing: 0.01em;
+}
+@utility t-price {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+@utility t-action {
+  font-weight: 700;
+  font-size: 16px;
+  line-height: 1.25;
+}
+
+@layer components {
+  /* Translucent floating layer (native AdaptiveDock fill + hairline), with a
+     restrained blur on the web. Opaque when the user asks for less transparency. */
+  .glass {
+    background: var(--sn-glass);
+    border: 1px solid var(--sn-glass-line);
+    -webkit-backdrop-filter: blur(18px) saturate(1.5);
+    backdrop-filter: blur(18px) saturate(1.5);
+  }
+  .glass-bar {
+    background: var(--sn-glass);
+    -webkit-backdrop-filter: blur(18px) saturate(1.5);
+    backdrop-filter: blur(18px) saturate(1.5);
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    .glass,
+    .glass-bar {
+      background: var(--sn-elevated);
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
+  }
+
+  /* Press feedback: scale 0.98 over 90ms, no opacity change (native ui/press.ts). */
+  .pressable {
+    transition:
+      transform 90ms var(--ease-swift),
+      background-color 180ms var(--ease-swift),
+      border-color 180ms var(--ease-swift),
+      color 180ms var(--ease-swift);
+  }
+  .pressable:active:not(:disabled):not([aria-disabled="true"]) {
+    transform: scale(0.98);
+  }
+
+  /* Poster art: fitted whole, never cropped, on the letterbox colour. */
+  .poster {
+    background: #0a0a0a;
+  }
+
+  .skeleton {
+    background: var(--sn-surface);
+    animation: sn-pulse 1.2s ease-in-out infinite alternate;
+  }
+
+  /* Rows separated by the native hairline */
+  .hairline-rows > * + * {
+    border-top: 1px solid var(--sn-line);
+  }
+}
+
+@keyframes sn-pulse {
+  from {
+    opacity: 0.55;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes sn-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes sn-sheet-up {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@keyframes sn-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+dialog::backdrop {
+  background: var(--sn-overlay);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  html {
-    scroll-behavior: auto;
-  }
   *,
   *::before,
   *::after {
@@ -59,90 +437,4 @@ html {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
-}
-
-body {
-  background: #000;
-  color: #fff;
-  font-family: var(--font-sans);
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-}
-
-/* Brand pairing: black type on red. */
-::selection {
-  background: #ff1a1a;
-  color: #000;
-}
-
-/* Keyboard focus — always visible, square like everything else. */
-:focus-visible {
-  outline: 2px solid #ff1a1a;
-  outline-offset: 2px;
-}
-
-/*
- * Micro-label voice from the marketing site: Inter, light weight, wide
- * tracking, uppercase. 0.5em is the section-eyebrow tier; denser UI labels
- * use the site's nav tier (0.25–0.3em) via utility classes at the call site.
- */
-.eyebrow {
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.5em;
-  text-transform: uppercase;
-}
-
-/* Red display glow — the wordmark/numeral treatment from snatchitapp.com. */
-.glow-red-subtle {
-  text-shadow:
-    0 0 8px rgba(255, 26, 26, 0.35),
-    0 0 24px rgba(255, 26, 26, 0.2);
-}
-
-/* Primary-CTA glow, deepens on hover (site's .btn-glow). */
-.btn-glow {
-  box-shadow:
-    0 0 20px rgba(255, 26, 26, 0.5),
-    0 0 40px rgba(255, 26, 26, 0.3);
-}
-.btn-glow:hover:not(:disabled) {
-  box-shadow:
-    0 0 30px rgba(255, 26, 26, 0.7),
-    0 0 60px rgba(255, 26, 26, 0.5);
-}
-
-/* Global film grain (site overlay: SVG fractal noise at 3%). */
-.grain {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  pointer-events: none;
-  opacity: 0.03;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
-}
-
-/* Live-indicator pulse (site's pulse-red, as a dot halo). */
-@keyframes pulse-red {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 rgba(255, 26, 26, 0.7);
-  }
-  50% {
-    box-shadow: 0 0 0 6px rgba(255, 26, 26, 0);
-  }
-}
-.pulse-red {
-  animation: pulse-red 2s ease infinite;
-}
-
-/* Native <dialog> used for the mobile filter sheet. */
-dialog::backdrop {
-  background: rgba(0, 0, 0, 0.72);
-}
-
-/* Quiet scrollbars inside overflow regions. */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: #333 transparent;
 }

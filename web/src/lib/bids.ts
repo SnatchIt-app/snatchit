@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { readServerRefusal } from "@/lib/server-refusal";
 
 export type PlaceBidResult = { error?: string };
 
@@ -22,6 +23,10 @@ export async function placeBid(
     amount: amountDollars,
   });
   if (!error) return {};
+
+  // Migration 152: blocked parties, suspended accounts and suspended sellers' listings.
+  const refusal = readServerRefusal(error);
+  if (refusal) return { error: refusal.message };
 
   const msg = error.message ?? "Could not place bid.";
   if (msg.includes("own listing")) return { error: "You cannot bid on your own listing." };

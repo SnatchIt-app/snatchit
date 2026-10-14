@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getAuthedUser } from "@/lib/auth/session";
 import { PhoneVerifyForm } from "@/components/account/PhoneVerifyForm";
+import { AccountHeader } from "@/components/account/AccountHeader";
 
 export const metadata: Metadata = {
   title: "Verify Phone",
@@ -17,10 +18,9 @@ export default async function VerifyPhonePage() {
   if (!user) redirect(`/login?next=${encodeURIComponent("/account/verify-phone")}`);
 
   return (
-    <div className="space-y-6">
-      <h1 className="font-display text-[24px] font-bold uppercase leading-[0.95] tracking-[-0.02em] text-ink">
-        Verify your phone
-      </h1>
+    <div>
+      {/* A pushed screen (the dock steps aside): the back chip stays on desktop too. */}
+      <AccountHeader title="Verify your phone" back={{ href: "/account", label: "Back to your account", desktop: true }} />
       <PhoneVerifyForm />
     </div>
   );

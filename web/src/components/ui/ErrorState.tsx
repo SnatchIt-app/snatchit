@@ -1,33 +1,33 @@
 "use client";
 
 import { Button } from "@/components/ui/Button";
+import { Icon } from "@/components/ui/Icon";
 
-/**
- * Error state in the same voice as EmptyState: Oswald statement between red
- * hairlines, no icon, square retry action.
- */
+/** Native StateView (error): warning glyph, title, muted body, Retry. */
 export function ErrorState({
-  title = "Something went sideways",
-  message = "We couldn't load this right now. Give it another try in a moment.",
+  title = "Couldn't load this",
+  message = "Something went wrong on our side. Try again in a moment.",
   onRetry,
+  retryLabel = "Try again",
+  as: Heading = "h2",
 }: {
   title?: string;
   message?: string;
   onRetry?: () => void;
+  retryLabel?: string;
+  /** h1 when the error replaces the whole page (app/error.tsx). */
+  as?: "h1" | "h2";
 }) {
   return (
-    <div
-      role="alert"
-      className="flex flex-col items-center border-y border-primary/15 px-6 py-20 text-center"
-    >
-      <p className="eyebrow text-primary/80">Error</p>
-      <h3 className="mt-4 font-display text-[26px] font-bold uppercase leading-[0.95] tracking-[-0.02em] text-ink sm:text-[30px]">
-        {title}
-      </h3>
-      <p className="mt-4 max-w-sm text-[14px] leading-relaxed text-muted">{message}</p>
+    <div role="alert" className="flex flex-col items-center px-6 py-14 text-center sm:py-20">
+      <span className="mb-5 inline-flex size-14 items-center justify-center rounded-full bg-surface text-danger">
+        <Icon name="alert" size={26} />
+      </span>
+      <Heading className="t-name-state max-w-md text-ink">{title}</Heading>
+      <p className="t-body mt-2.5 max-w-sm text-muted">{message}</p>
       {onRetry ? (
         <Button variant="secondary" className="mt-7" onClick={onRetry}>
-          Try again
+          {retryLabel}
         </Button>
       ) : null}
     </div>

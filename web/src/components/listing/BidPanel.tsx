@@ -7,6 +7,8 @@ import { placeBidAction } from "@/lib/bids-actions";
 import { useListingBids, type BidRow } from "@/hooks/useListingBids";
 import { Button } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
+import { Badge } from "@/components/ui/Badge";
+import { Icon } from "@/components/ui/Icon";
 import { PriceBreakdown, PriceDisplay } from "@/components/ui/PriceDisplay";
 
 const MIN_INCREMENT = APP_CONFIG.MIN_BID_INCREMENT;
@@ -119,26 +121,24 @@ export function BidPanel({
       <div className={compact ? "mt-4" : "mt-6"}>
         {!compact ? (
           <div className="mb-4">
-            <p className="text-[10.5px] font-medium uppercase tracking-[0.25em] text-white/45">
-              Current bid · all-in
-            </p>
-            <PriceDisplay baseDollars={currentBid} size="lg" suffix={null} className="mt-2.5" />
-            <p className="mt-3 text-[13.5px] text-muted">
+            <p className="t-label text-muted">Current bid · all-in</p>
+            <PriceDisplay baseDollars={currentBid} size="md" suffix={null} className="mt-1" />
+            <p className="t-body-sm mt-1 text-muted">
               {bidCount} bid{bidCount === 1 ? "" : "s"}
             </p>
           </div>
         ) : null}
-        <p className="border border-primary/20 bg-card p-4 text-center text-[13px] text-white/50">
+        <Button size="lg" variant="secondary" className="w-full" disabled>
           You can&apos;t bid on your own listing.
-        </p>
+        </Button>
       </div>
     );
   }
 
   if (ended) {
     return (
-      <div className="mt-6 space-y-2.5">
-        <Button variant="secondary" className="w-full" disabled>
+      <div className="mt-2 space-y-2.5">
+        <Button variant="secondary" size="lg" className="w-full" disabled>
           Bidding has ended
         </Button>
       </div>
@@ -148,43 +148,22 @@ export function BidPanel({
   if (cappedOut) {
     return (
       <div className={compact ? "mt-4 space-y-2.5" : "mt-6 space-y-2.5"}>
-        <p className="border border-primary/20 bg-card p-4 text-center text-[13px] leading-relaxed text-white/60">
-          The next bid would cost more than Buy Now. Buy it outright instead.
-        </p>
+        <Alert tone="info">The next bid would cost more than Buy Now. Buy it outright instead.</Alert>
       </div>
     );
   }
 
-  return (
-    <div className={compact ? "mt-4 space-y-3" : "mt-6 space-y-4"}>
-      {!compact ? (
-        <div>
-          <p className="text-[10.5px] font-medium uppercase tracking-[0.25em] text-white/45">
-            Current bid · all-in
-          </p>
-          <PriceDisplay baseDollars={currentBid} size="lg" suffix={null} className="mt-2.5" />
-          <p className="mt-3 text-[13.5px] text-muted">
-            {bidCount} bid{bidCount === 1 ? "" : "s"}
-          </p>
-        </div>
-      ) : (
-        <p className="text-[11px] font-medium uppercase tracking-[0.25em] text-white/45">Or place a bid</p>
-      )}
+  // The highest amount leads (the list is newest-first; never trust position).
+  const leadingId = bids.reduce<BidRow | null>((top, b) => (!top || b.amount > top.amount ? b : top), null)?.id;
 
-      {!compact && bids.length > 0 ? (
-        <ul className="max-h-32 space-y-1.5 overflow-y-auto border-y border-primary/15 py-3 text-[12.5px]">
-          {bids.slice(0, 5).map((b: BidRow) => (
-            <li key={b.id} className="flex items-center justify-between text-white/60">
-              <span>
-                {b.profiles?.display_name ?? "Bidder"}
-                {b.bidder_id === currentUserId ? " (you)" : ""}
-              </span>
-              <span className="tabular-nums font-semibold text-white/85">
-                ${b.amount} · {timeAgo(b.created_at)}
-              </span>
-            </li>
-          ))}
-        </ul>
+  return (
+    <div className={compact ? "mt-1 space-y-4" : "space-y-4"}>
+      {compact ? (
+        <div className="flex items-center gap-3 pt-1" aria-hidden="true">
+          <span className="h-px flex-1 bg-line" />
+          <span className="t-body-sm text-muted">Or place a bid</span>
+          <span className="h-px flex-1 bg-line" />
+        </div>
       ) : null}
 
       {error ? <Alert tone="error">{error}</Alert> : null}
@@ -194,38 +173,40 @@ export function BidPanel({
         </Alert>
       ) : null}
 
-      <div className="border border-primary/20 bg-card p-5">
-        <div className="flex items-center justify-between">
-          <p className="text-[10.5px] font-medium uppercase tracking-[0.25em] text-white/45">Your bid</p>
-          <p className="text-[11px] text-white/40">min ${minimumBid}</p>
+      <div>
+        <div className="flex items-baseline justify-between">
+          <p className="t-label text-ink">Your bid</p>
+          <p className="t-body-sm text-muted">min ${minimumBid} · ${MIN_INCREMENT} steps</p>
         </div>
-        <div className="mt-3 flex items-center gap-3">
+        <div className="mt-3 flex items-stretch gap-3">
           <button
             type="button"
             onClick={() => setSelectedBid((p) => Math.max(minimumBid, p - MIN_INCREMENT))}
             disabled={selectedBid <= minimumBid}
             aria-label="Decrease bid"
-            className="flex size-10 shrink-0 items-center justify-center border border-white/15 text-lg text-white/80 transition-colors hover:border-primary/40 disabled:opacity-30"
+            className="pressable flex w-14 shrink-0 items-center justify-center rounded-panel border border-control text-ink hover:border-ink disabled:opacity-30"
           >
-            −
+            <svg aria-hidden="true" viewBox="0 0 24 24" className="size-6" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M6 12h12" /></svg>
           </button>
-          <p className="flex-1 text-center font-display text-[28px] font-bold text-ink">${selectedBid}</p>
+          <p className="flex min-h-16 flex-1 items-center justify-center rounded-panel bg-canvas text-[34px] font-bold tabular-nums tracking-tight text-ink" aria-live="polite">
+            ${selectedBid}
+          </p>
           <button
             type="button"
             onClick={() => setSelectedBid((p) => p + MIN_INCREMENT)}
             aria-label="Increase bid"
-            className="flex size-10 shrink-0 items-center justify-center border border-white/15 text-lg text-white/80 transition-colors hover:border-primary/40"
+            className="pressable flex w-14 shrink-0 items-center justify-center rounded-panel border border-control text-ink hover:border-ink"
           >
-            +
+            <svg aria-hidden="true" viewBox="0 0 24 24" className="size-6" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M6 12h12M12 6v12" /></svg>
           </button>
         </div>
-        <div className="mt-3 flex gap-2">
+        <div className="mt-3 grid grid-cols-3 gap-2">
           {QUICK_CHIPS.map((n) => (
             <button
               key={n}
               type="button"
               onClick={() => setSelectedBid((p) => p + n)}
-              className="flex-1 border border-primary/40 bg-primary/[0.06] py-1.5 text-[12px] font-semibold text-primary transition-colors hover:bg-primary/[0.12]"
+              className="pressable min-h-10 rounded-full border border-control text-[14px] font-semibold text-ink hover:border-ink"
             >
               +${n}
             </button>
@@ -235,10 +216,39 @@ export function BidPanel({
 
       {!compact ? <PriceBreakdown baseDollars={selectedBid} /> : null}
 
-      <Button variant="primary" className="w-full" onClick={handleSubmit} disabled={isPending}>
-        {isPending ? "Placing bid…" : `Place bid · ${allInFromDollars(selectedBid)}`}
+      <Button variant={compact ? "secondary" : "primary"} size="lg" className="w-full" onClick={handleSubmit} pending={isPending} pendingLabel="Placing bid…" disabled={isPending}>
+        Place bid · {allInFromDollars(selectedBid)}
       </Button>
-      <p className="text-center text-[11px] text-white/35">Only charged if you win the auction.</p>
+      <p className="t-body-sm text-center text-muted">Only charged if you win the auction.</p>
+
+      {!compact ? (
+        <section aria-label="Bid activity" className="pt-2">
+          <h3 className="t-title text-ink">Bid activity</h3>
+          {bids.length > 0 ? (
+            <ul className="mt-2 border-t border-line">
+              {bids.slice(0, 5).map((b: BidRow) => (
+                <li key={b.id} className="flex items-center justify-between gap-3 border-b border-line py-2.5 text-[14px]">
+                  <span className="flex min-w-0 items-center gap-2 text-ink-2">
+                    <span className="truncate">
+                      {b.profiles?.display_name ?? "Bidder"}
+                      {b.bidder_id === currentUserId ? " (you)" : ""}
+                    </span>
+                    {b.id === leadingId ? <Badge tone="success">Leading</Badge> : null}
+                  </span>
+                  <span className="shrink-0 tabular-nums text-ink">
+                    <span className="font-semibold">${b.amount}</span>
+                    <span className="text-muted"> · {timeAgo(b.created_at)}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="t-body-sm mt-1 flex items-center gap-2 text-muted">
+              <Icon name="clock" size={16} /> {bidCount > 0 ? `${bidCount} bid${bidCount === 1 ? "" : "s"} placed` : "No bids yet"}
+            </p>
+          )}
+        </section>
+      ) : null}
     </div>
   );
 }

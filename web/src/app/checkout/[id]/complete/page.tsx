@@ -4,10 +4,12 @@ import { Suspense, useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { finalizePurchaseAction } from "@/lib/checkout-actions";
 import { Container } from "@/components/ui/Container";
-import { Button } from "@/components/ui/Button";
+import { Button, Spinner } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
+import { Icon } from "@/components/ui/Icon";
+import { PAYMENT_STILL_PROCESSING } from "@/lib/checkout-wording";
 
-type Status = "processing" | "success" | "unverified" | "error";
+type Status = "processing" | "success" | "unverified" | "pending" | "error";
 
 /**
  * Fallback landing page for payment methods that require an actual browser
@@ -22,6 +24,10 @@ function CompleteClient() {
 
   const redirectStatus = searchParams.get("redirect_status");
   const paymentIntentId = searchParams.get("payment_intent");
+  // Stripe's redirect_status "processing" is NOT a failure: the payment may still succeed, so
+  // "try again" could charge the buyer twice. It gets the same sentence PaymentForm shows inline
+  // for a processing PaymentIntent, and points at purchases, never back to Buy Now.
+  const stillProcessing = redirectStatus === "processing" && !!paymentIntentId;
   const failedUpfront = redirectStatus !== "succeeded" || !paymentIntentId;
   // PaymentForm puts ?mode on the return_url so the win settles with
   // complete_auction_payment, not mark_listing_sold. Anything unrecognised
@@ -30,14 +36,18 @@ function CompleteClient() {
 
   // Computed synchronously during render (not in the effect below) — this
   // branch needs no async work, just a state derived from the URL.
-  const [status, setStatus] = useState<Status>(failedUpfront ? "error" : "processing");
+  const [status, setStatus] = useState<Status>(
+    stillProcessing ? "pending" : failedUpfront ? "error" : "processing",
+  );
   const [transferId, setTransferId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(
-    failedUpfront
-      ? redirectStatus === "failed"
-        ? "Payment failed. Please go back and try again."
-        : "Payment did not complete. Please go back and try again."
-      : null,
+    stillProcessing
+      ? PAYMENT_STILL_PROCESSING
+      : failedUpfront
+        ? redirectStatus === "failed"
+          ? "Payment failed. Please go back and try again."
+          : "Payment did not complete. Please go back and try again."
+        : null,
   );
 
   useEffect(() => {
@@ -72,14 +82,29 @@ function CompleteClient() {
   }, []);
 
   if (status === "processing") {
-    return <p className="text-[13.5px] text-white/60">Confirming your payment…</p>;
+    return (
+      <p className="t-body flex items-center gap-2.5 text-muted" role="status">
+        <Spinner /> Confirming your payment…
+      </p>
+    );
+  }
+
+  if (status === "pending") {
+    return (
+      <>
+        <Alert tone="info">{message}</Alert>
+        <Button variant="primary" size="lg" className="mt-5 w-full" onClick={() => router.push("/account/purchases")}>
+          View your purchases
+        </Button>
+      </>
+    );
   }
 
   if (status === "error") {
     return (
       <>
         <Alert tone="error">{message}</Alert>
-        <Button variant="primary" className="mt-4 w-full" onClick={() => router.push(`/listing/${params.id}`)}>
+        <Button variant="primary" size="lg" className="mt-5 w-full" onClick={() => router.push(`/listing/${params.id}`)}>
           Back to listing
         </Button>
       </>
@@ -93,7 +118,7 @@ function CompleteClient() {
     return (
       <>
         <Alert tone="error">{message}</Alert>
-        <Button variant="primary" className="mt-4 w-full" onClick={() => router.push("/account/purchases")}>
+        <Button variant="primary" size="lg" className="mt-5 w-full" onClick={() => router.push("/account/purchases")}>
           View your purchases
         </Button>
       </>
@@ -101,14 +126,16 @@ function CompleteClient() {
   }
 
   return (
-    <div className="space-y-4 text-center">
-      <p className="text-[15px] font-bold text-ink">Purchase complete!</p>
+    <div className="space-y-4 text-center" role="status">
+      <span className="mx-auto inline-flex size-14 items-center justify-center rounded-full bg-success-soft text-on-success-soft">
+        <Icon name="check" size={26} strokeWidth={2.2} />
+      </span>
+      <p className="t-name-state text-ink">Purchase complete!</p>
       {message ? <Alert tone="error">{message}</Alert> : null}
-      <p className="text-[13.5px] leading-relaxed text-white/60">
-        Your ticket is confirmed. Next, tell the seller where to send it.
-      </p>
+      <p className="t-body text-muted">Your ticket is confirmed. Next, tell the seller where to send it.</p>
       <Button
         variant="primary"
+        size="lg"
         className="w-full"
         onClick={() => router.push(transferId ? `/transfer/receive/${transferId}` : "/account/purchases")}
       >
@@ -120,10 +147,10 @@ function CompleteClient() {
 
 export default function CheckoutCompletePage() {
   return (
-    <Container className="max-w-[480px] py-16">
-      <h1 className="font-display text-[22px] font-bold uppercase text-ink">Checkout</h1>
-      <div className="mt-6">
-        <Suspense fallback={<p className="text-[13.5px] text-white/60">Loading…</p>}>
+    <Container size="tight" className="py-12 sm:py-16">
+      <h1 className="t-display-lg text-ink">Checkout</h1>
+      <div className="mt-8">
+        <Suspense fallback={<p className="t-body text-muted">Loading…</p>}>
           <CompleteClient />
         </Suspense>
       </div>

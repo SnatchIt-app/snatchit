@@ -1,12 +1,14 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
 import { getListing } from "@/lib/listings";
 import { getReservationState, isUnpaidAuctionWinner, type ReservationState } from "@/lib/checkout";
 import { getAuthedUser } from "@/lib/auth/session";
 import { Container } from "@/components/ui/Container";
 import { LinkButton } from "@/components/ui/Button";
+import { Icon } from "@/components/ui/Icon";
+import { BackLink } from "@/components/ui/BackLink";
 import { CheckoutClient } from "@/components/checkout/CheckoutClient";
+import { eventWhen, quantityLine } from "@/lib/listing-display";
 
 export const metadata: Metadata = {
   title: "Checkout",
@@ -50,18 +52,21 @@ export default async function CheckoutPage({ params }: { params: Promise<Params>
     const soldAlready = reservation?.status === "sold" || listing.auction_status === "sold";
     const auctionOver = listing.auction_status === "ended";
     return (
-      <Container className="py-16 text-center">
-        <h1 className="font-display text-[22px] font-bold uppercase text-ink">
+      <Container className="flex flex-col items-center py-16 text-center sm:py-24">
+        <span className="mb-5 inline-flex size-14 items-center justify-center rounded-full bg-surface text-ink-2">
+          <Icon name={soldAlready ? "ticket" : "clock"} size={26} />
+        </span>
+        <h1 className="t-name-state text-ink">
           {soldAlready ? "Already sold" : auctionOver ? "Auction ended" : "Reservation expired"}
         </h1>
-        <p className="mx-auto mt-3 max-w-[46ch] text-[13.5px] leading-relaxed text-white/60">
+        <p className="t-body mx-auto mt-2.5 max-w-[46ch] text-muted">
           {soldAlready
             ? "This listing has already been purchased."
             : auctionOver
               ? "This auction has ended and the winning bidder has been notified."
               : "Your reservation has expired. Go back and tap Buy Now again."}
         </p>
-        <LinkButton href={`/listing/${id}`} className="mt-6 inline-flex">
+        <LinkButton href={`/listing/${id}`} size="lg" className="mt-7">
           Back to listing
         </LinkButton>
       </Container>
@@ -78,22 +83,14 @@ export default async function CheckoutPage({ params }: { params: Promise<Params>
     : (listing.winning_bid_amount ?? listing.current_bid);
 
   return (
-    <Container className="max-w-[560px] py-10">
-      <nav aria-label="Breadcrumb" className="mb-6">
-        <Link
-          href={`/listing/${id}`}
-          className="text-[10.5px] font-medium uppercase tracking-[0.3em] text-white/60 hover:text-primary"
-        >
-          ← Back to listing
-        </Link>
-      </nav>
-      <h1 className="font-display text-[24px] font-bold uppercase leading-[0.95] tracking-[-0.02em] text-ink">
-        Checkout
-      </h1>
+    <Container size="medium" className="pb-12 pt-3 lg:pt-6">
+      <div className="flex items-center gap-3">
+        <BackLink href={`/listing/${id}`} label="Back to listing" />
+        <span className="t-body-sm text-muted max-sm:hidden">Back to listing</span>
+      </div>
+      <h1 className="t-display-lg mt-5 text-ink">Checkout</h1>
       {mode === "auction" ? (
-        <p className="mt-3 text-[13.5px] leading-relaxed text-white/60">
-          You won this auction. Complete payment to claim your ticket.
-        </p>
+        <p className="t-body mt-2 max-w-[52ch] text-ink-2">You won this auction. Complete payment to claim your ticket.</p>
       ) : null}
       <CheckoutClient
         listingId={listing.id}
@@ -101,6 +98,9 @@ export default async function CheckoutPage({ params }: { params: Promise<Params>
         eventName={listing.event_name}
         venue={listing.venue}
         baseDollars={baseDollars}
+        posterPath={listing.cover_image_path}
+        when={eventWhen(listing)}
+        tickets={quantityLine(listing)}
       />
     </Container>
   );

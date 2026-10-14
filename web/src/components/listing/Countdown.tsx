@@ -22,7 +22,7 @@ export function Countdown({ endsAt }: { endsAt: string }) {
   }, [endsAt]);
 
   return (
-    <span suppressHydrationWarning className="font-display text-[19px] font-bold leading-none text-ink">
+    <span suppressHydrationWarning className="t-price text-[17px] text-ink">
       {label}
     </span>
   );

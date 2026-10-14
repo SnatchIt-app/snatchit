@@ -8,6 +8,8 @@ import type { CheckoutMode } from "@/lib/checkout";
 import { SITE_URL } from "@/lib/env";
 import { Button } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
+import { Icon } from "@/components/ui/Icon";
+import { PAYMENT_STILL_PROCESSING } from "@/lib/checkout-wording";
 
 export function PaymentForm({ listingId, mode }: { listingId: string; mode: CheckoutMode }) {
   const stripe = useStripe();
@@ -48,7 +50,7 @@ export function PaymentForm({ listingId, mode }: { listingId: string; mode: Chec
     if (paymentIntent?.status !== "succeeded") {
       // processing / requires_action without a redirect — rare, but don't
       // claim success we haven't confirmed.
-      setError("Payment is still processing. Please wait a moment and check your account.");
+      setError(PAYMENT_STILL_PROCESSING);
       setSubmitting(false);
       return;
     }
@@ -72,17 +74,20 @@ export function PaymentForm({ listingId, mode }: { listingId: string; mode: Chec
 
   if (sold) {
     return (
-      <div className="space-y-4 py-4 text-center">
-        <p className="text-[15px] font-bold text-ink">
-          {error ? "Payment received" : "Purchase complete!"}
-        </p>
+      <div className="space-y-4 py-2 text-center" role="status">
+        <span
+          className={`mx-auto inline-flex size-14 items-center justify-center rounded-full ${error ? "bg-surface text-warning" : "bg-success-soft text-on-success-soft"}`}
+        >
+          <Icon name={error ? "clock" : "check"} size={26} strokeWidth={2.2} />
+        </span>
+        <p className="t-name-state text-ink">{error ? "Payment received" : "Purchase complete!"}</p>
         {/* The warning used to be set into `error` and then never rendered:
             this early return shows only the success block, and the <Alert>
             lives in the form JSX below, which is now unreachable. So a buyer
             whose 10-minute reservation lapsed mid-card-entry was charged,
             told "Purchase complete!", and sent to an empty purchases page. */}
         {error ? <Alert tone="error">{error}</Alert> : null}
-        <p className="text-[13.5px] leading-relaxed text-white/60">
+        <p className="t-body text-muted">
           {error
             ? "Your card was charged. We're finishing the last step — your purchase will appear shortly."
             : transferId
@@ -91,6 +96,7 @@ export function PaymentForm({ listingId, mode }: { listingId: string; mode: Chec
         </p>
         <Button
           variant="primary"
+          size="lg"
           onClick={() => router.push(transferId ? `/transfer/receive/${transferId}` : "/account/purchases")}
           className="w-full"
         >
@@ -101,11 +107,11 @@ export function PaymentForm({ listingId, mode }: { listingId: string; mode: Chec
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-5">
       {error ? <Alert tone="error">{error}</Alert> : null}
       <PaymentElement />
-      <Button type="submit" variant="primary" className="w-full" disabled={!stripe || submitting}>
-        {submitting ? "Processing…" : "Pay"}
+      <Button type="submit" variant="primary" size="lg" className="w-full" disabled={!stripe || submitting} pending={submitting} pendingLabel="Processing…">
+        Pay
       </Button>
     </form>
   );

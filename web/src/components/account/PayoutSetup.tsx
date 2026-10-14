@@ -3,29 +3,31 @@
 import { useEffect, useState } from "react";
 import { checkPayoutStatusAction, startPayoutOnboardingAction } from "@/lib/payouts-actions";
 import type { PayoutStatus } from "@/lib/payouts";
-import { buttonClasses } from "@/components/ui/Button";
+import { Button } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
+import { Badge, type Tone } from "@/components/ui/Badge";
+import { PAYOUT_CONNECTED } from "@/lib/policy-wording";
 
-const COPY: Record<PayoutStatus, { title: string; description: string; dot: string; label: string; btn: string }> = {
+const COPY: Record<PayoutStatus, { title: string; description: string; tone: Tone; label: string; btn: string }> = {
   not_connected: {
     title: "Set up payouts",
     description:
       "Verify your identity and add a bank account to get paid. This usually takes about 2 minutes. Anyone can sell — no business registration needed.",
-    dot: "bg-[#f5b942]",
+    tone: "warning",
     label: "Not connected",
     btn: "Set up payouts",
   },
   onboarding_required: {
     title: "Complete payout setup",
     description: "Almost there — finish verifying your identity and adding a bank account to get paid.",
-    dot: "bg-[#f5b942]",
+    tone: "warning",
     label: "Onboarding incomplete",
     btn: "Continue setup",
   },
   connected: {
     title: "Payouts connected",
-    description: "Your Stripe account is connected. Payouts are deposited automatically when your listings sell.",
-    dot: "bg-[#3ecf8e]",
+    description: PAYOUT_CONNECTED,
+    tone: "success",
     label: "Connected",
     btn: "Manage payouts",
   },
@@ -64,23 +66,33 @@ export function PayoutSetup() {
   }
 
   if (status === null) {
-    return <p className="text-[13.5px] text-white/50">Checking payout status…</p>;
+    return <p className="t-body text-muted">Checking payout status…</p>;
   }
 
   const copy = COPY[status];
 
   return (
-    <div className="max-w-[420px] space-y-4">
+    <div className="max-w-[480px] space-y-4">
       {error ? <Alert tone="error">{error}</Alert> : null}
-      <p className="text-[13.5px] leading-relaxed text-white/60">{copy.description}</p>
-      <div className="flex items-center gap-2 border border-primary/15 px-4 py-3">
-        <span className={`size-2 rounded-full ${copy.dot}`} />
-        <span className="text-[13px] font-semibold text-ink">{copy.label}</span>
+      <div>
+        <Badge tone={copy.tone}>
+          <span aria-hidden="true" className="size-1.5 rounded-full bg-current" />
+          {copy.label}
+        </Badge>
       </div>
-      <button type="button" onClick={handleClick} disabled={submitting} className={buttonClasses("secondary", "md")}>
-        {submitting ? "Opening Stripe…" : copy.btn}
-      </button>
-      <p className="text-[11.5px] leading-relaxed text-white/35">
+      <p className="t-body text-ink-2">{copy.description}</p>
+      <Button
+        type="button"
+        variant={status === "connected" ? "secondary" : "primary"}
+        className="self-start"
+        onClick={handleClick}
+        disabled={submitting}
+        pending={submitting}
+        pendingLabel="Opening Stripe…"
+      >
+        {copy.btn}
+      </Button>
+      <p className="t-body-sm text-muted">
         Your banking details are never stored on our servers. All payouts are processed securely through Stripe
         Connect.
       </p>

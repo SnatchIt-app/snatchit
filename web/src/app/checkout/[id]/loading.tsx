@@ -3,13 +3,14 @@ import { Skeleton } from "@/components/ui/Skeleton";
 
 export default function Loading() {
   return (
-    <Container className="max-w-[560px] py-12">
-      <Skeleton className="h-8 w-56" />
-      <Skeleton className="mt-4 h-4 w-72" />
-      <div className="mt-8 space-y-4">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <Skeleton key={i} className="h-12 w-full" />
-        ))}
+    <Container size="medium" className="pb-12 pt-3 lg:pt-6">
+      <div role="status" aria-label="Loading checkout">
+        <Skeleton className="size-11 rounded-full" />
+        <Skeleton className="mt-5 h-10 w-56" />
+        <div className="mt-7 grid gap-6 lg:grid-cols-2 lg:gap-10">
+          <Skeleton className="h-80 rounded-card" />
+          <Skeleton className="h-80 rounded-card" />
+        </div>
       </div>
     </Container>
   );

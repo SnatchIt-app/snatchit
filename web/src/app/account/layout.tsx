@@ -13,13 +13,19 @@ export default async function AccountLayout({ children }: { children: ReactNode 
 
   const unread = await unreadNotificationCount();
 
+  // Desktop: the grouped sidebar on the left, the section on the right.
+  // Phones and tablets have no strip — /account is the hub and every section
+  // carries a back chip to it (AccountHeader).
   return (
-    <Container className="py-10 lg:py-14">
-      <p className="eyebrow text-primary/80">Account</p>
-      <div className="mt-6">
-        <AccountNav unreadCount={unread} />
+    <Container className="pb-10 pt-5 sm:pt-8 lg:pb-14 lg:pt-10">
+      <div className="lg:grid lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-14">
+        <div className="max-lg:hidden">
+          <div className="sticky top-24">
+            <AccountNav unreadCount={unread} />
+          </div>
+        </div>
+        <div className="min-w-0">{children}</div>
       </div>
-      <div className="mt-9">{children}</div>
     </Container>
   );
 }

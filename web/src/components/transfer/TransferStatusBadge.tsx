@@ -1,15 +1,17 @@
-import { Badge } from "@/components/ui/Badge";
+import { Badge, type Tone } from "@/components/ui/Badge";
 import type { TransferStatus } from "@/lib/transfers";
 import { transferBadgeLabel, type Audience, type OrderRowInput } from "@/lib/transfer-wording";
 
-const VARIANTS: Record<TransferStatus, "live" | "soon" | "sold" | "buyNow"> = {
-  pending: "soon",
-  seller_sent: "buyNow",
-  buyer_confirmed: "live",
-  disputed: "sold",
-  expired: "sold",
-  auto_released: "live",
-  reversed: "sold",
+// Colour carries only the broad state; the words always come from the row
+// (transferBadgeLabel). Neutral where the label differs by audience or outcome.
+const TONES: Record<TransferStatus, Tone> = {
+  pending: "warning",
+  seller_sent: "info",
+  buyer_confirmed: "success",
+  disputed: "warning",
+  expired: "neutral",
+  auto_released: "neutral",
+  reversed: "neutral",
 };
 
 /**
@@ -18,7 +20,7 @@ const VARIANTS: Record<TransferStatus, "live" | "soon" | "sold" | "buyNow"> = {
  * and `auto_released` is a release decision, never payout evidence (§2i).
  */
 export function TransferStatusBadge({ row, audience }: { row: OrderRowInput; audience: Audience }) {
-  return <Badge variant={VARIANTS[row.status]}>{transferBadgeLabel(row, audience)}</Badge>;
+  return <Badge tone={TONES[row.status]}>{transferBadgeLabel(row, audience)}</Badge>;
 }
 
 export function transferStatusLabel(row: OrderRowInput, audience: Audience): string {

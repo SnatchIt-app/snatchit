@@ -18,7 +18,7 @@ import {
   type SellerFilter,
 } from "@/lib/seller-listing-status";
 import { cancelListingAction, deleteListingAction } from "@/lib/seller-listings-actions";
-import { Badge } from "@/components/ui/Badge";
+import { Badge, type Tone } from "@/components/ui/Badge";
 import { Button, LinkButton } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -31,14 +31,19 @@ const FILTERS: { key: SellerFilter; label: string }[] = [
   { key: "ended", label: "Ended" },
 ];
 
-const BADGE_VARIANT: Record<SellerBadge, "live" | "soon" | "sold" | "buyNow"> = {
-  ACTIVE: "live",
-  "ENDING SOON": "soon",
-  RESERVED: "buyNow",
-  SOLD: "sold",
-  ENDED: "sold",
-  CANCELLED: "sold",
+const BADGE_TONE: Record<SellerBadge, Tone> = {
+  ACTIVE: "success",
+  "ENDING SOON": "warning",
+  RESERVED: "warning",
+  SOLD: "neutral",
+  ENDED: "neutral",
+  CANCELLED: "neutral",
 };
+
+/** The status words stay lib/seller-listing-status.ts's; only their case changes for display ("Ending soon"). */
+function badgeLabel(badge: SellerBadge): string {
+  return badge.charAt(0) + badge.slice(1).toLowerCase();
+}
 
 /** Mirrors mobile's secondary line on SellerListingCard. */
 function subline(l: SellerListingView): string {
@@ -89,6 +94,7 @@ export function SellerListings({ listings }: { listings: SellerListingView[] }) 
   if (listings.length === 0) {
     return (
       <EmptyState
+        icon="tag"
         title="No listings yet"
         message="List a spare ticket and it shows up here with its bids and status."
         action={<LinkButton href="/sell">List a ticket</LinkButton>}
@@ -99,21 +105,22 @@ export function SellerListings({ listings }: { listings: SellerListingView[] }) 
   return (
     <div className="space-y-6">
       <nav aria-label="Filter listings" className="flex flex-wrap gap-2">
-        {FILTERS.map((f) => (
-          <button
-            key={f.key}
-            type="button"
-            onClick={() => setFilter(f.key)}
-            aria-pressed={filter === f.key}
-            className={`border px-3.5 py-2 text-[11px] font-medium uppercase tracking-[0.2em] transition-colors ${
-              filter === f.key
-                ? "border-primary bg-primary/[0.10] text-primary"
-                : "border-white/15 text-white/55 hover:border-white/35 hover:text-white/80"
-            }`}
-          >
-            {f.label} ({counts[f.key] ?? 0})
-          </button>
-        ))}
+        {FILTERS.map((f) => {
+          const on = filter === f.key;
+          return (
+            <button
+              key={f.key}
+              type="button"
+              onClick={() => setFilter(f.key)}
+              aria-pressed={on}
+              className={`pressable min-h-10 rounded-full border px-4 text-[14px] font-medium ${
+                on ? "border-ink bg-ink text-canvas" : "border-control text-ink hover:border-ink"
+              }`}
+            >
+              {f.label} <span className="tabular-nums">({counts[f.key] ?? 0})</span>
+            </button>
+          );
+        })}
       </nav>
 
       {error ? <Alert tone="error">{error}</Alert> : null}
@@ -121,20 +128,28 @@ export function SellerListings({ listings }: { listings: SellerListingView[] }) 
 
       {shown.length === 0 ? (
         <EmptyState
+          icon="filter"
           title="Nothing in this filter"
           message="Switch tabs to see your other listings."
         />
       ) : (
-        <ul className="space-y-3">
+        <ul className="border-t border-line">
           {shown.map((l) => {
             const busy = isPending && busyId === l.id;
+            const showEdit = canEdit(l.badge, l.realBidCount);
+            const showCancel = canCancel(l.badge, l.realBidCount);
+            const showDelete = canDelete(l.badge, l.realBidCount);
+            const showSend = l.needsTicketSend && l.pendingTransferId;
             return (
-              <li
-                key={l.id}
-                className={`border border-primary/20 bg-card p-4 ${l.badge === "CANCELLED" ? "opacity-60" : ""}`}
-              >
-                <div className="flex gap-4">
-                  <Link href={`/listing/${l.id}`} className="relative size-20 shrink-0 overflow-hidden border border-white/10">
+              <li key={l.id} className="border-b border-line py-4">
+                <div className={`flex flex-wrap items-start gap-4 sm:gap-5 ${l.badge === "CANCELLED" ? "opacity-60" : ""}`}>
+                  {/* Same destination as the event name below, so the poster is a pointer target only. */}
+                  <Link
+                    href={`/listing/${l.id}`}
+                    tabIndex={-1}
+                    aria-hidden="true"
+                    className="poster relative block h-[78px] w-[62px] shrink-0 overflow-hidden rounded-media sm:h-[100px] sm:w-[80px]"
+                  >
                     <Image
                       // Via coverImageUrl, not raw process.env — this was the
                       // one place bypassing STORAGE_BASE_URL, so any env gap
@@ -143,24 +158,34 @@ export function SellerListings({ listings }: { listings: SellerListingView[] }) 
                       alt=""
                       fill
                       sizes="80px"
-                      className="object-cover"
+                      className="object-contain"
                     />
                   </Link>
 
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge variant={BADGE_VARIANT[l.badge]}>{l.badge}</Badge>
-                      <span className="text-[12px] tabular-nums text-white/55">
-                        {l.realBidCount > 0 ? `${allInFromDollars(l.current_bid)} current` : "No bids"}
+                  {/* Beside the poster; under it when the row is too narrow (200% zoom) to fit the badge. */}
+                  <div className="min-w-0 grow basis-48">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                      <Badge tone={BADGE_TONE[l.badge]}>{badgeLabel(l.badge)}</Badge>
+                      <span className="t-body-sm text-muted">
+                        {l.realBidCount > 0 ? (
+                          <>
+                            <span className="t-price whitespace-nowrap text-ink">{allInFromDollars(l.current_bid)}</span> current
+                          </>
+                        ) : (
+                          "No bids"
+                        )}
                       </span>
                     </div>
-                    <Link href={`/listing/${l.id}`} className="mt-1.5 block truncate text-[15px] font-bold text-ink hover:text-primary">
+                    <Link
+                      href={`/listing/${l.id}`}
+                      className="t-name-row mt-2 block break-words text-ink underline-offset-4 hover:underline hover:decoration-2"
+                    >
                       {l.event_name}
                     </Link>
-                    <p className="mt-0.5 truncate text-[12.5px] text-white/50">{l.venue}</p>
+                    <p className="t-body-sm mt-0.5 break-words text-muted">{l.venue}</p>
                     <p
-                      className={`mt-1 text-[12.5px] ${
-                        l.needsTicketSend ? "font-bold text-primary" : "text-white/45"
+                      className={`t-body-sm mt-1.5 ${
+                        l.needsTicketSend ? "font-semibold text-brand-text" : "text-ink-2"
                       }`}
                     >
                       {subline(l)}
@@ -168,44 +193,50 @@ export function SellerListings({ listings }: { listings: SellerListingView[] }) 
                   </div>
                 </div>
 
-                <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-primary/10 pt-3">
-                  {l.needsTicketSend && l.pendingTransferId ? (
-                    <LinkButton href={`/transfer/send/${l.pendingTransferId}`} size="md">
-                      Send tickets
-                    </LinkButton>
-                  ) : null}
-                  {canEdit(l.badge, l.realBidCount) ? (
-                    <LinkButton href={`/account/listings/${l.id}/edit`} variant="secondary" size="md">
-                      Edit
-                    </LinkButton>
-                  ) : null}
-                  {canCancel(l.badge, l.realBidCount) ? (
-                    <Button
-                      variant="secondary"
-                      size="md"
-                      disabled={busy}
-                      onClick={() => {
-                        if (!confirm("Cancel this listing? All bids on it will be voided.")) return;
-                        run(l.id, () => cancelListingAction(l.id), "Listing cancelled.");
-                      }}
-                    >
-                      {busy ? "Cancelling…" : "Cancel"}
-                    </Button>
-                  ) : null}
-                  {canDelete(l.badge, l.realBidCount) ? (
-                    <Button
-                      variant="ghost"
-                      size="md"
-                      disabled={busy}
-                      onClick={() => {
-                        if (!confirm("Delete this listing? This can't be undone.")) return;
-                        run(l.id, () => deleteListingAction(l.id), "Listing deleted.");
-                      }}
-                    >
-                      {busy ? "Deleting…" : "Delete"}
-                    </Button>
-                  ) : null}
-                </div>
+                {showSend || showEdit || showCancel || showDelete ? (
+                  <div className="mt-3.5 flex flex-wrap items-center gap-2 sm:pl-[100px]">
+                    {showSend ? (
+                      <LinkButton href={`/transfer/send/${l.pendingTransferId}`} size="md">
+                        Send tickets
+                      </LinkButton>
+                    ) : null}
+                    {showEdit ? (
+                      <LinkButton href={`/account/listings/${l.id}/edit`} variant="secondary" size="md">
+                        Edit
+                      </LinkButton>
+                    ) : null}
+                    {showCancel ? (
+                      <Button
+                        variant="destructive"
+                        size="md"
+                        disabled={busy}
+                        pending={busy}
+                        pendingLabel="Cancelling…"
+                        onClick={() => {
+                          if (!confirm("Cancel this listing? All bids on it will be voided.")) return;
+                          run(l.id, () => cancelListingAction(l.id), "Listing cancelled.");
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                    ) : null}
+                    {showDelete ? (
+                      <Button
+                        variant="destructive"
+                        size="md"
+                        disabled={busy}
+                        pending={busy}
+                        pendingLabel="Deleting…"
+                        onClick={() => {
+                          if (!confirm("Delete this listing? This can't be undone.")) return;
+                          run(l.id, () => deleteListingAction(l.id), "Listing deleted.");
+                        }}
+                      >
+                        Delete
+                      </Button>
+                    ) : null}
+                  </div>
+                ) : null}
               </li>
             );
           })}

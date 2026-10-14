@@ -7,6 +7,7 @@ import { getMyPurchases } from "@/lib/transfers";
 import { coverImageUrl } from "@/lib/listings";
 import { buyerPurchaseLine } from "@/lib/transfer-wording";
 import { TransferStatusBadge } from "@/components/transfer/TransferStatusBadge";
+import { AccountHeader } from "@/components/account/AccountHeader";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { LinkButton } from "@/components/ui/Button";
 
@@ -25,11 +26,10 @@ export default async function PurchasesPage() {
 
   if (purchases.length === 0) {
     return (
-      <div className="space-y-6">
-        <h1 className="font-display text-[24px] font-bold uppercase leading-[0.95] tracking-[-0.02em] text-ink">
-          Your purchases
-        </h1>
+      <div>
+        <AccountHeader title="Your purchases" back={null} />
         <EmptyState
+          icon="receipt"
           title="No purchases yet"
           message="Tickets you buy show up here, with their transfer status."
           action={<LinkButton href="/browse">Browse tickets</LinkButton>}
@@ -39,31 +39,35 @@ export default async function PurchasesPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <h1 className="font-display text-[24px] font-bold uppercase leading-[0.95] tracking-[-0.02em] text-ink">
-        Your purchases
-      </h1>
+    <div>
+      <AccountHeader title="Your purchases" back={null} />
 
-      <ul className="space-y-3">
+      <ul className="border-t border-line">
         {purchases.map((t) => {
           const line = buyerPurchaseLine(t);
           // Completed purchases go to the listing, in-flight ones to the
           // transfer — same routing rule as mobile.
           const href = IN_FLIGHT.has(t.status) ? `/transfer/receive/${t.id}` : `/listing/${t.listing_id}`;
           return (
-            <li key={t.id} className="border border-primary/20 bg-card p-4">
-              <Link href={href} className="flex gap-4">
-                <span className="relative size-20 shrink-0 overflow-hidden border border-white/10">
+            <li key={t.id} className="border-b border-line">
+              <Link
+                href={href}
+                className="group -mx-3 flex flex-wrap items-start gap-4 rounded-panel px-3 py-4 transition-colors hover:bg-surface sm:gap-5"
+              >
+                <span className="poster relative block h-[78px] w-[62px] shrink-0 overflow-hidden rounded-media sm:h-[100px] sm:w-[80px]">
                   {t.coverImagePath ? (
-                    <Image src={coverImageUrl(t.coverImagePath)} alt="" fill sizes="80px" className="object-cover" />
+                    <Image src={coverImageUrl(t.coverImagePath)} alt="" fill sizes="80px" className="object-contain" />
                   ) : null}
                 </span>
-                <span className="min-w-0 flex-1">
+                {/* Beside the poster; under it when the row is too narrow (200% zoom) to fit the badge. */}
+                <span className="min-w-0 grow basis-48">
                   <TransferStatusBadge row={t} audience="buyer" />
-                  <span className="mt-1.5 block truncate text-[15px] font-bold text-ink">{t.eventName}</span>
-                  <span className="mt-0.5 block truncate text-[12.5px] text-white/50">{t.venue}</span>
+                  <span className="t-name-row mt-2 block break-words text-ink group-hover:underline group-hover:decoration-2 group-hover:underline-offset-4">
+                    {t.eventName}
+                  </span>
+                  <span className="t-body-sm mt-0.5 block break-words text-muted">{t.venue}</span>
                   <span
-                    className={`mt-1 block text-[12.5px] ${line.urgent ? "font-bold text-primary" : "text-white/45"}`}
+                    className={`t-body-sm mt-1.5 block ${line.urgent ? "font-semibold text-brand-text" : "text-ink-2"}`}
                   >
                     {line.text}
                   </span>

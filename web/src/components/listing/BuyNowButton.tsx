@@ -31,8 +31,8 @@ export function BuyNowButton({ listingId }: { listingId: string }) {
   return (
     <div className="space-y-2.5">
       {error ? <Alert tone="error">{error}</Alert> : null}
-      <Button variant="primary" className="w-full" onClick={handleClick} disabled={isPending}>
-        {isPending ? "Reserving…" : "Buy now"}
+      <Button variant="primary" size="lg" className="w-full" onClick={handleClick} pending={isPending} pendingLabel="Reserving…" disabled={isPending}>
+        Buy now
       </Button>
     </div>
   );

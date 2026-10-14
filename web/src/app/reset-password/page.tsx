@@ -4,6 +4,7 @@ import { AuthCard } from "@/components/auth/AuthCard";
 import { ResetPasswordForm } from "@/components/auth/ResetPasswordForm";
 import { Alert } from "@/components/ui/Alert";
 import { getAuthedUser } from "@/lib/auth/session";
+import { authInlineLinkCls } from "@/components/auth/styles";
 
 export const metadata: Metadata = {
   title: "Set a new password",
@@ -18,12 +19,9 @@ export default async function ResetPasswordPage() {
       {user ? (
         <ResetPasswordForm />
       ) : (
-        <div className="space-y-5">
+        <div className="space-y-6">
           <Alert tone="error">This reset link has expired or already been used.</Alert>
-          <Link
-            href="/forgot-password"
-            className="inline-flex min-h-11 items-center text-[13px] font-semibold text-primary hover:text-[#ff5f5f]"
-          >
+          <Link href="/forgot-password" className={`${authInlineLinkCls} t-body`}>
             Request a new link →
           </Link>
         </div>
