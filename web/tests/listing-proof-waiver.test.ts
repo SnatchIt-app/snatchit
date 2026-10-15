@@ -133,7 +133,7 @@ describe("normal listings keep the proof requirement (owner: keep it intact)", (
   });
 
   it("the seller's own proof upload is accepted", async () => {
-    expect(await createListing(SELLER, payload({ proofImagePath: `${SELLER}/proofs/1760000000000.png` }))).toEqual({ id: "new-listing" });
+    expect(await createListing(SELLER, payload({ proofImagePath: `${SELLER}/proofs/own-upload.png` }))).toEqual({ id: "new-listing" });
   });
 });
 
