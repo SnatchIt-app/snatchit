@@ -79,7 +79,6 @@ import {
 import { homeReadsFor, type HomeRead } from '@/src/lib/home/refreshPlan';
 import { DiscoveryGridSkeleton } from '@/src/components/discovery/DiscoveryGridSkeleton';
 import { FeedRow } from '@/src/components/discovery/FeedRow';
-import { APP_REVIEW_SEED_SELLER_IDS } from '@/src/lib/home/appReviewSeedAccounts';
 import { FilterSheet } from '@/src/components/discovery/FilterSheet';
 import { HomeFeature } from '@/src/components/discovery/HomeFeature';
 import { HomeHeader } from '@/src/components/discovery/HomeHeader';
@@ -282,8 +281,6 @@ export default function HomeScreen({ fixture: rawFixture }: HomeScreenProps = {}
       .from('listings')
       .select('*')
       .eq('status', 'sold')
-      // The App Review seed accounts' demo sales stay out of public discovery (see the constant's note).
-      .not('seller_id', 'in', `(${APP_REVIEW_SEED_SELLER_IDS.join(',')})`)
       .order('sold_at', { ascending: false })
       .limit(30);
     const { data, error } = await applyBlockedSellerFilter(baseQuery, blockedIdsRef.current);

@@ -19,8 +19,8 @@
  * come out of public discovery by FILTERING the only public read of sold listings (Home's "Recently sold"),
  * with no status or record change. Every user-history screen still shows them to the users involved.
  *
- * LF1/LF2/LF5/LF6 run the REAL app/(tabs)/home.tsx through the hook dispatcher with every read recorded.
- * LF3/LF4/LF7 pin reads by source. Not a device result.
+ * LF1/LF2/LF5/N3/N8a run the REAL app/(tabs)/home.tsx through the hook dispatcher with every read recorded.
+ * LF3/LF4/N8b/N8c pin reads by source. Not a device result.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -272,56 +272,51 @@ describe('Home: a listing cancelled while on screen leaves the live feed', () =>
   });
 });
 
-describe('Home: the App Review seed sellers are out of "Recently sold", and nowhere else', () => {
-  it('LF6: the Sold read excludes exactly the two seed sellers before limit(30); the default and Ended reads do not', async () => {
-    const { APP_REVIEW_SEED_SELLER_IDS } = await import('@/src/lib/home/appReviewSeedAccounts');
-    expect([...APP_REVIEW_SEED_SELLER_IDS].sort()).toEqual([
-      '09f1ec06-2bd5-45de-8851-2dd8af08d4eb',
-      'c0b2d630-b48e-43e2-b749-d5dcbc907067',
-    ]);
+describe('N8 — no seller is hidden by a fixed id list; private history still reads by the user\'s own id', () => {
+  // RC8 kept the two App Review seed sellers out of Recently sold with a named constant (LF6/LF7). The owner
+  // then required ALL legacy listings out of public discovery "not by names or seller ids" (2026-10-15):
+  // migration 154 hides them server-side for every build, and the next build's discovery reads filter on the
+  // server's is_public (N1). The constant and its exclusion are gone.
+  const SEED_IDS = ['09f1ec06-2bd5-45de-8851-2dd8af08d4eb', 'c0b2d630-b48e-43e2-b749-d5dcbc907067'];
+
+  it('N8a: no Home read (default, Sold, Ended) carries a seed seller id', async () => {
     const host = await mountHome();
     await applyChip(host, 'recently_sold');
     await applyChip(host, 'ended');
-    const isSeedExclusion = (c: Call) => c[0] === 'not' && c[1] === 'seller_id' && c[2] === 'in'
-      && String(c[3]) === `(${APP_REVIEW_SEED_SELLER_IDS.join(',')})`;
     const sold = h.queries.find((q) => q.calls.some(([m, c, v]) => m === 'eq' && c === 'status' && v === 'sold'));
     expect(sold, 'the Sold read was not made').toBeTruthy();
-    const soldCalls = sold!.calls as Call[];
-    const exclAt = idx(soldCalls, isSeedExclusion);
-    expect(exclAt, JSON.stringify(soldCalls)).toBeGreaterThanOrEqual(0);
-    expect(exclAt).toBeLessThan(idx(soldCalls, isLimit(30)));
-    for (const q of h.queries.filter((x) => x !== sold)) {
-      expect((q.calls as Call[]).some(isSeedExclusion), JSON.stringify(q.calls)).toBe(false);
+    for (const q of h.queries) {
+      const flat = JSON.stringify(q.calls);
+      for (const id of SEED_IDS) expect(flat).not.toContain(id);
     }
   });
 
   const strip = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
   const read = async (path: string) => strip((await import('node:fs')).readFileSync(path, 'utf8'));
 
-  it("LF7: the seed constant is used only by Home's Sold read; every user-history screen reads by the user's own id and filters no seller", async () => {
-    // Every folder the app can import from ('@/*' maps to the repo root). A filesystem walk, so untracked files
-    // count and no git checkout is needed. web/ is a separate app and is not part of this binary.
+  it('N8b: the constant, its module and both ids are absent from every folder the app imports from', async () => {
+    // A filesystem walk, so untracked files count and no git checkout is needed. web/ is a separate app.
     const fs = await import('node:fs');
     const path = await import('node:path');
     const roots = ['app', 'src', 'components', 'hooks', 'constants'].filter((r) => fs.existsSync(r));
-    const needles = [/APP_REVIEW_SEED_SELLER_IDS/, /appReviewSeedAccounts/, /09f1ec06-2bd5-45de-8851-2dd8af08d4eb/i, /c0b2d630-b48e-43e2-b749-d5dcbc907067/i];
+    const needles = [/APP_REVIEW_SEED_SELLER_IDS/, /appReviewSeedAccounts/, ...SEED_IDS.map((id) => new RegExp(id, 'i'))];
     const users: string[] = [];
     const walk = (dir: string) => {
       for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
         const p = path.join(dir, e.name);
         if (e.isDirectory()) { if (e.name !== 'node_modules') walk(p); continue; }
         if (!/\.(ts|tsx|js|jsx|json)$/.test(e.name)) continue;
-        const src = fs.readFileSync(p, 'utf8');
-        if (needles.some((n) => n.test(src))) users.push(p);
+        if (needles.some((n) => n.test(fs.readFileSync(p, 'utf8')))) users.push(p);
       }
     };
     roots.forEach(walk);
-    expect(users.sort()).toEqual(['app/(tabs)/home.tsx', 'src/lib/home/appReviewSeedAccounts.ts']);
-    const home = await read('app/(tabs)/home.tsx');
-    expect(home.match(/APP_REVIEW_SEED_SELLER_IDS/g)?.length).toBe(2); // the import and the Sold read
+    expect(users).toEqual([]);
+    expect(fs.existsSync('src/lib/home/appReviewSeedAccounts.ts')).toBe(false);
+  });
 
+  it("N8c: every user-history screen reads by the user's own id and filters no seller", async () => {
     // The seller's own listings (sold included), the own-profile sold stats, the buyer's bids and purchases,
-    // and the tickets RPC (bound to auth.uid() on the server). None narrows by seller.
+    // and the tickets RPC (bound to auth.uid() on the server). None narrows by seller or by visibility.
     const myListings = await read('app/my-listings.tsx');
     expect(myListings).toMatch(/from\('listings'\)\s*\.select\('\*'\)\s*\.eq\('seller_id', userId\)/);
     expect(myListings).not.toMatch(/\.not\(/);
@@ -332,7 +327,10 @@ describe('Home: the App Review seed sellers are out of "Recently sold", and nowh
     expect(bids).toMatch(/\.eq\('buyer_id', userId\)/);
     const tickets = await read('src/lib/tickets/api.ts');
     expect(tickets).toMatch(/supabase\.rpc\('get_my_tickets'\)/);
-    for (const src of [myListings, profile, bids, tickets]) expect(src).not.toMatch(/not\('seller_id'/);
+    for (const src of [myListings, profile, bids, tickets]) {
+      expect(src).not.toMatch(/not\('seller_id'/);
+      expect(src).not.toMatch(/is_public/);
+    }
   });
 });
 
