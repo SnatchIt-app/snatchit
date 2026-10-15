@@ -6,10 +6,11 @@ import { PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js"
 import { finalizePurchaseAction } from "@/lib/checkout-actions";
 import type { CheckoutMode } from "@/lib/checkout";
 import { SITE_URL } from "@/lib/env";
-import { Button } from "@/components/ui/Button";
+import { Button, LinkButton } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
 import { Icon } from "@/components/ui/Icon";
 import { PAYMENT_STILL_PROCESSING } from "@/lib/checkout-wording";
+import { CHECKOUT_SESSION_ENDED, checkoutLoginHref } from "@/lib/checkout-return";
 
 export function PaymentForm({ listingId, mode }: { listingId: string; mode: CheckoutMode }) {
   const stripe = useStripe();
@@ -20,6 +21,9 @@ export function PaymentForm({ listingId, mode }: { listingId: string; mode: Chec
   const [error, setError] = useState<string | null>(null);
   const [sold, setSold] = useState(false);
   const [transferId, setTransferId] = useState<string | null>(null);
+  // Paid, but the session ended before finalize: log in and finish on the complete page.
+  const [paidNeedsLogin, setPaidNeedsLogin] = useState(false);
+  const [loginHref, setLoginHref] = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -56,6 +60,14 @@ export function PaymentForm({ listingId, mode }: { listingId: string; mode: Chec
     }
 
     const result = await finalizePurchaseAction(listingId, paymentIntent.id, mode);
+    if (result.error === "AUTH_REQUIRED") {
+      // The card is charged; nothing is recorded yet. Never show the raw code.
+      setError(CHECKOUT_SESSION_ENDED);
+      setLoginHref(checkoutLoginHref(listingId, paymentIntent.id, mode));
+      setPaidNeedsLogin(true);
+      setSubmitting(false);
+      return;
+    }
     if (result.error) {
       // The server could not verify the payment with Stripe, so it deliberately
       // did not mark the listing sold or create a transfer. Never show
@@ -102,6 +114,18 @@ export function PaymentForm({ listingId, mode }: { listingId: string; mode: Chec
         >
           {transferId ? "Continue to transfer" : "Go to your purchases"}
         </Button>
+      </div>
+    );
+  }
+
+  if (paidNeedsLogin) {
+    // No Pay button here: the card was already charged.
+    return (
+      <div className="space-y-4">
+        <Alert tone="info">{error}</Alert>
+        <LinkButton href={loginHref ?? "/login?next=%2Faccount%2Fpurchases"} size="lg" className="w-full">
+          Log in to finish
+        </LinkButton>
       </div>
     );
   }
