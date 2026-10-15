@@ -160,6 +160,7 @@ export default function SearchScreen({ fixture }: { fixture?: SearchFixture } = 
     const base = supabase
       .from('listings')
       .select('*')
+      .eq('is_public', true)   // N1: only what the server says is public (154)
       .eq('status', 'active')
       .eq('auction_status', 'active')
       .gt('ends_at', new Date().toISOString())

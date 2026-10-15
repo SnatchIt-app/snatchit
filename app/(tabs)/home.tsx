@@ -250,6 +250,9 @@ export default function HomeScreen({ fixture: rawFixture }: HomeScreenProps = {}
     const baseQuery = supabase
       .from('listings')
       .select('*')
+      // N1: public discovery shows only what the server says is public (154's is_public). A participant
+      // can still read their own hidden legacy rows, so RLS alone does not keep them off this feed.
+      .eq('is_public', true)
       .eq('status', 'active')
       // Live auctions only, decided server-side. Ended and cancelled auctions keep status 'active'
       // forever, so filtering them on the client let dead rows fill the 50-row window (prod
@@ -281,6 +284,7 @@ export default function HomeScreen({ fixture: rawFixture }: HomeScreenProps = {}
     const baseQuery = supabase
       .from('listings')
       .select('*')
+      .eq('is_public', true)   // N1
       .eq('status', 'sold')
       .order('sold_at', { ascending: false })
       .limit(30);
@@ -307,6 +311,7 @@ export default function HomeScreen({ fixture: rawFixture }: HomeScreenProps = {}
     const baseQuery = supabase
       .from('listings')
       .select('*')
+      .eq('is_public', true)   // N1
       .eq('auction_status', 'ended')
       .neq('status', 'sold')
       .order('ends_at', { ascending: false })
@@ -410,7 +415,8 @@ export default function HomeScreen({ fixture: rawFixture }: HomeScreenProps = {}
           if (payload.new.status !== 'active') return;
           // UGC moderation — never surface a blocked seller's new listing.
           if (payload.new.seller_id && blockedIdsRef.current.has(payload.new.seller_id)) return;
-          const { data } = await supabase.from('listings').select('*').eq('id', payload.new.id).single();
+          // N1: realtime payloads carry no computed fields, so the re-read is where is_public is asked.
+          const { data } = await supabase.from('listings').select('*').eq('is_public', true).eq('id', payload.new.id).single();
           if (data) {
             const nl = data as Listing;
             // Re-check after the round trip in case the user just blocked.

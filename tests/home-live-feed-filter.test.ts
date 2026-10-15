@@ -247,12 +247,12 @@ describe('Explore and a public profile filter by ends_at too', () => {
   it("LF3: explore's search read has ends_at > now and an id tie-breaker after ends_at", async () => {
     const src = await read('app/(tabs)/explore.tsx');
     // One expression for the one search read, so the filter and the tie-breaker cannot come from different queries.
-    expect(src).toMatch(/\.from\('listings'\)\s*\.select\('\*'\)\s*\.eq\('status', 'active'\)\s*\.eq\('auction_status', 'active'\)\s*\.gt\('ends_at', new Date\(\)\.toISOString\(\)\)\s*\.or\([^)]*\)\s*\.order\('ends_at', \{ ascending: true \}\)\s*\.order\('id', \{ ascending: false \}\)\s*\.limit\(40\)/);
+    expect(src).toMatch(/\.from\('listings'\)\s*\.select\('\*'\)\s*\.eq\('is_public', true\)\s*\.eq\('status', 'active'\)\s*\.eq\('auction_status', 'active'\)\s*\.gt\('ends_at', new Date\(\)\.toISOString\(\)\)\s*\.or\([^)]*\)\s*\.order\('ends_at', \{ ascending: true \}\)\s*\.order\('id', \{ ascending: false \}\)\s*\.limit\(40\)/);
   });
 
   it("LF4: a seller's public profile reads active listings with ends_at > now and an id tie-breaker", async () => {
     const src = await read('app/profile/[id].tsx');
-    expect(src).toMatch(/\.from\('listings'\)\.select\('\*'\)\.eq\('seller_id', sellerId\)\.eq\('status', 'active'\)\.eq\('auction_status', 'active'\)\s*\.gt\('ends_at', new Date\(\)\.toISOString\(\)\)\s*\.order\('ends_at', \{ ascending: true \}\)\s*\.order\('id', \{ ascending: false \}\)/);
+    expect(src).toMatch(/\.from\('listings'\)\.select\('\*'\)\.eq\('is_public', true\)\.eq\('seller_id', sellerId\)\.eq\('status', 'active'\)\.eq\('auction_status', 'active'\)\s*\.gt\('ends_at', new Date\(\)\.toISOString\(\)\)\s*\.order\('ends_at', \{ ascending: true \}\)\s*\.order\('id', \{ ascending: false \}\)/);
   });
 });
 
@@ -377,5 +377,59 @@ describe('N3 — Sold and Ended are re-read, so a list loaded before the cleanup
     h.appState.current!('active');
     for (let i = 0; i < 8; i++) { await Promise.resolve(); host.flush(); }
     expect(liveReads()).toBe(live0);
+  });
+});
+
+describe('N1 — public discovery asks the server which listings are public (is_public, migration 154)', () => {
+  // 154 hides legacy listings from non-participants by RLS on every build, but a participant (the admin
+  // seller of the legacy sales, the seed accounts, any buyer or bidder) still reads their own hidden rows —
+  // so builds 25/27 kept showing them those rows in Recently sold and Ended. The computed field
+  // public.is_public(listings) is the server's truth; every PUBLIC discovery read filters on it. Private
+  // history (My Listings, Bids, purchases, Tickets, checkout, detail by id) does not (N8c).
+  const isPublic = (c: Call) => c[0] === 'eq' && c[1] === 'is_public' && c[2] === true;
+
+  it('N1a: the default, Sold and Ended reads each filter is_public = true before their limit', async () => {
+    const host = await mountHome();
+    await applyChip(host, 'recently_sold');
+    await applyChip(host, 'ended');
+    const pick = (pred: (c: Call) => boolean) => h.queries.find((q) => (q.calls as Call[]).some(pred));
+    const reads = {
+      live: pick((c) => c[0] === 'eq' && c[1] === 'status' && c[2] === 'active'),
+      sold: pick((c) => c[0] === 'eq' && c[1] === 'status' && c[2] === 'sold'),
+      ended: pick((c) => c[0] === 'eq' && c[1] === 'auction_status' && c[2] === 'ended'),
+    };
+    for (const [name, q] of Object.entries(reads)) {
+      expect(q, `${name} read was not made`).toBeTruthy();
+      const calls = q!.calls as Call[];
+      const at = idx(calls, isPublic);
+      expect(at, `${name}: ${JSON.stringify(calls)}`).toBeGreaterThanOrEqual(0);
+      expect(at).toBeLessThan(calls.findIndex((c) => c[0] === 'limit'));
+    }
+  });
+
+  it('N1b: a realtime INSERT is re-read with is_public before it can join the feed', async () => {
+    await mountHome();
+    const before = h.queries.length;
+    await h.realtime.INSERT({ new: { id: 'new-1', status: 'active', seller_id: 's-1' } });
+    const refetch = h.queries.slice(before).find((q) => (q.calls as Call[]).some((c) => c[0] === 'eq' && c[1] === 'id' && c[2] === 'new-1'));
+    expect(refetch, 'the INSERT refetch was not made').toBeTruthy();
+    expect((refetch!.calls as Call[]).some(isPublic), JSON.stringify(refetch!.calls)).toBe(true);
+  });
+
+  const strip = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+  const read = async (path: string) => strip((await import('node:fs')).readFileSync(path, 'utf8'));
+
+  it('N1c: search and a public profile\'s active listings filter is_public = true', async () => {
+    const explore = await read('app/(tabs)/explore.tsx');
+    expect(explore).toMatch(/from\('listings'\)\s*\.select\('\*'\)\s*\.eq\('is_public', true\)\s*\.eq\('status', 'active'\)/);
+    const profile = await read('app/profile/[id].tsx');
+    expect(profile).toMatch(/\.from\('listings'\)\.select\('\*'\)\.eq\('is_public', true\)\.eq\('seller_id', sellerId\)/);
+  });
+
+  it('N1d: reading a listing by id (detail, bid, edit, checkout) is NOT filtered — participants keep their history', async () => {
+    for (const p of ['src/screens/ListingDetailScreen.tsx', 'src/screens/PlaceBidScreen.tsx', 'app/listing/edit/[id].tsx',
+      'src/screens/checkout/CheckoutNative.tsx', 'app/my-listings.tsx', 'app/(tabs)/bids.tsx', 'app/(tabs)/profile.tsx']) {
+      expect(await read(p), p).not.toMatch(/is_public/);
+    }
   });
 });
