@@ -5,6 +5,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getPayoutStatus, type PayoutStatus } from "@/lib/payouts";
 import { readServerRefusal } from "@/lib/server-refusal";
 import { isListingDuration } from "@/lib/listing-durations";
+import { PROOF_WAIVER_REASON_MAX } from "@/lib/proof-waiver";
 
 export type RiskGate = { allowed: boolean; reason: string; riskTier: string | null };
 
@@ -12,6 +13,8 @@ export type ListingGates = {
   phoneVerified: boolean;
   payoutStatus: PayoutStatus;
   risk: RiskGate;
+  /** Admin-only owner proof waiver (156). UI convenience; the database trigger is the guard. */
+  canWaiveProof: boolean;
 };
 
 type RiskRow = { allowed: boolean; reason: string; risk_tier: string | null };
@@ -26,10 +29,11 @@ type RiskRow = { allowed: boolean; reason: string; risk_tier: string | null };
  */
 export async function getListingGates(userId: string): Promise<ListingGates> {
   const supabase = await createSupabaseServerClient();
-  const [{ data: userData }, payout, riskResult] = await Promise.all([
+  const [{ data: userData }, payout, riskResult, canWaiveProof] = await Promise.all([
     supabase.auth.getUser(),
     getPayoutStatus(),
     supabase.rpc("can_create_listing", { p_seller_id: userId }),
+    isAdminCaller(supabase),
   ]);
 
   const riskRows = riskResult.data as RiskRow[] | null;
@@ -41,7 +45,17 @@ export async function getListingGates(userId: string): Promise<ListingGates> {
     risk: risk
       ? { allowed: risk.allowed, reason: risk.reason, riskTier: risk.risk_tier }
       : { allowed: true, reason: "ok", riskTier: null },
+    canWaiveProof,
   };
+}
+
+/**
+ * current_user_is_admin() (156) answers for the caller only. Anything but a literal true —
+ * an error, a missing function before 156 is applied, null — means no.
+ */
+async function isAdminCaller(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>): Promise<boolean> {
+  const { data, error } = await supabase.rpc("current_user_is_admin");
+  return !error && data === true;
 }
 
 const IMAGE_BUCKETS = {
@@ -98,6 +112,8 @@ export type CreateListingPayload = {
   coverImagePath: string;
   proofImagePath: string;
   sellerCommitmentAccepted: boolean;
+  /** Admin-only: list without ticket proof, recorded on the listing (156). */
+  proofWaiver?: { reason: string } | null;
 };
 
 function mapListingError(msg: string): string {
@@ -117,6 +133,19 @@ export async function createListing(
   if (!isListingDuration(p.durationHours)) return { error: "Choose how long the listing runs." };
 
   const supabase = await createSupabaseServerClient();
+
+  // Owner proof waiver: re-checked here (the form is not a boundary) and refused again by the
+  // database trigger unless the caller is the seller and in admin_users. proof_waived_at is
+  // stamped by the trigger; proof_status stays pending_review, never approved.
+  let waiver: { proof_of_ownership_path: null; proof_waived_by: string; proof_waiver_reason: string } | null = null;
+  if (p.proofWaiver) {
+    const reason = typeof p.proofWaiver.reason === "string" ? p.proofWaiver.reason.trim() : "";
+    if (!reason || reason.length > PROOF_WAIVER_REASON_MAX) {
+      return { error: `Add a reason for the proof waiver (up to ${PROOF_WAIVER_REASON_MAX} characters).` };
+    }
+    if (!(await isAdminCaller(supabase))) return { error: "Only an admin can list without ticket proof." };
+    waiver = { proof_of_ownership_path: null, proof_waived_by: sellerId, proof_waiver_reason: reason };
+  }
   const endsAt = new Date(Date.now() + p.durationHours * 3_600_000);
 
   const { data, error } = await supabase
@@ -143,6 +172,7 @@ export async function createListing(
       proof_of_ownership_path: p.proofImagePath,
       seller_commitment_accepted_at: p.sellerCommitmentAccepted ? new Date().toISOString() : null,
       category: p.category,
+      ...waiver,
     })
     .select("id")
     .single();

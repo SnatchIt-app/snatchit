@@ -27,7 +27,7 @@ import {
   platformLabel,
   deliveryLabel,
 } from "@/lib/format";
-import { eventWhen, quantityLine } from "@/lib/listing-display";
+import { eventWhen, proofWaiverNote, quantityLine, sellerVerifiedLabel } from "@/lib/listing-display";
 import { SITE_URL } from "@/lib/env";
 import { Container } from "@/components/ui/Container";
 import { Badge, LiveDot } from "@/components/ui/Badge";
@@ -93,6 +93,8 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
     getAuthedUser(),
   ]);
   const relatedSavedIds = await getSavedListingIdSet(related.map((l) => l.id));
+  const proofNote = proofWaiverNote(listing);
+  const sellerBadge = sellerVerifiedLabel(seller?.is_verified_seller, proofNote !== null);
 
   const status = listingCardStatus(listing);
   const isActive = status === "LIVE" || status === "ENDING SOON";
@@ -333,13 +335,19 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
               <div className="min-w-0 flex-1">
                 <p className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[16px] font-semibold text-ink">
                   <span className="truncate">{seller?.display_name ?? "Snatch It seller"}</span>
-                  {seller?.is_verified_seller ? <Badge tone="success">Verified</Badge> : null}
+                  {sellerBadge ? <Badge tone="success">{sellerBadge}</Badge> : null}
                 </p>
                 <p className="t-body-sm mt-0.5 text-muted">
                   {seller?.created_at
                     ? `Member since ${new Date(seller.created_at).toLocaleDateString("en-US", { month: "long", year: "numeric" })}`
                     : "Marketplace seller"}
                 </p>
+                {proofNote ? (
+                  <p className="t-body-sm mt-1.5 flex items-center gap-1.5 text-ink-2">
+                    <Icon name="info" size={15} className="shrink-0 text-muted" />
+                    {proofNote}
+                  </p>
+                ) : null}
               </div>
             </section>
 

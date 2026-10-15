@@ -40,7 +40,11 @@ export type WebListing = Pick<
   // dollarsToCents, and mobile's Bids tab formats it as dollars.
   | "winner_user_id"
   | "winning_bid_amount"
-> & { created_at: string | null };
+> & {
+  created_at: string | null;
+  /** Owner proof waiver (156). Only the timestamp is public; waived_by and the reason are not read. */
+  proof_waived_at?: string | null;
+};
 
 export type SellerSummary = Pick<
   Profile,
@@ -48,7 +52,7 @@ export type SellerSummary = Pick<
 >;
 
 export const LISTING_COLUMNS =
-  "id, seller_id, event_name, venue, neighborhood, category, status, auction_status, event_date, event_time, ticket_type, quantity, starting_bid, current_bid, buy_now_enabled, buy_now_price, cover_image_path, ends_at, bid_count, ticket_platform, transfer_method, winner_user_id, winning_bid_amount, created_at";
+  "id, seller_id, event_name, venue, neighborhood, category, status, auction_status, event_date, event_time, ticket_type, quantity, starting_bid, current_bid, buy_now_enabled, buy_now_price, cover_image_path, ends_at, bid_count, ticket_platform, transfer_method, winner_user_id, winning_bid_amount, created_at, proof_waived_at";
 
 export type BrowseSort = "ending" | "newest" | "price_asc" | "price_desc";
 

@@ -70,7 +70,10 @@ export default async function SellPage() {
       <p className="t-body mt-2 max-w-[56ch] text-muted">
         List it as an auction or Buy Now. {SELLER_TERMS}
       </p>
-      <CreateListingForm riskWarning={gates.risk.reason === "ok" ? null : gates.risk.reason} />
+      <CreateListingForm
+        riskWarning={gates.risk.reason === "ok" ? null : gates.risk.reason}
+        canWaiveProof={gates.canWaiveProof}
+      />
     </Container>
   );
 }
