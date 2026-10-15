@@ -1,0 +1,214 @@
+== R0 check pre154 (expect rc 0)
+rc=0
+== R1 apply 154 (expect rc 0)
+[pkg] prestate 154 vs pre154.txt
+[pkg] request sha256 03fb096f025ad7e265c46d871ec0ba246f51c37dbfe71803a7e515fac6811b0c (39474 bytes)
+[pkg] post assertion 154 vs post154.txt
+[pkg] 154 APPLIED and verified
+rc=0
+== R2 apply 154 again (negative) (expect rc 3)
+[pkg] prestate STOP for 154; nothing sent
+[pkg] prestate 154 vs pre154.txt
+  MISMATCH census: expected 34|1214|37|43 | actual 35|1217|37|45
+  MISMATCH exec_public.guard_hidden_listing_not_live(): expected absent | actual anon:false,authenticated:false,service_role:true
+  MISMATCH exec_public.listing_is_public(uuid): expected absent | actual anon:true,authenticated:true,service_role:true
+  MISMATCH exec_public.listing_private_party(uuid): expected absent | actual anon:true,authenticated:true,service_role:true
+  MISMATCH fn_public.get_profile_trust_stats(p_user_id uuid): expected def:23719c73db47a2815d5102b11f4771f3|src:b048a327d1fa23fdf409d86f2b56e427|secdef=true|cfg=search_path=public | actual def:257b0acf8f030008405a1785629ee1a9|src:a6032e6ba9d99f8699bcab23bd432221|secdef=true|cfg=search_path=public
+  MISMATCH grants_anon_authenticated: expected 2594|8033ed27a00192323b39d6865e12a476 | actual 2598|d97cf89eced918e83e3d270620ae2233
+  MISMATCH ledger_154: expected absent | actual listing_public_visibility|claude-a/owner-authorised-154|1|11d592cb7ebd35fd0f165216b711f1d0|19634
+  MISMATCH ledger_count: expected 165 | actual 166
+  MISMATCH ledger_max: expected 20261013000000 | actual 20261015000000
+  MISMATCH lv_rows: expected absent | actual 0
+  MISMATCH lv_table: expected absent | actual true|policies:0|grants:service_role:DELETE,service_role:INSERT,service_role:SELECT
+  MISMATCH pol_bids.bids_select_all: expected SELECT|{public}|b326b5062b2f0e69046810717534cb09|d41d8cd98f00b204e9800998ecf8427e | actual <missing>
+  MISMATCH pol_listings.listings_select_all: expected SELECT|{public}|b326b5062b2f0e69046810717534cb09|d41d8cd98f00b204e9800998ecf8427e | actual <missing>
+  MISMATCH triggers_154_156: expected none | actual listing_visibility.trg_listing_visibility_not_live:O:7:guard_hidden_listing_not_live(),listings.trg_hidden_listing_not_live:O:19:guard_hidden_listing_not_live()
+  MISMATCH triggers_listings_bids_lv: expected 39674bf106bb9b563ca59a8df930df5c|15 | actual 1efd5f782f1445e08114d5444d2fffc2|17
+  UNEXPECTED KEY fn_public.guard_hidden_listing_not_live()=def:506bf6eb917c20c04bda97db6be0e7a4|src:2702751f963e13b2709d54da8363894c|secdef=true|cfg=search_path=""
+  UNEXPECTED KEY fn_public.listing_is_public(p_listing_id uuid)=def:9287ac68d8d8a7824bcee41bbf664eba|src:d3dc687af51c3aca9ea4f1ca92292265|secdef=true|cfg=search_path=""
+  UNEXPECTED KEY fn_public.listing_private_party(p_listing_id uuid)=def:f5769c49f235935553d95d9763f64c21|src:51c885097315ccafd04e26b716c6f695|secdef=true|cfg=search_path=""
+  UNEXPECTED KEY pol_bids.bids_select_visible=SELECT|{anon,authenticated}|bf373b0b04578b109b60045d048d7f7c|d41d8cd98f00b204e9800998ecf8427e
+  UNEXPECTED KEY pol_listings.listings_select_visible=SELECT|{anon,authenticated}|cba0ffbb244fcdb5801a4114a8ba4a57|d41d8cd98f00b204e9800998ecf8427e
+[pkg] prestate 154 vs rb154.txt (re-apply after this migration's own rollback)
+  MISMATCH census: expected 35|1214|37|43 | actual 35|1217|37|45
+  MISMATCH exec_public.guard_hidden_listing_not_live(): expected absent | actual anon:false,authenticated:false,service_role:true
+  MISMATCH exec_public.listing_is_public(uuid): expected absent | actual anon:true,authenticated:true,service_role:true
+  MISMATCH exec_public.listing_private_party(uuid): expected absent | actual anon:true,authenticated:true,service_role:true
+  MISMATCH fn_public.get_profile_trust_stats(p_user_id uuid): expected def:23719c73db47a2815d5102b11f4771f3|src:b048a327d1fa23fdf409d86f2b56e427|secdef=true|cfg=search_path=public | actual def:257b0acf8f030008405a1785629ee1a9|src:a6032e6ba9d99f8699bcab23bd432221|secdef=true|cfg=search_path=public
+  MISMATCH grants_anon_authenticated: expected 2594|8033ed27a00192323b39d6865e12a476 | actual 2598|d97cf89eced918e83e3d270620ae2233
+  MISMATCH ledger_154: expected absent | actual listing_public_visibility|claude-a/owner-authorised-154|1|11d592cb7ebd35fd0f165216b711f1d0|19634
+  MISMATCH ledger_count: expected 165 | actual 166
+  MISMATCH ledger_max: expected 20261013000000 | actual 20261015000000
+  MISMATCH pol_bids.bids_select_all: expected SELECT|{public}|b326b5062b2f0e69046810717534cb09|d41d8cd98f00b204e9800998ecf8427e | actual <missing>
+  MISMATCH pol_listings.listings_select_all: expected SELECT|{public}|b326b5062b2f0e69046810717534cb09|d41d8cd98f00b204e9800998ecf8427e | actual <missing>
+  MISMATCH triggers_154_156: expected none | actual listing_visibility.trg_listing_visibility_not_live:O:7:guard_hidden_listing_not_live(),listings.trg_hidden_listing_not_live:O:19:guard_hidden_listing_not_live()
+  MISMATCH triggers_listings_bids_lv: expected 39674bf106bb9b563ca59a8df930df5c|15 | actual 1efd5f782f1445e08114d5444d2fffc2|17
+  UNEXPECTED KEY fn_public.guard_hidden_listing_not_live()=def:506bf6eb917c20c04bda97db6be0e7a4|src:2702751f963e13b2709d54da8363894c|secdef=true|cfg=search_path=""
+  UNEXPECTED KEY fn_public.listing_is_public(p_listing_id uuid)=def:9287ac68d8d8a7824bcee41bbf664eba|src:d3dc687af51c3aca9ea4f1ca92292265|secdef=true|cfg=search_path=""
+  UNEXPECTED KEY fn_public.listing_private_party(p_listing_id uuid)=def:f5769c49f235935553d95d9763f64c21|src:51c885097315ccafd04e26b716c6f695|secdef=true|cfg=search_path=""
+  UNEXPECTED KEY pol_bids.bids_select_visible=SELECT|{anon,authenticated}|bf373b0b04578b109b60045d048d7f7c|d41d8cd98f00b204e9800998ecf8427e
+  UNEXPECTED KEY pol_listings.listings_select_visible=SELECT|{anon,authenticated}|cba0ffbb244fcdb5801a4114a8ba4a57|d41d8cd98f00b204e9800998ecf8427e
+rc=3
+== R3 rollback 154 (table kept, empty) (expect rc 0)
+[pkg] rollback guard 154: state must equal post154.txt
+  (ignored) nonparty_bids: expected 5 | actual 5
+  (ignored) anon_bids: expected 5 | actual 5
+  (ignored) lv_rows: expected 0 | actual 0
+  (ignored) anon_listings: expected 113 | actual 113
+  (ignored) nonparty_listings: expected 113 | actual 113
+[pkg] rollback request sha256 308a4168162f9dfaf17159b289488fed2e76a2473d0a9e62cfabc8f0e70c9fd9
+[pkg] post-rollback 154 vs rb154.txt
+  (ignored) nonparty_bids: expected 5 | actual 5
+  (ignored) anon_bids: expected 5 | actual 5
+  (ignored) lv_rows: expected 0 | actual 0
+  (ignored) anon_listings: expected 113 | actual 113
+  (ignored) nonparty_listings: expected 113 | actual 113
+[pkg] 154 ROLLED BACK and verified
+rc=0
+== R4 rollback 154 again (negative) (expect rc 3)
+[pkg] rollback STOP for 154; nothing sent
+[pkg] rollback guard 154: state must equal post154.txt
+  (ignored) anon_listings: expected 113 | actual 113
+  (ignored) lv_rows: expected 0 | actual 0
+  (ignored) anon_bids: expected 5 | actual 5
+  (ignored) nonparty_listings: expected 113 | actual 113
+  (ignored) nonparty_bids: expected 5 | actual 5
+  MISMATCH census: expected 35|1217|37|45 | actual 35|1214|37|43
+  MISMATCH exec_public.guard_hidden_listing_not_live(): expected anon:false,authenticated:false,service_role:true | actual absent
+  MISMATCH exec_public.listing_is_public(uuid): expected anon:true,authenticated:true,service_role:true | actual absent
+  MISMATCH exec_public.listing_private_party(uuid): expected anon:true,authenticated:true,service_role:true | actual absent
+  MISMATCH fn_public.get_profile_trust_stats(p_user_id uuid): expected def:257b0acf8f030008405a1785629ee1a9|src:a6032e6ba9d99f8699bcab23bd432221|secdef=true|cfg=search_path=public | actual def:23719c73db47a2815d5102b11f4771f3|src:b048a327d1fa23fdf409d86f2b56e427|secdef=true|cfg=search_path=public
+  MISMATCH fn_public.guard_hidden_listing_not_live(): expected def:506bf6eb917c20c04bda97db6be0e7a4|src:2702751f963e13b2709d54da8363894c|secdef=true|cfg=search_path="" | actual <missing>
+  MISMATCH fn_public.listing_is_public(p_listing_id uuid): expected def:9287ac68d8d8a7824bcee41bbf664eba|src:d3dc687af51c3aca9ea4f1ca92292265|secdef=true|cfg=search_path="" | actual <missing>
+  MISMATCH fn_public.listing_private_party(p_listing_id uuid): expected def:f5769c49f235935553d95d9763f64c21|src:51c885097315ccafd04e26b716c6f695|secdef=true|cfg=search_path="" | actual <missing>
+  MISMATCH grants_anon_authenticated: expected 2598|d97cf89eced918e83e3d270620ae2233 | actual 2594|8033ed27a00192323b39d6865e12a476
+  MISMATCH ledger_154: expected listing_public_visibility|claude-a/owner-authorised-154|1|11d592cb7ebd35fd0f165216b711f1d0|19634 | actual absent
+  MISMATCH ledger_count: expected 166 | actual 165
+  MISMATCH ledger_max: expected 20261015000000 | actual 20261013000000
+  MISMATCH pol_bids.bids_select_visible: expected SELECT|{anon,authenticated}|bf373b0b04578b109b60045d048d7f7c|d41d8cd98f00b204e9800998ecf8427e | actual <missing>
+  MISMATCH pol_listings.listings_select_visible: expected SELECT|{anon,authenticated}|cba0ffbb244fcdb5801a4114a8ba4a57|d41d8cd98f00b204e9800998ecf8427e | actual <missing>
+  MISMATCH triggers_154_156: expected listing_visibility.trg_listing_visibility_not_live:O:7:guard_hidden_listing_not_live(),listings.trg_hidden_listing_not_live:O:19:guard_hidden_listing_not_live() | actual none
+  MISMATCH triggers_listings_bids_lv: expected 1efd5f782f1445e08114d5444d2fffc2|17 | actual 39674bf106bb9b563ca59a8df930df5c|15
+  UNEXPECTED KEY pol_bids.bids_select_all=SELECT|{public}|b326b5062b2f0e69046810717534cb09|d41d8cd98f00b204e9800998ecf8427e
+  UNEXPECTED KEY pol_listings.listings_select_all=SELECT|{public}|b326b5062b2f0e69046810717534cb09|d41d8cd98f00b204e9800998ecf8427e
+rc=3
+== R5 re-apply 154 after its own rollback (alt_pre rb154) (expect rc 0)
+[pkg] prestate 154 vs pre154.txt
+  MISMATCH census: expected 34|1214|37|43 | actual 35|1214|37|43
+  MISMATCH lv_rows: expected absent | actual 0
+  MISMATCH lv_table: expected absent | actual true|policies:0|grants:service_role:DELETE,service_role:INSERT,service_role:SELECT
+[pkg] prestate 154 vs rb154.txt (re-apply after this migration's own rollback)
+[pkg] request sha256 03fb096f025ad7e265c46d871ec0ba246f51c37dbfe71803a7e515fac6811b0c (39474 bytes)
+[pkg] post assertion 154 vs post154.txt
+[pkg] 154 APPLIED and verified
+rc=0
+== R6 apply 155 (expect rc 0)
+[pkg] prestate 155 vs post154.txt
+[pkg] request sha256 98ce352b7d555ac2ce1a99eb6bde50ad1f9fdcff2fe9b7f59366ac5642da86ae (4025 bytes)
+[pkg] post assertion 155 vs post155.txt
+[pkg] 155 APPLIED and verified
+rc=0
+== R7 apply 156 (expect rc 0)
+[pkg] prestate 156 vs post155.txt
+[pkg] request sha256 c264689831e5f5bf1cc6f7c3c62d04de44f92a9189c3e0733357d640504f5e6b (17787 bytes)
+[pkg] post assertion 156 vs post156.txt
+[pkg] 156 APPLIED and verified
+rc=0
+== R8 split: delete 156's ledger row (objects stay)
+split rc=0
+== R8b apply 156 --ledger-only (resume) (expect rc 0)
+[pkg] ledger-only request sha256 e4b2ada34ac4dbe89257a6860c6b8e405e15f6aa0eef5c675979c08f5adbef65
+[pkg] 156 ledger row restored and verified
+rc=0
+== R8c apply 156 --ledger-only again (negative: row present) (expect rc 3)
+[pkg] apply --ledger-only STOP: objects are not in the post-state, or the ledger row already exists
+rc=3
+== R9 step hide (113 rows) (expect rc 0)
+[pkg] prestate step hide vs post156.txt
+[pkg] step request sha256 5494a4482384d021347776fb918cd4fb36cc4f6a9986f8e10ba10bc5596c44ff (8933 bytes)
+[pkg] post assertion step hide vs post_hide.txt
+[pkg] step hide DONE and verified
+rc=0
+== R10 step hide again (negative) (expect rc 3)
+[pkg] prestate STOP for step hide; nothing sent
+[pkg] prestate step hide vs post156.txt
+  MISMATCH anon_bids: expected 5 | actual 0
+  MISMATCH anon_listings: expected 113 | actual 0
+  MISMATCH lv_rows: expected 0 | actual 113
+  MISMATCH nonparty_bids: expected 5 | actual 0
+  MISMATCH nonparty_listings: expected 113 | actual 0
+rc=3
+== R11 step unhide (expect rc 0)
+[pkg] prestate step unhide vs post_hide.txt
+[pkg] step request sha256 a0f71d8d4d879b0b981834df2ccce4935e8626debdf68a243403396c3e14d969 (5758 bytes)
+[pkg] post assertion step unhide vs post156.txt
+[pkg] step unhide DONE and verified
+rc=0
+== R12 step hide (final data state) (expect rc 0)
+[pkg] prestate step hide vs post156.txt
+[pkg] step request sha256 5494a4482384d021347776fb918cd4fb36cc4f6a9986f8e10ba10bc5596c44ff (8933 bytes)
+[pkg] post assertion step hide vs post_hide.txt
+[pkg] step hide DONE and verified
+rc=0
+== R13 check post_hide (expect rc 0)
+rc=0
+== R14 rollback 156 with rows hidden (data keys ignored) (expect rc 0)
+[pkg] rollback guard 156: state must equal post156.txt
+  (ignored) lv_rows: expected 0 | actual 113
+  (ignored) anon_listings: expected 113 | actual 0
+  (ignored) anon_bids: expected 5 | actual 0
+  (ignored) nonparty_listings: expected 113 | actual 0
+  (ignored) nonparty_bids: expected 5 | actual 0
+[pkg] rollback request sha256 a161310172facbb65a0fe5d33b2721a9290e0760b311108ee1895ebc3e4afbb4
+[pkg] post-rollback 156 vs post155.txt
+  (ignored) lv_rows: expected 0 | actual 113
+  (ignored) anon_listings: expected 113 | actual 0
+  (ignored) anon_bids: expected 5 | actual 0
+  (ignored) nonparty_listings: expected 113 | actual 0
+  (ignored) nonparty_bids: expected 5 | actual 0
+[pkg] 156 ROLLED BACK and verified
+rc=0
+== R15 rollback 155 (expect rc 0)
+[pkg] rollback guard 155: state must equal post155.txt
+  (ignored) lv_rows: expected 0 | actual 113
+  (ignored) nonparty_listings: expected 113 | actual 0
+  (ignored) anon_listings: expected 113 | actual 0
+  (ignored) anon_bids: expected 5 | actual 0
+  (ignored) nonparty_bids: expected 5 | actual 0
+[pkg] rollback request sha256 3ca6395ba804aa28cbe9bd3fafe237cd7e1ce242e1269afa8704ce4fb48963fd
+[pkg] post-rollback 155 vs post154.txt
+  (ignored) lv_rows: expected 0 | actual 113
+  (ignored) nonparty_listings: expected 113 | actual 0
+  (ignored) anon_listings: expected 113 | actual 0
+  (ignored) anon_bids: expected 5 | actual 0
+  (ignored) nonparty_bids: expected 5 | actual 0
+[pkg] 155 ROLLED BACK and verified
+rc=0
+== R16 rollback 154 (113 rows KEPT, inert) (expect rc 0)
+[pkg] rollback guard 154: state must equal post154.txt
+  (ignored) lv_rows: expected 0 | actual 113
+  (ignored) anon_listings: expected 113 | actual 0
+  (ignored) nonparty_listings: expected 113 | actual 0
+  (ignored) anon_bids: expected 5 | actual 0
+  (ignored) nonparty_bids: expected 5 | actual 0
+[pkg] rollback request sha256 308a4168162f9dfaf17159b289488fed2e76a2473d0a9e62cfabc8f0e70c9fd9
+[pkg] post-rollback 154 vs rb154.txt
+  (ignored) lv_rows: expected 0 | actual 113
+  (ignored) anon_listings: expected 113 | actual 113
+  (ignored) nonparty_listings: expected 113 | actual 113
+  (ignored) anon_bids: expected 5 | actual 5
+  (ignored) nonparty_bids: expected 5 | actual 5
+[pkg] 154 ROLLED BACK and verified
+rc=0
+== R17 kept rows are inert: anon sees the listings again; the 113 visibility rows survive
+lv_rows=113
+== R18 apply 154 with kept rows (negative: prestate STOP, nothing sent) (expect rc 3)
+[pkg] prestate STOP for 154; nothing sent
+[pkg] prestate 154 vs pre154.txt
+  MISMATCH census: expected 34|1214|37|43 | actual 35|1214|37|43
+  MISMATCH lv_rows: expected absent | actual 113
+  MISMATCH lv_table: expected absent | actual true|policies:0|grants:service_role:DELETE,service_role:INSERT,service_role:SELECT
+[pkg] prestate 154 vs rb154.txt (re-apply after this migration's own rollback)
+  MISMATCH lv_rows: expected 0 | actual 113
+rc=3
+== DONE: 0 unexpected exit code(s)

@@ -12,8 +12,8 @@ SELECT tap.login_anon();
 
 -- ── Browse works ────────────────────────────────────────────────────────────
 SELECT is((SELECT count(*) FROM public.listings), 4::bigint,
-  'anon can browse listings (public read)');
-SELECT lives_ok($$ SELECT amount FROM public.bids $$, 'anon can read bids (public read)');
+  'anon can browse public listings (154 listings_select_visible: the four seed_core listings are not hidden)');
+SELECT lives_ok($$ SELECT amount FROM public.bids $$, 'anon can read bids of public listings (154 bids_select_visible)');
 
 -- ── Table writes all fail ───────────────────────────────────────────────────
 SELECT throws_ok(
