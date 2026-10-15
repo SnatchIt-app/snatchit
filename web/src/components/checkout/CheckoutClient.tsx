@@ -13,6 +13,7 @@ import { Icon } from "@/components/ui/Icon";
 import { Spinner } from "@/components/ui/Button";
 import { coverImageUrl } from "@/lib/format";
 import { PaymentForm } from "@/components/checkout/PaymentForm";
+import { ProofWaiverNotice } from "@/components/listing/ProofWaiverNotice";
 
 const stripePromise = STRIPE_PUBLISHABLE_KEY ? loadStripe(STRIPE_PUBLISHABLE_KEY) : null;
 
@@ -25,6 +26,7 @@ export function CheckoutClient({
   posterPath,
   when,
   tickets,
+  proofWaived = false,
 }: {
   listingId: string;
   /** Which entitlement the page authorized — decides the intent + settle RPC. */
@@ -37,6 +39,8 @@ export function CheckoutClient({
   posterPath?: string;
   when?: string;
   tickets?: string;
+  /** Owner proof waiver (156): disclosed in the summary, before the payment form. */
+  proofWaived?: boolean;
 }) {
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -79,6 +83,7 @@ export function CheckoutClient({
             {tickets ? <dd className="t-body-sm text-muted">{tickets}</dd> : null}
           </dl>
         </div>
+        {proofWaived ? <ProofWaiverNotice className="mt-4" /> : null}
         <div className="mt-5 border-t border-line pt-1">
           <PriceBreakdown baseDollars={baseDollars} />
         </div>

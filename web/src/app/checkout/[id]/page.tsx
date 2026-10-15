@@ -8,7 +8,7 @@ import { LinkButton } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import { BackLink } from "@/components/ui/BackLink";
 import { CheckoutClient } from "@/components/checkout/CheckoutClient";
-import { eventWhen, quantityLine } from "@/lib/listing-display";
+import { eventWhen, proofWaiverNote, quantityLine } from "@/lib/listing-display";
 
 export const metadata: Metadata = {
   title: "Checkout",
@@ -101,6 +101,7 @@ export default async function CheckoutPage({ params }: { params: Promise<Params>
         posterPath={listing.cover_image_path}
         when={eventWhen(listing)}
         tickets={quantityLine(listing)}
+        proofWaived={proofWaiverNote(listing) !== null}
       />
     </Container>
   );
