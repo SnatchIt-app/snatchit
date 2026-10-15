@@ -7,6 +7,7 @@ import { hasSupabaseEnv } from "@/lib/env";
 // Re-exported for the many server components already importing it from here.
 export { coverImageUrl } from "@/lib/format";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabasePublicClient } from "@/lib/supabase/public";
 import { FIXTURE_LISTINGS, FIXTURE_SELLER } from "@/lib/fixtures";
 
 /** The listing fields the web UI consumes (subset of the shared Listing type). */
@@ -74,10 +75,15 @@ export interface BrowseFilters {
 export async function getActiveListings(filters: BrowseFilters = {}, limit = 24): Promise<WebListing[]> {
   if (!hasSupabaseEnv) return applyFiltersLocally(FIXTURE_LISTINGS, filters);
 
-  const supabase = await createSupabaseServerClient();
+  // The public catalog: cookieless, so a signed-in participant never gets a
+  // hidden listing here (and the CDN-cached feed can never store one). The
+  // public_hidden_at predicate repeats RLS on purpose: hidden ⇒ never public,
+  // whichever client runs this.
+  const supabase = createSupabasePublicClient();
   let query = supabase
     .from("listings")
     .select(LISTING_COLUMNS)
+    .is("public_hidden_at", null)
     .eq("status", "active")
     .eq("auction_status", "active")
     .gt("ends_at", new Date().toISOString());

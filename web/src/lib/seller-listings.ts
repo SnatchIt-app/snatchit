@@ -95,9 +95,12 @@ export const getMyListings = cache(async (userId: string): Promise<SellerListing
   const ids = ((listings ?? []) as unknown as SellerListing[]).map((l) => l.id);
   // Scoped to this seller's listings — bids_select_all is public, so an
   // unfiltered select here would pull the whole table.
-  const { data: bidRows } = ids.length
+  const { data: bidRows, error: bidError } = ids.length
     ? await supabase.from("bids").select("listing_id").in("listing_id", ids)
-    : { data: [] as { listing_id: string }[] };
+    : { data: [] as { listing_id: string }[], error: null };
+  // Fail closed: an unreadable bid list must not render as "0 bids", which
+  // would offer Edit and Delete on a listing that has bids.
+  if (bidError) throw new Error(`seller bids query failed: ${bidError.message}`);
 
   // listing_id -> transfer id, for sold listings still awaiting a send.
   const pendingTransfer = new Map<string, string>();
@@ -129,15 +132,22 @@ export async function getMyListing(userId: string, listingId: string): Promise<S
   return all.find((l) => l.id === listingId) ?? null;
 }
 
-/** Real bid rows for one listing — never trust listings.bid_count. */
-async function countRealBids(listingId: string): Promise<number> {
+/**
+ * Real bid rows for one listing — never trust listings.bid_count. Null when
+ * the count can't be read: callers refuse rather than treat it as zero, since
+ * a wrong zero lets edit/delete through and the delete cascades to the bids.
+ */
+async function countRealBids(listingId: string): Promise<number | null> {
   const supabase = await createSupabaseServerClient();
-  const { count } = await supabase
+  const { count, error } = await supabase
     .from("bids")
     .select("id", { count: "exact", head: true })
     .eq("listing_id", listingId);
-  return count ?? 0;
+  if (error || count === null) return null;
+  return count;
 }
+
+const BIDS_UNKNOWN = "We couldn't check this listing's bids right now. Please try again.";
 
 function mapSellerError(msg: string): string {
   if (msg.includes("auction state columns")) {
@@ -175,7 +185,9 @@ export async function updateSellerListing(
   if (listing.badge !== "ACTIVE" && listing.badge !== "ENDING SOON") {
     return { error: "This listing is no longer active and can't be edited." };
   }
-  if ((await countRealBids(listingId)) > 0) {
+  const bids = await countRealBids(listingId);
+  if (bids === null) return { error: BIDS_UNKNOWN };
+  if (bids > 0) {
     return { error: "This listing already has bids. Cancel it instead if you need to remove it." };
   }
 
@@ -186,7 +198,7 @@ export async function updateSellerListing(
   if (!fields.venue.trim()) return { error: "Venue is required." };
 
   const supabase = await createSupabaseServerClient();
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("listings")
     .update({
       event_name: fields.eventName.trim(),
@@ -195,9 +207,12 @@ export async function updateSellerListing(
       ticket_platform: fields.ticketPlatform,
     })
     .eq("id", listingId)
-    .eq("seller_id", userId); // defence in depth; RLS enforces this too
+    .eq("seller_id", userId) // defence in depth; RLS enforces this too
+    .select("id");
 
   if (error) return { error: readServerRefusal(error)?.message ?? mapSellerError(error.message) };
+  // RLS filters UPDATE silently: zero rows is not a success.
+  if (!data?.length) return { error: "This listing no longer exists." };
   return { ok: true };
 }
 
@@ -228,13 +243,22 @@ export async function deleteSellerListing(userId: string, listingId: string): Pr
   if (listing.badge !== "ACTIVE" && listing.badge !== "ENDING SOON") {
     return { error: "Only an active listing with no bids can be deleted." };
   }
-  if ((await countRealBids(listingId)) > 0) {
+  const bids = await countRealBids(listingId);
+  if (bids === null) return { error: BIDS_UNKNOWN };
+  if (bids > 0) {
     return { error: "This listing has bids and can't be deleted. Cancel it instead." };
   }
 
   const supabase = await createSupabaseServerClient();
-  const { error } = await supabase.from("listings").delete().eq("id", listingId).eq("seller_id", userId);
+  const { data, error } = await supabase
+    .from("listings")
+    .delete()
+    .eq("id", listingId)
+    .eq("seller_id", userId)
+    .select("id");
   if (error) return { error: mapSellerError(error.message) };
+  // Nothing deleted (RLS filters DELETE silently): keep the cover image.
+  if (!data?.length) return { error: "This listing no longer exists." };
 
   // Best-effort cover cleanup, matching mobile. Proof docs are deliberately
   // retained (mobile keeps them too) as the ownership record.
