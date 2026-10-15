@@ -50,6 +50,8 @@ vi.mock('@/src/lib/supabase', () => {
     const q: Record<string, unknown> = {};
     for (const m of ['select', 'eq']) q[m] = () => q;
     q.single = async () => ({ data: h.reply, error: null } as Reply);
+    // N2: the bid screen reads with maybeSingle (zero rows = no longer available, not PGRST116).
+    q.maybeSingle = async () => ({ data: h.reply, error: null } as Reply);
     return q;
   };
   return { supabase: { from: () => chain() } };
