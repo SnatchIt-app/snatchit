@@ -13,6 +13,12 @@ import {
 import { createListingAction, uploadListingImageAction } from "@/lib/create-listing-actions";
 import { findBannedTerm } from "@/lib/content-moderation";
 import { LISTING_DURATION_HOURS, durationLabel } from "@/lib/listing-durations";
+import {
+  PROOF_WAIVER_DEFAULT_REASON,
+  PROOF_WAIVER_LABEL,
+  PROOF_WAIVER_REASON_HINT,
+  PROOF_WAIVER_REASON_MAX,
+} from "@/lib/proof-waiver";
 import { prohibitedContentMessage } from "@/lib/server-refusal";
 import { Field } from "@/components/ui/Field";
 import { Input, Select, Textarea } from "@/components/ui/Input";
@@ -37,7 +43,14 @@ type ImageState = {
 
 const EMPTY_IMAGE: ImageState = { previewUrl: null, path: null, uploading: false, error: null };
 
-export function CreateListingForm({ riskWarning }: { riskWarning: string | null }) {
+export function CreateListingForm({
+  riskWarning,
+  canWaiveProof = false,
+}: {
+  riskWarning: string | null;
+  /** Admin-only owner proof waiver (156); the server action and the database re-check it. */
+  canWaiveProof?: boolean;
+}) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
@@ -60,6 +73,9 @@ export function CreateListingForm({ riskWarning }: { riskWarning: string | null 
 
   const [cover, setCover] = useState<ImageState>(EMPTY_IMAGE);
   const [proof, setProof] = useState<ImageState>(EMPTY_IMAGE);
+  const [waiveProof, setWaiveProof] = useState(false);
+  const [waiverReason, setWaiverReason] = useState(PROOF_WAIVER_DEFAULT_REASON);
+  const proofWaived = canWaiveProof && waiveProof;
 
   const [attemptedSubmit, setAttemptedSubmit] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -87,7 +103,12 @@ export function CreateListingForm({ riskWarning }: { riskWarning: string | null 
     }
     if (!durationHours) errors.push("Choose how long the listing runs.");
     if (!cover.path) errors.push("Upload a cover photo.");
-    if (!proof.path) errors.push("Upload proof of ownership.");
+    if (proofWaived) {
+      const reason = waiverReason.trim();
+      if (!reason || reason.length > PROOF_WAIVER_REASON_MAX) errors.push("Add a reason for the proof waiver.");
+    } else if (!proof.path) {
+      errors.push("Upload proof of ownership.");
+    }
     if (!commitmentAccepted) errors.push("Confirm the seller commitment to continue.");
 
     const flagged = findBannedTerm([eventName, venue, restrictions]);
@@ -137,8 +158,9 @@ export function CreateListingForm({ riskWarning }: { riskWarning: string | null 
         durationHours: durationHours!,
         ticketPlatform,
         coverImagePath: cover.path!,
-        proofImagePath: proof.path!,
+        proofImagePath: proofWaived ? "" : proof.path!,
         sellerCommitmentAccepted: commitmentAccepted,
+        proofWaiver: proofWaived ? { reason: waiverReason.trim() } : null,
       });
       if (result.error === "AUTH_REQUIRED") {
         router.push("/login?next=/sell");
@@ -311,13 +333,38 @@ export function CreateListingForm({ riskWarning }: { riskWarning: string | null 
             state={cover}
             onPick={(file) => handleImagePick("cover", file)}
           />
-          <ImageUploadTile
-            label="Proof of ownership"
-            hint="Screenshot of your ticket"
-            state={proof}
-            onPick={(file) => handleImagePick("proof", file)}
-          />
+          {proofWaived ? null : (
+            <ImageUploadTile
+              label="Proof of ownership"
+              hint="Screenshot of your ticket"
+              state={proof}
+              onPick={(file) => handleImagePick("proof", file)}
+            />
+          )}
         </div>
+        {canWaiveProof ? (
+          <div className="space-y-4 rounded-panel bg-surface p-4">
+            <label className="flex cursor-pointer items-start gap-3 text-[15px] leading-relaxed text-ink">
+              <input
+                type="checkbox"
+                checked={waiveProof}
+                onChange={(e) => setWaiveProof(e.target.checked)}
+                className="mt-1 size-5 shrink-0 accent-brand"
+              />
+              {PROOF_WAIVER_LABEL}
+            </label>
+            {waiveProof ? (
+              <Field label="Waiver reason" htmlFor="proofWaiverReason" hint={PROOF_WAIVER_REASON_HINT}>
+                <Textarea
+                  id="proofWaiverReason"
+                  value={waiverReason}
+                  onChange={(e) => setWaiverReason(e.target.value)}
+                  maxLength={PROOF_WAIVER_REASON_MAX}
+                />
+              </Field>
+            ) : null}
+          </div>
+        ) : null}
       </section>
 
       <section className="space-y-4">
@@ -339,7 +386,7 @@ export function CreateListingForm({ riskWarning }: { riskWarning: string | null 
         variant="primary"
         size="lg"
         className="w-full"
-        disabled={isPending || cover.uploading || proof.uploading}
+        disabled={isPending || cover.uploading || (!proofWaived && proof.uploading)}
         pending={isPending}
         pendingLabel="Publishing…"
       >

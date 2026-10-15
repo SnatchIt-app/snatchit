@@ -115,3 +115,26 @@ export function homeSection(isoDate: string, now: Date = new Date()): HomeSectio
   if (days > 7) return "Later";
   return null;
 }
+
+/**
+ * A recorded owner waiver of ticket proof (migration 156: proof_waived_at is stamped by the
+ * database, proof_status stays pending_review). It is stated plainly and never shown as
+ * verified; who waived it and why stay private.
+ */
+export const PROOF_WAIVED_NOTE = "Ticket proof waived by Snatch It";
+
+export function proofWaiverNote(l: { proof_waived_at?: string | null }): string | null {
+  return l.proof_waived_at ? PROOF_WAIVED_NOTE : null;
+}
+
+/**
+ * The seller badge. Next to a waiver note a bare "Verified" could read as a verified ticket, so
+ * on a waived listing it names what is verified: the seller.
+ */
+export function sellerVerifiedLabel(
+  isVerifiedSeller: boolean | null | undefined,
+  proofWaived: boolean,
+): "Verified" | "Verified seller" | null {
+  if (!isVerifiedSeller) return null;
+  return proofWaived ? "Verified seller" : "Verified";
+}

@@ -19,6 +19,7 @@ import { getAuthedUser } from "@/lib/auth/session";
 import { SaveButton } from "@/components/SaveButton";
 import { BuyNowButton } from "@/components/listing/BuyNowButton";
 import { BidPanel } from "@/components/listing/BidPanel";
+import { ProofWaiverNotice } from "@/components/listing/ProofWaiverNotice";
 import {
   categoryLabel,
   fmtEventDate,
@@ -27,7 +28,7 @@ import {
   platformLabel,
   deliveryLabel,
 } from "@/lib/format";
-import { eventWhen, quantityLine } from "@/lib/listing-display";
+import { eventWhen, proofWaiverNote, quantityLine, sellerVerifiedLabel } from "@/lib/listing-display";
 import { SITE_URL } from "@/lib/env";
 import { Container } from "@/components/ui/Container";
 import { Badge, LiveDot } from "@/components/ui/Badge";
@@ -93,6 +94,8 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
     getAuthedUser(),
   ]);
   const relatedSavedIds = await getSavedListingIdSet(related.map((l) => l.id));
+  const proofNote = proofWaiverNote(listing);
+  const sellerBadge = sellerVerifiedLabel(seller?.is_verified_seller, proofNote !== null);
 
   const status = listingCardStatus(listing);
   const isActive = status === "LIVE" || status === "ENDING SOON";
@@ -268,6 +271,8 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
               {isActive ? (
                 /* scroll-mt clears the sticky header when the phone bar's #buy anchor jumps here. */
                 <div id="buy" className="mt-5 scroll-mt-24 space-y-4">
+                  {/* Inside #buy, so the phone bar's jump lands on it: disclosed before any way to pay. */}
+                  {proofNote ? <ProofWaiverNotice /> : null}
                   {isHybrid && !isOwner ? <BuyNowButton listingId={listing.id} /> : null}
                   <BidPanel
                     listingId={listing.id}
@@ -285,13 +290,15 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
                 /* The auction is over but this buyer still owes money — the one
                    case where an ended listing is actionable. */
                 <div id="buy" className="mt-5 scroll-mt-24 space-y-2.5">
+                  {proofNote ? <ProofWaiverNotice /> : null}
                   <LinkButton href={`/checkout/${listing.id}`} size="lg" className="w-full">
                     You won — complete payment
                   </LinkButton>
                   <p className="t-body-sm text-center text-muted">Pay {allInFromDollars(priceBase)} to claim your ticket.</p>
                 </div>
               ) : onHold && heldByMe ? (
-                <div id="buy" className="mt-5 scroll-mt-24">
+                <div id="buy" className="mt-5 scroll-mt-24 space-y-2.5">
+                  {proofNote ? <ProofWaiverNotice /> : null}
                   <LinkButton href={`/checkout/${listing.id}`} size="lg" className="w-full">
                     Finish checkout
                   </LinkButton>
@@ -333,13 +340,19 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
               <div className="min-w-0 flex-1">
                 <p className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[16px] font-semibold text-ink">
                   <span className="truncate">{seller?.display_name ?? "Snatch It seller"}</span>
-                  {seller?.is_verified_seller ? <Badge tone="success">Verified</Badge> : null}
+                  {sellerBadge ? <Badge tone="success">{sellerBadge}</Badge> : null}
                 </p>
                 <p className="t-body-sm mt-0.5 text-muted">
                   {seller?.created_at
                     ? `Member since ${new Date(seller.created_at).toLocaleDateString("en-US", { month: "long", year: "numeric" })}`
                     : "Marketplace seller"}
                 </p>
+                {proofNote ? (
+                  <p className="t-body-sm mt-1.5 flex items-center gap-1.5 text-ink-2">
+                    <Icon name="info" size={15} className="shrink-0 text-muted" />
+                    {proofNote}
+                  </p>
+                ) : null}
               </div>
             </section>
 

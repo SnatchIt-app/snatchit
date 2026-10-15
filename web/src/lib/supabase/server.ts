@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from "@/lib/env";
+import { CLIENT_CAPS_HEADERS } from "@/lib/supabase/caps";
 
 /**
  * Server-side Supabase client (Server Components, Route Handlers, Server
@@ -20,6 +21,7 @@ export async function createSupabaseServerClient() {
   const cookieStore = await cookies();
 
   return createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: { headers: CLIENT_CAPS_HEADERS },
     cookies: {
       getAll() {
         return cookieStore.getAll();
