@@ -24,6 +24,7 @@
 import { Platform } from 'react-native';
 import { createClient } from '@supabase/supabase-js';
 import 'react-native-url-polyfill/auto';
+import { clientCapsHeaders } from '../config/clientCapabilities';
 
 // ── Platform-safe storage ────────────────────────────────────────────────────
 
@@ -67,7 +68,6 @@ function getStorage() {
 // whose Supabase project and Stripe account are not a legitimate pair (e.g. a
 // TEST key against PRODUCTION data). See src/config/envGuard.ts.
 import { ENV_GUARD_FAILURE } from '../config/envGuard';
-import { clientCapsHeaders } from '../config/clientCapabilities';
 
 // ── Env vars ─────────────────────────────────────────────────────────────────
 
