@@ -54,6 +54,7 @@ import { APP_CONFIG } from '@/src/config/app';
 import { sendLocalNotification } from '@/src/utils/notifications';
 import { StateView, EmptyState, Spinner, StickyBar } from '@/src/components/ui';
 import { LISTING_UNAVAILABLE_COPY } from '@/src/lib/listing/unavailable';
+import { cameToForeground } from '@/src/lib/ui/appForeground';
 import { PROOF_REVIEWED_ROW, PROOF_WAIVED_NOTICE, proofIsReviewed, proofIsWaived } from '@/src/lib/listing/proofPresentation';
 // `BarAction` is the V3 pill with its sub-line inside it. Imported from the module rather than
 // the `ui` barrel because that barrel is owned centrally; it belongs in the barrel's exports.
@@ -418,18 +419,19 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
       setLoading(false);
       return;
     }
-    if (!silent) setLoading(true);
-    setError(null);
-
+    // A quiet re-read (focus, foreground) keeps what is on screen until it has an answer: clearing the error
+    // first turned a failed quiet re-read into the "No longer available" state (review N3-1).
+    if (!silent) { setLoading(true); setError(null); }
     const listingRes = await supabase.from('listings').select('*').eq('id', id).maybeSingle();
 
     if (listingRes.error) {
       if (!silent) { setError(listingRes.error.message); setLoading(false); }
       return;
     }
-    if (listingRes.data === null) { setListing(null); setLoading(false); return; }
+    if (listingRes.data === null) { setError(null); setListing(null); setLoading(false); return; }
 
     const fetchedListing = listingRes.data as Listing;
+    setError(null);
     setListing(fetchedListing);
     setLoading(false);
 
@@ -489,9 +491,9 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
   useEffect(() => {
     const appStateRef = { current: AppState.currentState as AppStateStatus };
     const sub = AppState.addEventListener('change', (next) => {
-      const wasAway = /inactive|background/.test(appStateRef.current);
+      const cameBack = cameToForeground(appStateRef.current, next);
       appStateRef.current = next;
-      if (wasAway && next === 'active' && initialLoadDone.current) void fetchDataRef.current(true);
+      if (cameBack && initialLoadDone.current) void fetchDataRef.current(true);
     });
     return () => sub.remove();
   }, [id]);

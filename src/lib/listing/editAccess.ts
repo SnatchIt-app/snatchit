@@ -13,6 +13,8 @@
  * sees before reaching it.
  */
 
+import { LISTING_UNAVAILABLE_COPY } from './unavailable';
+
 /** The four refusals, in the order the screen checks them. */
 export type EditRefusalKind = 'signed-out' | 'not-found' | 'not-owner' | 'has-bids' | 'inactive';
 
@@ -38,7 +40,8 @@ export interface EditCandidate {
  */
 export const EDIT_REFUSAL_COPY = {
   'signed-out': { title: 'Sign in required', body: 'You need to be signed in to edit a listing.' },
-  'not-found': { title: 'Listing not found', body: 'Try again later.' },
+  // N2 (review N2-1): zero rows reads the same everywhere — hidden (154), deleted or never there.
+  'not-found': { title: LISTING_UNAVAILABLE_COPY.title, body: LISTING_UNAVAILABLE_COPY.body },
   'not-owner': { title: 'Not allowed', body: 'You can only edit your own listings.' },
   'has-bids': { title: 'Cannot edit', body: 'This listing already has bids. Use Cancel from My Listings if you need to remove it.' },
   inactive: { title: 'Cannot edit', body: 'This listing is no longer active.' },
