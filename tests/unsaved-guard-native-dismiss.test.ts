@@ -335,8 +335,7 @@ describe('the modelled native layer still matches the installed library source',
     expect(fork).toContain('(0, native_1.useNavigationBuilder)(native_1.StackRouter, {');
     expect(fork).toMatch(/<NavigationContent>\s*<native_stack_1\.NativeStackView \{\.\.\.rest\}/);
     const layout = readFileSync(join(REPO_ROOT, 'app/_layout.tsx'), 'utf8');
-    // N7 added useRootNavigationState (the recovery guard waits for the navigator); Stack is still expo-router's.
-    expect(layout).toContain("import { router, Stack, useRootNavigationState, useSegments } from 'expo-router';");
+    expect(layout).toContain("import { router, Stack, useSegments } from 'expo-router';");
     expect(layout).not.toMatch(/presentation:\s*'(modal|formSheet|transparentModal|fullScreenModal)'/);
   });
 });

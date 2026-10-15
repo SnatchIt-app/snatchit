@@ -17,7 +17,7 @@ import 'react-native-get-random-values';
 
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { AppearanceProvider, useTheme } from '@/src/theme/appearance';
-import { router, Stack, useRootNavigationState, useSegments } from 'expo-router';
+import { router, Stack, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -30,7 +30,7 @@ import { ENV_GUARD_FAILURE, IS_SANDBOX_BUILD } from '@/src/config/envGuard';
 import { useAuth } from '@/src/hooks/useAuth';
 import { useReducedMotion } from '@/src/hooks/useReducedMotion';
 import { useIsOnboarding } from '@/src/lib/auth/onboardingGate';
-import { authPhase, recoveryRouteTarget, rootRouteDecision, type AuthPhase } from '@/src/lib/auth/rootRoute';
+import { authPhase, isResetScreen, recoveryRouteTarget, rootRouteDecision, type AuthPhase } from '@/src/lib/auth/rootRoute';
 import { supabase } from '@/src/lib/supabase';
 import ErrorBoundary from '@/src/components/ErrorBoundary';
 // Imported from the leaf module (not the ui barrel) so the web-safe root layout
@@ -167,21 +167,6 @@ function RootLayout() {
     router.replace(decision.to);
   }, [session, loading, isRecovery, onboarding, inDevHarness]);
 
-  // N7: the recovery hold's move onto (and off) the reset screen is a function of state, applied
-  // only once the navigator exists. A replace issued from the deep-link handler ran before the Stack
-  // mounted on a cold start (expo-router throws) and raced Expo Router's own handling of
-  // snatchit://?code=… on a warm start; this effect re-asserts the reset screen until the hold ends.
-  const rootNavState = useRootNavigationState();
-  const navReady = fontsReady && !!rootNavState?.key;
-  const routeSegments = segments as string[];
-  const onResetScreen = routeSegments[0] === '(auth)' && routeSegments[1] === 'reset-password';
-  useEffect(() => {
-    if (!navReady) return;
-    if (inDevHarness) return;
-    const to = recoveryRouteTarget({ isRecovery, onResetScreen, signedIn: !!session, loading });
-    if (to) router.replace(to);
-  }, [navReady, inDevHarness, isRecovery, onResetScreen, session, loading]);
-
   // Reduce Motion: every push and pop still happens, as a cross-fade (CFT-206).
   const reduceMotion = useReducedMotion();
 
@@ -192,6 +177,7 @@ function RootLayout() {
     <AppearanceProvider>
     <ThemedShell fontsReady={fontsReady}>
       {fontsReady ? (
+      <>
       <Stack screenOptions={{ headerShown: false, animation: reduceMotion ? 'fade' : 'default' }}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="(auth)" />
@@ -217,6 +203,9 @@ function RootLayout() {
         <Stack.Screen name="settings/blocked-users" />
         <Stack.Screen name="profile/[id]" />
       </Stack>
+      {/* N7: rendered beside the Stack, so it exists only once the Stack does. */}
+      <RecoveryRouteGuard isRecovery={isRecovery} signedIn={!!session} loading={loading} disabled={inDevHarness} />
+      </>
       ) : null}
 
       {(loading || !fontsReady) && <SplashOverlay />}
@@ -314,3 +303,28 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
 });
+
+/**
+ * N7: the recovery hold's move onto (and off) the reset screen, as a function of state.
+ *
+ * Rendered as the Stack's sibling inside the same branch, so it mounts only once the Stack has: a replace
+ * issued before then is dropped by the navigator (a cold start from the recovery link), and the hook
+ * useRootNavigationState() cannot gate it — in the root layout it returns the root container's own
+ * state, which always has a key (review, 2026-10-15). It also re-asserts the reset screen when Expo
+ * Router's own routing of snatchit://?code=… lands on Home (a warm start), and takes a signed-out person
+ * off the reset screen once the hold is released.
+ */
+function RecoveryRouteGuard({ isRecovery, signedIn, loading, disabled }: {
+  isRecovery: boolean;
+  signedIn: boolean;
+  loading: boolean;
+  disabled: boolean;
+}) {
+  const onResetScreen = isResetScreen(useSegments() as string[]);
+  useEffect(() => {
+    if (disabled) return;
+    const to = recoveryRouteTarget({ isRecovery, onResetScreen, signedIn, loading });
+    if (to) router.replace(to);
+  }, [disabled, isRecovery, onResetScreen, signedIn, loading]);
+  return null;
+}

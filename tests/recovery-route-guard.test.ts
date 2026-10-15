@@ -12,7 +12,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { recoveryRouteTarget } from '../src/lib/auth/rootRoute';
+import { isResetScreen, recoveryRouteTarget } from '../src/lib/auth/rootRoute';
 
 const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
 const read = (p: string) => strip(readFileSync(resolve(__dirname, '..', p), 'utf8'));
@@ -41,14 +41,32 @@ describe('recoveryRouteTarget', () => {
   });
 });
 
+describe('isResetScreen', () => {
+  it('G5: true only for the (auth)/reset-password route', () => {
+    expect(isResetScreen(['(auth)', 'reset-password'])).toBe(true);
+    expect(isResetScreen(['(auth)', 'login'])).toBe(false);
+    expect(isResetScreen(['(tabs)', 'home'])).toBe(false);
+    expect(isResetScreen(['reset-password'])).toBe(false);
+    expect(isResetScreen([])).toBe(false);
+  });
+});
+
 describe('wiring', () => {
   const layout = read('app/_layout.tsx');
   const shell = read('src/providers/NativeAppShell.native.tsx');
 
-  it('W1: the root layout applies recoveryRouteTarget only once the navigator is ready', () => {
-    expect(layout).toMatch(/recoveryRouteTarget\(\{/);
-    expect(layout).toMatch(/useRootNavigationState\(\)/);
-    expect(layout).toMatch(/if \(!navReady\) return;[\s\S]{0,400}recoveryRouteTarget/);
+  it('W1: the guard is a component rendered as the Stack\'s sibling in the same branch, so it exists only once the Stack does', () => {
+    // Review (2026-10-15): useRootNavigationState() is always set in the root layout (it returns the
+    // __root navigator's own state), so a "navReady" built on it gated nothing. Mount order is the gate.
+    expect(layout).toMatch(/<\/Stack>\s*(\{\s*\}\s*)?<RecoveryRouteGuard\b/);   // a stripped JSX comment leaves {}
+    expect(layout).toMatch(/\{fontsReady \? \(\s*<>\s*<Stack /);
+    const guard = layout.slice(layout.indexOf('function RecoveryRouteGuard('));
+    expect(guard).toMatch(/const onResetScreen = isResetScreen\(useSegments\(\) as string\[\]\);/);
+    expect(guard).toMatch(/recoveryRouteTarget\(\{ isRecovery, onResetScreen, signedIn, loading \}\)/);
+    // The layout body itself no longer navigates for recovery.
+    const body = layout.slice(layout.indexOf('function RootLayout('), layout.indexOf('function RecoveryRouteGuard('));
+    expect(body).not.toMatch(/recoveryRouteTarget\(/);
+    expect(layout).not.toMatch(/useRootNavigationState/);
   });
 
   it('W2: nothing navigates to the reset screen directly any more — the guard owns that move', () => {

@@ -72,6 +72,11 @@ export function rootRouteDecision(input: RootRouteInput): RootRouteDecision {
   return { navigate: true, to: input.phase === 'signed_out' ? '/(auth)/login' : '/(tabs)/home' };
 }
 
+/** N7: whether the current route is the reset screen, app/(auth)/reset-password.tsx. */
+export function isResetScreen(segments: readonly string[]): boolean {
+  return segments[0] === '(auth)' && segments[1] === 'reset-password';
+}
+
 /**
  * N7: where the recovery hold puts the person, applied by the root layout once its navigator is ready.
  *
