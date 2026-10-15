@@ -270,3 +270,39 @@ describe("control: scope is what decides local vs every device (real auth-js)", 
     expect(scopes).toEqual(["global", "local"]);
   });
 });
+
+describe("Log in comes back to the page you were on (WEB-06)", () => {
+  it("keeps the path and its filters", async () => {
+    const { loginHrefFor } = await import("@/lib/auth/login-href");
+    expect(loginHrefFor("/browse", "category=clubs&sort=price_asc")).toBe(`/login?next=${encodeURIComponent("/browse?category=clubs&sort=price_asc")}`);
+    expect(loginHrefFor("/listing/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1", "")).toBe(
+      `/login?next=${encodeURIComponent("/listing/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1")}`,
+    );
+    expect(loginHrefFor("/browse", "?q=club")).toBe(`/login?next=${encodeURIComponent("/browse?q=club")}`);
+  });
+
+  it("drops credential-like query keys (Stripe client secret, codes, tokens)", async () => {
+    const { loginHrefFor } = await import("@/lib/auth/login-href");
+    const href = loginHrefFor("/checkout/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1/complete", "payment_intent=pi_test&payment_intent_client_secret=zzz&redirect_status=succeeded&code=abc&access_token=t");
+    const next = decodeURIComponent(href.slice("/login?next=".length));
+    expect(next).toBe("/checkout/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1/complete?payment_intent=pi_test&redirect_status=succeeded");
+    expect(href).not.toMatch(/secret|code=|token/i);
+  });
+
+  it("plain /login from auth pages and from home; never an external or auth destination", async () => {
+    const { loginHrefFor } = await import("@/lib/auth/login-href");
+    for (const p of ["/login", "/signup", "/forgot-password", "/reset-password", "/auth/confirm"]) expect(loginHrefFor(p, "next=%2Fsell")).toBe("/login");
+    expect(loginHrefFor("/", "")).toBe("/login");
+    expect(loginHrefFor("//evil.example", "")).toBe("/login");
+    expect(loginHrefFor("/\\evil", "")).toBe("/login");
+  });
+
+  it("the header and the save / bid / buy buttons use it", () => {
+    const header = read("components/site/Header.tsx");
+    expect(header).toContain("<LoginLink className={LOGIN_LINK_CLS} />");
+    expect(read("components/site/LoginLink.tsx")).toContain("loginHrefFor(pathname, searchParams.toString())");
+    for (const f of ["components/SaveButton.tsx", "components/listing/BuyNowButton.tsx", "components/listing/BidPanel.tsx"]) {
+      expect(read(f), f).toContain("router.push(loginHrefFor(pathname, window.location.search));");
+    }
+  });
+});

@@ -10,6 +10,7 @@ import { Alert } from "@/components/ui/Alert";
 import { Badge } from "@/components/ui/Badge";
 import { Icon } from "@/components/ui/Icon";
 import { PriceBreakdown, PriceDisplay } from "@/components/ui/PriceDisplay";
+import { loginHrefFor } from "@/lib/auth/login-href";
 
 const MIN_INCREMENT = APP_CONFIG.MIN_BID_INCREMENT;
 const QUICK_CHIPS = [5, 10, 25] as const;
@@ -102,7 +103,7 @@ export function BidPanel({
     startTransition(async () => {
       const result = await placeBidAction(listingId, selectedBid);
       if (result.error === "AUTH_REQUIRED") {
-        router.push(`/login?next=${encodeURIComponent(pathname)}`);
+        router.push(loginHrefFor(pathname, window.location.search));
         return;
       }
       if (result.error) {
