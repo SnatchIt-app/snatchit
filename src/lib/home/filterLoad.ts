@@ -40,5 +40,7 @@ export const HOME_FILTER_REFRESH_FAILED_COPY: Record<LoadFailureKind, string> = 
  * failure — both of those are the app not knowing, which is never the same as nothing being there.
  */
 export function mayShowEmptyCopy(state: FilterLoadState): boolean {
-  return !state.loading && state.error === null && state.settled;
+  // A re-read of a dataset that has already settled keeps its settled face while it runs (N3 re-reads on
+  // every selection and every return): only the FIRST read may not claim emptiness (review N3-2).
+  return state.error === null && state.settled;
 }

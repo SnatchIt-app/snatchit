@@ -77,6 +77,7 @@ import {
   type QuickChip,
 } from '@/src/lib/home/filterModel';
 import { homeReadsFor, type HomeRead } from '@/src/lib/home/refreshPlan';
+import { cameToForeground } from '@/src/lib/ui/appForeground';
 import { DiscoveryGridSkeleton } from '@/src/components/discovery/DiscoveryGridSkeleton';
 import { FeedRow } from '@/src/components/discovery/FeedRow';
 import { FilterSheet } from '@/src/components/discovery/FilterSheet';
@@ -388,9 +389,9 @@ export default function HomeScreen({ fixture: rawFixture }: HomeScreenProps = {}
     if (fixture) return;
     const appStateRef = { current: AppState.currentState as AppStateStatus };
     const sub = AppState.addEventListener('change', (next) => {
-      const wasAway = /inactive|background/.test(appStateRef.current);
+      const cameBack = cameToForeground(appStateRef.current, next);
       appStateRef.current = next;
-      if (!wasAway || next !== 'active' || !initialLoadDone.current) return;
+      if (!cameBack || !initialLoadDone.current) return;
       const runHomeReads = runHomeReadsRef.current;
       runHomeReads(homeReadsFor('foreground', chipRef.current));
     });
@@ -546,7 +547,8 @@ export default function HomeScreen({ fixture: rawFixture }: HomeScreenProps = {}
   const activeDataset: FilterDataset | null =
     filters.chip === 'recently_sold' ? 'recently_sold' : filters.chip === 'ended' ? 'ended' : null;
   const datasetState = activeDataset ? filterLoad[activeDataset] : null;
-  const datasetBusy = datasetState?.loading === true && filteredListings.length === 0;
+  // The skeleton is for a dataset's FIRST read only; a re-read keeps the settled face (review N3-2).
+  const datasetBusy = datasetState?.loading === true && !datasetState.settled && filteredListings.length === 0;
   const datasetFailure = datasetState
     ? failureSurface(filteredListings.length, datasetState.error !== null)
     : 'none';

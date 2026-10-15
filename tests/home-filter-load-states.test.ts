@@ -353,3 +353,49 @@ describe('F-HOME-1 — a filter that cannot load never claims the marketplace is
     expect(HOME_FILTER_REFRESH_FAILED_COPY.error.length).toBeGreaterThan(0);
   });
 });
+
+describe('N3 review fixes — a re-read keeps the settled screen and drops what the server no longer returns', () => {
+  it('H11 (review N3-2): re-reading a settled EMPTY list keeps "Nothing sold yet" — no skeleton flash on every focus', async () => {
+    const host = await mountHome();
+    applyFilter(host, 'recently_sold');
+    await flush();
+    h.sold[0].resolve(OK([]));
+    await flush();
+    host.flush();
+    expect(view(host)).toEqual({ empty: 'Nothing sold yet' });
+
+    h.focus.current!();                // back to the Home tab: live feed + Sold are re-read
+    await flush();
+    host.flush();
+    expect(h.sold.length).toBe(2);     // the re-read is in flight…
+    expect(view(host)).toEqual({ empty: 'Nothing sold yet' });   // …and the settled copy stays
+  });
+
+  it('H12 (review T5): rows the server stopped returning leave the screen on the next selection', async () => {
+    const host = await mountHome();
+    applyFilter(host, 'recently_sold');
+    await flush();
+    h.sold[0].resolve(OK(SOLD));
+    await flush();
+    host.flush();
+    const before = view(host) as { rows: number };
+    expect(before.rows).toBe(SOLD.length);
+    expect(SOLD.length).toBeGreaterThan(1);
+
+    applyFilter(host, 'all');
+    applyFilter(host, 'recently_sold');     // N3: every selection re-reads
+    await flush();
+    h.sold[1].resolve(OK(SOLD.slice(0, 1)));
+    await flush();
+    host.flush();
+    expect(view(host)).toEqual({ rows: 1, notice: null });
+
+    applyFilter(host, 'all');
+    applyFilter(host, 'recently_sold');
+    await flush();
+    h.sold[2].resolve(OK([]));               // e.g. every legacy sale hidden by 154
+    await flush();
+    host.flush();
+    expect(view(host)).toEqual({ empty: 'Nothing sold yet' });
+  });
+});
