@@ -75,7 +75,11 @@ vi.mock('@/src/hooks/useAuth', () => ({ useAuth: () => ({ user: h.user }) }));
 vi.mock('@/src/lib/supabase', () => ({
   supabase: {
     from: () => ({
-      select: () => ({ eq: () => ({ single: async () => ({ data: h.listing, error: null }) }) }),
+      // N2: the edit route reads with maybeSingle (zero rows = not found, not PostgREST text).
+      select: () => ({ eq: () => ({
+        single: async () => ({ data: h.listing, error: null }),
+        maybeSingle: async () => ({ data: h.listing, error: null }),
+      }) }),
       update: (row: unknown) => {
         h.updates.push(row);
         return { eq: () => ({ eq: async () => ({ error: null }) }) };
@@ -331,7 +335,8 @@ describe('the modelled native layer still matches the installed library source',
     expect(fork).toContain('(0, native_1.useNavigationBuilder)(native_1.StackRouter, {');
     expect(fork).toMatch(/<NavigationContent>\s*<native_stack_1\.NativeStackView \{\.\.\.rest\}/);
     const layout = readFileSync(join(REPO_ROOT, 'app/_layout.tsx'), 'utf8');
-    expect(layout).toContain("import { router, Stack, useSegments } from 'expo-router';");
+    // N7 added useRootNavigationState (the recovery guard waits for the navigator); Stack is still expo-router's.
+    expect(layout).toContain("import { router, Stack, useRootNavigationState, useSegments } from 'expo-router';");
     expect(layout).not.toMatch(/presentation:\s*'(modal|formSheet|transparentModal|fullScreenModal)'/);
   });
 });
