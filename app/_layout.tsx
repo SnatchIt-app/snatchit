@@ -32,6 +32,8 @@ import { useReducedMotion } from '@/src/hooks/useReducedMotion';
 import { useIsOnboarding } from '@/src/lib/auth/onboardingGate';
 import { authPhase, isResetScreen, recoveryRouteTarget, rootRouteDecision, type AuthPhase } from '@/src/lib/auth/rootRoute';
 import { supabase } from '@/src/lib/supabase';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { clearRecoveryPending, markRecoveryPending, recoveryPendingFor } from '@/src/lib/auth/recoveryMarker';
 import ErrorBoundary from '@/src/components/ErrorBoundary';
 // Imported from the leaf module (not the ui barrel) so the web-safe root layout
 // pulls in no native-only siblings. Spinner's own deps are all platform-safe.
@@ -129,6 +131,7 @@ function RootLayout() {
       }
       if (event === 'SIGNED_OUT') {
         setIsRecovery(false);
+        void clearRecoveryPending(AsyncStorage);
       }
     });
     return () => subscription.unsubscribe();
@@ -151,12 +154,32 @@ function RootLayout() {
   const segments = useSegments();
   const inDevHarness = (__DEV__ || IS_SANDBOX_BUILD) && segments[0] === '_dev';
 
+  // N7b: a recovery interrupted by the app being killed on "New password" re-raises the hold on the next
+  // launch, for the same user and within 24 h (recoveryMarker). Routing waits for this one read.
+  const userId = session?.user?.id ?? null;
+  const [recoveryChecked, setRecoveryChecked] = useState(false);
+  useEffect(() => {
+    if (loading || recoveryChecked) return;
+    let cancelled = false;
+    (async () => {
+      if (userId && await recoveryPendingFor(AsyncStorage, userId)) {
+        if (!cancelled) setIsRecovery(true);
+      }
+      if (!cancelled) setRecoveryChecked(true);
+    })();
+    return () => { cancelled = true; };
+  }, [loading, recoveryChecked, userId]);
+  useEffect(() => {
+    if (isRecovery && userId) void markRecoveryPending(AsyncStorage, userId);
+  }, [isRecovery, userId]);
+  const routingLoading = loading || !recoveryChecked;
+
   // Navigation is a separate concern and runs only on a real phase boundary.
   useEffect(() => {
     if (inDevHarness) return;
     const phase = authPhase(session);
     const decision = rootRouteDecision({
-      loading,
+      loading: routingLoading,
       isRecovery,
       onboarding,
       phase,
@@ -165,7 +188,7 @@ function RootLayout() {
     if (!decision.navigate) return;
     routedPhaseRef.current = phase;
     router.replace(decision.to);
-  }, [session, loading, isRecovery, onboarding, inDevHarness]);
+  }, [session, routingLoading, isRecovery, onboarding, inDevHarness]);
 
   // Reduce Motion: every push and pop still happens, as a cross-fade (CFT-206).
   const reduceMotion = useReducedMotion();
@@ -204,11 +227,11 @@ function RootLayout() {
         <Stack.Screen name="profile/[id]" />
       </Stack>
       {/* N7: rendered beside the Stack, so it exists only once the Stack does. */}
-      <RecoveryRouteGuard isRecovery={isRecovery} signedIn={!!session} loading={loading} disabled={inDevHarness} />
+      <RecoveryRouteGuard isRecovery={isRecovery} signedIn={!!session} loading={routingLoading} disabled={inDevHarness} />
       </>
       ) : null}
 
-      {(loading || !fontsReady) && <SplashOverlay />}
+      {(routingLoading || !fontsReady) && <SplashOverlay />}
 
       {/* Environment pairing failure: a non-dismissible blocker. Rendered last so
           it covers everything, and it captures touches (no pointerEvents="none")

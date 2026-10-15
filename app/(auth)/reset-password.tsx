@@ -7,12 +7,13 @@
  * moves to src/lib/auth/authForms.ts.
  */
 
-import { router } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useMemo, useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
-import { SIGN_OUT_FAILED_COPY, signOutAllDevices } from '@/src/lib/auth/signOut';
+import { SIGN_OUT_FAILED_COPY, signOutAllDevices, signOutThisDevice } from '@/src/lib/auth/signOut';
+import { clearRecoveryPending } from '@/src/lib/auth/recoveryMarker';
 import { Button, Input } from '@/src/components/ui';
 import { friendlyAuthError, validateReset } from '@/src/lib/auth/authForms';
 import { AuthScreen } from '@/src/components/auth/AuthScreen';
@@ -36,7 +37,19 @@ export default function ResetPasswordScreen() {
     const { error } = await supabase.auth.updateUser({ password });
     setLoading(false);
     if (error) { Alert.alert('Error', friendlyAuthError(error.message)); return; }
+    // N7b: the password is changed, so a relaunch must not bring this screen back — even if the
+    // sign-out below fails and leaves this device signed in.
+    await clearRecoveryPending(AsyncStorage);
     await signOutAfterPasswordChange();
+  }
+
+  // N7b: leaving without a new password ends the recovery session on this device; the root guard then
+  // takes the person to login. The existing this-device helper — signOut.ts is unchanged.
+  async function handleCancel() {
+    setLoading(true);
+    const r = await signOutThisDevice();
+    setLoading(false);
+    if (!r.signedOut) Alert.alert(SIGN_OUT_FAILED_COPY);
   }
 
   // K-2: a new password ends every session; the login screen says why.
@@ -52,8 +65,10 @@ export default function ResetPasswordScreen() {
       ]);
       return;
     }
+    // The SIGNED_OUT above already took the person to login (the root guard, N7); a second replace here
+    // remounted login and swallowed its one-time "password changed" notice (review N7-2).
     Alert.alert('Password updated', 'Your password has been updated. Please sign in.', [
-      { text: 'OK', onPress: () => router.replace('/(auth)/login') },
+      { text: 'OK' },
     ]);
   }
 
@@ -88,6 +103,7 @@ export default function ResetPasswordScreen() {
         </View>
 
         <Button label="Update password" onPress={handleReset} loading={loading} disabled={loading} block style={s.cta} />
+        <Button label="Cancel" variant="secondary" onPress={handleCancel} disabled={loading} block style={s.cancel} />
     </AuthScreen>
   );
 }
@@ -97,5 +113,6 @@ function makeStyles(p: Palette) {
   title: { color: p.text.primary, marginBottom: v2.space.xl },
   fields: { gap: v2.space.lg },
   cta: { marginTop: v2.space.xl },
+  cancel: { marginTop: v2.space.md },
   });
 }

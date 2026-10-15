@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { validateLogin, validateSignup, validateReset, friendlyAuthError } from '../src/lib/auth/authForms';
+import { recoveryRouteTarget } from '../src/lib/auth/rootRoute';
 
 describe('login validation', () => {
   it('requires both fields', () => {
@@ -74,6 +75,9 @@ describe('auth screens — shipped-source guards', () => {
   it('reset keeps updateUser + sign out + return to login', () => {
     expect(reset).toContain('updateUser({ password })');
     expect(reset).toContain("signOutAllDevices({ reason: 'password_changed' })"); // K-2
-    expect(reset).toContain("router.replace('/(auth)/login')");
+    // N7 review (2026-10-15): the return to login is the root guard's, on the SIGNED_OUT that the
+    // sign-out emits; the screen's own second replace remounted login and swallowed its notice.
+    expect(reset).not.toContain("router.replace('/(auth)/login')");
+    expect(recoveryRouteTarget({ isRecovery: false, onResetScreen: true, signedIn: false, loading: false })).toBe('/(auth)/login');
   });
 });
