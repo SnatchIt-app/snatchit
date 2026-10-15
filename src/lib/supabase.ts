@@ -67,6 +67,7 @@ function getStorage() {
 // whose Supabase project and Stripe account are not a legitimate pair (e.g. a
 // TEST key against PRODUCTION data). See src/config/envGuard.ts.
 import { ENV_GUARD_FAILURE } from '../config/envGuard';
+import { clientCapsHeaders } from '../config/clientCapabilities';
 
 // ── Env vars ─────────────────────────────────────────────────────────────────
 
@@ -115,4 +116,7 @@ export const supabase = createClient(_safeSupabaseUrl, _safeSupabaseAnon, {
     // Fixes H-5. (Web supports PKCE too; detectSessionInUrl completes it.)
     flowType: 'pkce',
   },
+  // Old-build safeguard (156): the server refuses bids and Buy Now reservations on a waived listing from a
+  // client that cannot show the proof-waiver disclosure. This build can, and says so on every request.
+  global: { headers: clientCapsHeaders },
 });
