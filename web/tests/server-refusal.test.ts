@@ -167,11 +167,11 @@ describe("web write paths show the refusal, and keep their old copy otherwise", 
     };
     const fields = { eventName: "Show", venue: "Club", restrictions: null, ticketPlatform: "other" };
 
-    h.resolve = (t) => (t === "listings.update.eq.eq" ? { error: pg("ACCOUNT_SUSPENDED") } : base(t));
+    h.resolve = (t) => (t === "listings.update.eq.eq.select" ? { error: pg("ACCOUNT_SUSPENDED") } : base(t));
     expect(await updateSellerListing("u", id, fields)).toEqual({ error: K2.ACCOUNT_SUSPENDED });
 
     h.resolve = (t) =>
-      t === "listings.update.eq.eq" ? { error: { message: "Listing not found", hint: null } } : base(t);
+      t === "listings.update.eq.eq.select" ? { error: { message: "Listing not found", hint: null } } : base(t);
     expect(await updateSellerListing("u", id, fields)).toEqual({ error: "This listing no longer exists." });
 
     // The pre-check answers before any write, with the server's sentence.

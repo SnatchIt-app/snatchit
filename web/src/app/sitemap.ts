@@ -2,6 +2,11 @@ import type { MetadataRoute } from "next";
 import { SITE_URL } from "@/lib/env";
 import { getActiveListings } from "@/lib/listings";
 
+// Metadata routes are static by default. The listing read is cookieless, so
+// without this the sitemap would be frozen at build time and keep listing
+// hidden or ended listings until the next deploy.
+export const dynamic = "force-dynamic";
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const staticEntries: MetadataRoute.Sitemap = [
     { url: SITE_URL, changeFrequency: "daily", priority: 1 },
