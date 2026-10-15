@@ -13,8 +13,18 @@ Branch `fix/154-listing-visibility-20261015` from the gate `release/production-g
 | `migrations/20261015000100_listing_duration_72h.sql` (155) | `51684cc7` | `51ce810d5b85c4a548d872b5f7a61f9a` | 5,942 |
 | `migrations/20261015000200_listing_proof_owner_waiver.sql` (156) | `174d39ca` | `c85c4fb241f9443171c6b3634471a040` | 19,030 |
 | `rollbacks/20261015000000_…_rollback.sql` | `e6b5e1c2` | `eb20ead47ecb2dfd2fa568c43c1f0b8f` | 7,624 |
-| `rollbacks/20261015000100_…_rollback.sql` | `c654fadd` | `37dfa563a26afc685f69854bcf46bc75` | 1,843 |
-| `rollbacks/20261015000200_…_rollback.sql` | `dbf54098` | `426486f16ec059685efa4165b46bf2c7` | 3,014 |
+| `rollbacks/20261015000100_…_rollback.sql` | `fd69f8a5` | `e303ffa5bff3b56cdfcca0560659f49f` | 3,061 |
+| `rollbacks/20261015000200_…_rollback.sql` | `ac876307` | `5a0634ba0d746761978d2a856ce20078` | 4,615 |
+
+**Re-frozen a third time 2026-10-15 for the compat-release review (text only).** The 155 and 156 rollback headers now
+state the client order each rollback needs (see Rollbacks below): 156's names every web read that breaks once
+`proof_waived_at` is dropped (web #108) and RC9's pay and bid reads; 155's names the 72 h option in web #107/#108 and
+RC9. Every non-comment line of both rollbacks is unchanged (`rehearsal/check_rollback_client_order.py`, check B).
+Changed: the two rollbacks and their frozen copies, `frozen.sha256`, the `rollback_155`/`rollback_156` DRY
+requests, `rehearsal/r0_pre_local.txt` and `rehearsal/expected_local/*` (the rebuilt fixture's four timestamp-
+dependent hashes only) and the LOCALDB rehearsal log. Unchanged, byte for byte: the three migrations, the 154
+rollback, `pkg.py`, `predict.py`, `sql/*`, `rehearsal/lists_*.json` and `expected/*` (re-predicted from the same
+`pre154.txt` and `lists_prod.json`: identical). Production was not re-read: no input to a prediction changed.
 
 **Re-frozen a second time 2026-10-15 for ADDENDUM 3 and the second review** (156: the old-build purchase safeguard,
 proof required without a waiver, the never-approved CHECK, no client proof path on a waived listing; 154: the
@@ -87,7 +97,7 @@ only changes are the `gone` conditions of the guarded ledger delete: 154/155's a
 | apply 156 | 38,267 | `11a69c9459a86ad6fdc715131dc968f186866a5473ebd8a8053045de97c356d2` |
 | step hide | 9,310 | `2a2fa64b05fe1b5189d5ab8d35d75dc999abb9301ee7be380609b3e92ab26a6b` |
 | step unhide | 5,758 | `a0f71d8d4d879b0b981834df2ccce4935e8626debdf68a243403396c3e14d969` |
-| rollback 156 / 155 / 154 | 3,640 / 2,214 / 8,384 | `eaa87a10…` / `86b4f847…` / `8182f6f4…` |
+| rollback 156 / 155 / 154 | 5,241 / 3,432 / 8,384 | `486d12ab…` / `e50c6c82…` / `8182f6f4…` |
 | ledger-only 154 / 155 / 156 | 26,280 / 6,141 / 19,235 | `29a5b8d9…` / `71326705…` / `513e7234…` |
 | rollback 154 --ledger-only | 760 | `e60e8611…` |
 
@@ -129,19 +139,32 @@ The LOCALDB rehearsal sent exactly these bytes. The request hashes in `rehearsal
 ## Rollbacks
 | Rollback | What it does | Rows kept or refused |
 |---|---|---|
-| 156 | Drops the three triggers (`trg_guard_listing_proof_waiver`, `trg_reservation_requires_disclosure`, `trg_bid_requires_disclosure`), the five functions, the three checks and the three columns. Rule (F): never roll web back past #108 while a waived listing is live; cancel the waived listings first | **Refuses while any listing carries a waiver**: an archival record, and the columns would be client-writable without the guard. Rehearsed: refuses with a waiver (exit 3, unchanged); the guard is load-bearing (without it the rollback destroys the waiver) |
-| 155 | Drops `trg_listing_ends_at_from_duration` + `set_listing_ends_at_from_duration()` (ends_at is client-set again) and restores `{1,3,6,12,24,48}` | **Refuses while any listing has 72 h** |
+| 156 | Drops the three triggers (`trg_guard_listing_proof_waiver`, `trg_reservation_requires_disclosure`, `trg_bid_requires_disclosure`), the five functions, the three checks and the three columns. **Client order:** (1) clear every recorded waiver through the trusted path (an owner decision; the rollback refuses otherwise; Rule (F): never roll web back past #108 while a waived listing is live); (2) deploy web without #108's `proof_waived_at` selects (`LISTING_COLUMNS`, `web/src/lib/listings.ts:54-55` at `068f054e`: with the column gone every such read is a PostgREST 400, so `/`, `/browse`, `/listing/[id]` and `/checkout/[id]` render the error page, saved listings shows its error state, `/api/public/events` answers 500 and the sitemap drops its listing entries; seller listings and non-waived creates are unaffected); (3) only then run this rollback. **Native:** RC9 (`4f7ad2b4`, N1 `7fc72a08`) selects `proof_waived_at` on checkout's pay face and on PlaceBid, so after this rollback an RC9 install cannot bid or pay on any listing. Once RC9 is in users' hands, step 2 also needs a successor native build without those selects, adopted by users, or the owner's written acceptance of the outage | **Refuses while any listing carries a waiver**: an archival record, and the columns would be client-writable without the guard. Rehearsed: refuses with a waiver (exit 3, unchanged); the guard is load-bearing (without it the rollback destroys the waiver) |
+| 155 | Drops `trg_listing_ends_at_from_duration` + `set_listing_ends_at_from_duration()` (ends_at is client-set again) and restores `{1,3,6,12,24,48}`. **Client order:** (1) deploy web without the 72 h option (web #107 `a2540576`, also in #108: `LISTING_DURATION_HOURS`; after this rollback a 72 h create is refused with 23514); (2) end or migrate every 72 h listing; (3) only then run this rollback. **Native:** RC9 offers 72 h (`DURATION_OPTIONS`, the "3d" chip). Once RC9 is in users' hands, step 1 also needs a successor native build without 72 h, or the owner's written acceptance that RC9's "3d" create fails. Web and RC9 still send `ends_at` on insert, so their other creates keep working | **Refuses while any listing has 72 h** (a 72 h listing created between steps 1 and 3 makes it refuse again; nothing changed) |
 | 154 | Restores both `USING (true)` policies (**re-exposes every hidden listing**) and 031's trust-stats body (functiondef md5 back to `23719c73…`); drops `is_public(listings)` (a build filtering `.eq('is_public', true)` gets 400 again) | **Keeps `listing_visibility`, its rows and its ON DELETE RESTRICT key** (inert for reads; a kept row still refuses deleting its listing, so delete the row first if the owner wants that listing deletable). A later clean re-apply reuses the table and refuses while a kept row names an open or held listing (rehearsed locally both ways, with a negative control: the first freeze's predicate re-applied over an open kept row) |
 
-Order: 156 → 155 → 154. The runner's rollback guards ignore only the data-step keys, so the schema can be rolled back with the 113 rows still in place.
+Order: 156 → 155 → 154. The runner's rollback guards ignore only the data-step keys, so the schema can be rolled back with the 113 rows still in place. Each rollback's client order (in the table above and in its header) comes first. The database rollback is the last step, never the first. `rehearsal/check_rollback_client_order.py` asserts that both headers and this table state the order, that the SQL bodies are unchanged, and that the client facts above still hold at the pinned commits.
 
 ## Local rehearsal (`rehearsal/run_local.sh` → `run_local_20261015.log`)
-**Database.** `a154_pkg_rehears` was REBUILT for each re-freeze, last on 2026-10-15 ~04:5xZ for the second one (same recipe; fixture timestamps differ, so the local fixed hashes differ between runs) from:
+**Database.** `a154_pkg_rehears` was REBUILT for each re-freeze, last on 2026-10-15 ~05:3xZ for the third one (same recipe; fixture timestamps differ, so the local fixed hashes differ between runs) from:
 - a clone of `pkg151_rehears` (ledger 164);
 - plus 152's executed apply request (sha256 `ffc020a0…`, ledger 165);
 - plus `rehearsal/fixture_local.sql` (synthetic rows carrying the 113 preimage ids, 0 live, 5 bids, 2 payments, 1 transfer).
 
 Each step's expected exit code was registered in the script before the run, and `rehearsal/expected_local/` was re-predicted (from the re-measured `r0_pre_local.txt` and `lists_local.json`) before the first apply. **Result: 0 unexpected exit codes**; every request hash in the log equals its DRY hash. R5 and R16's post checks include `lv_fk`, so the RESTRICT key is proven after apply, after rollback (kept with the 113 rows) and after re-apply.
+
+Extra rehearsals for the third re-freeze (scratch clones of a fresh replay with 154-156 applied, not part of
+`run_local.sh`). The client select lists are taken verbatim from the pinned commits:
+- 156: with a waiver the rollback refuses (nothing changed). Negative control: the same file without its refusal
+  block runs and drops the waiver columns, so the record is gone. After step 1 (waiver cleared) it runs (156's
+  delta is −5 functions, −3 triggers). Then web #108's `LISTING_COLUMNS`, RC9's `LISTING_SUMMARY_COLUMNS` and
+  RC9's PlaceBid select each fail with 42703 (`column "proof_waived_at" does not exist`, PostgREST 400).
+  `SELLER_LISTING_COLUMNS` still works, and so does a non-waived create with a proof path.
+- 155: with a 72 h listing the rollback refuses (nothing changed). Negative control: without its refusal block it
+  still changes nothing (`ADD CONSTRAINT` fails on the row, 23514); the block gives a clear message and is not the
+  only barrier. After step 2 (the listing migrated to 48 h) it runs (−1 function, −1 trigger, check back to
+  `{1,…,48}`). A 72 h create then fails with 23514; a 48 h create carrying the client's own `ends_at` works and
+  keeps it.
 
 Extra rehearsals for the second re-freeze (scratch databases cloned from a pre-154 replay, not part of `run_local.sh`):
 - a kept table whose key is CASCADE (the first freeze's 154 applied, then rolled back) gets exactly one RESTRICT key when this 154 is applied; negative control: without the drop/re-add the key stays CASCADE;
