@@ -106,6 +106,18 @@ export async function signInAction(_prev: ActionState, formData: FormData): Prom
   redirect(next);
 }
 
+/**
+ * Cancel on "Set new password" after a reset link: sign out THIS browser only and leave the
+ * password unchanged. scope "local" ends just this session; the default ("global") would also
+ * sign the person out of the app on every other device.
+ */
+export async function cancelPasswordResetAction(): Promise<void> {
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase.auth.signOut({ scope: "local" });
+  if (error) console.error("[auth] cancel reset signOut failed", { status: error.status, name: error.name });
+  redirect("/login?reset=cancelled");
+}
+
 export async function signOutAction(): Promise<void> {
   const supabase = await createSupabaseServerClient();
   await supabase.auth.signOut();

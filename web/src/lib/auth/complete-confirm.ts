@@ -39,7 +39,9 @@ export async function completeConfirm(link: ConfirmLink, auth: Auth, next: strin
   }
 
   if (!ok) return { status: "invalid" };
-  if (type === "recovery") return { status: "signed_in", route: "/reset-password" };
+  // ?recovery=1: the page offers "Cancel" (sign out this browser) only to someone who came from a
+  // reset link, not to a signed-in user who opened Password from settings.
+  if (type === "recovery") return { status: "signed_in", route: "/reset-password?recovery=1" };
   if (type === "email_change") return { status: "signed_in", route: "/account/settings?email_changed=1" };
   return { status: "signed_in", route: safeInternalPath(next, "/account") };
 }
