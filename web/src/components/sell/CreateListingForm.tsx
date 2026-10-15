@@ -12,6 +12,7 @@ import {
 } from "@snatchit/core";
 import { createListingAction, uploadListingImageAction } from "@/lib/create-listing-actions";
 import { findBannedTerm } from "@/lib/content-moderation";
+import { LISTING_DURATION_HOURS, durationLabel } from "@/lib/listing-durations";
 import { prohibitedContentMessage } from "@/lib/server-refusal";
 import { Field } from "@/components/ui/Field";
 import { Input, Select, Textarea } from "@/components/ui/Input";
@@ -19,7 +20,6 @@ import { Button } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
 import { Icon } from "@/components/ui/Icon";
 
-const DURATION_OPTIONS = [1, 3, 6, 12, 24, 48] as const;
 const TICKET_PLATFORMS = Object.values(PLATFORM_INSTRUCTIONS);
 
 const RISK_MESSAGES: Record<string, string> = {
@@ -27,10 +27,6 @@ const RISK_MESSAGES: Record<string, string> = {
     "Your account has flagged activity — you can still list, but it may be reviewed more closely.",
   medium_risk_warning: "Heads up: recent account activity may lead to extra review on this listing.",
 };
-
-function durationLabel(hours: number): string {
-  return hours < 24 ? `${hours}h` : `${hours / 24}d`;
-}
 
 type ImageState = {
   previewUrl: string | null;
@@ -297,7 +293,7 @@ export function CreateListingForm({ riskWarning }: { riskWarning: string | null 
         ) : null}
         <Field label="Listing duration">
           <div className="mt-2.5 flex flex-wrap gap-2" role="radiogroup" aria-label="Listing duration">
-            {DURATION_OPTIONS.map((h) => (
+            {LISTING_DURATION_HOURS.map((h) => (
               <RadioPill key={h} selected={durationHours === h} onClick={() => setDurationHours(h)}>
                 {durationLabel(h)}
               </RadioPill>

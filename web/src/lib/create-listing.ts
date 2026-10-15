@@ -4,6 +4,7 @@ import { APP_CONFIG } from "@snatchit/core";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getPayoutStatus, type PayoutStatus } from "@/lib/payouts";
 import { readServerRefusal } from "@/lib/server-refusal";
+import { isListingDuration } from "@/lib/listing-durations";
 
 export type RiskGate = { allowed: boolean; reason: string; riskTier: string | null };
 
@@ -111,6 +112,10 @@ export async function createListing(
   sellerId: string,
   p: CreateListingPayload,
 ): Promise<{ id?: string; error?: string }> {
+  // The form only offers these, but the action takes any payload: check before ends_at is
+  // computed from it (the database CHECK is the last line, not the only one).
+  if (!isListingDuration(p.durationHours)) return { error: "Choose how long the listing runs." };
+
   const supabase = await createSupabaseServerClient();
   const endsAt = new Date(Date.now() + p.durationHours * 3_600_000);
 
