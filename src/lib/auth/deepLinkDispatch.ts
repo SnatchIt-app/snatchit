@@ -22,14 +22,22 @@
  * a session; there is no setSession-from-URL path and none may be added.
  */
 
+import { exchangeWasRecovery } from './recoveryClaim';
+
 export type EmailOtpType = 'recovery' | 'signup' | 'email' | 'magiclink' | 'invite' | 'email_change';
 
 export interface DeepLinkDeps {
   /** Stripe SDK: true when it consumed the URL (iOS 3DS/redirect return). */
   stripeCallback(url: string): Promise<boolean>;
   verifyOtp(input: { type: EmailOtpType; token_hash: string }): Promise<{ error: { message: string } | null }>;
-  exchangeCodeForSession(code: string): Promise<{ error: { message: string } | null }>;
-  /** Route to the reset screen and raise the recovery hold. */
+  exchangeCodeForSession(code: string): Promise<{ data?: unknown; error: { message: string } | null }>;
+  /**
+   * N7: whether the code waiting on THIS installation came from a password-recovery request
+   * (recoveryClaim.pendingCodeIsRecovery). GoTrue's PKCE recovery redirect is `snatchit://?code=…` with
+   * no `type`, so without this a recovery link exchanges into a plain sign-in and the root route goes Home.
+   */
+  isRecoveryCode?(): Promise<boolean>;
+  /** Raise the recovery hold; the root layout moves to the reset screen once its navigator is ready. */
   onRecovery(): void;
   /**
    * Release the hold `onRecovery` raised, because the link's claim did not hold up: the token was
@@ -78,11 +86,19 @@ export async function dispatchDeepLink(url: string | null | undefined, deps: Dee
   const errParam = p.get('error') ?? p.get('error_code');
   if (errParam) warn('[auth] deep-link error:', errParam, p.get('error_description') ?? '');
 
-  // Route to the reset screen for recovery links. The session is established
-  // below, never by trusting tokens in the URL. Routing first shows the UI.
+  // Raise the recovery hold for recovery links. The session is established
+  // below, never by trusting tokens in the URL. The hold goes up first so the
+  // session that follows is held for the reset screen instead of routed Home.
   // The hold is raised on the link's CLAIM; if the claim fails below, it is released again (F7).
-  const recoveryRaised = type === 'recovery';
-  if (recoveryRaised) deps.onRecovery();
+  // A throw from the hold (a cold-start navigation before the navigator mounts) must never skip the
+  // exchange, so it is caught here.
+  let recoveryRaised = false;
+  const raiseRecovery = () => {
+    if (recoveryRaised) return;
+    recoveryRaised = true;
+    try { deps.onRecovery(); } catch (e) { warn('[auth] recovery hold threw; continuing with the link', e); }
+  };
+  if (type === 'recovery') raiseRecovery();
   const releaseRecovery = () => { if (recoveryRaised) deps.onRecoveryFailed?.(); };
 
   try {
@@ -95,10 +111,19 @@ export async function dispatchDeepLink(url: string | null | undefined, deps: Dee
       return { kind: 'otp', type: type as EmailOtpType, error: error?.message ?? null };
     }
     if (code) {
-      const { error } = await deps.exchangeCodeForSession(code);
+      // N7: the PKCE recovery redirect carries no type; this installation's stored verifier does.
+      if (!recoveryRaised && deps.isRecoveryCode) {
+        let claimed = false;
+        try { claimed = await deps.isRecoveryCode(); } catch { claimed = false; }
+        if (claimed) raiseRecovery();
+      }
+      const { data, error } = await deps.exchangeCodeForSession(code);
       if (error) {
         warn('[auth] exchangeCodeForSession error:', error.message);
         releaseRecovery();
+      } else if (exchangeWasRecovery(data)) {
+        // Late fallback: the stored claim was unreadable but auth-js reports a recovery exchange.
+        raiseRecovery();
       }
       return { kind: 'pkce', error: error?.message ?? null };
     }

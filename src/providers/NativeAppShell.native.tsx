@@ -19,6 +19,7 @@ import { router } from 'expo-router';
 import { supabase } from '@/src/lib/supabase';
 import { startSessionAutoRefresh } from '@/src/lib/auth/sessionAutoRefresh';
 import { attachDeepLinkFunnel, dispatchDeepLink } from '@/src/lib/auth/deepLinkDispatch';
+import { pendingCodeIsRecovery } from '@/src/lib/auth/recoveryClaim';
 import { assertDeviceRandomness } from '@/src/lib/randomness';
 import { NativeModules } from 'react-native';
 import { usePushToken } from '@/src/hooks/usePushToken';
@@ -207,7 +208,10 @@ export function useNativeEffects({ userId, isRecovery, setIsRecovery }: NativeEf
         stripeCallback: handleURLCallback,
         verifyOtp: ({ type, token_hash }) => supabase.auth.verifyOtp({ type, token_hash }),
         exchangeCodeForSession: (code) => supabase.auth.exchangeCodeForSession(code),
-        onRecovery: () => { setIsRecovery(true); router.replace('/(auth)/reset-password'); },
+        // N7: GoTrue's PKCE recovery redirect carries no type; this installation's stored verifier does.
+        isRecoveryCode: () => pendingCodeIsRecovery(supabase.auth),
+        // The root layout's guard moves to the reset screen once the navigator exists (N7).
+        onRecovery: () => { setIsRecovery(true); },
         // F7: the claim failed (rejected or missing token), so drop the hold it raised; the root
         // route then decides by phase — signed out goes to login, where a new link can be requested.
         onRecoveryFailed: () => setIsRecovery(false),

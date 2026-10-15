@@ -17,7 +17,7 @@ import 'react-native-get-random-values';
 
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { AppearanceProvider, useTheme } from '@/src/theme/appearance';
-import { router, Stack, useSegments } from 'expo-router';
+import { router, Stack, useRootNavigationState, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -30,7 +30,7 @@ import { ENV_GUARD_FAILURE, IS_SANDBOX_BUILD } from '@/src/config/envGuard';
 import { useAuth } from '@/src/hooks/useAuth';
 import { useReducedMotion } from '@/src/hooks/useReducedMotion';
 import { useIsOnboarding } from '@/src/lib/auth/onboardingGate';
-import { authPhase, rootRouteDecision, type AuthPhase } from '@/src/lib/auth/rootRoute';
+import { authPhase, recoveryRouteTarget, rootRouteDecision, type AuthPhase } from '@/src/lib/auth/rootRoute';
 import { supabase } from '@/src/lib/supabase';
 import ErrorBoundary from '@/src/components/ErrorBoundary';
 // Imported from the leaf module (not the ui barrel) so the web-safe root layout
@@ -121,12 +121,11 @@ function RootLayout() {
     setIsRecovery,
   });
 
-  // Detect PASSWORD_RECOVERY and route to reset screen.
+  // Detect PASSWORD_RECOVERY and raise the recovery hold; the guard below moves to the reset screen.
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'PASSWORD_RECOVERY') {
         setIsRecovery(true);
-        router.replace('/(auth)/reset-password');
       }
       if (event === 'SIGNED_OUT') {
         setIsRecovery(false);
@@ -167,6 +166,21 @@ function RootLayout() {
     routedPhaseRef.current = phase;
     router.replace(decision.to);
   }, [session, loading, isRecovery, onboarding, inDevHarness]);
+
+  // N7: the recovery hold's move onto (and off) the reset screen is a function of state, applied
+  // only once the navigator exists. A replace issued from the deep-link handler ran before the Stack
+  // mounted on a cold start (expo-router throws) and raced Expo Router's own handling of
+  // snatchit://?code=… on a warm start; this effect re-asserts the reset screen until the hold ends.
+  const rootNavState = useRootNavigationState();
+  const navReady = fontsReady && !!rootNavState?.key;
+  const routeSegments = segments as string[];
+  const onResetScreen = routeSegments[0] === '(auth)' && routeSegments[1] === 'reset-password';
+  useEffect(() => {
+    if (!navReady) return;
+    if (inDevHarness) return;
+    const to = recoveryRouteTarget({ isRecovery, onResetScreen, signedIn: !!session, loading });
+    if (to) router.replace(to);
+  }, [navReady, inDevHarness, isRecovery, onResetScreen, session, loading]);
 
   // Reduce Motion: every push and pop still happens, as a cross-fade (CFT-206).
   const reduceMotion = useReducedMotion();

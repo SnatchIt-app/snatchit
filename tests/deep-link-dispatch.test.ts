@@ -181,3 +181,85 @@ describe('(a3) F7: the shell wires the release to the same state the hold raised
     expect(shell).toContain('onRecoveryFailed: () => setIsRecovery(false)');
   });
 });
+
+describe('(e) N7: a PKCE recovery code — the link GoTrue actually sends (snatchit://?code=…, no type)', () => {
+  /*
+   * Builds 25/27 raised the recovery hold only on `type=recovery`, which GoTrue's PKCE redirect never
+   * carries, so a recovery link exchanged into a plain sign-in and the root route went to Home. The claim
+   * now comes from this installation's stored verifier (isRecoveryCode), checked BEFORE the exchange so the
+   * hold is up when SIGNED_IN lands; the exchange's own redirectType is a late fallback.
+   */
+  const REAL_RECOVERY_LINK = 'snatchit://?code=6f1c2a8e-0000-4000-8000-000000000001';
+
+  it('raises the hold before the exchange when the pending code is a recovery code', async () => {
+    const order: string[] = [];
+    const d = deps({
+      isRecoveryCode: vi.fn(async () => true),
+      onRecovery: vi.fn(() => { order.push('hold'); }),
+      exchangeCodeForSession: vi.fn(async () => { order.push('exchange'); return { error: null }; }),
+    });
+    const out = await dispatchDeepLink(REAL_RECOVERY_LINK, d);
+    expect(order).toEqual(['hold', 'exchange']);
+    expect(d.onRecoveryFailed).not.toHaveBeenCalled();
+    expect(out).toEqual({ kind: 'pkce', error: null });
+  });
+
+  it('a code that is not a recovery code signs in with no hold', async () => {
+    const d = deps({ isRecoveryCode: vi.fn(async () => false) });
+    await dispatchDeepLink(REAL_RECOVERY_LINK, d);
+    expect(d.onRecovery).not.toHaveBeenCalled();
+    expect(d.exchangeCodeForSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('a failed exchange releases the hold the stored claim raised (F7 carries over)', async () => {
+    const d = deps({
+      isRecoveryCode: vi.fn(async () => true),
+      exchangeCodeForSession: vi.fn(async () => ({ error: { message: 'invalid flow state, no valid flow state found' } })),
+    });
+    await dispatchDeepLink(REAL_RECOVERY_LINK, d);
+    expect(d.onRecovery).toHaveBeenCalledTimes(1);
+    expect(d.onRecoveryFailed).toHaveBeenCalledTimes(1);
+  });
+
+  it('a check that throws is "not recovery", never a skipped exchange', async () => {
+    const d = deps({ isRecoveryCode: vi.fn(async () => { throw new Error('keychain locked'); }) });
+    const out = await dispatchDeepLink(REAL_RECOVERY_LINK, d);
+    expect(d.exchangeCodeForSession).toHaveBeenCalledTimes(1);
+    expect(out).toEqual({ kind: 'pkce', error: null });
+  });
+
+  it('navigation that throws inside onRecovery (cold start, navigator not mounted) never skips the exchange', async () => {
+    const d = deps({
+      isRecoveryCode: vi.fn(async () => true),
+      onRecovery: vi.fn(() => { throw new Error('Attempted to navigate before mounting the Root Layout component'); }),
+    });
+    const out = await dispatchDeepLink(REAL_RECOVERY_LINK, d);
+    expect(d.exchangeCodeForSession).toHaveBeenCalledTimes(1);
+    expect(out).toEqual({ kind: 'pkce', error: null });
+  });
+
+  it('the same guard holds for a type=recovery link (token_hash path)', async () => {
+    const d = deps({ onRecovery: vi.fn(() => { throw new Error('Attempted to navigate before mounting the Root Layout component'); }) });
+    await dispatchDeepLink(OTP_URL, d);
+    expect(d.verifyOtp).toHaveBeenCalledTimes(1);
+  });
+
+  it('late fallback: no stored claim, but the exchange reports PASSWORD_RECOVERY → the hold is raised after it', async () => {
+    const d = deps({
+      isRecoveryCode: vi.fn(async () => false),
+      exchangeCodeForSession: vi.fn(async () => ({ data: { redirectType: 'PASSWORD_RECOVERY' }, error: null })),
+    });
+    await dispatchDeepLink(REAL_RECOVERY_LINK, d);
+    expect(d.onRecovery).toHaveBeenCalledTimes(1);
+    expect(d.onRecoveryFailed).not.toHaveBeenCalled();
+  });
+
+  it('a code link never raises the hold twice', async () => {
+    const d = deps({
+      isRecoveryCode: vi.fn(async () => true),
+      exchangeCodeForSession: vi.fn(async () => ({ data: { redirectType: 'PASSWORD_RECOVERY' }, error: null })),
+    });
+    await dispatchDeepLink(REAL_RECOVERY_LINK, d);
+    expect(d.onRecovery).toHaveBeenCalledTimes(1);
+  });
+});

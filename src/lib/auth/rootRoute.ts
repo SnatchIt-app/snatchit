@@ -73,6 +73,27 @@ export function rootRouteDecision(input: RootRouteInput): RootRouteDecision {
 }
 
 /**
+ * N7: where the recovery hold puts the person, applied by the root layout once its navigator is ready.
+ *
+ * Builds 25/27 navigated to the reset screen from inside the deep-link handler. On a cold start that
+ * call ran before the Stack mounted (expo-router throws), and on a warm start Expo Router's own handling
+ * of `snatchit://?code=…` routed to "/" → Home in no fixed order with it. The move is now a function of
+ * state: while the hold is up, the reset screen; when the hold is released with no session (the link's
+ * claim failed, F7), off the reset screen to login, where a new link can be requested. With no hold the
+ * guard never moves anyone — rootRouteDecision owns every other navigation.
+ */
+export function recoveryRouteTarget(input: {
+  isRecovery: boolean;
+  onResetScreen: boolean;
+  signedIn: boolean;
+  loading: boolean;
+}): '/(auth)/reset-password' | '/(auth)/login' | null {
+  if (input.isRecovery) return input.onResetScreen ? null : '/(auth)/reset-password';
+  if (input.onResetScreen && !input.loading && !input.signedIn) return '/(auth)/login';
+  return null;
+}
+
+/**
  * Which Supabase auth events can change the phase, documented so the intent is
  * checkable rather than folded into an event-name switch. The routing code reads
  * the phase, never the event name, so an event Supabase adds later cannot cause
