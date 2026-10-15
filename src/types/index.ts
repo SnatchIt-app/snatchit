@@ -61,7 +61,7 @@ export type Neighborhood =
 
 export type TicketType     = 'GA' | 'VIP';
 export type TransferMethod = 'mobile_transfer' | 'email';
-export type DurationHours  = 1 | 3 | 6 | 12 | 24 | 48;
+export type DurationHours  = 1 | 3 | 6 | 12 | 24 | 48 | 72;   // 72 added 2026-10-15 (migration 155)
 
 // ── Event category (migration 033) — Snatch It is a full event marketplace ──
 export type EventCategory =

@@ -71,6 +71,7 @@ import {
   proceedsBasis,
   proceedsKicker,
 } from '@/src/lib/sell/sellState';
+import { DURATION_OPTIONS, durationLabel } from '@/src/lib/sell/durations';
 import { textStyle } from '@/src/theme/typography';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
@@ -96,7 +97,6 @@ const TRANSFER_METHODS: { value: TransferMethod; label: string }[] = [
   { value: 'mobile_transfer', label: 'Mobile transfer' },
   { value: 'email',           label: 'Email' },
 ];
-const DURATION_OPTIONS: DurationHours[] = [1, 3, 6, 12, 24, 48];
 
 
 // ─── Date/time helpers (unchanged) ──────────────────────────────────────────────
@@ -865,7 +865,7 @@ export default function CreateListingScreen({ fixture }: { fixture?: CreateFixtu
             {DURATION_OPTIONS.map((h) => (
               <Chip
                 key={h}
-                label={h < 24 ? `${h}h` : `${h / 24}d`}
+                label={durationLabel(h)}
                 selected={durationHours === h}
                 onPress={() => setDurationHours(h)}
               />
