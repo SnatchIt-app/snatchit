@@ -37,6 +37,8 @@ vi.mock('@/src/theme/appearance', async () => {
   };
 });
 vi.mock('react-native', () => ({
+  // N3: Home re-reads on returning to the foreground.
+  AppState: { currentState: 'active', addEventListener: () => ({ remove: () => {} }) },
   FlatList: 'FlatList', Pressable: 'Pressable', RefreshControl: 'RefreshControl',
   Text: 'Text', View: 'View',
   StyleSheet: { create: <T,>(s: T) => s, hairlineWidth: 1 },

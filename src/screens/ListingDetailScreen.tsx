@@ -34,7 +34,8 @@ import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 // import { Audio } from 'expo-av'; // re-enable once mallet-hit.mp3 is added
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActionSheetIOS, Alert, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { ActionSheetIOS, Alert, AppState, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import type { AppStateStatus } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 
 import { supabase } from '@/src/lib/supabase';
@@ -480,6 +481,19 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
       fetchData(true);
     }, [id]),
   );
+
+  // N3: a listing left open while the app was away re-reads on return. A listing hidden from public
+  // view meanwhile (154) sends this viewer no realtime UPDATE, so without this its Bid / Buy now stay
+  // up until a refocus; the re-read turns it into the "No longer available" state.
+  useEffect(() => {
+    const appStateRef = { current: AppState.currentState as AppStateStatus };
+    const sub = AppState.addEventListener('change', (next) => {
+      const wasAway = /inactive|background/.test(appStateRef.current);
+      appStateRef.current = next;
+      if (wasAway && next === 'active' && initialLoadDone.current) void fetchDataRef.current(true);
+    });
+    return () => sub.remove();
+  }, [id]);
 
   // ── Re-fetch transfer data when listing transitions to sold ────────────────
   // Covers the timing gap where the initial fetchData() ran while the listing

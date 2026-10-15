@@ -51,6 +51,8 @@ vi.mock('@/src/theme/appearance', async () => {
   };
 });
 vi.mock('react-native', () => ({
+  // N3: Home re-reads on returning to the foreground.
+  AppState: { currentState: 'active', addEventListener: () => ({ remove: () => {} }) },
   Animated: {
     View: 'Animated.View',
     Value: class { constructor(public v: number) {} interpolate() { return this; } setValue() {} },

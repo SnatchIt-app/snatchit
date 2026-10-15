@@ -37,6 +37,7 @@ const h = vi.hoisted(() => ({
   focus: { current: null as null | (() => void) },
   /** Realtime handlers the screen subscribed, by postgres_changes event. */
   realtime: {} as Record<string, (payload: unknown) => unknown>,
+  appState: { current: null as null | ((s: string) => void) },
 }));
 
 vi.mock('@/src/theme/appearance', async () => {
@@ -47,6 +48,11 @@ vi.mock('@/src/theme/appearance', async () => {
   };
 });
 vi.mock('react-native', () => ({
+  // N3: the screen's foreground listener is captured so the tests can send the app away and back.
+  AppState: {
+    currentState: 'active',
+    addEventListener: (_t: string, cb: (s: string) => void) => { h.appState.current = cb; return { remove: () => {} }; },
+  },
   FlatList: 'FlatList', Pressable: 'Pressable', RefreshControl: 'RefreshControl',
   Text: 'Text', View: 'View',
   StyleSheet: { create: <T,>(s: T) => s, hairlineWidth: 1 },
@@ -154,6 +160,7 @@ beforeEach(() => {
   h.rows = FIXTURE;
   h.focus.current = null;
   h.realtime = {};
+  h.appState.current = null;
   vi.resetModules();
 });
 
@@ -326,5 +333,51 @@ describe('Home: the App Review seed sellers are out of "Recently sold", and nowh
     const tickets = await read('src/lib/tickets/api.ts');
     expect(tickets).toMatch(/supabase\.rpc\('get_my_tickets'\)/);
     for (const src of [myListings, profile, bids, tickets]) expect(src).not.toMatch(/not\('seller_id'/);
+  });
+});
+
+describe('N3 — Sold and Ended are re-read, so a list loaded before the cleanup cannot linger', () => {
+  const soldReads = () => h.queries.filter((q) => q.calls.some(([m, c, v]) => m === 'eq' && c === 'status' && v === 'sold')).length;
+  const endedReads = () => h.queries.filter((q) => q.calls.some(([m, c, v]) => m === 'eq' && c === 'auction_status' && v === 'ended')).length;
+  const liveReads = () => h.queries.filter((q) => q.calls.some(([m, c, v]) => m === 'eq' && c === 'status' && v === 'active')).length;
+
+  it('N3a: choosing Recently sold a second time reads it again (builds 25/27 read it once per session)', async () => {
+    const host = await mountHome();
+    await applyChip(host, 'recently_sold');
+    await applyChip(host, 'all');
+    await applyChip(host, 'recently_sold');
+    expect(soldReads()).toBe(2);
+    await applyChip(host, 'ended');
+    await applyChip(host, 'ended');
+    expect(endedReads()).toBe(2);
+  });
+
+  it('N3b: returning to the app on Recently sold re-reads the live feed AND Recently sold', async () => {
+    const host = await mountHome();
+    await applyChip(host, 'recently_sold');
+    const [live0, sold0] = [liveReads(), soldReads()];
+    h.appState.current!('background');
+    h.appState.current!('active');
+    for (let i = 0; i < 8; i++) { await Promise.resolve(); host.flush(); }
+    expect(liveReads()).toBe(live0 + 1);
+    expect(soldReads()).toBe(sold0 + 1);
+  });
+
+  it('N3c: returning to the Home tab on Ended re-reads the live feed AND Ended', async () => {
+    const host = await mountHome();
+    await applyChip(host, 'ended');
+    const [live0, ended0] = [liveReads(), endedReads()];
+    h.focus.current!();
+    for (let i = 0; i < 8; i++) { await Promise.resolve(); host.flush(); }
+    expect(liveReads()).toBe(live0 + 1);
+    expect(endedReads()).toBe(ended0 + 1);
+  });
+
+  it('N3d: an "active" event without having been away (e.g. a notification banner) does not re-read', async () => {
+    const host = await mountHome();
+    const live0 = liveReads();
+    h.appState.current!('active');
+    for (let i = 0; i < 8; i++) { await Promise.resolve(); host.flush(); }
+    expect(liveReads()).toBe(live0);
   });
 });

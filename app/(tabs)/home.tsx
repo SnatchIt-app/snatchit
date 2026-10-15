@@ -45,7 +45,8 @@
 
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { AppState, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import type { AppStateStatus } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 
 import { supabase } from '@/src/lib/supabase';
@@ -75,6 +76,7 @@ import {
   type Filters,
   type QuickChip,
 } from '@/src/lib/home/filterModel';
+import { homeReadsFor, type HomeRead } from '@/src/lib/home/refreshPlan';
 import { DiscoveryGridSkeleton } from '@/src/components/discovery/DiscoveryGridSkeleton';
 import { FeedRow } from '@/src/components/discovery/FeedRow';
 import { APP_REVIEW_SEED_SELLER_IDS } from '@/src/lib/home/appReviewSeedAccounts';
@@ -359,14 +361,45 @@ export default function HomeScreen({ fixture: rawFixture }: HomeScreenProps = {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [blockedIds]);
 
+  // N3: which reads a trigger runs. The chip on screen is read through a ref because the focus and
+  // AppState callbacks are created once; the fetchers already read the block set through a ref.
+  const chipRef = useRef<QuickChip>(filters.chip);
+  useEffect(() => { chipRef.current = filters.chip; }, [filters.chip]);
+  function runHomeReads(reads: HomeRead[]) {
+    for (const r of reads) {
+      if (r === 'live') void fetchListings();
+      else if (r === 'recently_sold') void fetchSoldListings();
+      else void fetchEndedListings();
+    }
+  }
+  const runHomeReadsRef = useRef(runHomeReads);
+  useEffect(() => { runHomeReadsRef.current = runHomeReads; });
+
   useFocusEffect(
     useCallback(() => {
       // Returning to Home always shows the full dock.
       expand();
       if (!initialLoadDone.current) return;
-      fetchListings();
+      const runHomeReads = runHomeReadsRef.current;
+      runHomeReads(homeReadsFor('focus', chipRef.current));
     }, [expand]),
   );
+
+  // N3: returning to the app re-reads too — a phone left open on Sold or Ended must not keep rows the
+  // server has since hidden (no realtime UPDATE reaches a viewer who can no longer read the row).
+  useEffect(() => {
+    if (fixture) return;
+    const appStateRef = { current: AppState.currentState as AppStateStatus };
+    const sub = AppState.addEventListener('change', (next) => {
+      const wasAway = /inactive|background/.test(appStateRef.current);
+      appStateRef.current = next;
+      if (!wasAway || next !== 'active' || !initialLoadDone.current) return;
+      const runHomeReads = runHomeReadsRef.current;
+      runHomeReads(homeReadsFor('foreground', chipRef.current));
+    });
+    return () => sub.remove();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Realtime ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -492,10 +525,9 @@ export default function HomeScreen({ fixture: rawFixture }: HomeScreenProps = {}
   }) {
     setFilters(prev => ({ ...prev, ...next }));
     setModalOpen(false);
-    // The lazy loads the removed quick row also did: sold and ended are separate datasets, fetched
-    // the first time a selection asks for them.
-    if (next.chip === 'recently_sold' && !soldLoadedOnce.current)  fetchSoldListings();
-    if (next.chip === 'ended'         && !endedLoadedOnce.current) fetchEndedListings();
+    // Sold and ended are separate datasets, read EVERY time a selection asks for them (N3): a list
+    // loaded earlier in the session may hold rows the server has since hidden.
+    runHomeReads(homeReadsFor('chip_selected', next.chip));
   }
 
   const activeCount = activeFilterCount(filters);
