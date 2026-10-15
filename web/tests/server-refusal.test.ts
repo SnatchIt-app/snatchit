@@ -132,7 +132,7 @@ describe("web write paths show the refusal, and keep their old copy otherwise", 
     durationHours: 24,
     ticketPlatform: "other",
     coverImagePath: "c",
-    proofImagePath: "p",
+    proofImagePath: "u/proofs/1.png",
     sellerCommitmentAccepted: true,
     category: "clubs",
   } as unknown as Parameters<typeof createListing>[1];

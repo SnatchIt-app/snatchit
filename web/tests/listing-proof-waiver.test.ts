@@ -110,11 +110,30 @@ describe("createListing with an owner proof waiver", () => {
   });
 
   it("without a waiver the insert is unchanged: no waiver keys, no admin lookup", async () => {
-    await createListing(SELLER, payload({ proofImagePath: "u/proofs/1.png" }));
+    await createListing(SELLER, payload({ proofImagePath: `${SELLER}/proofs/1.png` }));
     const row = h.inserts[0];
-    expect(row.proof_of_ownership_path).toBe("u/proofs/1.png");
+    expect(row.proof_of_ownership_path).toBe(`${SELLER}/proofs/1.png`);
     for (const k of ["proof_waived_by", "proof_waiver_reason", "proof_waived_at"]) expect(row).not.toHaveProperty(k);
     expect(h.rpcs).not.toContain("current_user_is_admin");
+  });
+});
+
+describe("normal listings keep the proof requirement (owner: keep it intact)", () => {
+  it.each([
+    ["empty", ""],
+    ["missing", undefined],
+    ["null", null],
+    ["another seller's proof", "dddddddd-dddd-4ddd-8ddd-ddddddddddd4/proofs/1.png"],
+    ["a cover, not a proof", `${SELLER}/covers/1.png`],
+    ["the folder alone", `${SELLER}/proofs/`],
+    ["a traversal", `${SELLER}/proofs/../covers/1.png`],
+  ])("no waiver and %s proof path → refused, nothing inserted", async (_label, proofImagePath) => {
+    expect(await createListing(SELLER, payload({ proofImagePath }))).toEqual({ error: "Upload proof of ownership." });
+    expect(h.inserts).toHaveLength(0);
+  });
+
+  it("the seller's own proof upload is accepted", async () => {
+    expect(await createListing(SELLER, payload({ proofImagePath: `${SELLER}/proofs/1760000000000.png` }))).toEqual({ id: "new-listing" });
   });
 });
 

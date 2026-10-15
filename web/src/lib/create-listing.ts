@@ -123,6 +123,13 @@ function mapListingError(msg: string): string {
   return msg;
 }
 
+/** A proof upload made by this seller (uploadListingImage's "<uid>/proofs/<file>" convention). */
+function isOwnProofPath(sellerId: string, path: unknown): boolean {
+  if (typeof path !== "string") return false;
+  const prefix = `${sellerId}/${IMAGE_BUCKETS.proof.folder}/`;
+  return path.startsWith(prefix) && path.length > prefix.length && !path.includes("..");
+}
+
 /** Mirrors CreateListingScreen.handlePublish's insert exactly — direct table insert, no RPC. */
 export async function createListing(
   sellerId: string,
@@ -145,6 +152,10 @@ export async function createListing(
     }
     if (!(await isAdminCaller(supabase))) return { error: "Only an admin can list without ticket proof." };
     waiver = { proof_of_ownership_path: null, proof_waived_by: sellerId, proof_waiver_reason: reason };
+  } else if (!isOwnProofPath(sellerId, p.proofImagePath)) {
+    // Normal listings keep their proof requirement server-side: the form was the only check, and
+    // the database accepts a NULL or empty path. The path must be this seller's own upload.
+    return { error: "Upload proof of ownership." };
   }
   const endsAt = new Date(Date.now() + p.durationHours * 3_600_000);
 
