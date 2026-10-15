@@ -128,8 +128,11 @@ describe('CFT-604 — loading, failed, empty and filtered are distinct on every 
 describe('CFT-605 — a listing that is gone offers a way forward from a cold start', () => {
   it('the not-found state routes to the live feed, not router.back()', () => {
     const d = stripComments(read('src/screens/ListingDetailScreen.tsx'));
-    const block = d.slice(d.indexOf('title="Listing not found"'), d.indexOf('/>', d.indexOf('title="Listing not found"')));
-    expect(block).toContain("action={{ label: 'Browse live listings', onPress: () => router.replace('/(tabs)/home') }}");
+    // N2 (2026-10-15): the copy moved to LISTING_UNAVAILABLE_COPY; the route forward is unchanged.
+    const at = d.indexOf('title={LISTING_UNAVAILABLE_COPY.title}');
+    const block = d.slice(at, d.indexOf('/>', at));
+    expect(at).toBeGreaterThan(-1);
+    expect(block).toContain("action={{ label: LISTING_UNAVAILABLE_COPY.action, onPress: () => router.replace('/(tabs)/home') }}");
     expect(block).not.toContain('router.back()');
   });
 });

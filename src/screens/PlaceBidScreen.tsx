@@ -46,7 +46,8 @@ import { rowMeta } from '@/src/lib/listing/feedRowState';
 import { formatDollars, formatDollarsV3 } from '@/src/lib/money';
 import { NameText } from '@/src/components/NameText';
 import ScreenState from '@/src/components/ScreenState';
-import { Button, IconButton, Spinner, Tappable } from '@/src/components/ui';
+import { Button, EmptyState, IconButton, Spinner, Tappable } from '@/src/components/ui';
+import { LISTING_UNAVAILABLE_COPY } from '@/src/lib/listing/unavailable';
 import { classifyLoadFailure, type LoadFailureKind } from '@/src/lib/ui/loadState';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
@@ -125,6 +126,8 @@ export default function PlaceBidScreen({ id, fixture }: Props) {
   const [listing,    setListing]    = useState<Listing | null>(null);
   const [loading,    setLoading]    = useState(true);
   const [loadError,  setLoadError]  = useState<LoadFailureKind | null>(null);
+  // N2: the read succeeded and found no row this viewer may see — hidden (154), deleted or never there.
+  const [unavailable, setUnavailable] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   // One submission at a time (CFT-205): a second tap that lands before the
   // re-render disables the button is dropped here, not by React state.
@@ -159,12 +162,19 @@ export default function PlaceBidScreen({ id, fixture }: Props) {
         // Same authorized row, same policy — only the column list widened.
         .select('current_bid, starting_bid, event_name, venue, ends_at, event_date, event_time, quantity, ticket_type, bid_count')
         .eq('id', id)
-        .single();
-      if (error || !data) {
+        .maybeSingle();
+      if (error) {
         setLoadError(classifyLoadFailure(error, offlineRef.current));
         setLoading(false);
         return;
       }
+      if (!data) {
+        setUnavailable(true);
+        setLoadError(null);
+        setLoading(false);
+        return;
+      }
+      setUnavailable(false);
       setListing(data as Listing);
       setSelectedBid(data.current_bid + MIN_INCREMENT);
       setLoadError(null);
@@ -287,6 +297,19 @@ export default function PlaceBidScreen({ id, fixture }: Props) {
     return (
       <View style={[s.root, s.centered]}>
         <Spinner color={palette.brand.red} />
+      </View>
+    );
+  }
+
+  // N2: no row is not a server error, and a Retry would never succeed — offer the live feed instead.
+  if (unavailable) {
+    return (
+      <View style={[s.root, s.centered]}>
+        <EmptyState
+          title={LISTING_UNAVAILABLE_COPY.title}
+          body={LISTING_UNAVAILABLE_COPY.body}
+          action={{ label: LISTING_UNAVAILABLE_COPY.action, onPress: () => router.replace('/(tabs)/home') }}
+        />
       </View>
     );
   }

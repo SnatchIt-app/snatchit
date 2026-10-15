@@ -78,7 +78,8 @@ vi.mock('@/src/lib/supabase', () => ({
     from: () => ({
       select: () => ({
         eq: () => ({
-          single: () => {
+          // N2: the screen reads with maybeSingle (zero rows = not found, not PostgREST text).
+          maybeSingle: () => {
             h.reads += 1;
             if (h.reply) return Promise.resolve(h.reply);
             return new Promise((resolve) => { h.pending.push(resolve); });

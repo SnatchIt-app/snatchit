@@ -114,7 +114,7 @@ export default function EditListingScreen({ fixture }: { fixture?: EditListingFi
       }
       const { data, error } = fixture
         ? { data: fixture.row, error: fixture.readError ? { message: fixture.readError } : null }
-        : await supabase.from('listings').select('*').eq('id', listingId).single();
+        : await supabase.from('listings').select('*').eq('id', listingId).maybeSingle();
       if (cancelled) return;
       const l = (data ?? null) as Listing | null;
       const refusal = editRefusal({ listing: l, viewerId: user.id, readError: error?.message });

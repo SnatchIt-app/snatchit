@@ -17,6 +17,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { LISTING_UNAVAILABLE_COPY } from '@/src/lib/listing/unavailable';
 import { STATE_COPY } from '@/src/lib/ui/loadState';
 import { findElement, HookHost, type Element } from './helpers/nav-stack-harness';
 import { BLANK, buttonByLabel, screenText, textsOf, type Blank } from './helpers/screen-view';
@@ -34,6 +35,7 @@ const h = vi.hoisted(() => {
     deferred,
     reads: [] as ReturnType<typeof deferred>[],
     user: { id: 'bidder-1' },
+    nav: [] as string[],
     network: { isOffline: false },
   };
 });
@@ -45,14 +47,14 @@ vi.mock('react-native', () => ({
   ScrollView: 'ScrollView', Text: 'Text', View: 'View',
   StyleSheet: { create: <T,>(s: T) => s },
 }));
-vi.mock('expo-router', () => ({ router: { push: () => {}, back: () => {} } }));
+vi.mock('expo-router', () => ({ router: { push: () => {}, back: () => {}, replace: (p: string) => { h.nav.push(`replace:${p}`); } } }));
 // V3 footer: the screen reads the bottom inset itself now (StickyBar used to, behind the ui mock).
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) }));
 vi.mock('@/src/hooks/useAuth', () => ({ useAuth: () => ({ user: h.user }) }));
 vi.mock('@/src/hooks/useNetworkStatus', () => ({ useNetworkStatus: () => h.network }));
 vi.mock('@/src/components/ScreenState', () => ({ default: 'ScreenState' }));
 vi.mock('@/src/components/ui', () => ({
-  Button: 'Button', IconButton: 'IconButton', Spinner: 'Spinner', StickyBar: 'StickyBar', Tappable: 'Tappable',
+  Button: 'Button', EmptyState: 'EmptyState', IconButton: 'IconButton', Spinner: 'Spinner', StickyBar: 'StickyBar', Tappable: 'Tappable',
 }));
 vi.mock('@/src/lib/feedback/haptics', () => ({ hapticConfirm: () => {} }));
 vi.mock('@/src/lib/nav/navInsets', () => ({ useTopInset: () => 0 }));
@@ -70,6 +72,7 @@ vi.mock('@/src/lib/supabase', () => {
     const q: Record<string, unknown> = {};
     for (const m of ['select', 'eq']) q[m] = () => q;
     q.single = () => q;
+    q.maybeSingle = () => q;
     q.then = (ok: (v: Reply) => unknown, bad?: (e: unknown) => unknown) => d.promise.then(ok, bad);
     q.catch = (bad: (e: unknown) => unknown) => d.promise.catch(bad);
     return q;
@@ -90,6 +93,7 @@ type View =
   | 'loading'
   | Blank                       // nothing rendered — never an expected verdict
   | { state: unknown }
+  | { unavailable: unknown }
   | { form: true; texts: string[] };
 
 /**
@@ -102,6 +106,8 @@ function view(host: HookHost): View {
   const tree = host.output;
   const screen = findElement(tree, (el) => el.type === 'ScreenState');
   if (screen) return { state: screen.props.state };
+  const empty = findElement(tree, (el) => el.type === 'EmptyState');
+  if (empty) return { unavailable: empty.props.title };
   if (findElement(tree, (el) => el.type === 'Spinner')) return 'loading';
   // V3 de-dup (owner 2026-09-23): the total sits BESIDE the action, so the submit label is the
   // plain verb again.
@@ -122,6 +128,7 @@ async function mountScreen(): Promise<HookHost> {
 
 beforeEach(() => {
   h.reads.length = 0;
+  h.nav.length = 0;
   h.network.isOffline = false;
   vi.resetModules();
 });
@@ -222,7 +229,23 @@ describe('F-BID-1 — a failed listing read never becomes a bid form', () => {
 
     const shown = view(host);
     expect(shown).not.toHaveProperty('form');
-    expect(shown).toEqual({ state: 'error' });
+    // N2 (2026-10-15): no row is "no longer available" (154 hides legacy listings from non-participants),
+    // not a server error with a Retry that can never succeed.
+    expect(shown).toEqual({ unavailable: LISTING_UNAVAILABLE_COPY.title });
+    expect(screenText(host.output)).not.toContain('$0');
+  });
+
+  it('B9: the unavailable state offers the live feed, not a dead-end Retry', async () => {
+    const host = await mountScreen();
+    h.reads[0].resolve({ data: null, error: null });
+    await flush();
+    host.flush();
+    const empty = findElement(host.output, (el) => el.type === 'EmptyState') as Element;
+    expect(empty.props.body).toBe(LISTING_UNAVAILABLE_COPY.body);
+    expect((empty.props.action as { label: string }).label).toBe(LISTING_UNAVAILABLE_COPY.action);
+    (empty.props.action as { onPress: () => void }).onPress();
+    expect(h.nav).toEqual(["replace:/(tabs)/home"]);
+    expect(findElement(host.output, (el) => el.type === 'ScreenState')).toBeFalsy();
   });
 
   it('B7: the failure state uses the shared copy, not a screen-local message', async () => {

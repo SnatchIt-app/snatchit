@@ -52,6 +52,7 @@ import { PLATFORM_INSTRUCTIONS } from '@/src/lib/platformInstructions';
 import { APP_CONFIG } from '@/src/config/app';
 import { sendLocalNotification } from '@/src/utils/notifications';
 import { StateView, EmptyState, Spinner, StickyBar } from '@/src/components/ui';
+import { LISTING_UNAVAILABLE_COPY } from '@/src/lib/listing/unavailable';
 // `BarAction` is the V3 pill with its sub-line inside it. Imported from the module rather than
 // the `ui` barrel because that barrel is owned centrally; it belongs in the barrel's exports.
 import { BarAction } from '@/src/components/ui/StickyBar';
@@ -1137,11 +1138,12 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
   if (!listing) return (
     <View style={s.centered}>
       <EmptyState
-        title="Listing not found"
-        body="It may have been sold or taken down."
+        // N2: zero rows is also what a listing hidden from public view (154) reads as.
+        title={LISTING_UNAVAILABLE_COPY.title}
+        body={LISTING_UNAVAILABLE_COPY.body}
         // From a notification or a cold start there is nothing to go back to
         // (CFT-605): the live feed is the outcome that always works.
-        action={{ label: 'Browse live listings', onPress: () => router.replace('/(tabs)/home') }}
+        action={{ label: LISTING_UNAVAILABLE_COPY.action, onPress: () => router.replace('/(tabs)/home') }}
       />
     </View>
   );

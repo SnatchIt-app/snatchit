@@ -369,7 +369,7 @@ describe('v3-listing — the states that had no capture', () => {
      */
     expect(screen).toMatch(/setError\(fixture\.failure === 'offline'/);
     expect(screen).toMatch(/isNetworkError\(error\)/);    expect(screen).toContain('if (!listing) return (');
-    expect(screen).toContain('title="Listing not found"');
+    expect(screen).toContain('title={LISTING_UNAVAILABLE_COPY.title}');   // N2: shared copy
   });
 });
 
