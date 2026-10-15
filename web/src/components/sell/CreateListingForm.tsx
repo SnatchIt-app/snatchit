@@ -13,7 +13,12 @@ import {
 import { createListingAction, uploadListingImageAction } from "@/lib/create-listing-actions";
 import { findBannedTerm } from "@/lib/content-moderation";
 import { LISTING_DURATION_HOURS, durationLabel } from "@/lib/listing-durations";
-import { PROOF_WAIVER_DEFAULT_REASON, PROOF_WAIVER_LABEL, PROOF_WAIVER_REASON_MAX } from "@/lib/proof-waiver";
+import {
+  PROOF_WAIVER_DEFAULT_REASON,
+  PROOF_WAIVER_LABEL,
+  PROOF_WAIVER_REASON_HINT,
+  PROOF_WAIVER_REASON_MAX,
+} from "@/lib/proof-waiver";
 import { prohibitedContentMessage } from "@/lib/server-refusal";
 import { Field } from "@/components/ui/Field";
 import { Input, Select, Textarea } from "@/components/ui/Input";
@@ -349,7 +354,7 @@ export function CreateListingForm({
               {PROOF_WAIVER_LABEL}
             </label>
             {waiveProof ? (
-              <Field label="Waiver reason" htmlFor="proofWaiverReason" hint="Recorded on the listing. Buyers see only “Ticket proof waived by Snatch It”.">
+              <Field label="Waiver reason" htmlFor="proofWaiverReason" hint={PROOF_WAIVER_REASON_HINT}>
                 <Textarea
                   id="proofWaiverReason"
                   value={waiverReason}

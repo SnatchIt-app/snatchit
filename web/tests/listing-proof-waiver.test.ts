@@ -118,6 +118,19 @@ describe("createListing with an owner proof waiver", () => {
   });
 });
 
+describe("waiver wording (the reason is readable through the public API)", () => {
+  it("default reason and field hint are neutral and say so", async () => {
+    const { PROOF_WAIVER_REASON_HINT } = await import("@/lib/proof-waiver");
+    expect(PROOF_WAIVER_DEFAULT_REASON).toBe("Owner inventory; ticket proof waived by Snatch It.");
+    expect(PROOF_WAIVER_REASON_HINT).toBe(
+      "Recorded on the listing and readable through the public API. Keep it neutral. Buyers see “Ticket proof waived by Snatch It”.",
+    );
+    expect(PROOF_WAIVER_DEFAULT_REASON).not.toMatch(/DICE|account|platform owner|confirmed/i);
+    const form = readFileSync(path.resolve(__dirname, "../src/components/sell/CreateListingForm.tsx"), "utf8");
+    expect(form).toContain("hint={PROOF_WAIVER_REASON_HINT}");
+  });
+});
+
 describe("normal listings keep the proof requirement (owner: keep it intact)", () => {
   it.each([
     ["empty", ""],
