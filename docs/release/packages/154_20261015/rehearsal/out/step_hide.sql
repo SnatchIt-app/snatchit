@@ -8,8 +8,10 @@
 -- Asserts inside the one transaction (any failure rolls all of it back; nothing is half-hidden):
 --   * the id list is the preimage (113 distinct ids, md5 59568b40d69fe1bd2d5872e839be6731);
 --   * all 113 exist and none is already hidden;
---   * exactly 113 rows inserted (trg_listing_visibility_not_live also refuses any live row, per row);
---   * 0 hidden listing is live afterwards;
+--   * exactly 113 rows inserted (trg_listing_visibility_not_live also refuses, per row, any OPEN row — what
+--     reserve_buy_now accepts: status active/reserved, auction not cancelled, ends_at >= now() — and any row
+--     under a live Buy Now hold);
+--   * 0 hidden listing is OPEN or under a live hold afterwards (the same predicate, re-checked over the set);
 --   * as anon: 0 listings and 0 bids visible; as a signed-in non-party: 0 listings visible.
 -- Reversal (owner decision; it re-exposes them): sql/unhide_legacy.sql via `pkg.py step unhide`.
 -- ============================================================================
@@ -158,11 +160,12 @@ BEGIN
 
   SELECT count(*) INTO v_live
     FROM public.listings l JOIN public.listing_visibility v ON v.listing_id = l.id
-   WHERE l.status = 'active' AND l.auction_status = 'active' AND l.ends_at > now();
+   WHERE (l.status IN ('active', 'reserved') AND l.auction_status <> 'cancelled' AND l.ends_at >= now())
+      OR (l.status = 'reserved' AND NOT coalesce(l.reserved_until <= now(), false));
   IF v_live <> 0 THEN
-    RAISE EXCEPTION 'hide_legacy: % hidden listing(s) are live. Nothing changed.', v_live;
+    RAISE EXCEPTION 'hide_legacy: % hidden listing(s) are open to bids or Buy Now, or under a live hold. Nothing changed.', v_live;
   END IF;
-  RAISE NOTICE 'hide_legacy: 113 inserted, 0 live';
+  RAISE NOTICE 'hide_legacy: 113 inserted, 0 open or held';
 END
 $hide$;
 

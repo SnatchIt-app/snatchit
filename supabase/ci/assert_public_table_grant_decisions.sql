@@ -462,6 +462,9 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   ('guard_hidden_listing_not_live()',                                'no-client-execute'),
   -- 156 (20261015000200): the owner proof waiver guard, a trigger function on listings.
   ('guard_listing_proof_waiver()',                                   'no-client-execute'),
+  -- 155 (20261015000100): the server-owned end time, a trigger function on listings (BEFORE INSERT OR
+  -- UPDATE; SECURITY INVOKER). REVOKE PUBLIC/anon/authenticated.
+  ('set_listing_ends_at_from_duration()',                            'no-client-execute'),
 
   -- ── authenticated-execute ────────────────────────────────────────────────
   -- Signed-in RPCs. Each derives caller identity from auth.uid() internally;
@@ -530,6 +533,11 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   -- GRANT anon, authenticated after REVOKE ALL FROM PUBLIC, anon, authenticated (B5).
   ('listing_is_public(uuid)',                                        'anon-execute'),
   ('listing_private_party(uuid)',                                    'anon-execute'),
+  -- 154 ADDENDUM 2: the PostgREST computed field listings.is_public (= listing_is_public(id)), so a build
+  -- can filter .eq('is_public', true). anon reads listings, so anon must hold EXECUTE or that filter fails
+  -- for every logged-out read. Boolean only; SECURITY INVOKER (reads nothing itself). Explicit GRANT anon,
+  -- authenticated after REVOKE ALL FROM PUBLIC, anon, authenticated (B5).
+  ('is_public(listings)',                                            'anon-execute'),
 
   -- ── public-execute-known-gap ─────────────────────────────────────────────
   -- Exactly two members, each asserted by name. See B4 for the full reasoning
@@ -834,7 +842,8 @@ END $$;
 -- Members: is_blocked_by_me(uuid) — 0230 grants anon explicitly, 074 revoked
 -- PUBLIC only and left that grant standing on purpose; listing_is_public(uuid) and
 -- listing_private_party(uuid) — 154 grants anon explicitly (the predicates of the
--- anon-reachable listings/bids SELECT policies; booleans only).
+-- anon-reachable listings/bids SELECT policies; booleans only); is_public(listings) — 154's
+-- PostgREST computed field over listing_is_public (boolean only).
 -- ---------------------------------------------------------------------------
 DO $$
 DECLARE

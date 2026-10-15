@@ -1,10 +1,13 @@
 -- ============================================================================
 -- ROLLBACK for 20261015000100_listing_duration_72h.sql (registry 155).
 -- Restores the APPLIED pre-155 check exactly: CHECK ((duration_hours = ANY (ARRAY[1, 3, 6, 12, 24, 48])))
--- (production pg_get_constraintdef, 2026-10-15).
+-- (production pg_get_constraintdef, 2026-10-15), and drops 155's server-side end time
+-- (trg_listing_ends_at_from_duration + set_listing_ends_at_from_duration()): ends_at is client-set again.
 -- REFUSES while any listing has duration_hours = 72: narrowing would fail on those rows, and they are
 -- real listings (never rewritten or deleted by a rollback). End or migrate them first, or keep 155.
--- CONSEQUENCE: clients that offer 72 h get a check violation on create until they drop the option.
+-- CONSEQUENCE: clients that offer 72 h get a check violation on create until they drop the option; a
+-- seller can again PATCH ends_at on their own listing (the pre-155 surface). 154's hidden-row guard still
+-- refuses any end-time move on a hidden listing.
 -- Order: run 156's rollback first if it is applied; 154's after this one.
 -- Run only under owner approval, with D's read-back.
 -- ============================================================================
@@ -23,9 +26,12 @@ BEGIN
 END
 $rb$;
 
+DROP TRIGGER IF EXISTS trg_listing_ends_at_from_duration ON public.listings;
+DROP FUNCTION IF EXISTS public.set_listing_ends_at_from_duration();
+
 ALTER TABLE public.listings DROP CONSTRAINT listings_duration_hours_check;
 ALTER TABLE public.listings ADD CONSTRAINT listings_duration_hours_check
   CHECK (duration_hours = ANY (ARRAY[1, 3, 6, 12, 24, 48]));
 
 COMMIT;
-DELETE FROM supabase_migrations.schema_migrations WHERE version = '20261015000100' AND (SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'public.listings'::regclass AND conname = 'listings_duration_hours_check') = 'CHECK ((duration_hours = ANY (ARRAY[1, 3, 6, 12, 24, 48])))';
+DELETE FROM supabase_migrations.schema_migrations WHERE version = '20261015000100' AND (SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'public.listings'::regclass AND conname = 'listings_duration_hours_check') = 'CHECK ((duration_hours = ANY (ARRAY[1, 3, 6, 12, 24, 48])))' AND to_regprocedure('public.set_listing_ends_at_from_duration()') IS NULL;

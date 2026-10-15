@@ -12,6 +12,12 @@
 --     listings minus updated_at (and minus 156's three waiver columns, so 156 adding them is not a
 --     "listing state change"). pre == post on these proves no money or listing state moved.
 --   The anon / non-party visible counts are a SEPARATE request (sql/state_anon.sql): they need SET LOCAL ROLE.
+-- Review-fix additions (2026-10-15, after the 154/155 review):
+--   * is_public(listings) and set_listing_ends_at_from_duration() in the fn/exec keys; 155's trigger in triggers_154_156;
+--   * rls_<table> (owner|RLS|FORCE) for listings, bids, payments, transfers, listing_visibility; owner_role (the owner of
+--     listings: super / bypassrls); fnown_<reader> (owner | owns-like-listings | bypasses RLS) for listing_is_public,
+--     listing_private_party and is_public: the 42P17 no-recursion guarantee, read back instead of assumed;
+--   * hidden_open_or_held: hidden rows that are OPEN (what reserve_buy_now accepts) or under a live Buy Now hold (must be 0).
 -- The two SET LOCAL lines pin the rendering (TimeZone inside to_jsonb timestamps; search_path inside deparsed
 -- policy quals) for the one implicit transaction this request runs in (pkg.py probe: same_txn=true).
 SET TRANSACTION READ ONLY;
@@ -26,6 +32,7 @@ fn as (
      and (n.nspname, p.proname) in (
        -- new in 154 / 156
        ('public','listing_is_public'), ('public','listing_private_party'), ('public','guard_hidden_listing_not_live'),
+       ('public','is_public'), ('public','set_listing_ends_at_from_duration'),
        ('public','guard_listing_proof_waiver'), ('public','current_user_is_admin'),
        -- redefined by 154
        ('public','get_profile_trust_stats'),
@@ -39,7 +46,10 @@ fn as (
 ),
 nf(sig) as (values ('public.listing_is_public(uuid)'), ('public.listing_private_party(uuid)'),
                    ('public.guard_hidden_listing_not_live()'), ('public.guard_listing_proof_waiver()'),
-                   ('public.current_user_is_admin()'), ('public.get_profile_trust_stats(uuid)')),
+                   ('public.current_user_is_admin()'), ('public.get_profile_trust_stats(uuid)'),
+                   ('public.is_public(public.listings)'), ('public.set_listing_ends_at_from_duration()')),
+rd(sig) as (values ('public.listing_is_public(uuid)'), ('public.listing_private_party(uuid)'), ('public.is_public(public.listings)')),
+tb(t) as (values ('listings'), ('bids'), ('payments'), ('transfers'), ('listing_visibility')),
 pol as (
   select tablename || '.' || policyname as k,
          cmd || '|' || roles::text || '|' || md5(coalesce(qual, '')) || '|' || md5(coalesce(with_check, '')) as v
@@ -86,7 +96,7 @@ union all select 'pol_' || k || '=' || v from pol
 union all select 'policies_listings_bids_lv=' || (select count(*) from pol)
 union all select 'triggers_listings_bids_lv=' || coalesce((select md5(string_agg(line, ',' order by line COLLATE "C")) || '|' || count(*) from trg), 'none')
 union all select 'triggers_154_156=' || coalesce((select string_agg(line, ',' order by line COLLATE "C") from trg
-                                                   where line ~ '(trg_hidden_listing_not_live|trg_listing_visibility_not_live|trg_guard_listing_proof_waiver):'), 'none')
+                                                   where line ~ '(trg_hidden_listing_not_live|trg_listing_visibility_not_live|trg_listing_ends_at_from_duration|trg_guard_listing_proof_waiver):'), 'none')
 union all select 'duration_check=' || coalesce((select pg_get_constraintdef(oid) from pg_constraint
                                                 where conrelid = 'public.listings'::regclass and conname = 'listings_duration_hours_check'), 'absent')
 union all select 'waiver_checks=' || coalesce((select string_agg(conname || ':' || md5(pg_get_constraintdef(oid)), ',' order by conname COLLATE "C") from pg_constraint
@@ -105,6 +115,21 @@ union all select 'lv_rows=' || coalesce((xpath('/row/c/text()', query_to_xml(
 union all select 'lv_rows=absent' where to_regclass('public.listing_visibility') is null
 union all select 'listings_rows=' || (select count(*) from public.listings)
 union all select 'live_listings=' || (select count(*) from public.listings where status = 'active' and auction_status = 'active' and ends_at > now())
+union all select 'hidden_open_or_held=' || coalesce((xpath('/row/c/text()', query_to_xml(
+                   'select count(*) as c from public.listing_visibility v join public.listings l on l.id = v.listing_id '
+                   'where (l.status in (''active'',''reserved'') and l.auction_status <> ''cancelled'' and l.ends_at >= now()) '
+                   'or (l.status = ''reserved'' and not coalesce(l.reserved_until <= now(), false))', false, true, '')))[1]::text, 'absent')
+            where to_regclass('public.listing_visibility') is not null
+union all select 'hidden_open_or_held=absent' where to_regclass('public.listing_visibility') is null
+union all select 'rls_' || tb.t || '=' || coalesce((select pg_get_userbyid(c.relowner) || '|rls=' || c.relrowsecurity || '|force=' || c.relforcerowsecurity
+                                                     from pg_class c where c.oid = to_regclass('public.' || tb.t)), 'absent') from tb
+union all select 'owner_role=' || (select r.rolname || '|super=' || r.rolsuper || '|bypassrls=' || r.rolbypassrls
+                                     from pg_class c join pg_roles r on r.oid = c.relowner where c.oid = 'public.listings'::regclass)
+union all select 'fnown_' || rd.sig || '=' || coalesce((select pg_get_userbyid(p.proowner) || '|owner_of_listings=' || (p.proowner = c.relowner)
+                                                               || '|bypasses_rls=' || (r.rolbypassrls or r.rolsuper)
+                                                          from pg_proc p join pg_roles r on r.oid = p.proowner
+                                                          cross join (select relowner from pg_class where oid = 'public.listings'::regclass) c
+                                                         where p.oid = to_regprocedure(rd.sig)), 'absent') from rd
 union all select 'hash_listings_minus_updated_at=' || (select count(*) || '|' || md5(coalesce(string_agg(x, E'\n' order by x COLLATE "C"), ''))
           from (select (to_jsonb(l) - 'updated_at' - 'proof_waived_at' - 'proof_waived_by' - 'proof_waiver_reason')::text as x from public.listings l) q)
 union all select 'hash_bids=' || (select count(*) || '|' || md5(coalesce(string_agg(x, E'\n' order by x COLLATE "C"), '')) from (select to_jsonb(t)::text as x from public.bids t) q)

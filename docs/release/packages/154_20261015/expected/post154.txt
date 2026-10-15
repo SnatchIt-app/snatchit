@@ -1,26 +1,29 @@
 # PREDICTED post-154 state: derived by rehearsal/predict.py from pre154.txt + lists_prod.json
 anon_bids=98
 anon_listings=113
-census=35|119|37|45
+census=35|120|37|45
 duration_check=CHECK ((duration_hours = ANY (ARRAY[1, 3, 6, 12, 24, 48])))
 exec_public.current_user_is_admin()=absent
 exec_public.get_profile_trust_stats(uuid)=anon:false,authenticated:true,service_role:true
 exec_public.guard_hidden_listing_not_live()=anon:false,authenticated:false,service_role:true
 exec_public.guard_listing_proof_waiver()=absent
+exec_public.is_public(public.listings)=anon:true,authenticated:true,service_role:true
 exec_public.listing_is_public(uuid)=anon:true,authenticated:true,service_role:true
 exec_public.listing_private_party(uuid)=anon:true,authenticated:true,service_role:true
+exec_public.set_listing_ends_at_from_duration()=absent
 fn_public.admin_relist_listing(p_listing_id uuid, p_new_ends_at timestamp with time zone, p_admin_id uuid)=def:ef4c9ba0a832230db6752c069e467ca4|src:baa94d9da85674042c2c3c1c12e9d6d7|secdef=true|cfg=search_path=public
 fn_public.auto_finalize_expired_auctions()=def:8c5aee29557191c6a78b38fd5f578f02|src:927c017e1f21a24f54a9d81b9fbcc6f8|secdef=true|cfg=search_path=public
 fn_public.cleanup_expired_reservations()=def:0271dca2e22467501d3f14b7845ef6b6|src:6b7ba391baeffe7c3199a982f730f457|secdef=true|cfg=search_path=public
 fn_public.complete_auction_payment(p_listing_id uuid, p_user_id uuid)=def:2d157aef39c0b53c176647052da32f10|src:e9d9175cb4b8fc55e9141d149c85253f|secdef=true|cfg=search_path=public
 fn_public.finalize_auction(p_listing_id uuid)=def:ccb9c8d173f2aca7bf0a0dbab948dd89|src:8830c950a2c9f0c7b232a4fab2ac6b54|secdef=true|cfg=search_path=public
-fn_public.get_profile_trust_stats(p_user_id uuid)=def:257b0acf8f030008405a1785629ee1a9|src:a6032e6ba9d99f8699bcab23bd432221|secdef=true|cfg=search_path=public
-fn_public.guard_hidden_listing_not_live()=def:506bf6eb917c20c04bda97db6be0e7a4|src:2702751f963e13b2709d54da8363894c|secdef=true|cfg=search_path=""
+fn_public.get_profile_trust_stats(p_user_id uuid)=def:2d62da92f7d33d86e0d15d976f69e960|src:697c82a24b47b7e5920a64aa7e80672a|secdef=true|cfg=search_path=public
+fn_public.guard_hidden_listing_not_live()=def:1869c7f31c2fdf950cb4ec2e3686c31f|src:b193b43541f1bd27d5aa2deac3437332|secdef=true|cfg=search_path=""
 fn_public.guard_listing_content()=def:afd7f7ac8c8647bff0baf97973d53f07|src:cd3e82cfbcd0ac54612ed83fa94b3e8c|secdef=true|cfg=search_path=""
 fn_public.guard_listing_insert_columns()=def:b106cfe1393671a71f2db1fb0e9ea22e|src:dcb5cf840d87de3ce4cb3454cead0690|secdef=false|cfg=search_path=public, pg_temp
 fn_public.guard_listing_reservation_parties()=def:96b637a6a74e3d20615a6afc203fad7c|src:555eadb1932f04d8f7103a17c65adfca|secdef=true|cfg=search_path=""
 fn_public.guard_listing_state_columns()=def:b1933b512ec4e72d86e45a49fb068dfb|src:dd4a10ac5141a3a9cefb2838812beb47|secdef=false|cfg=search_path=public, pg_temp
 fn_public.guard_proof_status()=def:9993261ef22ea3fd5fea1ffcae20c1b6|src:d867077775bf91023844484784f9d658|secdef=false|cfg=search_path=public, pg_temp
+fn_public.is_public(listings)=def:9b816a1a5f8e07311ca5559d28aa14b5|src:b891d14415f717b794a56fc0588a3363|secdef=false|cfg=search_path=""
 fn_public.listing_is_public(p_listing_id uuid)=def:9287ac68d8d8a7824bcee41bbf664eba|src:d3dc687af51c3aca9ea4f1ca92292265|secdef=true|cfg=search_path=""
 fn_public.listing_private_party(p_listing_id uuid)=def:f5769c49f235935553d95d9763f64c21|src:51c885097315ccafd04e26b716c6f695|secdef=true|cfg=search_path=""
 fn_public.mark_listing_sold(p_listing_id uuid, p_user_id uuid)=def:e03bae57a1436b2a8cafb3ea1a63053b|src:e408ca62c06480700fe6af1cf70b8c48|secdef=true|cfg=search_path=public
@@ -28,7 +31,10 @@ fn_public.release_reservation(p_listing_id uuid, p_user_id uuid)=def:083b70d7c98
 fn_public.reserve_buy_now(p_listing_id uuid, p_user_id uuid, p_minutes integer)=def:5e01af4e16794db1de613a0115ce7127|src:cbae565239fd327789c81f968998303f|secdef=true|cfg=search_path=public
 fn_public.settle_listing_for_payment(p_payment_id uuid)=def:729a19615334d2029726e101eebb412d|src:38d76cf6e13fc9b2c551842e682e8838|secdef=true|cfg=search_path=public
 fn_public.validate_and_apply_bid()=def:d237200eb6a4cc6a2400b217e25e0618|src:35e9980fe956e56353d91fa688dc5eeb|secdef=true|cfg=search_path=public
-grants_anon_authenticated=386|20aca072a5b944124e160324215642a3
+fnown_public.is_public(public.listings)=postgres|owner_of_listings=true|bypasses_rls=true
+fnown_public.listing_is_public(uuid)=postgres|owner_of_listings=true|bypasses_rls=true
+fnown_public.listing_private_party(uuid)=postgres|owner_of_listings=true|bypasses_rls=true
+grants_anon_authenticated=388|264965c2f9c65b50a1192aff18985923
 hash_bids=98|dc96534f7638acd1ba5e4395da0f17ed
 hash_disputes=0|d41d8cd98f00b204e9800998ecf8427e
 hash_listings_minus_updated_at=113|d584c0a0dd9052ea73a6a9a5c5f53e5e
@@ -38,7 +44,8 @@ hash_payments=57|3ef31ddf94a6adc07d30c0ff037dca45
 hash_payout_attempts=0|d41d8cd98f00b204e9800998ecf8427e
 hash_payout_decisions=4|cb01767186b9c14986283c06ffe8e073
 hash_transfers=36|7e2520e5224d2ad963da324b27f2921f
-ledger_154=listing_public_visibility|claude-a/owner-authorised-154|1|11d592cb7ebd35fd0f165216b711f1d0|19634
+hidden_open_or_held=0
+ledger_154=listing_public_visibility|claude-a/owner-authorised-154|1|c0be8b08c6af36473fd6e1782056221d|25036
 ledger_155=absent
 ledger_156=absent
 ledger_count=166
@@ -51,6 +58,7 @@ lv_rows=0
 lv_table=true|policies:0|grants:service_role:DELETE,service_role:INSERT,service_role:SELECT
 nonparty_bids=98
 nonparty_listings=113
+owner_role=postgres|super=false|bypassrls=true
 pol_bids.bids_insert_authenticated=INSERT|{public}|d41d8cd98f00b204e9800998ecf8427e|bd603c126b154455a37340cc9b1fd306
 pol_bids.bids_select_own=SELECT|{authenticated}|ed70380b14e04071ef6f80d9accb9aa2|d41d8cd98f00b204e9800998ecf8427e
 pol_bids.bids_select_visible=SELECT|{anon,authenticated}|bf373b0b04578b109b60045d048d7f7c|d41d8cd98f00b204e9800998ecf8427e
@@ -61,6 +69,11 @@ pol_listings.listings_select_visible=SELECT|{anon,authenticated}|cba0ffbb244fcdb
 pol_listings.listings_update_own=UPDATE|{public}|60eb5e68279d9a55779bcd018c26505b|60eb5e68279d9a55779bcd018c26505b
 pol_listings.listings_update_own_meta=UPDATE|{authenticated}|60eb5e68279d9a55779bcd018c26505b|60eb5e68279d9a55779bcd018c26505b
 policies_listings_bids_lv=9
+rls_bids=postgres|rls=true|force=false
+rls_listing_visibility=postgres|rls=true|force=false
+rls_listings=postgres|rls=true|force=false
+rls_payments=postgres|rls=true|force=false
+rls_transfers=postgres|rls=true|force=false
 storage_policies=12|eef81e2d649b99fb26ef99199ad99aa4
 triggers_154_156=listing_visibility.trg_listing_visibility_not_live:O:7:guard_hidden_listing_not_live(),listings.trg_hidden_listing_not_live:O:19:guard_hidden_listing_not_live()
 triggers_listings_bids_lv=1efd5f782f1445e08114d5444d2fffc2|17

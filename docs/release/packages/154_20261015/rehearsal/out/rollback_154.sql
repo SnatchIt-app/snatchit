@@ -9,7 +9,8 @@
 -- Restores the APPLIED body of public.get_profile_trust_stats(uuid): 031's, verbatim (production prosrc md5
 -- b048a327d1fa23fdf409d86f2b56e427, pg_get_functiondef md5 23719c73db47a2815d5102b11f4771f3, no comment;
 -- ACL {postgres,authenticated,service_role}=X is preserved by CREATE OR REPLACE). Drops the two new policies,
--- the two invariant triggers and the three new functions.
+-- the two invariant triggers and the four new functions (the three predicates/guard and the is_public(listings)
+-- computed field: a build that filters .eq('is_public', true) gets a 400 again once this runs).
 -- KEEPS public.listing_visibility and every row in it: archival record of what was hidden, by whom and why.
 -- With its readers gone the table is inert (RLS on, no policies, service_role only). Re-applying 154 later
 -- reuses it (CREATE TABLE IF NOT EXISTS) and refuses while a kept row names a live listing.
@@ -142,10 +143,11 @@ $$;
 COMMENT ON FUNCTION public.get_profile_trust_stats(uuid) IS NULL;
 
 DROP FUNCTION IF EXISTS public.guard_hidden_listing_not_live();
+DROP FUNCTION IF EXISTS public.is_public(public.listings);   -- the computed field calls listing_is_public
 DROP FUNCTION IF EXISTS public.listing_private_party(uuid);
 DROP FUNCTION IF EXISTS public.listing_is_public(uuid);
 
 -- public.listing_visibility is deliberately NOT dropped (archival; see header).
 
 COMMIT;
-DELETE FROM supabase_migrations.schema_migrations WHERE version = '20261015000000' AND to_regprocedure('public.listing_is_public(uuid)') IS NULL AND to_regprocedure('public.listing_private_party(uuid)') IS NULL AND to_regprocedure('public.guard_hidden_listing_not_live()') IS NULL AND EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'listings' AND policyname = 'listings_select_all' AND qual = 'true') AND EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'bids' AND policyname = 'bids_select_all' AND qual = 'true') AND md5(pg_get_functiondef('public.get_profile_trust_stats(uuid)'::regprocedure)) = '23719c73db47a2815d5102b11f4771f3';
+DELETE FROM supabase_migrations.schema_migrations WHERE version = '20261015000000' AND to_regprocedure('public.listing_is_public(uuid)') IS NULL AND to_regprocedure('public.listing_private_party(uuid)') IS NULL AND to_regprocedure('public.is_public(public.listings)') IS NULL AND to_regprocedure('public.guard_hidden_listing_not_live()') IS NULL AND EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'listings' AND policyname = 'listings_select_all' AND qual = 'true') AND EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'bids' AND policyname = 'bids_select_all' AND qual = 'true') AND md5(pg_get_functiondef('public.get_profile_trust_stats(uuid)'::regprocedure)) = '23719c73db47a2815d5102b11f4771f3';

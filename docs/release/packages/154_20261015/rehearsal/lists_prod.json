@@ -1,6 +1,7 @@
-{"source": "production hqycwntpfoztoinemqns, one read-only query 2026-10-15 ~02:58Z: existing rows plus the literal rows 154/156 add",
- "grants_154": "386|20aca072a5b944124e160324215642a3",
- "grants_156": "387|5b6e8c2257d184bb091baf4a58aa5997",
+{"source": "production hqycwntpfoztoinemqns, one read-only query (rehearsal/lists_query.sql via MCP execute_sql) 2026-10-15T03:50Z, after the review fixes: existing rows plus the literal rows 154/155/156 add",
+ "grants_154": "388|264965c2f9c65b50a1192aff18985923",
+ "grants_156": "389|4486af390339b6bf003933e5d6debbee",
  "trg_154": "1efd5f782f1445e08114d5444d2fffc2|17",
- "trg_156": "358e0891cd529ce2f13507e277f01d9e|18",
+ "trg_155": "f4780b14b4d60373fc2c6ffec68ca861|18",
+ "trg_156": "24c953f21897b993858bc5d85eae88e3|19",
  "cols_156": "39|2fff483aca04f540301ebf2b633004d2"}

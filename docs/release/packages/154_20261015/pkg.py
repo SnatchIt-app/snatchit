@@ -14,6 +14,8 @@ Copied from docs/release/packages/152_20261013/pkg.py (sha256 02537f62…, execu
     one request -> post check, no ledger row;
   * PKG_EXPECTED (default 'expected') selects the expected-state directory, so the LOCALDB rehearsal runs
     against rehearsal/expected_local/ with the identical code path.
+Review fix (2026-10-15): 154's ledger-delete guard also requires is_public(listings) to be gone; 155's also
+requires set_listing_ends_at_from_duration() to be gone (155 now carries the server-side end time).
 
 NEW CODE. It follows the design documented in PR93_PRODUCTION_EXECUTION_PACKAGE_20260924.md §4-§10
 (prestate STOP keys, one request per migration = file + ledger row, POST assertion, guarded rollback
@@ -71,6 +73,7 @@ MIG = {
                 # are back, and get_profile_trust_stats is 031's body again (production md5, read 2026-10-15)
                 gone="to_regprocedure('public.listing_is_public(uuid)') IS NULL "
                      "AND to_regprocedure('public.listing_private_party(uuid)') IS NULL "
+                     "AND to_regprocedure('public.is_public(public.listings)') IS NULL "
                      "AND to_regprocedure('public.guard_hidden_listing_not_live()') IS NULL "
                      "AND EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'listings' AND policyname = 'listings_select_all' AND qual = 'true') "
                      "AND EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'bids' AND policyname = 'bids_select_all' AND qual = 'true') "
@@ -81,7 +84,8 @@ MIG = {
                 pre=EXP / "post154.txt", post=EXP / "post155.txt", rb_post=EXP / "post154.txt",
                 rollback_ignore=DATA_KEYS,
                 gone="(SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'public.listings'::regclass "
-                     "AND conname = 'listings_duration_hours_check') = 'CHECK ((duration_hours = ANY (ARRAY[1, 3, 6, 12, 24, 48])))'"),
+                     "AND conname = 'listings_duration_hours_check') = 'CHECK ((duration_hours = ANY (ARRAY[1, 3, 6, 12, 24, 48])))' "
+                     "AND to_regprocedure('public.set_listing_ends_at_from_duration()') IS NULL"),
     "156": dict(version="20261015000200", name="listing_proof_owner_waiver",
                 file=HERE / "frozen/migrations/20261015000200_listing_proof_owner_waiver.sql",
                 rollback=HERE / "frozen/rollbacks/20261015000200_listing_proof_owner_waiver_rollback.sql",

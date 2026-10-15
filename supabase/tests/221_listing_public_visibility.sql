@@ -11,12 +11,19 @@
 --      a party sees none of them (no admin clause).
 --   E. saved_listings, reports and notifications grant nothing.
 --   F. listing_visibility: no client read, insert, update or delete (seller included); service_role can.
---   G. invariant: a live (or live-reserved) listing cannot be hidden; a hidden listing cannot be made
---      live (admin_relist_listing, an extension, a reactivation); non-live edits and the reservation
---      sweep still pass.
+--   G. invariant: an OPEN listing (what reserve_buy_now accepts: active/reserved, auction not cancelled,
+--      clock not run out) or one under a live Buy Now hold cannot be hidden; a hidden listing cannot be
+--      made OPEN, held or extended by any caller (the review's reproductions: the seller's ends_at PATCH on
+--      an ended row, a non-party's reserve_buy_now, the wedge on a hidden held row); bids and the
+--      create-payment-intent preconditions are refused on every hidden row; non-live edits, the
+--      finalizer and the reservation sweep still pass.
 --   H. storage: a hidden listing still counts as a reference for its seller's cover.
---   I. get_profile_trust_stats counts nothing derived from hidden listings.
+--   I. get_profile_trust_stats counts nothing derived from hidden listings, and active_listings needs
+--      an unexpired clock.
 --   J. positive control: with USING (true) put back, the same anon probe sees every hidden row.
+--   ADDENDUM 2 also covers: the is_public(listings) computed field (A9/A10/B12/B13/D15/D16) and the
+--   no-recursion guarantee (A12/A13: the predicates are owned by the tables' owner, which bypasses RLS,
+--   and none of the tables forces RLS).
 -- Fixtures are built as postgres before any login. Each persona holds exactly one relation to the
 -- hidden rows, so dropping one clause of listing_private_party fails that persona's assertion.
 -- The transfer-party personas (TBUY/TSELL) use one deliberately isolated transfer: in production the
@@ -26,7 +33,7 @@
 -- database without 154 and reports each exposure as its own failure.
 -- ============================================================================
 BEGIN;
-SELECT plan(74);
+SELECT plan(94);
 SELECT tap.seed_core();
 
 -- ── helpers ────────────────────────────────────────────────────────────────
@@ -35,7 +42,8 @@ CREATE FUNCTION tap._l221(p text) RETURNS uuid LANGUAGE sql IMMUTABLE AS $f$
     FROM (VALUES ('H1','000000000101'), ('H2','000000000102'), ('H3','000000000103'), ('H4','000000000104'),
                  ('H5','000000000105'), ('H6','000000000106'), ('H7','000000000107'),
                  ('VSOLD','000000000201'), ('VENDED','000000000202'), ('VRELIST','000000000203'),
-                 ('VRESV','000000000204'), ('VLIVE','000000000205')) AS v(tag, suffix)
+                 ('VRESV','000000000204'), ('VLIVE','000000000205'), ('VEARLY','000000000206'),
+                 ('VHOLD','000000000207')) AS v(tag, suffix)
    WHERE v.tag = p $f$;
 CREATE FUNCTION tap._u221(p text) RETURNS uuid LANGUAGE sql IMMUTABLE AS $f$
   SELECT ('22100000-0000-0000-0000-' || v.suffix)::uuid
@@ -46,12 +54,15 @@ CREATE FUNCTION tap._u221(p text) RETURNS uuid LANGUAGE sql IMMUTABLE AS $f$
 CREATE FUNCTION tap._hidden221() RETURNS uuid[] LANGUAGE sql IMMUTABLE AS $f$
   SELECT ARRAY[tap._l221('H1'), tap._l221('H2'), tap._l221('H3'), tap._l221('H4'),
                tap._l221('H5'), tap._l221('H6'), tap._l221('H7')] $f$;
--- Sorted id array from a statement run as the CURRENT role.
+-- Sorted id array from a statement run as the CURRENT role; NULL if the statement fails (for example
+-- is_public absent on a database without 154), so the assertion fails and the file runs on.
 CREATE FUNCTION tap._ids221(p_sql text) RETURNS uuid[] LANGUAGE plpgsql AS $f$
 DECLARE v uuid[];
 BEGIN
   EXECUTE format('SELECT coalesce(array_agg(x.id ORDER BY x.id), ''{}'') FROM (%s) x', p_sql) INTO v;
   RETURN v;
+EXCEPTION WHEN others THEN
+  RETURN NULL;
 END $f$;
 CREATE FUNCTION tap._sorted221(p uuid[]) RETURNS uuid[] LANGUAGE sql IMMUTABLE AS $f$
   SELECT coalesce(array_agg(x ORDER BY x), '{}') FROM unnest(p) x $f$;
@@ -91,6 +102,23 @@ BEGIN
   EXECUTE format('WITH x AS (%s) SELECT count(*) FROM x', p_sql) INTO v;
   RETURN v;
 END $f$;
+-- create-payment-intent's preconditions (supabase/functions/create-payment-intent/index.ts, the listing
+-- read + sold-to-another check + the buy_now / auction branches), evaluated with the edge function's
+-- service-role view (run as postgres). True = the edge function would go on to mint a PaymentIntent.
+CREATE FUNCTION tap._cpi221(p_listing uuid, p_buyer uuid, p_mode text) RETURNS boolean LANGUAGE sql AS $f$
+  SELECT coalesce((
+    SELECT l.seller_id <> p_buyer
+       AND NOT EXISTS (SELECT 1 FROM public.payments p
+                        WHERE p.listing_id = l.id AND p.status = 'succeeded' AND p.buyer_id <> p_buyer)
+       AND l.status <> 'sold'
+       AND CASE p_mode
+             WHEN 'buy_now' THEN l.status = 'reserved' AND l.reserved_by = p_buyer AND l.reserved_until > now()
+                                 AND l.buy_now_enabled AND l.buy_now_price IS NOT NULL
+             WHEN 'auction' THEN l.auction_status = 'ended' AND l.winner_user_id = p_buyer
+                                 AND NOT (l.status = 'reserved' AND l.reserved_by IS NOT NULL
+                                          AND l.reserved_until > now() AND l.reserved_by <> p_buyer)
+           END
+      FROM public.listings l WHERE l.id = p_listing), false) $f$;
 
 -- ── fixtures (postgres, claims-less: the trusted path) ──────────────────────
 INSERT INTO auth.users (id, instance_id, aud, role, email, raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
@@ -194,19 +222,31 @@ SELECT is((SELECT string_agg(f || '=' || CASE WHEN to_regprocedure(f) IS NULL TH
               has_function_privilege('anon', to_regprocedure(f), 'EXECUTE')::text || ',' ||
               has_function_privilege('authenticated', to_regprocedure(f), 'EXECUTE')::text END, ' ' ORDER BY f)
              FROM unnest(ARRAY['public.listing_is_public(uuid)', 'public.listing_private_party(uuid)',
-                               'public.guard_hidden_listing_not_live()']) f),
-  'public.guard_hidden_listing_not_live()=false,false public.listing_is_public(uuid)=true,true public.listing_private_party(uuid)=true,true',
-  'A9: the two predicates are anon/authenticated-executable; the trigger function is not');
+                               'public.is_public(public.listings)', 'public.guard_hidden_listing_not_live()']) f),
+  'public.guard_hidden_listing_not_live()=false,false public.is_public(public.listings)=true,true public.listing_is_public(uuid)=true,true public.listing_private_party(uuid)=true,true',
+  'A9: the two predicates and the is_public(listings) computed field are anon/authenticated-executable; the trigger function is not');
 SELECT is((SELECT string_agg(p.proname || ':' || p.prosecdef::text || ':' || p.provolatile::text || ':' || coalesce(array_to_string(p.proconfig, ','), '-'), ' ' ORDER BY p.proname)
              FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace
-              AND p.proname IN ('listing_is_public', 'listing_private_party', 'guard_hidden_listing_not_live')),
-  'guard_hidden_listing_not_live:true:v:search_path="" listing_is_public:true:s:search_path="" listing_private_party:true:s:search_path=""',
-  'A10: all three are SECURITY DEFINER with an empty search_path; the predicates are STABLE');
+              AND p.proname IN ('listing_is_public', 'listing_private_party', 'guard_hidden_listing_not_live', 'is_public')),
+  'guard_hidden_listing_not_live:true:v:search_path="" is_public:false:s:search_path="" listing_is_public:true:s:search_path="" listing_private_party:true:s:search_path=""',
+  'A10: the predicates and the guard are SECURITY DEFINER, is_public is SECURITY INVOKER; all have an empty search_path; the three readers are STABLE');
 SELECT is((SELECT string_agg(c.relname || '.' || t.tgname || ':' || t.tgtype::text || ':' || t.tgfoid::regproc::text, ' ' ORDER BY t.tgname)
              FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
             WHERE NOT t.tgisinternal AND t.tgname IN ('trg_hidden_listing_not_live', 'trg_listing_visibility_not_live')),
   'listings.trg_hidden_listing_not_live:19:guard_hidden_listing_not_live listing_visibility.trg_listing_visibility_not_live:7:guard_hidden_listing_not_live',
   'A11: BEFORE UPDATE row trigger on listings and BEFORE INSERT row trigger on listing_visibility');
+SELECT is((SELECT string_agg(p.proname || ':' || (p.proowner = c.relowner)::text || ':' || (r.rolbypassrls OR r.rolsuper)::text, ' ' ORDER BY p.proname)
+             FROM pg_proc p JOIN pg_roles r ON r.oid = p.proowner
+             CROSS JOIN (SELECT relowner FROM pg_class WHERE oid = 'public.listings'::regclass) c
+            WHERE p.pronamespace = 'public'::regnamespace AND p.proname IN ('listing_is_public', 'listing_private_party', 'is_public')),
+  'is_public:true:true listing_is_public:true:true listing_private_party:true:true',
+  'A12: the three readers are owned by the owner of listings, a role that bypasses RLS (no 42P17 policy recursion)');
+SELECT is((SELECT string_agg(c.relname || ':' || (c.relowner = o.relowner)::text || ':' || c.relrowsecurity::text || ':' || c.relforcerowsecurity::text, ' ' ORDER BY c.relname)
+             FROM pg_class c CROSS JOIN (SELECT relowner FROM pg_class WHERE oid = 'public.listings'::regclass) o
+            WHERE c.oid IN ('public.listings'::regclass, 'public.bids'::regclass, 'public.payments'::regclass,
+                            'public.transfers'::regclass, to_regclass('public.listing_visibility'))),
+  'bids:true:true:false listing_visibility:true:true:false listings:true:true:false payments:true:true:false transfers:true:true:false',
+  'A13: listings, bids, payments, transfers and listing_visibility share that owner, have RLS on and none FORCES it');
 
 -- ── B. anon (the publishable key; every shipped build) ──────────────────────
 SELECT tap.login_anon();
@@ -235,6 +275,11 @@ SELECT is(tap._val221(format('SELECT public.listing_private_party(%L)', tap._l22
   'B10: listing_private_party is false for anon (no auth.uid())');
 SELECT is(tap._val221(format('SELECT public.listing_is_public(%L)::text || '','' || public.listing_is_public(%L)::text', tap._l221('H1'), tap._l221('VLIVE'))), 'false,true',
   'B11: listing_is_public answers only a boolean: false for hidden, true for public');
+SELECT is(tap._ids221($$SELECT id FROM public.listings l WHERE l.status = 'active' AND public.is_public(l) = true ORDER BY created_at DESC LIMIT 50$$),
+  tap._sorted221(ARRAY[tap.listing_a(), tap.listing_b(), tap.listing_c(), tap.listing_d(), tap._l221('VENDED'), tap._l221('VRELIST'), tap._l221('VLIVE')]),
+  'B12: anon Home feed with the next build''s computed-field filter (.eq(''is_public'', true)) works and returns the B1 rows');
+SELECT is(tap._val221(format('SELECT public.is_public(l)::text FROM public.listings l WHERE l.id = %L', tap._l221('VLIVE'))), 'true',
+  'B13: anon can select the is_public computed field (EXECUTE held; a public row reads true)');
 
 -- ── C. a fresh signed-in user with no relation to any hidden row ────────────
 SELECT tap.login(tap._u221('FRESH'));
@@ -291,6 +336,13 @@ SELECT is(tap._ids221(format('SELECT id FROM public.listings WHERE id = ANY(%L::
   'D13: an admin sees only the hidden listing they own: no admin clause puts others'' hidden rows in a consumer feed');
 SELECT is(tap._val221(format('SELECT public.listing_private_party(%L)', tap._l221('H1'))), 'false',
   'D14: listing_private_party is false for an admin who is not a party');
+SELECT tap.login(tap.seller());
+SELECT is(tap._ids221($$SELECT id FROM public.listings l WHERE l.status = 'sold' AND public.is_public(l) = true ORDER BY sold_at DESC NULLS LAST LIMIT 30$$),
+  ARRAY[tap._l221('VSOLD')],
+  'D15: the seller''s Recently Sold with the is_public filter leaves out their own hidden sales H1 and H5 (the next build''s fix for the ≤27 exception)');
+SELECT is(tap._val221(format('SELECT count(*)::text || '':'' || string_agg(DISTINCT public.is_public(l)::text, '','') FROM public.listings l WHERE l.id = ANY(%L::uuid[])',
+                             tap._hidden221())),
+  '6:false', 'D16: is_public is false on each of the six hidden rows the seller can read');
 
 -- ── E. relations that grant nothing ─────────────────────────────────────────
 SELECT tap.login(tap._u221('SAVER'));
@@ -337,41 +389,133 @@ SELECT is((SELECT completed_purchases FROM public.get_profile_trust_stats(tap.bu
   'I3: a purchase on a public listing still counts (the filter is not blanket)');
 SELECT is((SELECT disputes_opened FROM public.get_profile_trust_stats(tap._u221('TBUY'))), 0,
   'I4: a dispute on a hidden listing is not shown on the public profile');
-
--- ── G. a hidden listing is never live ───────────────────────────────────────
 SELECT tap.logout();
+-- listing_b's clock runs out before the finalizer has closed it (cron every 2 min): still active/active.
+UPDATE public.listings SET ends_at = now() - interval '1 minute' WHERE id = tap.listing_b();
+SELECT tap.login(tap._u221('FRESH'));
+SELECT is((SELECT active_listings FROM public.get_profile_trust_stats(tap.seller())), 3,
+  'I5: an expired auction the finalizer has not closed yet is not an active listing (ends_at > now(); was 4 in I1)');
+
+-- ── G. a hidden listing is never live, held or extended ─────────────────────
+-- Two more public listings, written by the trusted path, for the hide-time predicate:
+--   VEARLY: status active, auction_status 'ended' while its clock still runs, Buy Now on (an auction a
+--           trusted write closed early). reserve_buy_now still accepts it (G5): it never requires
+--           auction_status = 'active'.
+--   VHOLD : a Buy Now hold taken just before the clock ran out, live for 8 more minutes (a hold outlives
+--           ends_at by up to 10 minutes); create-payment-intent would mint for its holder.
+SELECT tap.logout();
+INSERT INTO public.listings (id, seller_id, event_name, venue, neighborhood, event_date, event_time, ticket_type,
+  quantity, transfer_method, starting_bid, buy_now_enabled, buy_now_price, duration_hours, starts_at, ends_at,
+  current_bid, cover_image_path, status, auction_status, reserved_by, reserved_until)
+VALUES
+  (tap._l221('VEARLY'), tap.seller(), 'Fixture 221 VEARLY', 'Club 221', 'wynwood', current_date + 30, '21:00', 'GA', 2,
+   'mobile_transfer', 100, true, 300, 24, now() - interval '2 hours', now() + interval '1 day', 100,
+   tap.seller()::text || '/vearly-221.jpg', 'active', 'ended', NULL, NULL),
+  (tap._l221('VHOLD'), tap.seller(), 'Fixture 221 VHOLD', 'Club 221', 'wynwood', current_date + 30, '21:00', 'GA', 2,
+   'mobile_transfer', 100, true, 300, 24, now() - interval '1 day', now() - interval '1 minute', 100,
+   tap.seller()::text || '/vhold-221.jpg', 'reserved', 'active', tap.buyer(), now() + interval '8 minutes');
+
+-- hide time (the cleanup's data step runs as the trusted path)
 SELECT is(tap._try221(tap._hide_sql221(tap._l221('VLIVE'))),
   '{"ok": false, "code": "P0001", "message": "Cannot hide a live listing; end or cancel it first."}'::jsonb,
   'G1: a live listing cannot be hidden, even by the trusted path');
 SELECT is(tap._try221(tap._hide_sql221(tap._l221('VRESV'))),
   '{"ok": false, "code": "P0001", "message": "Cannot hide a live listing; end or cancel it first."}'::jsonb,
   'G2: a listing under a Buy Now hold that would return to live cannot be hidden either');
+SELECT is(tap._try221(tap._hide_sql221(tap._l221('VEARLY'))),
+  '{"ok": false, "code": "P0001", "message": "Cannot hide a live listing; end or cancel it first."}'::jsonb,
+  'G3: an auction marked ended while its clock still runs cannot be hidden (Buy Now still accepts it)');
+SELECT is(tap._try221(tap._hide_sql221(tap._l221('VHOLD'))),
+  '{"ok": false, "code": "P0001", "message": "Cannot hide a listing under a live Buy Now hold; let the hold lapse or complete first."}'::jsonb,
+  'G4: a listing whose clock ran out under a still-live Buy Now hold cannot be hidden (its holder could still pay)');
+SELECT tap.login(tap._u221('FRESH'));
+SELECT is(tap._try221(format('SELECT public.reserve_buy_now(%L, %L, 10)', tap._l221('VEARLY'), tap._u221('FRESH'))), '{"ok": true}'::jsonb,
+  'G5: control: a stranger CAN reserve VEARLY, so G3 refuses a row that really is open to Buy Now');
+SELECT tap.reset_guards();
+SELECT tap.logout();
+
+-- relisting / extending / reactivating
 SELECT is(tap._try221(format('SELECT public.admin_relist_listing(%L, now() + interval ''2 days'', %L)', tap._l221('H7'), tap.admin_user())),
   '{"ok": false, "code": "P0001", "message": "Hidden listing cannot be made live."}'::jsonb,
-  'G3: admin_relist_listing on a hidden admin-owned listing is refused');
-SELECT is((SELECT auction_status FROM public.listings WHERE id = tap._l221('H7')), 'cancelled', 'G4: the refused relist changed nothing');
+  'G6: admin_relist_listing on a hidden admin-owned listing is refused');
+SELECT is((SELECT auction_status FROM public.listings WHERE id = tap._l221('H7')), 'cancelled', 'G7: the refused relist changed nothing');
 SELECT is(tap._try221(format('SELECT public.admin_relist_listing(%L, now() + interval ''2 days'', %L)', tap._l221('VRELIST'), tap.admin_user())),
-  '{"ok": true}'::jsonb, 'G5: control: the same relist of a public admin listing succeeds, so G3 is refused by the hide');
+  '{"ok": true}'::jsonb, 'G8: control: the same relist of a public admin listing succeeds, so G6 is refused by the hide');
+SELECT tap.reset_guards();
+
+-- the review's reproduction (blocker): H4 is hidden in production's shape (active / auction ended / clock
+-- run out); its seller moves ends_at forward with a plain PATCH, then a stranger who holds the id reserves.
+SELECT tap.login(tap.seller());
+SELECT is(tap._try221(format('UPDATE public.listings SET ends_at = now() + interval ''3 days'' WHERE id = %L', tap._l221('H4'))),
+  '{"ok": false, "code": "P0001", "message": "Hidden listing cannot be made live."}'::jsonb,
+  'G9: the seller cannot move a hidden ended listing''s end time forward (the first step of the Buy Now hole)');
+SELECT tap.login(tap._u221('FRESH'));
+SELECT is(tap._try221(format('SELECT public.reserve_buy_now(%L, %L, 10)', tap._l221('H4'), tap._u221('FRESH'))),
+  '{"ok": false, "code": "P0001", "message": "This auction has ended."}'::jsonb,
+  'G10: a stranger''s reserve_buy_now on the hidden listing is refused');
+SELECT is(tap._count221(format('SELECT id FROM public.listings WHERE id = %L', tap._l221('H4'))), 0::bigint,
+  'G11: the stranger did not become a reservation holder: the hidden listing is still invisible to them');
+SELECT tap.reset_guards();
+SELECT tap.logout();
+
+-- trusted writes (postgres under the listing-guard bypass: the auction-RPC / SQL-editor path); each case
+-- is caught by exactly one rule of the UPDATE branch
 SELECT set_config('app.bypass_listing_guard', 'on', true);
 SELECT is(tap._try221(format('UPDATE public.listings SET ends_at = now() + interval ''1 hour'' WHERE id = %L', tap._l221('H6'))),
   '{"ok": false, "code": "P0001", "message": "Hidden listing cannot be made live."}'::jsonb,
-  'G6: extending a hidden, expired auction is refused, even under the listing-guard bypass');
+  'G12: extending a hidden, expired auction is refused, even under the listing-guard bypass');
 SELECT is(tap._try221(format('UPDATE public.listings SET auction_status = ''active'' WHERE id = %L', tap._l221('H3'))),
   '{"ok": false, "code": "P0001", "message": "Hidden listing cannot be made live."}'::jsonb,
-  'G7: reactivating a hidden cancelled listing is refused');
+  'G13: reactivating a hidden cancelled listing is refused');
+SELECT is(tap._try221(format('UPDATE public.listings SET auction_status = ''ended'' WHERE id = %L', tap._l221('H3'))),
+  '{"ok": false, "code": "P0001", "message": "Hidden listing cannot be made live."}'::jsonb,
+  'G14: flipping a hidden cancelled listing with time left to ''ended'' is refused (it would re-open Buy Now)');
+SELECT is(tap._try221(format('UPDATE public.listings SET ends_at = now() + interval ''1 day'' WHERE id = %L', tap._l221('H5'))),
+  '{"ok": false, "code": "P0001", "message": "Hidden listing cannot be made live."}'::jsonb,
+  'G15: moving a hidden sold listing''s end time forward is refused (no end-time move on a hidden row, whatever its status)');
+SELECT is(tap._try221(format('UPDATE public.listings SET status = ''reserved'', reserved_by = %L, reserved_until = now() + interval ''10 minutes'' WHERE id = %L',
+                             tap._u221('FRESH'), tap._l221('H4'))),
+  '{"ok": false, "code": "P0001", "message": "Hidden listing cannot be reserved."}'::jsonb,
+  'G16: a direct Buy Now hold on a hidden listing is refused');
 SELECT tap.reset_guards();
-SELECT lives_ok('SELECT public.cleanup_expired_reservations()',
-  'G8: the reservation sweep still runs with a hidden, expired hold in its batch');
+
+-- the money paths on every hidden row
+SELECT tap.login(tap._u221('FRESH'));
+SELECT is((SELECT count(*)::int FROM unnest(tap._hidden221()) h
+            WHERE tap._try221(format('INSERT INTO public.bids (listing_id, bidder_id, amount) VALUES (%L, %L, 10000)', h, tap._u221('FRESH')))
+                  = '{"ok": true}'::jsonb), 0,
+  'G17: a bid INSERT is refused on each of the seven hidden listings');
+SELECT tap.logout();
+SELECT is((SELECT count(*)::int
+             FROM unnest(tap._hidden221()) h
+            CROSS JOIN unnest(ARRAY[tap._u221('FRESH'), tap._u221('BID'), tap._u221('WIN'), tap._u221('PAY'), tap._u221('RES'),
+                                    tap._u221('TBUY'), tap._u221('TSELL'), tap._u221('SAVER'), tap.buyer(), tap.other_user()]) u
+            CROSS JOIN unnest(ARRAY['buy_now', 'auction']) m
+            WHERE tap._cpi221(h, u, m)), 0,
+  'G18: create-payment-intent''s preconditions (buy_now and auction) hold for no persona on any hidden listing');
+SELECT ok(tap._cpi221(tap._l221('VEARLY'), tap._u221('FRESH'), 'buy_now'),
+  'G19: control: the same precondition holds for the stranger''s live hold on the public VEARLY (G18 is not vacuous)');
+
+-- the reservation sweep cannot be wedged (review: hidden held row + ends_at PATCH)
+SELECT tap.login(tap.seller());
+SELECT is(tap._try221(format('UPDATE public.listings SET ends_at = now() + interval ''2 days'' WHERE id = %L', tap._l221('H2'))),
+  '{"ok": false, "code": "P0001", "message": "Hidden listing cannot be made live."}'::jsonb,
+  'G20: the seller cannot move the end time of a hidden listing under a (lapsed) hold');
+SELECT tap.logout();
+SELECT lives_ok('SELECT public.auto_finalize_expired_auctions()',
+  'G21: the finalizer cron (which runs the reservation sweep) completes with hidden rows in both batches');
 SELECT is((SELECT status || '|' || coalesce(reserved_by::text, 'null') FROM public.listings WHERE id = tap._l221('H2')), 'active|null',
-  'G9: the sweep released the hidden hold (the listing returns to active but not live: its auction time is over)');
+  'G22: the sweep released the hidden lapsed hold (the listing is closed: its auction time is over)');
 SELECT tap.reset_guards();
 SELECT tap.login(tap.seller());
 SELECT is(tap._dml221(format('UPDATE public.listings SET restrictions = %L WHERE id = %L RETURNING id', 'Edited 221', tap._l221('H4'))), 1::bigint,
-  'G10: the seller can still edit a hidden listing when the edit does not make it live');
+  'G23: the seller can still edit a hidden listing when the edit does not re-open it');
 SELECT tap.logout();
 SELECT is((SELECT count(*)::int FROM public.listings l
-            WHERE l.id = ANY(tap._hidden221()) AND l.status = 'active' AND l.auction_status = 'active' AND l.ends_at > now()), 0,
-  'G11: after every attempt above, no hidden listing is live');
+            WHERE l.id = ANY(tap._hidden221())
+              AND ((l.status IN ('active', 'reserved') AND l.auction_status <> 'cancelled' AND l.ends_at >= now())
+                   OR (l.status = 'reserved' AND NOT coalesce(l.reserved_until <= now(), false)))), 0,
+  'G24: after every attempt above, no hidden listing is open to bids or Buy Now, or under a live hold');
 
 -- ── H. storage: a hidden listing still protects its seller's cover ──────────
 SELECT tap.login(tap.seller());
