@@ -322,3 +322,49 @@ describe('(f) review T6: one auth code, one claim — an overlapping second disp
     expect(shell).toContain('claimOnce: claimAuthParamOnce,');
   });
 });
+
+describe('(g) D6: an expired or used auth link says so instead of bouncing silently to Login', () => {
+  /*
+   * C's sandbox simulator check (2026-10-15, D6): GoTrue redirects a consumed or expired link to
+   * snatchit://?error=access_denied&error_code=otp_expired&… — no code, no token. Builds 25/27 and RC9 up to
+   * here only logged a warning, so the person landed on Login with no word about the link (web already says
+   * "Link expired"). The owner's scope includes safe error handling; a silent bounce fails it in spirit.
+   */
+  const EXPIRED = 'snatchit://?error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired';
+
+  it('an error link with no code calls onLinkError once and touches nothing else', async () => {
+    const onLinkError = vi.fn();
+    const d = deps({ onLinkError });
+    const out = await dispatchDeepLink(EXPIRED, d);
+    expect(onLinkError).toHaveBeenCalledTimes(1);
+    expect(onLinkError).toHaveBeenCalledWith('otp_expired');
+    expect(d.exchangeCodeForSession).not.toHaveBeenCalled();
+    expect(d.verifyOtp).not.toHaveBeenCalled();
+    expect(d.onRecovery).not.toHaveBeenCalled();
+    expect(out).toEqual({ kind: 'link_error', code: 'otp_expired' });
+  });
+
+  it('an error in the fragment counts too; error alone (no error_code) still says so', async () => {
+    const onLinkError = vi.fn();
+    await dispatchDeepLink('snatchit://#error=access_denied&error_description=x', deps({ onLinkError }));
+    expect(onLinkError).toHaveBeenCalledWith('access_denied');
+  });
+
+  it('a link that also carries a code is handled as a code (no error message)', async () => {
+    const onLinkError = vi.fn();
+    const d = deps({ onLinkError });
+    await dispatchDeepLink('snatchit://?code=abc&error=ignored', d);
+    expect(onLinkError).not.toHaveBeenCalled();
+    expect(d.exchangeCodeForSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('the shell shows the shared copy', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    const shell = readFileSync(resolve(__dirname, '..', 'src/providers/NativeAppShell.native.tsx'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+    expect(shell).toContain('onLinkError: () => Alert.alert(AUTH_LINK_EXPIRED_COPY.title, AUTH_LINK_EXPIRED_COPY.body),');
+    const { AUTH_LINK_EXPIRED_COPY } = await import('../src/lib/auth/linkErrorCopy');
+    expect(AUTH_LINK_EXPIRED_COPY).toEqual({ title: 'Link expired', body: 'That link has expired or was already used. Request a new one.' });
+  });
+});

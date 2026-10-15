@@ -52,6 +52,11 @@ export interface DeepLinkDeps {
    * or a relaunch clears it (F7).
    */
   onRecoveryFailed?(): void;
+  /**
+   * D6: the link carries an auth error (consumed or expired — GoTrue sends error/error_code and no code), so
+   * there is nothing to exchange. The shell tells the person instead of bouncing them silently to Login.
+   */
+  onLinkError?(code: string): void;
   warn?: (message: string, ...rest: unknown[]) => void;
 }
 
@@ -60,6 +65,7 @@ export type DeepLinkOutcome =
   | { kind: 'stripe' }
   | { kind: 'otp'; type: EmailOtpType; error: string | null }
   | { kind: 'pkce'; error: string | null }
+  | { kind: 'link_error'; code: string }
   | { kind: 'no_auth_params' };
 
 export function parseDeepLink(url: string): Record<string, string | null> & { get(k: string): string | null } {
@@ -90,6 +96,13 @@ export async function dispatchDeepLink(url: string | null | undefined, deps: Dee
   const token_hash = p.get('token_hash');
   const errParam = p.get('error') ?? p.get('error_code');
   if (errParam) warn('[auth] deep-link error:', errParam, p.get('error_description') ?? '');
+
+  // D6: a dead auth link (expired or already used) has nothing to exchange — say so, and touch nothing else.
+  if (errParam && !code && !token_hash) {
+    const linkErrorCode = p.get('error_code') ?? p.get('error') ?? 'unknown';
+    try { deps.onLinkError?.(linkErrorCode); } catch (e) { warn('[auth] link error notice threw', e); }
+    return { kind: 'link_error', code: linkErrorCode };
+  }
 
   // Review T6: an overlapping second delivery of the same single-use link must not act — its exchange would
   // fail on the consumed verifier and release a hold the first one's session needs.

@@ -20,8 +20,9 @@ import { supabase } from '@/src/lib/supabase';
 import { startSessionAutoRefresh } from '@/src/lib/auth/sessionAutoRefresh';
 import { attachDeepLinkFunnel, claimAuthParamOnce, dispatchDeepLink } from '@/src/lib/auth/deepLinkDispatch';
 import { pendingCodeIsRecovery } from '@/src/lib/auth/recoveryClaim';
+import { AUTH_LINK_EXPIRED_COPY } from '@/src/lib/auth/linkErrorCopy';
 import { assertDeviceRandomness } from '@/src/lib/randomness';
-import { NativeModules } from 'react-native';
+import { Alert, NativeModules } from 'react-native';
 import { usePushToken } from '@/src/hooks/usePushToken';
 import { APP_CONFIG } from '@/src/config/app';
 import { looksLikeStripePublishableKey } from '@/src/config/envValue';
@@ -217,6 +218,8 @@ export function useNativeEffects({ userId, isRecovery, setIsRecovery }: NativeEf
         // F7: the claim failed (rejected or missing token), so drop the hold it raised; the root
         // route then decides by phase — signed out goes to login, where a new link can be requested.
         onRecoveryFailed: () => setIsRecovery(false),
+        // D6: an expired or used email link says so instead of a silent bounce to Login.
+        onLinkError: () => Alert.alert(AUTH_LINK_EXPIRED_COPY.title, AUTH_LINK_EXPIRED_COPY.body),
       });
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
