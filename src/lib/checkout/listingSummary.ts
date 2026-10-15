@@ -26,11 +26,15 @@
  * requests it.
  */
 
+import { proofIsWaived } from '@/src/lib/listing/proofPresentation';
+
 /** Exactly the columns the summary needs; every one verified to exist. */
 export const LISTING_SUMMARY_COLUMNS =
   // V3 (owner 2026-09-23): + ticket_type for the identity line's "2 × GA". Same authorized
   // row, display only. Flagged to A: this file hosts checkout's summary read.
-  'cover_image_path, event_name, venue, event_date, event_time, reserved_until, quantity, ticket_type';
+  // N5 (2026-10-15): + proof_status, proof_waived_at so the pay face states an owner proof waiver
+  // (migration 156). Display only. These columns exist only once 156 is applied.
+  'cover_image_path, event_name, venue, event_date, event_time, reserved_until, quantity, ticket_type, proof_status, proof_waived_at';
 
 export type ListingSummaryRow = {
   cover_image_path?: string | null;
@@ -44,6 +48,8 @@ export type ListingSummaryRow = {
   /** Tickets in the listing. The price covers all of them (whole-listing pricing). */
   quantity?: number | null;
   ticket_type?: string | null;
+  proof_status?: string | null;
+  proof_waived_at?: string | null;
 };
 
 export type ListingSummary = {
@@ -57,6 +63,8 @@ export type ListingSummary = {
   quantity: number | null;
   /** Null when unknown; the identity line then counts plain "tickets". */
   ticketType: string | null;
+  /** N5: the owner waived the ticket proof (156); stated on the pay face. False when unknown. */
+  proofWaived: boolean;
 };
 
 /** '' and '   ' are absences, not values — a blank must not reach the renderer. */
@@ -84,6 +92,7 @@ export function mapListingSummary(
     time: present(r.event_time) ?? '',
     quantity: typeof r.quantity === 'number' && Number.isFinite(r.quantity) && r.quantity > 0 ? Math.floor(r.quantity) : null,
     ticketType: present(r.ticket_type),
+    proofWaived: proofIsWaived(r),
   };
 }
 

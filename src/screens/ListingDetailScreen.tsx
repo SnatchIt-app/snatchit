@@ -54,6 +54,7 @@ import { APP_CONFIG } from '@/src/config/app';
 import { sendLocalNotification } from '@/src/utils/notifications';
 import { StateView, EmptyState, Spinner, StickyBar } from '@/src/components/ui';
 import { LISTING_UNAVAILABLE_COPY } from '@/src/lib/listing/unavailable';
+import { PROOF_REVIEWED_ROW, PROOF_WAIVED_NOTICE, proofIsReviewed, proofIsWaived } from '@/src/lib/listing/proofPresentation';
 // `BarAction` is the V3 pill with its sub-line inside it. Imported from the module rather than
 // the `ui` barrel because that barrel is owned centrally; it belongs in the barrel's exports.
 import { BarAction } from '@/src/components/ui/StickyBar';
@@ -1293,8 +1294,8 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
   ];
   // Ownership proof appears only after a human reviewed it. It never claims
   // verification before review (migration 033).
-  if (listing.proof_status === 'approved') {
-    detailRows.push({ label: 'Ownership proof', value: 'Reviewed by Snatch It' });
+  if (proofIsReviewed(listing)) {
+    detailRows.push({ ...PROOF_REVIEWED_ROW });
   }
   // A material term of the sale. It is never dropped to make the list match a sample board.
   if (listing.restrictions) {
@@ -1416,6 +1417,11 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
           quantity={listing.quantity}
           ticketType={listing.ticket_type}
         />
+
+        {/* N5: an owner proof waiver (156) is stated next to the price, before any bid or purchase. */}
+        {proofIsWaived(listing) ? (
+          <Text style={[textStyle('bodySm'), s.proofWaived]} accessibilityRole="text">{PROOF_WAIVED_NOTICE}</Text>
+        ) : null}
 
         <View style={s.facts}>
           {showBreakdown ? (
@@ -1568,6 +1574,8 @@ function makeStyles(p: Palette) {
   commitment: { color: p.text.secondary, paddingHorizontal: v2.space.lg, paddingTop: v2.space.md },
 
   // The board's fact list: one eyebrow, then rows of the same weight separated by hairlines.
+  // N5: the owner proof waiver, in primary ink on the gutter right under the price panel.
+  proofWaived: { color: p.text.primary, paddingHorizontal: v2.space.lg, paddingTop: v2.space.sm },
   facts: { paddingHorizontal: v2.space.lg },
   factEyebrow: { color: p.text.muted, paddingBottom: v2.space.xs },
   factRow: {

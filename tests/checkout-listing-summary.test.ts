@@ -29,7 +29,8 @@ describe('the summary select asks only for columns that exist', () => {
   it('asks for every field the summary and the countdown need', () => {
     expect(COLUMNS.sort()).toEqual(
       // V3 (owner 2026-09-23): + ticket_type for the identity line. Same authorized row.
-      ['cover_image_path', 'event_date', 'event_name', 'event_time', 'quantity', 'reserved_until', 'ticket_type', 'venue'],
+      // N5 (2026-10-15): + proof_status, proof_waived_at for the owner proof waiver (156). Display only.
+      ['cover_image_path', 'event_date', 'event_name', 'event_time', 'proof_status', 'proof_waived_at', 'quantity', 'reserved_until', 'ticket_type', 'venue'],
     );
   });
 
@@ -56,6 +57,7 @@ describe('mapping a row to what the screen shows', () => {
       time: '19:30',
       quantity: null,
       ticketType: null,
+      proofWaived: false,
     });
   });
 
@@ -103,7 +105,7 @@ describe('mapping a row to what the screen shows', () => {
 
   it('survives a missing row entirely', () => {
     expect(mapListingSummary(null, fallback)).toEqual({
-      cover: null, eventName: 'Nav event', venue: 'Nav venue', date: '', time: '', quantity: null, ticketType: null,
+      cover: null, eventName: 'Nav event', venue: 'Nav venue', date: '', time: '', quantity: null, ticketType: null, proofWaived: false,
     });
   });
 });

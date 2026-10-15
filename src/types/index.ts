@@ -134,6 +134,8 @@ export type Listing = {
   // ── Marketplace expansion (migration 033) ─────────────────────────────────
   category:                       EventCategory;               // defaults to 'nightlife'
   proof_status:                   ProofStatus;                 // admin review state; badge only when 'approved'
+  /** Owner proof waiver (migration 156). Present only after 156; a waived listing is never 'approved'. */
+  proof_waived_at?:               string | null;
 
   // ── Reservation / sale fields (added by migration) ────────────────────────
   status:           ListingStatus;        // 'active' | 'reserved' | 'sold'

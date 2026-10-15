@@ -43,6 +43,7 @@ import type { Palette } from '@/src/theme/palette';
 import { identityStacks } from '@/src/lib/design/featureMetrics';
 import { AMOUNT_MIN_FONT_SCALE, textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
+import { PROOF_WAIVED_NOTICE } from '@/src/lib/listing/proofPresentation';
 
 /** What the buyer is paying for — the same block on all three faces. */
 export interface CheckoutIdentity {
@@ -53,6 +54,8 @@ export interface CheckoutIdentity {
   eventTime: string | null;
   quantity: number | null;
   ticketType: string | null;
+  /** N5: an owner proof waiver (156), stated on the pay face before the buyer pays. */
+  proofWaived?: boolean;
 }
 
 /** A title/body state the screen shows instead of a payment method line. */
@@ -152,6 +155,10 @@ export default function CheckoutView({
           quantity={identity.quantity}
           ticketType={identity.ticketType}
         />
+
+        {identity.proofWaived ? (
+          <Text style={[textStyle('bodySm'), s.proofWaived]} accessibilityRole="text">{PROOF_WAIVED_NOTICE}</Text>
+        ) : null}
 
         {/*
             Reservation countdown (Buy Now). Tabular digits keep the m:ss from shifting width.
@@ -443,6 +450,8 @@ function makeStyles(p: Palette) {
 
   scroll: { paddingHorizontal: v2.space.lg, paddingTop: v2.space.md },
 
+  // N5: the owner proof waiver, primary ink, under the order identity on the pay face.
+  proofWaived: { color: p.text.primary, marginTop: v2.space.md },
   holdRow: { marginTop: v2.space.lg },
   // Tabular digits: the m:ss countdown must not shift width as it ticks (CFT-207).
   hold: { color: p.status.warning, fontVariant: ['tabular-nums'] },

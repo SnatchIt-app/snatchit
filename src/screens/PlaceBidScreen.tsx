@@ -48,6 +48,7 @@ import { NameText } from '@/src/components/NameText';
 import ScreenState from '@/src/components/ScreenState';
 import { Button, EmptyState, IconButton, Spinner, Tappable } from '@/src/components/ui';
 import { LISTING_UNAVAILABLE_COPY } from '@/src/lib/listing/unavailable';
+import { PROOF_WAIVED_NOTICE, proofIsWaived } from '@/src/lib/listing/proofPresentation';
 import { classifyLoadFailure, type LoadFailureKind } from '@/src/lib/ui/loadState';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
@@ -160,7 +161,8 @@ export default function PlaceBidScreen({ id, fixture }: Props) {
         // V3: the header restates the listing (date, venue, whole-listing quantity) and the
         // market column needs the bid count to avoid claiming a "current bid" nobody placed.
         // Same authorized row, same policy — only the column list widened.
-        .select('current_bid, starting_bid, event_name, venue, ends_at, event_date, event_time, quantity, ticket_type, bid_count')
+        // N5: + the proof facts, so an owner proof waiver (156) is stated before the bid.
+        .select('current_bid, starting_bid, event_name, venue, ends_at, event_date, event_time, quantity, ticket_type, bid_count, proof_status, proof_waived_at')
         .eq('id', id)
         .maybeSingle();
       if (error) {
@@ -355,6 +357,9 @@ export default function PlaceBidScreen({ id, fixture }: Props) {
             {`${listing.quantity} × ${listing.ticket_type}${listing.quantity > 1 ? ' · sold together' : ''}`}
           </Text>
         ) : null}
+        {proofIsWaived(listing) ? (
+          <Text style={[textStyle('bodySm'), s.proofWaived]} accessibilityRole="text">{PROOF_WAIVED_NOTICE}</Text>
+        ) : null}
 
         {/* V3 (pkg8-bid-*): the market price is a LABELLED ROW between hairlines — the label
             left, the amount right in the price face — not a middot-joined sentence. The label
@@ -509,6 +514,7 @@ function makeStyles(p: Palette) {
   body: { paddingHorizontal: v2.space.lg, paddingTop: v2.space.lg, paddingBottom: v2.space.xxl },
   eventName: { color: p.text.primary },
   venue: { color: p.text.secondary, marginTop: 2 },
+  proofWaived: { color: p.text.primary, marginTop: 4 },
 
   // The row supplies its own vertical padding, so only the FIRST hairline adds space above
   // itself — the board closes the second one up under the row rather than leaving a second gap.

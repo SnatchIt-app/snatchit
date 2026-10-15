@@ -768,6 +768,7 @@ export default function CheckoutScreen() {
     eventTime: display?.time || null,
     quantity: display?.quantity ?? null,
     ticketType: display?.ticketType ?? null,
+    proofWaived: display?.proofWaived ?? false,
   };
 
   if (refundState) {
