@@ -58,7 +58,12 @@ function ConfirmClient() {
       const outcome = await completeConfirm(link, supabase.auth, searchParams.get("next"));
 
       if (cancelled) return;
-      if (outcome.status === "signed_in") router.replace(outcome.route);
+      if (outcome.status === "signed_in") {
+        router.replace(outcome.route);
+        // The session was just stored in this tab: re-render the server layout so the header
+        // shows the signed-in state instead of "Log in" until the next navigation.
+        router.refresh();
+      }
       else setStatus(outcome.status === "first_confirmation" ? "first_confirmation" : "error");
     }
 

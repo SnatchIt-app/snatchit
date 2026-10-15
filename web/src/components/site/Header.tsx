@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Container } from "@/components/ui/Container";
@@ -6,6 +7,10 @@ import { Icon } from "@/components/ui/Icon";
 import { SearchForm } from "@/components/ui/SearchInput";
 import { HeaderNavLink, HideOnBrowse } from "@/components/site/NavLinks";
 import type { AuthedUser } from "@/lib/auth/session";
+import { LoginLink } from "@/components/site/LoginLink";
+
+const LOGIN_LINK_CLS =
+  "pressable inline-flex min-h-10 items-center whitespace-nowrap rounded-full px-3.5 text-[15px] font-semibold text-ink hover:bg-ink/[0.06]";
 
 /**
  * Top bar. Desktop: a translucent glass bar (the native dock's material) with
@@ -84,12 +89,17 @@ export function Header({ user, unread }: { user: AuthedUser | null; unread: numb
             </>
           ) : (
             <>
-              <Link
-                href="/login"
-                className="pressable inline-flex min-h-10 items-center whitespace-nowrap rounded-full px-3.5 text-[15px] font-semibold text-ink hover:bg-ink/[0.06]"
+              {/* Comes back to this page after login. The fallback (plain /login) only shows if the
+                  query isn't available while rendering. */}
+              <Suspense
+                fallback={
+                  <Link href="/login" className={LOGIN_LINK_CLS}>
+                    Log in
+                  </Link>
+                }
               >
-                Log in
-              </Link>
+                <LoginLink className={LOGIN_LINK_CLS} />
+              </Suspense>
               <LinkButton href="/signup" size="sm" className="whitespace-nowrap max-sm:hidden">
                 Create account
               </LinkButton>

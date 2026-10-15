@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { checkPayoutStatusAction, startPayoutOnboardingAction } from "@/lib/payouts-actions";
 import type { PayoutStatus } from "@/lib/payouts";
+import { payoutCheckOutcome } from "@/lib/payout-check";
 import { Button } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
 import { Badge, type Tone } from "@/components/ui/Badge";
@@ -37,18 +38,41 @@ export function PayoutSetup() {
   const [status, setStatus] = useState<PayoutStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [checkFailed, setCheckFailed] = useState(false);
+
+  // A thrown check (no session, network) used to leave this on "Checking payout status…"
+  // forever. It now says so and offers a retry; it never guesses a status.
+  function runCheck() {
+    return checkPayoutStatusAction()
+      .then((res) => {
+        const outcome = payoutCheckOutcome(res);
+        if (outcome.kind === "status") setStatus(outcome.status);
+        else setCheckFailed(true);
+      })
+      .catch(() => setCheckFailed(true));
+  }
 
   useEffect(() => {
-    checkPayoutStatusAction().then((res) => {
-      setStatus(res.status);
-      if (res.error) setError(res.error);
-    });
+    void runCheck();
   }, []);
+
+  function retryCheck() {
+    setCheckFailed(false);
+    void runCheck();
+  }
 
   async function handleClick() {
     setSubmitting(true);
     setError(null);
-    const res = await startPayoutOnboardingAction();
+    let res: Awaited<ReturnType<typeof startPayoutOnboardingAction>>;
+    try {
+      res = await startPayoutOnboardingAction();
+    } catch {
+      // A thrown action (session ended, network) used to leave "Opening Stripe…" forever.
+      setError("We couldn't open Stripe. Try again in a moment.");
+      setSubmitting(false);
+      return;
+    }
     setStatus(res.status);
     if (res.error) {
       setError(res.error);
@@ -56,9 +80,9 @@ export function PayoutSetup() {
       return;
     }
     if (res.url) {
-      // Full navigation, not a new tab — Stripe's return_url currently
-      // brings the browser back to snatchitapp.com/payout-return (shared
-      // with mobile), not back to this app. See settings page note.
+      // Full navigation, not a new tab. Stripe brings the browser back to
+      // app.snatchitapp.com/payout-return (shared with the native app), which
+      // re-checks the status; see lib/payout-handoff.ts.
       window.location.href = res.url;
       return;
     }
@@ -66,6 +90,16 @@ export function PayoutSetup() {
   }
 
   if (status === null) {
+    if (checkFailed) {
+      return (
+        <div className="max-w-[480px] space-y-4">
+          <Alert tone="error">We couldn&apos;t check your payout status. Try again in a moment.</Alert>
+          <Button type="button" variant="secondary" onClick={retryCheck}>
+            Try again
+          </Button>
+        </div>
+      );
+    }
     return <p className="t-body text-muted">Checking payout status…</p>;
   }
 

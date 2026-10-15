@@ -11,13 +11,17 @@ export const metadata: Metadata = {
   robots: { index: false, follow: true },
 };
 
-export default async function ResetPasswordPage() {
-  const user = await getAuthedUser();
+type SearchParams = Record<string, string | string[] | undefined>;
+
+export default async function ResetPasswordPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
+  const [user, sp] = await Promise.all([getAuthedUser(), searchParams]);
+  // Set by /auth/confirm for a reset link (complete-confirm.ts); not a credential.
+  const fromResetLink = sp.recovery === "1";
 
   return (
     <AuthCard eyebrow="Account" title="Set new password">
       {user ? (
-        <ResetPasswordForm />
+        <ResetPasswordForm fromResetLink={fromResetLink} />
       ) : (
         <div className="space-y-6">
           <Alert tone="error">This reset link has expired or already been used.</Alert>

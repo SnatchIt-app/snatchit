@@ -5,6 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { toggleSaveAction } from "@/lib/favorites-actions";
 import { Icon } from "@/components/ui/Icon";
 import { iconButtonClasses, buttonClasses } from "@/components/ui/Button";
+import { loginHrefFor } from "@/lib/auth/login-href";
 
 function BookmarkIcon({ filled }: { filled: boolean }) {
   return <Icon name="bookmark" size={20} filled={filled} strokeWidth={1.9} />;
@@ -37,7 +38,7 @@ export function SaveButton({
     startTransition(async () => {
       const result = await toggleSaveAction(listingId, saved);
       if (result.error === "AUTH_REQUIRED") {
-        router.push(`/login?next=${encodeURIComponent(pathname)}`);
+        router.push(loginHrefFor(pathname, window.location.search));
         return;
       }
       if (result.error) {

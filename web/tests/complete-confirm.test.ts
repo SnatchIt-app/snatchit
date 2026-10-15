@@ -42,7 +42,7 @@ describe("an emailed link opened on another device (no prior browser state)", ()
     const link = readConfirmLink(new URLSearchParams("next=%2Freset-password"), fragment("recovery"));
     expect(link.kind).toBe("implicit");
     const out = await completeConfirm(link, auth, "/reset-password");
-    expect(out).toEqual({ status: "signed_in", route: "/reset-password" });
+    expect(out).toEqual({ status: "signed_in", route: "/reset-password?recovery=1" });
     expect([...store.keys()].some((k) => k.startsWith("sb-test-auth-token"))).toBe(true);
   });
 

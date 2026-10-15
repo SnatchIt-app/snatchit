@@ -177,6 +177,8 @@ Screens without a current capture were matched to the native source (`app/`, `sr
   apply to web users regardless; the web only lacks the entry points.)
 - **Notification preferences** (six toggles), **Your scene** (neighborhoods), **Sign out of all devices**.
 - **Phone-number sign-in** and the 4-step sign-up (the web signs in by email).
-- **Payout return/refresh screens** — web payout onboarding returns to `snatchitapp.com/payout-return`
-  (existing behaviour, unchanged).
 The web keeps flows the native app lacks: notifications inbox, saved listings, inline bidding.
+
+Payout onboarding returns to `https://app.snatchitapp.com/payout-return` and `/payout-refresh` (PR #109):
+signed in, the live status; signed out on a phone, a handoff to `snatchit://payout-return|payout-refresh`;
+otherwise log in → payout settings. The Stripe Connect URLs themselves are Supabase secrets (A).

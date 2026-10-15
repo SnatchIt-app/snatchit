@@ -1,5 +1,6 @@
 "use server";
 
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { SITE_URL } from "@/lib/env";
@@ -104,6 +105,25 @@ export async function signInAction(_prev: ActionState, formData: FormData): Prom
   }
 
   redirect(next);
+}
+
+/**
+ * Cancel on "Set new password" after a reset link: sign out THIS browser only and leave the
+ * password unchanged. scope "local" ends just this session; the default ("global") would also
+ * sign the person out of the app on every other device.
+ */
+export async function cancelPasswordResetAction(): Promise<void> {
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase.auth.signOut({ scope: "local" });
+  if (error) {
+    // auth-js keeps the cookies when it can't load the session (expired token + Auth
+    // unreachable). Clear this browser's auth cookies anyway, so "signed out on this browser"
+    // stays true; the server-side session simply expires.
+    console.error("[auth] cancel reset signOut failed", { status: error.status, name: error.name });
+    const jar = await cookies();
+    for (const c of jar.getAll()) if (c.name.startsWith("sb-")) jar.delete(c.name);
+  }
+  redirect("/login?reset=cancelled");
 }
 
 export async function signOutAction(): Promise<void> {

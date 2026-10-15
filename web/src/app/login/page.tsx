@@ -24,6 +24,7 @@ export default async function LoginPage({
 
   let banner: string | undefined;
   if (first(sp.reset) === "success") banner = "Password updated. Log in with your new password.";
+  else if (first(sp.reset) === "cancelled") banner = "Password not changed. You've been signed out on this browser.";
   else if (first(sp.confirmed) === "1") banner = "Email confirmed. Log in to continue.";
 
   return (

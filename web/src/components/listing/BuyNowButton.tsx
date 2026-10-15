@@ -5,6 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { reserveBuyNowAction } from "@/lib/checkout-actions";
 import { Button } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
+import { loginHrefFor } from "@/lib/auth/login-href";
 
 export function BuyNowButton({ listingId }: { listingId: string }) {
   const [error, setError] = useState<string | null>(null);
@@ -17,7 +18,7 @@ export function BuyNowButton({ listingId }: { listingId: string }) {
     startTransition(async () => {
       const result = await reserveBuyNowAction(listingId);
       if (result.error === "AUTH_REQUIRED") {
-        router.push(`/login?next=${encodeURIComponent(pathname)}`);
+        router.push(loginHrefFor(pathname, window.location.search));
         return;
       }
       if (result.error) {
