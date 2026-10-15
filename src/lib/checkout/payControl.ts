@@ -28,7 +28,7 @@
  * states, not invented progress; no percentage, no timer.
  */
 
-export type PayAction = 'pay' | 'retry' | 'back' | 'none';
+export type PayAction = 'pay' | 'retry' | 'back' | 'reload_details' | 'none';
 
 /**
  * Seconds before the hold's deadline at which Pay is withdrawn. Absorbs
@@ -58,6 +58,12 @@ export interface PayControlInput {
   reservationMsLeft?: number | null;
   /** Preformatted all-in total, e.g. "$66". Never recomputed here. */
   formattedTotal: string;
+  /**
+   * The listing's details read (checkout summary), which carries the owner proof-waiver state (156). Until it
+   * has answered the waiver state is unknown, so Pay is withheld; a failed read offers only a re-read
+   * (owner, 2026-10-15: never offer payment while hiding a waiver disclosure). Absent = not gated (previews).
+   */
+  disclosure?: 'loading' | 'ready' | 'failed';
 }
 
 export interface PayControl {
@@ -84,6 +90,9 @@ export function payControl(i: PayControlInput): PayControl {
   if (i.paymentLoading) return { label: 'Setting up payment', loading: true, disabled: true,  action: 'none' };
   if (i.statusUnknown)  return { label: 'Check again',       loading: false, disabled: false, action: 'retry' };
   if (i.holdLost)       return { label: 'Back to listing',   loading: false, disabled: false, action: 'back' };
+  // The disclosure gate: no Pay until the details (and any proof waiver) are on screen.
+  if (i.disclosure === 'loading') return { label: 'Loading listing details', loading: true, disabled: true, action: 'none' };
+  if (i.disclosure === 'failed')  return { label: 'Load listing details', loading: false, disabled: false, action: 'reload_details' };
   if (i.paymentReady && withinExpiryMargin(i.reservationMsLeft)) {
     return { label: 'Checking your hold', loading: true, disabled: true, action: 'none' };
   }
