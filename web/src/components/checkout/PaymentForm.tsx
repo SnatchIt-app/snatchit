@@ -10,7 +10,7 @@ import { Button, LinkButton } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
 import { Icon } from "@/components/ui/Icon";
 import { PAYMENT_STILL_PROCESSING } from "@/lib/checkout-wording";
-import { CHECKOUT_SESSION_ENDED, checkoutLoginHref } from "@/lib/checkout-return";
+import { CHECKOUT_SESSION_ENDED, checkoutLoginHref, isSessionEnded } from "@/lib/checkout-return";
 
 export function PaymentForm({ listingId, mode }: { listingId: string; mode: CheckoutMode }) {
   const stripe = useStripe();
@@ -60,7 +60,7 @@ export function PaymentForm({ listingId, mode }: { listingId: string; mode: Chec
     }
 
     const result = await finalizePurchaseAction(listingId, paymentIntent.id, mode);
-    if (result.error === "AUTH_REQUIRED") {
+    if (isSessionEnded(result)) {
       // The card is charged; nothing is recorded yet. Never show the raw code.
       setError(CHECKOUT_SESSION_ENDED);
       setLoginHref(checkoutLoginHref(listingId, paymentIntent.id, mode));

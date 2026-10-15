@@ -11,9 +11,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // checkout whose session ended goes back to its own complete page after login, and Cancel on
 // "Set new password" signs out this browser only.
 
-const h = vi.hoisted(() => ({ signOut: vi.fn(async (_o?: unknown) => ({ error: null })), redirect: vi.fn() }));
+const h = vi.hoisted(() => ({
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- typed so calls can be asserted with an argument
+  signOut: vi.fn(async (_opts?: unknown) => ({ error: null as unknown })),
+  redirect: vi.fn(),
+  jar: [] as { name: string }[],
+  deleted: [] as string[],
+}));
 
 vi.mock("server-only", () => ({}));
+vi.mock("next/headers", () => ({
+  cookies: async () => ({ getAll: () => h.jar, delete: (n: string) => void h.deleted.push(n), set: () => {} }),
+  headers: async () => new Headers(),
+}));
 vi.mock("next/image", () => ({ default: () => null }));
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: unknown }) => createElement("a", { href, ...rest }, children as never),
@@ -33,6 +43,9 @@ import { checkoutLoginHref } from "@/lib/checkout-return";
 import { decideProxyRedirect } from "@/lib/auth/proxy-logic";
 import { safeInternalPath } from "@/lib/auth/redirect";
 import { cancelPasswordResetAction } from "@/lib/auth/actions";
+import { isSessionEnded, keptReturnQuery } from "@/lib/checkout-return";
+import { payoutCheckOutcome } from "@/lib/payout-check";
+import nextConfig from "../next.config";
 
 const SRC = path.resolve(__dirname, "../src");
 const read = (rel: string) => readFileSync(path.join(SRC, rel), "utf8");
@@ -45,6 +58,8 @@ const MAC = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.1
 beforeEach(() => {
   h.signOut.mockClear();
   h.redirect.mockClear();
+  h.jar = [];
+  h.deleted = [];
 });
 
 describe("payout return / refresh on the canonical origin", () => {
@@ -93,6 +108,20 @@ describe("payout return / refresh on the canonical origin", () => {
     expect(isMobileUserAgent(null)).toBe(false);
   });
 
+  it("a status is shown only when the check returned one without an error (never an unread 'Not connected')", () => {
+    expect(payoutCheckOutcome({ status: "connected" })).toEqual({ kind: "status", status: "connected" });
+    expect(payoutCheckOutcome({ status: "onboarding_required" })).toEqual({ kind: "status", status: "onboarding_required" });
+    // getPayoutStatus answers an edge error as not_connected + error — that is a failed check
+    expect(payoutCheckOutcome({ status: "not_connected", error: "Edge function returned 502" })).toEqual({ kind: "failed" });
+    expect(payoutCheckOutcome({})).toEqual({ kind: "failed" });
+    expect(payoutCheckOutcome(undefined)).toEqual({ kind: "failed" });
+    expect(read("components/account/PayoutSetup.tsx")).toContain("payoutCheckOutcome(res)");
+  });
+
+  it("the signed-in heading claims nothing before the check answers", () => {
+    expect(page("return", true, false)).not.toMatch(/checked with Stripe just now/);
+  });
+
   it("both pages are thin wrappers over the handoff with their kind", () => {
     expect(read("app/payout-return/page.tsx")).toContain('kind="return"');
     expect(read("app/payout-refresh/page.tsx")).toContain('kind="refresh"');
@@ -121,12 +150,39 @@ describe("checkout: a session that ended after payment comes back to its own com
     expect(checkoutLoginHref(listing as string, pi as string | null, "buy_now")).toBeNull();
   });
 
+  it("only finalize's AUTH_REQUIRED is a session-ended state", () => {
+    expect(isSessionEnded({ error: "AUTH_REQUIRED" })).toBe(true);
+    expect(isSessionEnded({ error: "Payment could not be verified" })).toBe(false);
+    expect(isSessionEnded({})).toBe(false);
+    expect(isSessionEnded(null)).toBe(false);
+  });
+
+  it("the client secret leaves the address bar; what the page needs stays", () => {
+    expect(keptReturnQuery("?payment_intent=pi_test&payment_intent_client_secret=zzz&redirect_status=succeeded&mode=auction")).toBe(
+      "?payment_intent=pi_test&redirect_status=succeeded&mode=auction",
+    );
+    expect(keptReturnQuery("?payment_intent_client_secret=zzz&utm_source=x")).toBe("");
+    expect(keptReturnQuery("")).toBe("");
+  });
+
+  it("the complete page sends no Referer and is never cached", async () => {
+    const rules = await nextConfig.headers!();
+    const rule = rules.find((r) => r.source === "/checkout/:id/complete");
+    expect(rule?.headers).toEqual(
+      expect.arrayContaining([
+        { key: "Referrer-Policy", value: "no-referrer" },
+        { key: "Cache-Control", value: "no-store" },
+      ]),
+    );
+  });
+
   it("the complete page and the inline form show a login step, not the raw AUTH_REQUIRED code", () => {
     const complete = read("app/checkout/[id]/complete/page.tsx");
-    expect(complete).toContain('result.error === "AUTH_REQUIRED"');
+    expect(complete).toContain("if (isSessionEnded(result)) {");
     expect(complete).toContain("checkoutLoginHref(params.id, paymentIntentId, mode)");
+    expect(complete).toContain("keptReturnQuery(window.location.search)");
     const form = read("components/checkout/PaymentForm.tsx");
-    expect(form).toContain('result.error === "AUTH_REQUIRED"');
+    expect(form).toContain("if (isSessionEnded(result)) {");
     // The charged-but-unrecorded state renders before (and instead of) the form with its Pay button.
     const block = form.slice(form.indexOf("if (paidNeedsLogin) {"), form.indexOf("<form onSubmit"));
     expect(block).toContain("Log in to finish");
@@ -141,6 +197,20 @@ describe("Cancel on Set new password", () => {
     expect(h.signOut).toHaveBeenCalledWith({ scope: "local" });
     expect(h.redirect).toHaveBeenCalledWith("/login?reset=cancelled");
     expect(read("app/login/page.tsx")).toContain("Password not changed. You've been signed out on this browser.");
+  });
+
+  it("if Supabase can't sign out, this browser's auth cookies are cleared anyway (the note stays true)", async () => {
+    h.signOut.mockResolvedValueOnce({ error: { status: 503, name: "AuthRetryableFetchError" } });
+    h.jar = [{ name: "sb-proj-auth-token.0" }, { name: "sb-proj-auth-token.1" }, { name: "theme" }];
+    await cancelPasswordResetAction();
+    expect(h.deleted).toEqual(["sb-proj-auth-token.0", "sb-proj-auth-token.1"]);
+    expect(h.redirect).toHaveBeenCalledWith("/login?reset=cancelled");
+  });
+
+  it("a normal Cancel leaves cookie clearing to signOut (no manual deletes)", async () => {
+    h.jar = [{ name: "sb-proj-auth-token" }];
+    await cancelPasswordResetAction();
+    expect(h.deleted).toEqual([]);
   });
 
   it("only a reset link gets the sign-out Cancel; Password from settings just goes back", () => {

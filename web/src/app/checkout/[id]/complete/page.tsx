@@ -8,7 +8,7 @@ import { Button, LinkButton, Spinner } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
 import { Icon } from "@/components/ui/Icon";
 import { PAYMENT_STILL_PROCESSING } from "@/lib/checkout-wording";
-import { CHECKOUT_SESSION_ENDED, checkoutLoginHref } from "@/lib/checkout-return";
+import { CHECKOUT_SESSION_ENDED, checkoutLoginHref, isSessionEnded, keptReturnQuery } from "@/lib/checkout-return";
 
 type Status = "processing" | "success" | "unverified" | "pending" | "error" | "login";
 
@@ -51,11 +51,19 @@ function CompleteClient() {
         : null,
   );
 
+  // Stripe's redirect puts payment_intent_client_secret in the URL. Everything this page needs was
+  // read above, so drop it from the address bar and history (null state, as /auth/confirm does,
+  // so Next's router doesn't re-sync the old URL).
+  useEffect(() => {
+    const kept = keptReturnQuery(window.location.search);
+    if (kept !== window.location.search) window.history.replaceState(null, "", window.location.pathname + kept);
+  }, []);
+
   useEffect(() => {
     if (failedUpfront) return;
     finalizePurchaseAction(params.id, paymentIntentId, mode)
       .then((result) => {
-        if (result.error === "AUTH_REQUIRED") {
+        if (isSessionEnded(result)) {
           // Stripe confirmed the payment, but this browser has no session (it ended during
           // 3DS, or the return opened elsewhere). Log in and come straight back here.
           setMessage(CHECKOUT_SESSION_ENDED);

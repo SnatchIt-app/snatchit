@@ -20,3 +20,24 @@ export function checkoutLoginHref(listingId: string, paymentIntentId: string | n
 
 export const CHECKOUT_SESSION_ENDED =
   "Your session ended before we could record this purchase. Log in to finish — you won't be charged again.";
+
+/** finalizePurchaseAction's answer for a browser without a session (paid; nothing recorded yet). */
+export function isSessionEnded(result: { error?: string | null } | null | undefined): boolean {
+  return result?.error === "AUTH_REQUIRED";
+}
+
+/**
+ * The complete page's query after Stripe's redirect, minus payment_intent_client_secret: only
+ * payment_intent, redirect_status and mode survive, so the secret leaves the address bar and
+ * history (and can't ride along in a Referer) once the page has read what it needs.
+ */
+export function keptReturnQuery(search: string): string {
+  const src = new URLSearchParams(search);
+  const kept = new URLSearchParams();
+  for (const k of ["payment_intent", "redirect_status", "mode"]) {
+    const v = src.get(k);
+    if (v !== null) kept.set(k, v);
+  }
+  const s = kept.toString();
+  return s ? `?${s}` : "";
+}

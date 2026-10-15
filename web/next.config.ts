@@ -128,6 +128,15 @@ const nextConfig: NextConfig = {
           { key: "Cache-Control", value: "no-store" },
         ],
       },
+      // Stripe's redirect lands here with payment_intent_client_secret in the query until the page
+      // drops it; send no Referer from it and never cache it.
+      {
+        source: "/checkout/:id/complete",
+        headers: [
+          { key: "Referrer-Policy", value: "no-referrer" },
+          { key: "Cache-Control", value: "no-store" },
+        ],
+      },
     ];
   },
 };

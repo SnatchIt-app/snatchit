@@ -11,7 +11,7 @@ import {
 const COPY = {
   return: {
     title: "Back from Stripe",
-    signedIn: "Here's your payout status, checked with Stripe just now.",
+    signedIn: "Your payout status from Stripe is below.",
     signedOut: "Your details went to Stripe. Open the Snatch It app, or log in here, to see your payout status.",
     app: APP_PAYOUT_RETURN,
   },

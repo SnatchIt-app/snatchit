@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { checkPayoutStatusAction, startPayoutOnboardingAction } from "@/lib/payouts-actions";
 import type { PayoutStatus } from "@/lib/payouts";
+import { payoutCheckOutcome } from "@/lib/payout-check";
 import { Button } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
 import { Badge, type Tone } from "@/components/ui/Badge";
@@ -44,8 +45,9 @@ export function PayoutSetup() {
   function runCheck() {
     return checkPayoutStatusAction()
       .then((res) => {
-        setStatus(res.status);
-        if (res.error) setError(res.error);
+        const outcome = payoutCheckOutcome(res);
+        if (outcome.kind === "status") setStatus(outcome.status);
+        else setCheckFailed(true);
       })
       .catch(() => setCheckFailed(true));
   }
@@ -62,7 +64,15 @@ export function PayoutSetup() {
   async function handleClick() {
     setSubmitting(true);
     setError(null);
-    const res = await startPayoutOnboardingAction();
+    let res: Awaited<ReturnType<typeof startPayoutOnboardingAction>>;
+    try {
+      res = await startPayoutOnboardingAction();
+    } catch {
+      // A thrown action (session ended, network) used to leave "Opening Stripe…" forever.
+      setError("We couldn't open Stripe. Try again in a moment.");
+      setSubmitting(false);
+      return;
+    }
     setStatus(res.status);
     if (res.error) {
       setError(res.error);
