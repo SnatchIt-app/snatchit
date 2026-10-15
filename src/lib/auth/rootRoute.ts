@@ -52,6 +52,11 @@ export interface RootRouteInput {
   phase: AuthPhase;
   /** The phase this layout last navigated for, or null before the first route. */
   lastRoutedPhase: AuthPhase | null;
+  /**
+   * The current route is inside the signed-in area (the tabs, K-2). A deep link can land there while
+   * signed out — Expo Router routes snatchit://?code=… to "/" → Home — without any phase change.
+   */
+  inSignedInArea?: boolean;
 }
 
 /**
@@ -67,7 +72,12 @@ export function rootRouteDecision(input: RootRouteInput): RootRouteDecision {
 
   // The fix: a session object that changed without the phase changing is a token
   // refresh or a user update. It is not a sign-in and must not move anyone.
-  if (input.phase === input.lastRoutedPhase) return { navigate: false, reason: 'same_phase' };
+  if (input.phase === input.lastRoutedPhase) {
+    // K-2 on deep links (C's simulator check, 2026-10-15): a signed-out person who lands on a tab —
+    // e.g. a recovery link with no pending reset on this phone, routed "/" → Home — goes to login.
+    if (input.phase === 'signed_out' && input.inSignedInArea) return { navigate: true, to: '/(auth)/login' };
+    return { navigate: false, reason: 'same_phase' };
+  }
 
   return { navigate: true, to: input.phase === 'signed_out' ? '/(auth)/login' : '/(tabs)/home' };
 }

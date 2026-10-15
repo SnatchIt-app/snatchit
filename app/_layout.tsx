@@ -174,7 +174,11 @@ function RootLayout() {
   }, [isRecovery, userId]);
   const routingLoading = loading || !recoveryChecked;
 
-  // Navigation is a separate concern and runs only on a real phase boundary.
+  // K-2: whether the current route is inside the signed-in area (the tabs).
+  const inSignedInArea = (segments as string[])[0] === '(tabs)';
+
+  // Navigation is a separate concern and runs only on a real phase boundary — and, while signed out,
+  // whenever a deep link has put the person inside the signed-in area.
   useEffect(() => {
     if (inDevHarness) return;
     const phase = authPhase(session);
@@ -184,11 +188,12 @@ function RootLayout() {
       onboarding,
       phase,
       lastRoutedPhase: routedPhaseRef.current,
+      inSignedInArea,
     });
     if (!decision.navigate) return;
     routedPhaseRef.current = phase;
     router.replace(decision.to);
-  }, [session, routingLoading, isRecovery, onboarding, inDevHarness]);
+  }, [session, routingLoading, isRecovery, onboarding, inDevHarness, inSignedInArea]);
 
   // Reduce Motion: every push and pop still happens, as a cross-fade (CFT-206).
   const reduceMotion = useReducedMotion();
