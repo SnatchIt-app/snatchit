@@ -89,25 +89,38 @@ describe('N5 — checkout (the face where the buyer pays)', () => {
 });
 
 describe('N5 — no bare "Verified" next to ticket information', () => {
-  // Every buyer-facing listing surface: cards, detail, bid, checkout. Phone/account screens are elsewhere.
-  const roots = ['src/components/discovery', 'src/components/listing', 'src/screens/ListingDetailScreen.tsx',
-    'src/screens/PlaceBidScreen.tsx', 'src/screens/checkout', 'src/lib/listing', 'src/lib/checkout'];
+  // Every buyer-facing listing, bid, order and profile surface (review N5-4/T8 widened the roots and added JSX
+  // text, case-insensitive). Account screens (phone verification in app/settings, app/(auth), src/lib/auth)
+  // are not ticket information and stay out. Seller- and buyer-level badges are acceptable.
+  const roots = ['app/(tabs)', 'app/listing', 'app/bid', 'app/checkout', 'app/transfer', 'app/profile',
+    'src/components', 'src/screens', 'src/lib/listing', 'src/lib/checkout', 'src/lib/bids', 'src/lib/tickets'];
   const files: string[] = [];
   const walk = (p: string) => {
     const abs = join(ROOT, p);
+    try { statSync(abs); } catch { return; }
     if (statSync(abs).isDirectory()) for (const e of readdirSync(abs)) walk(join(p, e));
     else if (/\.(ts|tsx)$/.test(p)) files.push(p);
   };
   roots.forEach(walk);
-  it('P9: the only "Verified" on these surfaces is the seller-level "Verified seller"', () => {
+  const ALLOWED = /verified (seller|buyer)/i;
+  const hits = (src: string) => [
+    ...src.matchAll(/['"`][^'"`\n]*\bverified\b[^'"`\n]*['"`]/gi),   // string literals
+    ...src.matchAll(/>[^<>{}\n]*\bverified\b[^<>{}\n]*</gi),          // JSX text children
+  ].map((m) => m[0]);
+
+  it('P9: the only "verified" on these surfaces is seller- or buyer-level', () => {
     const offenders: string[] = [];
-    for (const f of files) {
-      const src = read(f);
-      for (const m of src.matchAll(/['"`][^'"`\n]*\bVerified\b[^'"`\n]*['"`]/g)) {
-        if (!/Verified seller/.test(m[0])) offenders.push(`${f}: ${m[0]}`);
-      }
-    }
-    expect(files.length).toBeGreaterThan(20);
+    // An exact 'verified' literal is checkout's internal payment-verdict code (CheckoutNative), never rendered.
+    const INTERNAL = /^['"`]verified['"`]$/;
+    for (const f of files) for (const h of hits(read(f))) if (!ALLOWED.test(h) && !INTERNAL.test(h)) offenders.push(`${f}: ${h}`);
+    expect(files.length).toBeGreaterThan(100);
     expect(offenders).toEqual([]);
+  });
+
+  it('P10: the sweep sees JSX text and any case (witness)', () => {
+    expect(hits('<Text style={s.badge}>Verified</Text>')).toHaveLength(1);
+    expect(hits("label: 'VERIFIED tickets'")).toHaveLength(1);
+    expect(hits('<Text>Verified Seller</Text>').every((h) => ALLOWED.test(h))).toBe(true);
+    expect(hits(".select('display_name, is_verified_seller')")).toHaveLength(0);
   });
 });

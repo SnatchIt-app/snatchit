@@ -37,7 +37,7 @@ export function SellerTrustRow({ displayName, avatarUrl, isVerified, onPress }: 
       onPress={onPress}
       style={styles.row}
       accessibilityRole="button"
-      accessibilityLabel={`Seller ${displayName}${isVerified ? ', verified' : ''}. View profile.`}
+      accessibilityLabel={`Seller ${displayName}${isVerified ? ', verified seller' : ''}. View profile.`}
     >
       {avatarUrl ? (
         <Image source={{ uri: avatarUrl }} style={styles.avatar} contentFit="cover" />
