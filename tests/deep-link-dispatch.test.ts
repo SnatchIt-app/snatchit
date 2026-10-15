@@ -263,3 +263,62 @@ describe('(e) N7: a PKCE recovery code — the link GoTrue actually sends (snatc
     expect(d.onRecovery).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('(f) review T6: one auth code, one claim — an overlapping second dispatch cannot drop the hold', () => {
+  /*
+   * The F7 release is per dispatch but the hold is shared state, and the funnel does not de-duplicate. If
+   * the same recovery link reached dispatch twice at once (initial URL and url event both delivering it),
+   * the second exchange fails on the already-consumed verifier and released the hold AFTER the first
+   * exchange had produced the session — the root route then went Home. A code or token_hash is single-use,
+   * so only its first claim may act.
+   */
+  const LINK = 'snatchit://?code=dup-code-1';
+  function claimer() {
+    const seen = new Set<string>();
+    return (key: string) => { if (seen.has(key)) return false; seen.add(key); return true; };
+  }
+
+  it('two overlapping dispatches of one code exchange once and never release the hold', async () => {
+    const claimOnce = claimer();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const exchange = vi.fn(async () => { await gate; return { error: null }; });
+    const onRecovery = vi.fn();
+    const onRecoveryFailed = vi.fn();
+    const mk = () => deps({ isRecoveryCode: vi.fn(async () => true), exchangeCodeForSession: exchange, onRecovery, onRecoveryFailed, claimOnce });
+    const first = dispatchDeepLink(LINK, mk());
+    const second = await dispatchDeepLink(LINK, mk());
+    release();
+    expect(await first).toEqual({ kind: 'pkce', error: null });
+    expect(second).toEqual({ kind: 'ignored' });
+    expect(exchange).toHaveBeenCalledTimes(1);
+    expect(onRecovery).toHaveBeenCalledTimes(1);
+    expect(onRecoveryFailed).not.toHaveBeenCalled();
+  });
+
+  it('the same holds for a token_hash link', async () => {
+    const claimOnce = claimer();
+    const d1 = deps({ claimOnce }); const d2 = deps({ claimOnce });
+    await dispatchDeepLink(OTP_URL, d1);
+    expect(await dispatchDeepLink(OTP_URL, d2)).toEqual({ kind: 'ignored' });
+    expect(d2.verifyOtp).not.toHaveBeenCalled();
+    expect(d2.onRecovery).not.toHaveBeenCalled();
+  });
+
+  it('different codes are each claimed; without a claimer nothing changes (existing callers)', async () => {
+    const claimOnce = claimer();
+    expect(await dispatchDeepLink('snatchit://?code=a', deps({ claimOnce }))).toEqual({ kind: 'pkce', error: null });
+    expect(await dispatchDeepLink('snatchit://?code=b', deps({ claimOnce }))).toEqual({ kind: 'pkce', error: null });
+    const plain = deps();
+    await dispatchDeepLink(PKCE_URL, plain); await dispatchDeepLink(PKCE_URL, plain);
+    expect(plain.exchangeCodeForSession).toHaveBeenCalledTimes(2);
+  });
+
+  it('the shell supplies a process-wide claimer', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    const shell = readFileSync(resolve(__dirname, '..', 'src/providers/NativeAppShell.native.tsx'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+    expect(shell).toContain('claimOnce: claimAuthParamOnce,');
+  });
+});

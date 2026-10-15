@@ -37,6 +37,11 @@ export interface DeepLinkDeps {
    * no `type`, so without this a recovery link exchanges into a plain sign-in and the root route goes Home.
    */
   isRecoveryCode?(): Promise<boolean>;
+  /**
+   * Review T6: a code or token_hash is single-use, so only its first claim may act. Returns false when the
+   * key was already claimed in this process; the dispatch then ignores the link (and leaves the hold alone).
+   */
+  claimOnce?(key: string): boolean;
   /** Raise the recovery hold; the root layout moves to the reset screen once its navigator is ready. */
   onRecovery(): void;
   /**
@@ -85,6 +90,11 @@ export async function dispatchDeepLink(url: string | null | undefined, deps: Dee
   const token_hash = p.get('token_hash');
   const errParam = p.get('error') ?? p.get('error_code');
   if (errParam) warn('[auth] deep-link error:', errParam, p.get('error_description') ?? '');
+
+  // Review T6: an overlapping second delivery of the same single-use link must not act — its exchange would
+  // fail on the consumed verifier and release a hold the first one's session needs.
+  const authKey = token_hash && type ? `otp:${token_hash}` : code ? `code:${code}` : null;
+  if (authKey && deps.claimOnce && !deps.claimOnce(authKey)) return { kind: 'ignored' };
 
   // Raise the recovery hold for recovery links. The session is established
   // below, never by trusting tokens in the URL. The hold goes up first so the
@@ -147,4 +157,12 @@ export function attachDeepLinkFunnel(linking: LinkingLike, dispatch: (url: strin
   linking.getInitialURL().then((url) => { if (url) dispatch(url); });
   const sub = linking.addEventListener('url', ({ url }) => dispatch(url));
   return () => sub.remove();
+}
+
+/** Process-wide single-claim memory for auth link parameters (review T6). */
+const claimedAuthParams = new Set<string>();
+export function claimAuthParamOnce(key: string): boolean {
+  if (claimedAuthParams.has(key)) return false;
+  claimedAuthParams.add(key);
+  return true;
 }

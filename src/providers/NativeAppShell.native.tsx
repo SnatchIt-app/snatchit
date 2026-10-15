@@ -18,7 +18,7 @@ import 'react-native-reanimated';
 import { router } from 'expo-router';
 import { supabase } from '@/src/lib/supabase';
 import { startSessionAutoRefresh } from '@/src/lib/auth/sessionAutoRefresh';
-import { attachDeepLinkFunnel, dispatchDeepLink } from '@/src/lib/auth/deepLinkDispatch';
+import { attachDeepLinkFunnel, claimAuthParamOnce, dispatchDeepLink } from '@/src/lib/auth/deepLinkDispatch';
 import { pendingCodeIsRecovery } from '@/src/lib/auth/recoveryClaim';
 import { assertDeviceRandomness } from '@/src/lib/randomness';
 import { NativeModules } from 'react-native';
@@ -210,6 +210,8 @@ export function useNativeEffects({ userId, isRecovery, setIsRecovery }: NativeEf
         exchangeCodeForSession: (code) => supabase.auth.exchangeCodeForSession(code),
         // N7: GoTrue's PKCE recovery redirect carries no type; this installation's stored verifier does.
         isRecoveryCode: () => pendingCodeIsRecovery(supabase.auth),
+        // Review T6: a single-use code acts once even if iOS delivers the link twice.
+        claimOnce: claimAuthParamOnce,
         // The root layout's guard moves to the reset screen once the navigator exists (N7).
         onRecovery: () => { setIsRecovery(true); },
         // F7: the claim failed (rejected or missing token), so drop the hold it raised; the root
