@@ -16,6 +16,9 @@ Copied from docs/release/packages/152_20261013/pkg.py (sha256 02537f62…, execu
     against rehearsal/expected_local/ with the identical code path.
 Review fix (2026-10-15): 154's ledger-delete guard also requires is_public(listings) to be gone; 155's also
 requires set_listing_ends_at_from_duration() to be gone (155 now carries the server-side end time).
+ADDENDUM 3 + review fixes (2026-10-15, second re-freeze): 156's ledger-delete guard also requires
+client_shows_proof_disclosure(), guard_bid_requires_disclosure() and guard_reservation_requires_disclosure()
+to be gone (156 now carries the old-build purchase safeguard).
 
 NEW CODE. It follows the design documented in PR93_PRODUCTION_EXECUTION_PACKAGE_20260924.md §4-§10
 (prestate STOP keys, one request per migration = file + ledger row, POST assertion, guarded rollback
@@ -93,6 +96,9 @@ MIG = {
                 rollback_ignore=DATA_KEYS,
                 gone="to_regprocedure('public.guard_listing_proof_waiver()') IS NULL "
                      "AND to_regprocedure('public.current_user_is_admin()') IS NULL "
+                     "AND to_regprocedure('public.client_shows_proof_disclosure()') IS NULL "
+                     "AND to_regprocedure('public.guard_bid_requires_disclosure()') IS NULL "
+                     "AND to_regprocedure('public.guard_reservation_requires_disclosure()') IS NULL "
                      "AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' "
                      "AND table_name = 'listings' AND column_name IN ('proof_waived_at','proof_waived_by','proof_waiver_reason'))"),
 }

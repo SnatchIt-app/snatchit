@@ -18,6 +18,12 @@
 --     listings: super / bypassrls); fnown_<reader> (owner | owns-like-listings | bypasses RLS) for listing_is_public,
 --     listing_private_party and is_public: the 42P17 no-recursion guarantee, read back instead of assumed;
 --   * hidden_open_or_held: hidden rows that are OPEN (what reserve_buy_now accepts) or under a live Buy Now hold (must be 0).
+-- ADDENDUM 3 + review-fix additions (2026-10-15, second re-freeze):
+--   * 156's client_shows_proof_disclosure(), guard_bid_requires_disclosure(), guard_reservation_requires_disclosure() in the
+--     fn/exec keys; trg_bid_requires_disclosure / trg_reservation_requires_disclosure in triggers_154_156 (bids is already in
+--     triggers_listings_bids_lv); listings_proof_waiver_never_approved joins waiver_checks by its name;
+--   * lv_fk: listing_visibility's foreign keys (name|confdeltype|definition): 'absent' without the table, and exactly one
+--     ON DELETE RESTRICT key with it (154 and 154's rollback, which keeps the table and its key).
 -- The two SET LOCAL lines pin the rendering (TimeZone inside to_jsonb timestamps; search_path inside deparsed
 -- policy quals) for the one implicit transaction this request runs in (pkg.py probe: same_txn=true).
 SET TRANSACTION READ ONLY;
@@ -34,6 +40,8 @@ fn as (
        ('public','listing_is_public'), ('public','listing_private_party'), ('public','guard_hidden_listing_not_live'),
        ('public','is_public'), ('public','set_listing_ends_at_from_duration'),
        ('public','guard_listing_proof_waiver'), ('public','current_user_is_admin'),
+       ('public','client_shows_proof_disclosure'), ('public','guard_bid_requires_disclosure'),
+       ('public','guard_reservation_requires_disclosure'),
        -- redefined by 154
        ('public','get_profile_trust_stats'),
        -- must not change (live-state checks the invariant relies on; listings guards)
@@ -47,7 +55,9 @@ fn as (
 nf(sig) as (values ('public.listing_is_public(uuid)'), ('public.listing_private_party(uuid)'),
                    ('public.guard_hidden_listing_not_live()'), ('public.guard_listing_proof_waiver()'),
                    ('public.current_user_is_admin()'), ('public.get_profile_trust_stats(uuid)'),
-                   ('public.is_public(public.listings)'), ('public.set_listing_ends_at_from_duration()')),
+                   ('public.is_public(public.listings)'), ('public.set_listing_ends_at_from_duration()'),
+                   ('public.client_shows_proof_disclosure()'), ('public.guard_bid_requires_disclosure()'),
+                   ('public.guard_reservation_requires_disclosure()')),
 rd(sig) as (values ('public.listing_is_public(uuid)'), ('public.listing_private_party(uuid)'), ('public.is_public(public.listings)')),
 tb(t) as (values ('listings'), ('bids'), ('payments'), ('transfers'), ('listing_visibility')),
 pol as (
@@ -96,7 +106,7 @@ union all select 'pol_' || k || '=' || v from pol
 union all select 'policies_listings_bids_lv=' || (select count(*) from pol)
 union all select 'triggers_listings_bids_lv=' || coalesce((select md5(string_agg(line, ',' order by line COLLATE "C")) || '|' || count(*) from trg), 'none')
 union all select 'triggers_154_156=' || coalesce((select string_agg(line, ',' order by line COLLATE "C") from trg
-                                                   where line ~ '(trg_hidden_listing_not_live|trg_listing_visibility_not_live|trg_listing_ends_at_from_duration|trg_guard_listing_proof_waiver):'), 'none')
+                                                   where line ~ '(trg_hidden_listing_not_live|trg_listing_visibility_not_live|trg_listing_ends_at_from_duration|trg_guard_listing_proof_waiver|trg_bid_requires_disclosure|trg_reservation_requires_disclosure):'), 'none')
 union all select 'duration_check=' || coalesce((select pg_get_constraintdef(oid) from pg_constraint
                                                 where conrelid = 'public.listings'::regclass and conname = 'listings_duration_hours_check'), 'absent')
 union all select 'waiver_checks=' || coalesce((select string_agg(conname || ':' || md5(pg_get_constraintdef(oid)), ',' order by conname COLLATE "C") from pg_constraint
@@ -109,6 +119,9 @@ union all select 'lv_table=' || coalesce((select relrowsecurity::text || '|polic
                                                                             where table_schema = 'public' and table_name = 'listing_visibility'
                                                                               and grantee in ('anon','authenticated','service_role','PUBLIC')), '-')
                                             from pg_class where oid = to_regclass('public.listing_visibility')), 'absent')
+union all select 'lv_fk=' || case when to_regclass('public.listing_visibility') is null then 'absent' else
+          coalesce((select string_agg(conname || '|' || confdeltype::text || '|' || pg_get_constraintdef(oid), ',' order by conname COLLATE "C")
+                      from pg_constraint where conrelid = to_regclass('public.listing_visibility') and contype = 'f'), 'none') end
 union all select 'lv_rows=' || coalesce((xpath('/row/c/text()', query_to_xml(
                    'select count(*) as c from public.listing_visibility', false, true, '')))[1]::text, 'absent')
             where to_regclass('public.listing_visibility') is not null

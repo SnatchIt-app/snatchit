@@ -12,8 +12,12 @@
 -- the two invariant triggers and the four new functions (the three predicates/guard and the is_public(listings)
 -- computed field: a build that filters .eq('is_public', true) gets a 400 again once this runs).
 -- KEEPS public.listing_visibility and every row in it: archival record of what was hidden, by whom and why.
--- With its readers gone the table is inert (RLS on, no policies, service_role only). Re-applying 154 later
--- reuses it (CREATE TABLE IF NOT EXISTS) and refuses while a kept row names a live listing.
+-- With its readers gone the table is inert for reads (RLS on, no policies, service_role only). Its foreign
+-- key stays ON DELETE RESTRICT: nothing is recreated here, so a kept row still refuses a DELETE of its
+-- listing (23503), for the seller and for the trusted path alike. That keeps the archival record intact and a
+-- re-apply honest; to delete such a listing after this rollback, delete its listing_visibility row first (an
+-- owner decision). Re-applying 154 later reuses the table (CREATE TABLE IF NOT EXISTS), re-asserts the one
+-- RESTRICT key, and refuses while a kept row names a live or held listing.
 -- Order: run 156's and 155's rollbacks first if they are applied.
 -- CONSEQUENCE: legacy test/beta listings, their bids and their trust-stat counts become public again
 -- immediately, including to installed old builds. The owner must accept this explicitly.

@@ -10,12 +10,19 @@
 -- only lever that reaches those builds, so the fix is server-side and policy-shaped.
 --
 -- WHAT.
---   1. public.listing_visibility(listing_id PK -> listings ON DELETE CASCADE, hidden_at, hidden_reason,
+--   1. public.listing_visibility(listing_id PK -> listings ON DELETE RESTRICT, hidden_at, hidden_reason,
 --      hidden_by): a row means "hidden". RLS on, NO policies, REVOKE ALL from PUBLIC/anon/authenticated/
 --      service_role, then GRANT SELECT, INSERT, DELETE to service_role. Clients can neither read nor write
 --      it; only service_role, the postgres runner and the definer helpers below touch it. A separate table
 --      keeps visibility out of the seller-writable listings row (anon/authenticated hold table-level UPDATE
 --      there), causes no updated_at churn and no Realtime fan-out.
+--      ON DELETE RESTRICT (review fix; the spec's first text said CASCADE): with CASCADE a seller could
+--      DELETE their own hidden listing (listings_delete_own) to erase its hide row, then re-create the
+--      same id publicly. RESTRICT refuses that delete for every caller (23503); an operator who really
+--      wants such a listing gone deletes its listing_visibility row first, deliberately. A public listing
+--      is unaffected. The constraint is dropped and re-added after CREATE TABLE IF NOT EXISTS, so a table
+--      kept by this file's rollback (or created by an earlier draft with CASCADE) always ends with exactly
+--      this one RESTRICT key (rollback/re-apply consistent).
 --   2. public.listing_is_public(uuid) and public.listing_private_party(uuid): LANGUAGE sql, STABLE,
 --      SECURITY DEFINER, search_path ''. anon-execute BY EXPLICIT GRANT (written justification, SEC-2 B5):
 --      each is evaluated inside a policy that applies to anon, so anon must hold EXECUTE, and each returns
@@ -92,8 +99,8 @@
 --   replacements); triggers 43 -> 45 (+trg_hidden_listing_not_live, trg_listing_visibility_not_live).
 -- ROLLBACK: supabase/rollbacks/20261015000000_listing_public_visibility_rollback.sql — restores both
 --   USING (true) policies and 031's get_profile_trust_stats body, drops the new policies, triggers and
---   functions (is_public included), and KEEPS listing_visibility and its rows (archival; inert). It
---   RE-EXPOSES every hidden listing publicly.
+--   functions (is_public included), and KEEPS listing_visibility, its rows and its RESTRICT key (archival;
+--   inert for reads). It RE-EXPOSES every hidden listing publicly.
 -- VERIFY (read-only): select policyname, roles, qual from pg_policies where tablename in ('listings','bids')
 --   and cmd = 'SELECT';  -- listings_select_visible, bids_select_own, bids_select_visible
 -- FAILURE BEHAVIOUR: one transaction; lock_timeout 3s. DROP/CREATE POLICY and CREATE TRIGGER take brief
@@ -109,11 +116,16 @@ SET LOCAL lock_timeout = '3s';
 -- one under a LIVE_HOLD (header §4; it could have been relisted or reserved while the table was inert):
 -- hiding it again would break the invariant. Same predicate as the BEFORE INSERT branch below.
 CREATE TABLE IF NOT EXISTS public.listing_visibility (
-  listing_id    uuid        PRIMARY KEY REFERENCES public.listings(id) ON DELETE CASCADE,
+  listing_id    uuid        PRIMARY KEY,
   hidden_at     timestamptz NOT NULL DEFAULT now(),
   hidden_reason text        NOT NULL CHECK (char_length(hidden_reason) BETWEEN 1 AND 300),
   hidden_by     text        NOT NULL CHECK (char_length(hidden_by) BETWEEN 1 AND 120)
 );
+-- The one foreign key, ON DELETE RESTRICT, whatever a kept table carried before (header §1).
+ALTER TABLE public.listing_visibility DROP CONSTRAINT IF EXISTS listing_visibility_listing_id_fkey;
+ALTER TABLE public.listing_visibility
+  ADD CONSTRAINT listing_visibility_listing_id_fkey
+  FOREIGN KEY (listing_id) REFERENCES public.listings(id) ON DELETE RESTRICT;
 DO $live$
 DECLARE
   n int;
@@ -419,12 +431,19 @@ VALUES ('20261015000000', 'listing_public_visibility', ARRAY[$pkg154$-- ========
 -- only lever that reaches those builds, so the fix is server-side and policy-shaped.
 --
 -- WHAT.
---   1. public.listing_visibility(listing_id PK -> listings ON DELETE CASCADE, hidden_at, hidden_reason,
+--   1. public.listing_visibility(listing_id PK -> listings ON DELETE RESTRICT, hidden_at, hidden_reason,
 --      hidden_by): a row means "hidden". RLS on, NO policies, REVOKE ALL from PUBLIC/anon/authenticated/
 --      service_role, then GRANT SELECT, INSERT, DELETE to service_role. Clients can neither read nor write
 --      it; only service_role, the postgres runner and the definer helpers below touch it. A separate table
 --      keeps visibility out of the seller-writable listings row (anon/authenticated hold table-level UPDATE
 --      there), causes no updated_at churn and no Realtime fan-out.
+--      ON DELETE RESTRICT (review fix; the spec's first text said CASCADE): with CASCADE a seller could
+--      DELETE their own hidden listing (listings_delete_own) to erase its hide row, then re-create the
+--      same id publicly. RESTRICT refuses that delete for every caller (23503); an operator who really
+--      wants such a listing gone deletes its listing_visibility row first, deliberately. A public listing
+--      is unaffected. The constraint is dropped and re-added after CREATE TABLE IF NOT EXISTS, so a table
+--      kept by this file's rollback (or created by an earlier draft with CASCADE) always ends with exactly
+--      this one RESTRICT key (rollback/re-apply consistent).
 --   2. public.listing_is_public(uuid) and public.listing_private_party(uuid): LANGUAGE sql, STABLE,
 --      SECURITY DEFINER, search_path ''. anon-execute BY EXPLICIT GRANT (written justification, SEC-2 B5):
 --      each is evaluated inside a policy that applies to anon, so anon must hold EXECUTE, and each returns
@@ -501,8 +520,8 @@ VALUES ('20261015000000', 'listing_public_visibility', ARRAY[$pkg154$-- ========
 --   replacements); triggers 43 -> 45 (+trg_hidden_listing_not_live, trg_listing_visibility_not_live).
 -- ROLLBACK: supabase/rollbacks/20261015000000_listing_public_visibility_rollback.sql — restores both
 --   USING (true) policies and 031's get_profile_trust_stats body, drops the new policies, triggers and
---   functions (is_public included), and KEEPS listing_visibility and its rows (archival; inert). It
---   RE-EXPOSES every hidden listing publicly.
+--   functions (is_public included), and KEEPS listing_visibility, its rows and its RESTRICT key (archival;
+--   inert for reads). It RE-EXPOSES every hidden listing publicly.
 -- VERIFY (read-only): select policyname, roles, qual from pg_policies where tablename in ('listings','bids')
 --   and cmd = 'SELECT';  -- listings_select_visible, bids_select_own, bids_select_visible
 -- FAILURE BEHAVIOUR: one transaction; lock_timeout 3s. DROP/CREATE POLICY and CREATE TRIGGER take brief
@@ -518,11 +537,16 @@ SET LOCAL lock_timeout = '3s';
 -- one under a LIVE_HOLD (header §4; it could have been relisted or reserved while the table was inert):
 -- hiding it again would break the invariant. Same predicate as the BEFORE INSERT branch below.
 CREATE TABLE IF NOT EXISTS public.listing_visibility (
-  listing_id    uuid        PRIMARY KEY REFERENCES public.listings(id) ON DELETE CASCADE,
+  listing_id    uuid        PRIMARY KEY,
   hidden_at     timestamptz NOT NULL DEFAULT now(),
   hidden_reason text        NOT NULL CHECK (char_length(hidden_reason) BETWEEN 1 AND 300),
   hidden_by     text        NOT NULL CHECK (char_length(hidden_by) BETWEEN 1 AND 120)
 );
+-- The one foreign key, ON DELETE RESTRICT, whatever a kept table carried before (header §1).
+ALTER TABLE public.listing_visibility DROP CONSTRAINT IF EXISTS listing_visibility_listing_id_fkey;
+ALTER TABLE public.listing_visibility
+  ADD CONSTRAINT listing_visibility_listing_id_fkey
+  FOREIGN KEY (listing_id) REFERENCES public.listings(id) ON DELETE RESTRICT;
 DO $live$
 DECLARE
   n int;

@@ -2,6 +2,8 @@
 -- predict.py: the existing rows plus the literal rows 154, 155 and 156 add (grants, triggers, listings columns).
 -- Review fix (2026-10-15): 154 also grants anon/authenticated EXECUTE on is_public(listings); 155 adds
 -- trg_listing_ends_at_from_duration (its function is revoked from anon/authenticated, so no grant row).
+-- ADDENDUM 3 (2026-10-15, second re-freeze): 156 also adds trg_reservation_requires_disclosure (listings) and
+-- trg_bid_requires_disclosure (bids); its three new functions are revoked from anon/authenticated (no grant row).
 -- Run on production (MCP execute_sql, 2026-10-15) -> lists_prod.json; on the rehearsal DB -> lists_local.json.
 SET TRANSACTION READ ONLY;
 SET LOCAL search_path = public, extensions;
@@ -29,7 +31,9 @@ trg as (
 ),
 t154 as (select line from trg union all values ('listings.trg_hidden_listing_not_live:O:19:guard_hidden_listing_not_live()'), ('listing_visibility.trg_listing_visibility_not_live:O:7:guard_hidden_listing_not_live()')),
 t155 as (select line from t154 union all values ('listings.trg_listing_ends_at_from_duration:O:23:set_listing_ends_at_from_duration()')),
-t156 as (select line from t155 union all values ('listings.trg_guard_listing_proof_waiver:O:23:guard_listing_proof_waiver()')),
+t156 as (select line from t155 union all values ('listings.trg_guard_listing_proof_waiver:O:23:guard_listing_proof_waiver()'),
+                                                  ('listings.trg_reservation_requires_disclosure:O:19:guard_reservation_requires_disclosure()'),
+                                                  ('bids.trg_bid_requires_disclosure:O:7:guard_bid_requires_disclosure()')),
 cols as (select column_name || ':' || data_type || ':' || is_nullable as c from information_schema.columns where table_schema = 'public' and table_name = 'listings'),
 c156 as (select c from cols union all values ('proof_waived_at:timestamp with time zone:YES'), ('proof_waived_by:uuid:YES'), ('proof_waiver_reason:text:YES'))
 select json_build_object(

@@ -20,6 +20,9 @@
 --   H. storage: a hidden listing still counts as a reference for its seller's cover.
 --   I. get_profile_trust_stats counts nothing derived from hidden listings, and active_listings needs
 --      an unexpired clock.
+--   K. review fix: listing_visibility.listing_id is ON DELETE RESTRICT, so nobody (the seller included) can
+--      delete a hidden listing to erase its hide row and re-create the id publicly; a public listing with no
+--      history is still deletable by its seller.
 --   J. positive control: with USING (true) put back, the same anon probe sees every hidden row.
 --   ADDENDUM 2 also covers: the is_public(listings) computed field (A9/A10/B12/B13/D15/D16) and the
 --   no-recursion guarantee (A12/A13: the predicates are owned by the tables' owner, which bypasses RLS,
@@ -33,7 +36,7 @@
 -- database without 154 and reports each exposure as its own failure.
 -- ============================================================================
 BEGIN;
-SELECT plan(94);
+SELECT plan(100);
 SELECT tap.seed_core();
 
 -- ── helpers ────────────────────────────────────────────────────────────────
@@ -247,6 +250,10 @@ SELECT is((SELECT string_agg(c.relname || ':' || (c.relowner = o.relowner)::text
                             'public.transfers'::regclass, to_regclass('public.listing_visibility'))),
   'bids:true:true:false listing_visibility:true:true:false listings:true:true:false payments:true:true:false transfers:true:true:false',
   'A13: listings, bids, payments, transfers and listing_visibility share that owner, have RLS on and none FORCES it');
+SELECT is((SELECT string_agg(conname || ':' || confdeltype::text || ':' || confrelid::regclass::text || ':' || array_length(conkey, 1)::text, ' ')
+             FROM pg_constraint WHERE conrelid = to_regclass('public.listing_visibility') AND contype = 'f'),
+  'listing_visibility_listing_id_fkey:r:listings:1',
+  'A14: listing_visibility has exactly one foreign key, to listings, ON DELETE RESTRICT (r), not CASCADE');
 
 -- ── B. anon (the publishable key; every shipped build) ──────────────────────
 SELECT tap.login_anon();
@@ -525,6 +532,22 @@ SELECT tap.logout();
 SELECT ok((SELECT qual ~ 'cover_image_path' AND qual ~ 'listings' FROM pg_policies
             WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'auction-media owner delete unreferenced'),
   'H2: the auction-media owner delete policy is the invoker-run listings reference check that H1 evaluates');
+
+-- ── K. a hidden listing cannot be deleted (its hide row is never erased by a delete) ─
+SELECT tap.login(tap.seller());
+SELECT is(tap._try221(format('DELETE FROM public.listings WHERE id = %L', tap._l221('H3'))) ->> 'code', '23503',
+  'K1: the seller cannot delete their hidden listing (foreign_key_violation: the hide row restricts it)');
+SELECT tap.logout();
+SELECT is((SELECT count(*)::int FROM public.listings l JOIN public.listing_visibility v ON v.listing_id = l.id WHERE l.id = tap._l221('H3')), 1,
+  'K2: the hidden listing and its hide row are both still there');
+SELECT tap.login(tap.seller());
+SELECT is(tap._dml221(format('DELETE FROM public.listings WHERE id = %L RETURNING id', tap._l221('VENDED'))), 1::bigint,
+  'K3: control: the seller can still delete a public listing with no history (VENDED)');
+SELECT tap.logout();
+SELECT is(tap._try221(format('DELETE FROM public.listings WHERE id = %L', tap._l221('H7'))) ->> 'code', '23503',
+  'K4: the trusted path cannot delete a hidden listing either (an operator unhides it first, deliberately)');
+SELECT is((SELECT count(*)::int FROM public.listing_visibility WHERE listing_id = ANY(tap._hidden221())), 7,
+  'K5: all seven hide rows survive every delete attempt');
 
 -- ── J. positive control: put USING (true) back and the probe sees everything ─
 DROP POLICY IF EXISTS listings_select_visible ON public.listings;

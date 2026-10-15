@@ -4,14 +4,20 @@
 #   earlier key unchanged (money/listing hashes, census, grants, anon 113/98); new keys: is_public / ends_at-trigger exec,
 #   hidden_open_or_held, rls_* (owner postgres, no FORCE), owner_role (postgres: bypassrls=true, super=false), fnown_*.
 #   Ledger 165 / max 20261013000000 (152 applied); 113 listings, 0 live; listings_select_all and bids_select_all USING (true).
+#   RE-READ 2026-10-15 04:2xZ for the second re-freeze (ADDENDUM 3 + review fixes) with the extended state.sql: all 75
+#   earlier keys equal this file byte for byte; new keys exec_ of client_shows_proof_disclosure(), guard_bid_requires_disclosure(),
+#   guard_reservation_requires_disclosure() = absent, lv_fk = absent (79 keys).
 anon_bids=98
 anon_listings=113
 census=34|116|37|43
 duration_check=CHECK ((duration_hours = ANY (ARRAY[1, 3, 6, 12, 24, 48])))
+exec_public.client_shows_proof_disclosure()=absent
 exec_public.current_user_is_admin()=absent
 exec_public.get_profile_trust_stats(uuid)=anon:false,authenticated:true,service_role:true
+exec_public.guard_bid_requires_disclosure()=absent
 exec_public.guard_hidden_listing_not_live()=absent
 exec_public.guard_listing_proof_waiver()=absent
+exec_public.guard_reservation_requires_disclosure()=absent
 exec_public.is_public(public.listings)=absent
 exec_public.listing_is_public(uuid)=absent
 exec_public.listing_private_party(uuid)=absent
@@ -55,6 +61,7 @@ ledger_unauthorised_121_125_126=none
 listings_columns=36|39efaabd71efcfe71d8acd9f10f63e66
 listings_rows=113
 live_listings=0
+lv_fk=absent
 lv_rows=absent
 lv_table=absent
 nonparty_bids=98

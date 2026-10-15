@@ -9,12 +9,22 @@ Branch `fix/154-listing-visibility-20261015` from the gate `release/production-g
 
 | Frozen file | Blob | md5 | Bytes |
 |---|---|---|---|
-| `migrations/20261015000000_listing_public_visibility.sql` (154) | `a4d594c5` | `c0be8b08c6af36473fd6e1782056221d` | 25,036 |
+| `migrations/20261015000000_listing_public_visibility.sql` (154) | `378ab5fb` | `bda198b7efe87ef3811bcdb9b136de5f` | 26,076 |
 | `migrations/20261015000100_listing_duration_72h.sql` (155) | `51684cc7` | `51ce810d5b85c4a548d872b5f7a61f9a` | 5,942 |
-| `migrations/20261015000200_listing_proof_owner_waiver.sql` (156) | `9b5a1a16` | `03f5928373b3c5b61b4bb606ac99ef1e` | 8,790 |
-| `rollbacks/20261015000000_…_rollback.sql` | `0d7a96f7` | `81836489db21a3dbfdfb0c9702a9b6ba` | 7,208 |
+| `migrations/20261015000200_listing_proof_owner_waiver.sql` (156) | `174d39ca` | `c85c4fb241f9443171c6b3634471a040` | 19,030 |
+| `rollbacks/20261015000000_…_rollback.sql` | `e6b5e1c2` | `eb20ead47ecb2dfd2fa568c43c1f0b8f` | 7,624 |
 | `rollbacks/20261015000100_…_rollback.sql` | `c654fadd` | `37dfa563a26afc685f69854bcf46bc75` | 1,843 |
-| `rollbacks/20261015000200_…_rollback.sql` | `4e94d618` | `2abc7bdf5949b479a666a8e76db92c48` | 1,965 |
+| `rollbacks/20261015000200_…_rollback.sql` | `dbf54098` | `426486f16ec059685efa4165b46bf2c7` | 3,014 |
+
+**Re-frozen a second time 2026-10-15 for ADDENDUM 3 and the second review** (156: the old-build purchase safeguard,
+proof required without a waiver, the never-approved CHECK, no client proof path on a waived listing; 154: the
+listing_visibility FK is ON DELETE RESTRICT). 154, 156 and their rollbacks changed; 155 and its rollback are
+byte-identical to the first re-freeze. Regenerated: `frozen.sha256`, `pkg.py` (156 ledger guard), `predict.py` (156
+constants and census delta, `lv_fk`), `sql/state.sql` (new fn/exec/trigger keys, `lv_fk`), `rehearsal/lists_query.sql`
+(156's two new triggers), `expected/*` (production `pre154.txt` RE-READ read-only 04:2xZ, then re-predicted),
+`rehearsal/lists_prod.json` (re-read), `rehearsal/lists_local.json`, `rehearsal/r0_pre_local.txt`,
+`rehearsal/expected_local/*`, `rehearsal/out/*` and the LOCALDB rehearsal log. `sql/hide_legacy.sql`,
+`sql/unhide_legacy.sql` and `sql/state_anon.sql` are unchanged.
 
 **Re-frozen 2026-10-15 after the 154/155 review** (findings: the hidden-row Buy Now hole, the reservation-sweep wedge,
 the missing ADDENDUM 2 objects). 154 and 155 and their rollbacks changed; 156 is byte-identical to the first freeze.
@@ -25,9 +35,10 @@ Everything derived from them was regenerated: `frozen.sha256`, `pkg.py` (154/155
 
 `frozen.sha256` holds the sha256 of all six. Each frozen file is byte-identical to its copy under `supabase/`.
 
-**Runner:** `pkg.py`, sha256 `6e2158996bc5031866f60b5cd671aa2a243401c7958de1ee7a2afb7206585fab` (first freeze `1abf0951…`; the only change is the
-154/155 `gone` conditions of the guarded ledger delete, which now also require `is_public(listings)` and
-`set_listing_ends_at_from_duration()` to be gone). Copied from `../152_20261013/pkg.py` (sha256 `02537f62…`, executed 2026-10-13). Same transport: one Management API `database/query` POST per request, carrying the file bytes, then the ledger INSERT `(version, name, statements = ARRAY[raw file], created_by 'claude-a/owner-authorised-N')`. The changes are listed in its docstring:
+**Runner:** `pkg.py`, sha256 `305d273908f979b23818355018ae92452185c5f682c5845a397b074f54b1d4cd` (first freeze `1abf0951…`, first re-freeze `6e215899…`; the
+only changes are the `gone` conditions of the guarded ledger delete: 154/155's also require `is_public(listings)` and
+`set_listing_ends_at_from_duration()` to be gone, and 156's now also requires `client_shows_proof_disclosure()`,
+`guard_bid_requires_disclosure()` and `guard_reservation_requires_disclosure()` to be gone). Copied from `../152_20261013/pkg.py` (sha256 `02537f62…`, executed 2026-10-13). Same transport: one Management API `database/query` POST per request, carrying the file bytes, then the ledger INSERT `(version, name, statements = ARRAY[raw file], created_by 'claude-a/owner-authorised-N')`. The changes are listed in its docstring:
 - MIG entries 154 → 155 → 156, where each one's pre file is the previous one's post file;
 - `state` is two read-only requests: `sql/state.sql` and `sql/state_anon.sql`;
 - `rb_post` / `rollback_ignore`, and `alt_pre` for 154;
@@ -38,6 +49,7 @@ Everything derived from them was regenerated: `frozen.sha256`, `pkg.py` (154/155
 
 ## What each step does
 - **154:** adds `public.listing_visibility` (RLS on, no policies; service_role SELECT/INSERT/DELETE only).
+  - Its one foreign key, `listing_visibility_listing_id_fkey` → `listings(id)`, is **ON DELETE RESTRICT** (review fix; the spec's first text said CASCADE). With CASCADE a seller could delete their own hidden listing (`listings_delete_own`) to erase its hide row and re-create the id publicly. RESTRICT refuses that delete for every caller (23503); a public listing is unaffected. The key is dropped and re-added after `CREATE TABLE IF NOT EXISTS`, so a kept table always ends with exactly this key. `state.sql` pins it as `lv_fk`.
   - `listing_is_public` and `listing_private_party` are SECURITY DEFINER boolean predicates. They are anon-executable by explicit grant.
   - `listings_select_visible` and `bids_select_visible` replace the two `USING (true)` policies.
   - `is_public(public.listings)` is the PostgREST computed field (`.eq('is_public', true)`), SECURITY INVOKER, anon-executable by explicit grant. C's N1 build filters with it; against a database without it, PostgREST answers those feed reads with 400 (42703).
@@ -48,8 +60,14 @@ Everything derived from them was regenerated: `frozen.sha256`, `pkg.py` (154/155
 - **155:** `listings_duration_hours_check` becomes `{1,3,6,12,24,48,72}`, and the end time becomes server-owned: `trg_listing_ends_at_from_duration` (BEFORE INSERT OR UPDATE) sets an untrusted insert's `ends_at` to `now() + duration_hours` and refuses an untrusted change of `ends_at` or `duration_hours` unless an auction RPC set the listing-guard bypass (`admin_relist_listing`). service_role and claims-less postgres are untouched. No shipped client sends either column on UPDATE.
 - **156:** adds `proof_waived_at`, `proof_waived_by` and `proof_waiver_reason`, with an all-or-none check.
   - `guard_listing_proof_waiver` allows a waiver only from an admin listing their own inventory, with no proof path and a reason, and only at creation. The server stamps the time.
-  - Clients cannot change a waiver later.
-  - `current_user_is_admin()` is authenticated-execute.
+  - Clients cannot change a waiver later, and cannot add a proof path to a waived listing later (review fix: the waiver stays clean).
+  - CHECK `listings_proof_waiver_never_approved`: no caller (service_role, postgres and ops.* definers included) can approve a waived listing or create one already approved (review fix).
+  - Proof stays required (ADDENDUM 3b): an untrusted create with no waiver needs a non-blank `proof_of_ownership_path`, else `Upload proof of ownership.` (HINT `PROOF_REQUIRED`). Every shipped producer sends one (native `CreateListingScreen` returns before the insert without it; web `create-listing.ts` types it required; RC9 and web #108 too); service-role scripts (`scripts/seed-demo.ts`) are trusted. The database checks presence, not that the object exists.
+  - `current_user_is_admin()` is authenticated-execute (true for an `admin_users` member, false otherwise, permission denied for anon).
+  - **Old-build purchase safeguard (ADDENDUM 3a).** `client_shows_proof_disclosure()` (STABLE, invoker, no-client-execute) is true only when the PostgREST `request.headers` JSON carries `x-snatchit-caps` with the whole token `proof-disclosure-v1` (space or comma separated); NULL, empty, unparseable or non-string → false.
+    - `trg_bid_requires_disclosure` (BEFORE INSERT on bids): on a waived listing, an untrusted caller without the token gets `This listing needs the latest Snatch It app. Update the app or use app.snatchitapp.com.` with HINT `LISTING_UNAVAILABLE` (builds 25/27 show "Not available").
+    - `trg_reservation_requires_disclosure` (BEFORE UPDATE OF reserved_by on listings): a NEW holder on a waived listing (NULL → buyer, which is every `reserve_buy_now`, and also buyer A → buyer B, like 152's party guard; a deliberate superset of the spec's NULL → buyer) needs the token; the same message with no hint, never "sold" or "already reserved". Releasing a hold is never checked.
+    - Trust test (both): the guards' test read the 119 way — the PostgREST role GUC and the request claims, never `current_user` alone (inside `reserve_buy_now`, a SECURITY DEFINER, `current_user` is the owner). service_role and a claims-less postgres session bypass; a postgres session that carries claims does not.
 - **Data step `sql/hide_legacy.sql`** (`pkg.py step hide`) inserts 113 `listing_visibility` rows, one per id in `preimage/listing_ids_113.txt` (md5 `59568b40d69fe1bd2d5872e839be6731`, read from production 2026-10-15T02:29:50Z). Inside the one transaction it asserts:
   - the id list is the preimage;
   - all 113 exist and none is already hidden;
@@ -64,13 +82,13 @@ Everything derived from them was regenerated: `frozen.sha256`, `pkg.py` (154/155
 
 | Request | Bytes | sha256 |
 |---|---|---|
-| apply 154 | 50,278 | `2c3a9bda266c018dc92325d9f2d367212ed7c806b1e5dc8ab43c6b80592bdf4e` |
+| apply 154 | 52,358 | `1e44b38ef2843417b62f14d1f3f55258b9694030cc0c524824b5ea0d018c52d3` |
 | apply 155 | 12,085 | `08e9746595f464bdbe0ae9ca9b1666d8447a4d76268d082ce3c24b7c729aa5d5` |
-| apply 156 | 17,787 | `c264689831e5f5bf1cc6f7c3c62d04de44f92a9189c3e0733357d640504f5e6b` |
+| apply 156 | 38,267 | `11a69c9459a86ad6fdc715131dc968f186866a5473ebd8a8053045de97c356d2` |
 | step hide | 9,310 | `2a2fa64b05fe1b5189d5ab8d35d75dc999abb9301ee7be380609b3e92ab26a6b` |
 | step unhide | 5,758 | `a0f71d8d4d879b0b981834df2ccce4935e8626debdf68a243403396c3e14d969` |
-| rollback 156 / 155 / 154 | 2,373 / 2,214 / 7,968 | `a1613101…` / `86b4f847…` / `bae43964…` |
-| ledger-only 154 / 155 / 156 | 25,240 / 6,141 / 8,995 | `32107c42…` / `71326705…` / `e4b2ada3…` |
+| rollback 156 / 155 / 154 | 3,640 / 2,214 / 8,384 | `eaa87a10…` / `86b4f847…` / `8182f6f4…` |
+| ledger-only 154 / 155 / 156 | 26,280 / 6,141 / 19,235 | `29a5b8d9…` / `71326705…` / `513e7234…` |
 | rollback 154 --ledger-only | 760 | `e60e8611…` |
 
 The LOCALDB rehearsal sent exactly these bytes. The request hashes in `rehearsal/run_local_20261015.log` equal the DRY hashes.
@@ -83,12 +101,13 @@ The LOCALDB rehearsal sent exactly these bytes. The request hashes in `rehearsal
 - **`pre154.txt`**: production, read-only, 2026-10-15.
   - It came from `state.sql` (`SET TRANSACTION READ ONLY`) plus `state_anon.sql` (`SET LOCAL ROLE anon` / `authenticated` in a read-only transaction), both through MCP `execute_sql`.
   - First read ~02:3xZ (a re-read at 03:01:59Z hashed the 59 catalog/data lines to `c42a43b9…`). RE-READ after the review fixes with the extended `state.sql`: all 75 lines equal the file; every key of the first read is unchanged (money/listing hashes, census, grants, anon counts).
+  - RE-READ again 04:2xZ for the second re-freeze with this `state.sql`: the 75 earlier keys are unchanged byte for byte; the 4 new keys read `absent` (`exec_` of the three new 156 functions, `lv_fk`). 79 keys.
   - Values: ledger 165 / max `20261013000000`; census `34|116|37|43`; 113 listings, 0 live; `listings_select_all` / `bids_select_all` `USING (true)`; anon sees 113 listings and 98 bids; listings/bids/payments/transfers owned by `postgres` with RLS on and no FORCE; `owner_role=postgres|super=false|bypassrls=true`.
 - **`post154.txt`, `post155.txt`, `post156.txt`, `post_hide.txt`, `rb154.txt`** are PREDICTIONS. `rehearsal/predict.py` derives them from `pre154.txt` plus `rehearsal/lists_prod.json`.
-  - `lists_prod.json` came from one read-only production query (`rehearsal/lists_query.sql`, re-run after the review fixes): the existing grant, trigger and listings-column rows plus the literal rows 154/155/156 add (now including `is_public`'s two EXECUTE grants and 155's trigger), re-hashed.
+  - `lists_prod.json` came from one read-only production query (`rehearsal/lists_query.sql`, re-run after the review fixes and again 04:2xZ for the second re-freeze): the existing grant, trigger and listings-column rows plus the literal rows 154/155/156 add (now including `is_public`'s two EXECUTE grants, 155's trigger and 156's two disclosure triggers), re-hashed. Only `trg_156` moved (`891ea99a…|21`).
   - The new-object constants come from a fresh local PG 17 replay of the frozen files. Production runs 17.6.
   - Ownership keys are derived, not assumed: the three readers are predicted owned by the owner of listings with that role's RLS bypass (`fnown_*=postgres|owner_of_listings=true|bypasses_rls=true` in production); a different transport role makes the post check FAIL (exit 4) instead of shipping a recursion risk.
-  - Predicted production post-156 census `35|123|37|47` (= ci.yml Gate-2), `hidden_open_or_held=0`.
+  - Predicted production post-156 census `35|126|37|49` (= ci.yml Gate-2), `hidden_open_or_held=0`, `lv_fk` = the one RESTRICT key (also in `rb154.txt`: 154's rollback keeps it).
   - Every fixed money/listing hash is predicted UNCHANGED.
   - The predictor was registered before the first local apply. Its local outputs (`rehearsal/expected_local/`) then matched every observed post-state (R1, R5, R6, R7, R9, R11, R12, R13 and the rollbacks).
 
@@ -97,6 +116,8 @@ The LOCALDB rehearsal sent exactly these bytes. The request hashes in `rehearsal
 - `anon_listings`, `anon_bids`, `nonparty_listings`, `nonparty_bids` (in `state_anon.sql`).
 - `lv_table` / `lv_rows`.
 - `hidden_open_or_held`: hidden rows that are open (what `reserve_buy_now` accepts) or under a live hold; must stay 0.
+- `lv_fk`: listing_visibility's foreign keys (name | `confdeltype` | definition) — exactly `listing_visibility_listing_id_fkey|r|… ON DELETE RESTRICT` with the table, `absent` without it.
+- 156's three new functions in the `fn_`/`exec_` keys (none client-executable) and its two new triggers in `triggers_154_156`; `listings_proof_waiver_never_approved` joins `waiver_checks`.
 - `rls_<table>` (owner, RLS, FORCE) for listings, bids, payments, transfers, listing_visibility; `owner_role` (the owner of listings: super / BYPASSRLS); `fnown_<reader>` for `listing_is_public`, `listing_private_party`, `is_public`: the no-42P17 guarantee read back.
 - FIXED HASHES (count|md5 over `to_jsonb` rows, ordered `COLLATE "C"`, TimeZone UTC) of:
   - payments, transfers, payment_refunds, payment_refund_state, payout_attempts, payout_decisions, disputes, bids;
@@ -108,19 +129,24 @@ The LOCALDB rehearsal sent exactly these bytes. The request hashes in `rehearsal
 ## Rollbacks
 | Rollback | What it does | Rows kept or refused |
 |---|---|---|
-| 156 | Drops the guard, `current_user_is_admin()`, the checks and the three columns | **Refuses while any listing carries a waiver**: an archival record, and the columns would be client-writable without the guard. Rehearsed: refuses with a waiver (exit 3, unchanged); the guard is load-bearing (without it the rollback destroys the waiver) |
+| 156 | Drops the three triggers (`trg_guard_listing_proof_waiver`, `trg_reservation_requires_disclosure`, `trg_bid_requires_disclosure`), the five functions, the three checks and the three columns. Rule (F): never roll web back past #108 while a waived listing is live; cancel the waived listings first | **Refuses while any listing carries a waiver**: an archival record, and the columns would be client-writable without the guard. Rehearsed: refuses with a waiver (exit 3, unchanged); the guard is load-bearing (without it the rollback destroys the waiver) |
 | 155 | Drops `trg_listing_ends_at_from_duration` + `set_listing_ends_at_from_duration()` (ends_at is client-set again) and restores `{1,3,6,12,24,48}` | **Refuses while any listing has 72 h** |
-| 154 | Restores both `USING (true)` policies (**re-exposes every hidden listing**) and 031's trust-stats body (functiondef md5 back to `23719c73…`); drops `is_public(listings)` (a build filtering `.eq('is_public', true)` gets 400 again) | **Keeps `listing_visibility` and its rows** (inert). A later clean re-apply reuses the table and refuses while a kept row names an open or held listing (rehearsed locally both ways, with a negative control: the first freeze's predicate re-applied over an open kept row) |
+| 154 | Restores both `USING (true)` policies (**re-exposes every hidden listing**) and 031's trust-stats body (functiondef md5 back to `23719c73…`); drops `is_public(listings)` (a build filtering `.eq('is_public', true)` gets 400 again) | **Keeps `listing_visibility`, its rows and its ON DELETE RESTRICT key** (inert for reads; a kept row still refuses deleting its listing, so delete the row first if the owner wants that listing deletable). A later clean re-apply reuses the table and refuses while a kept row names an open or held listing (rehearsed locally both ways, with a negative control: the first freeze's predicate re-applied over an open kept row) |
 
 Order: 156 → 155 → 154. The runner's rollback guards ignore only the data-step keys, so the schema can be rolled back with the 113 rows still in place.
 
 ## Local rehearsal (`rehearsal/run_local.sh` → `run_local_20261015.log`)
-**Database.** `a154_pkg_rehears` was REBUILT for the re-freeze (same recipe; fixture timestamps differ, so the local fixed hashes differ from the first run) from:
+**Database.** `a154_pkg_rehears` was REBUILT for each re-freeze, last on 2026-10-15 ~04:5xZ for the second one (same recipe; fixture timestamps differ, so the local fixed hashes differ between runs) from:
 - a clone of `pkg151_rehears` (ledger 164);
 - plus 152's executed apply request (sha256 `ffc020a0…`, ledger 165);
 - plus `rehearsal/fixture_local.sql` (synthetic rows carrying the 113 preimage ids, 0 live, 5 bids, 2 payments, 1 transfer).
 
-Each step's expected exit code was registered in the script before the run. **Result: 0 unexpected exit codes.**
+Each step's expected exit code was registered in the script before the run, and `rehearsal/expected_local/` was re-predicted (from the re-measured `r0_pre_local.txt` and `lists_local.json`) before the first apply. **Result: 0 unexpected exit codes**; every request hash in the log equals its DRY hash. R5 and R16's post checks include `lv_fk`, so the RESTRICT key is proven after apply, after rollback (kept with the 113 rows) and after re-apply.
+
+Extra rehearsals for the second re-freeze (scratch databases cloned from a pre-154 replay, not part of `run_local.sh`):
+- a kept table whose key is CASCADE (the first freeze's 154 applied, then rolled back) gets exactly one RESTRICT key when this 154 is applied; negative control: without the drop/re-add the key stays CASCADE;
+- after 154's rollback a kept row still refuses deleting its listing (23503);
+- 156's rollback refuses while a waiver is recorded (exit 3, nothing changed), otherwise removes every 156 object (census back to `35|121|37|46`, the 156 `gone` condition true) and 156 re-applies cleanly; negative control: a 156 rollback that leaves `client_shows_proof_disclosure()` behind keeps the ledger row (guarded delete) and fails the post check (exit 4).
 
 | Step | rc |
 |---|---|
@@ -154,16 +180,24 @@ Each step's expected exit code was registered in the script before the run. **Re
    - Exit 4: STOP.
 5. Verify. A runs an MCP read-back and D gives an independent verdict.
 6. `pkg.py step hide`, the data step: post equals `post_hide.txt`, with anon and non-party counts 0 and money hashes unchanged.
+   **Run it BEFORE any new listing is created** — including the admin's waived listings that 156 exists for. The step hides exactly the 113 preimage ids and then asserts that anon and a non-party see 0 listings, so a new public listing would make it fail; its prestate check (`post156.txt`: `listings_rows=113` and the listings hash) already stops it with exit 3, nothing sent, if any listing was created or changed after 156. New listings (waived or not) come after step 7.
 7. Verify again. F checks the web as anon and as a fresh non-participant (allow ~12 min of CDN staleness on `/api/public/events` and `/sitemap.xml`); C checks the app after a cold start.
 
 **Client gate:** C's N1 native build (`v3/rc9-n1-is-public-20261015`, which sends `.eq('is_public', true)` from Home, Explore, the public profile and the Realtime re-read) must not ship before step 4 has applied THIS 154 (with `is_public`) to production. Against a database without the computed field, PostgREST answers every such read with 400 (42703). The first freeze of 154 did not carry it.
+
+**Disclosure header (156):** once 156 is applied, a bid or a new Buy Now hold on a waived listing needs `x-snatchit-caps: proof-disclosure-v1`. RC9 (`src/config/clientCapabilities.ts`, on every request) and web #108 (the cookie server client) send it; builds 25/27 do not, so they get "Not available" / "Reservation failed — This listing needs the latest Snatch It app…" on waived listings only. Non-waived listings are unaffected. No waived listing exists until the admin creates one after step 7.
 
 ## Reported, not fixed by this package
 - Public auction-media cover URLs stay fetchable, and the bucket is listable by anon.
 - Running old-app sessions keep already-loaded rows until refresh or relaunch.
 - `/_next/image` caches covers for 4 h.
 - `proof_of_ownership_path` is readable on public listings (pre-existing).
-- 156's `proof_waiver_reason` and `proof_waived_by` are readable through PostgREST like every listings column. `proof_waived_by` always equals `seller_id`.
+- 156's `proof_waiver_reason` and `proof_waived_by` are readable through PostgREST like every listings column (clients never display them). `proof_waived_by` always equals `seller_id`, and the reason is neutral operator text (for example "Owner inventory; tickets held by Snatch It"), so nothing private is exposed; write it that way.
+- **3 live pending PaymentIntents on legacy listings remain confirmable by their original buyer — owner decision.** Hiding does not cancel a PaymentIntent and 154 changes no money state. Database context (read-only, 2026-10-15 04:2xZ): 11 `payments` rows are `pending` (9 buy_now on 8 listings, 2 auction on 1 listing); which PaymentIntents are still live is a Stripe-side fact, not re-read here.
+- **Existence leak via RPC error text for hidden ids — accepted minor.** A caller who already holds a hidden listing's uuid gets that listing's own refusal text from the RPCs (for example `reserve_buy_now` → "This auction has ended." / "This listing has been cancelled.", a bid → the same), not "Listing not found.", so the text confirms the id exists. It reveals nothing else, and `listing_is_public(id)` already answers the same question.
+- A seller who tries to delete one of their hidden legacy listings (native "Delete failed" alert, web seller listings) sees Postgres' raw foreign-key text (23503 naming `listing_visibility_listing_id_fkey`). Only the sellers of the 113 legacy test/beta listings can hit it; the delete is correctly refused.
+- The proof-required rule checks that a proof path is present, not that the storage object exists: a client can still send an arbitrary string.
+- Native builds older than 25 were not checked for the proof path (the coordination note says builds 25+ and RC9 always send one; this tree's `CreateListingScreen` does); a build that sent none would now get `Upload proof of ownership.`.
 - `e32d0aeb` is an onboarded, phone-verified non-admin account that can still create public listings.
 - `listing_is_public(id)` is an anon RPC, and `is_public(listings)` is the same boolean as a computed field. Either tells a caller who already holds a listing uuid whether that listing is hidden.
 - The recorded winner of an ended, unpaid hidden auction can still pass create-payment-intent's auction-mode precondition (a pre-existing obligation of a private party; no new party can become a winner because bids are refused). Production at the re-read: 0 such rows among the 113 (the two `active/ended` rows have no winner; every row with a winner is `sold` or `cancelled`).

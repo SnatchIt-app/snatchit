@@ -462,6 +462,12 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   ('guard_hidden_listing_not_live()',                                'no-client-execute'),
   -- 156 (20261015000200): the owner proof waiver guard, a trigger function on listings.
   ('guard_listing_proof_waiver()',                                   'no-client-execute'),
+  -- 156 ADDENDUM 3a (old-build purchase safeguard): the x-snatchit-caps header reader, read only by the two
+  -- trigger functions below (which run as definer), and the two trigger functions themselves (bids BEFORE
+  -- INSERT; listings BEFORE UPDATE OF reserved_by). REVOKE ALL FROM PUBLIC, anon, authenticated.
+  ('client_shows_proof_disclosure()',                                'no-client-execute'),
+  ('guard_bid_requires_disclosure()',                                'no-client-execute'),
+  ('guard_reservation_requires_disclosure()',                        'no-client-execute'),
   -- 155 (20261015000100): the server-owned end time, a trigger function on listings (BEFORE INSERT OR
   -- UPDATE; SECURITY INVOKER). REVOKE PUBLIC/anon/authenticated.
   ('set_listing_ends_at_from_duration()',                            'no-client-execute'),

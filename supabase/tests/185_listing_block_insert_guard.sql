@@ -31,9 +31,9 @@ CREATE FUNCTION tap._insert185(p_seller uuid, p_name text) RETURNS text LANGUAGE
   SELECT format($i$ INSERT INTO public.listings
        (seller_id, event_name, venue, neighborhood, event_date, event_time,
         ticket_type, quantity, transfer_method, starting_bid, buy_now_enabled,
-        duration_hours, ends_at, current_bid, cover_image_path)
+        duration_hours, ends_at, current_bid, cover_image_path, proof_of_ownership_path)
      VALUES (%L, %L, 'Club X', 'wynwood', current_date + 7, '21:00',
-             'GA', 2, 'mobile_transfer', 60, false, 24, now() + interval '24 hours', 60, 'covers/185.jpg') $i$,
+             'GA', 2, 'mobile_transfer', 60, false, 24, now() + interval '24 hours', 60, 'covers/185.jpg', 'proofs/185.png') $i$,
      p_seller, p_name) $f$;
 
 -- ── 1. wiring ───────────────────────────────────────────────────────────────

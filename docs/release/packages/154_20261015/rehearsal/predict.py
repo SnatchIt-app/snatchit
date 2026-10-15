@@ -20,6 +20,11 @@ as that role does (owner_role); listing_visibility is predicted owned by it, RLS
 Review fix (2026-10-15): 154 adds is_public(listings) (anon-execute) and the widened invariant; 155 adds
 set_listing_ends_at_from_duration() + trg_listing_ends_at_from_duration; new keys hidden_open_or_held, rls_*,
 owner_role, fnown_*.
+ADDENDUM 3 + review fixes (2026-10-15, second re-freeze): 154's listing_visibility FK is ON DELETE RESTRICT (new key
+lv_fk, also kept by 154's rollback); 156 adds client_shows_proof_disclosure(), guard_bid_requires_disclosure(),
+guard_reservation_requires_disclosure() (all no-client-execute), trg_reservation_requires_disclosure (listings) and
+trg_bid_requires_disclosure (bids), CHECK listings_proof_waiver_never_approved, and a new guard_listing_proof_waiver body;
+156's census delta is +5 functions, +3 triggers.
 """
 import hashlib, json, sys
 from pathlib import Path
@@ -29,7 +34,8 @@ FILES = {"154": ("20261015000000", "listing_public_visibility"),
          "155": ("20261015000100", "listing_duration_72h"),
          "156": ("20261015000200", "listing_proof_owner_waiver")}
 
-FN = {  # md5(pg_get_functiondef) | md5(prosrc) — a154f_green (review fixes), search_path public, extensions
+FN = {  # md5(pg_get_functiondef) | md5(prosrc) — a154f_green (review fixes); 156 re-read from a3_census (ADDENDUM 3
+        # second re-freeze: a fresh replay, the 154/155 values are unchanged); search_path public, extensions
     "fn_public.get_profile_trust_stats(p_user_id uuid)":
         "def:2d62da92f7d33d86e0d15d976f69e960|src:697c82a24b47b7e5920a64aa7e80672a|secdef=true|cfg=search_path=public",
     "fn_public.listing_is_public(p_listing_id uuid)":
@@ -43,9 +49,15 @@ FN = {  # md5(pg_get_functiondef) | md5(prosrc) — a154f_green (review fixes), 
     "fn_public.set_listing_ends_at_from_duration()":
         "def:1ee19ef6347efaeaeb2485424df1087f|src:e62e82d36cb96db98c85540c8dfe0193|secdef=false|cfg=search_path=\"\"",
     "fn_public.guard_listing_proof_waiver()":
-        "def:d78a70dbe8756ac8223d3484e62d0cc5|src:6c52273216086bb7388678703dc07430|secdef=true|cfg=search_path=\"\"",
+        "def:40141a90c50416888089190e70f9dea8|src:c99f377b05b387b8d525d3fafb7bae3e|secdef=true|cfg=search_path=\"\"",
     "fn_public.current_user_is_admin()":
         "def:fd284d77070f1a2c1054b4065e865da9|src:028f6b00d6d0bb0fd151485d67343647|secdef=true|cfg=search_path=\"\"",
+    "fn_public.client_shows_proof_disclosure()":
+        "def:9207fa02fdda612888beef43102fcef6|src:2d11e7cf0e1077c1818e659abb4331ce|secdef=false|cfg=search_path=\"\"",
+    "fn_public.guard_bid_requires_disclosure()":
+        "def:b56fed711d89c17c2060b745ae5d189c|src:9b992efe1a6aebf3f47804fc0c5acef5|secdef=true|cfg=search_path=\"\"",
+    "fn_public.guard_reservation_requires_disclosure()":
+        "def:a7a9793867636414b6933a24ea317c46|src:cff922830b7e1dff1a0de1cdf194064a|secdef=true|cfg=search_path=\"\"",
 }
 POL_NEW = {
     "pol_listings.listings_select_visible": "SELECT|{anon,authenticated}|cba0ffbb244fcdb5801a4114a8ba4a57|d41d8cd98f00b204e9800998ecf8427e",
@@ -55,12 +67,17 @@ POL_GONE = ("pol_listings.listings_select_all", "pol_bids.bids_select_all")
 T154 = ["listings.trg_hidden_listing_not_live:O:19:guard_hidden_listing_not_live()",
         "listing_visibility.trg_listing_visibility_not_live:O:7:guard_hidden_listing_not_live()"]
 T155 = T154 + ["listings.trg_listing_ends_at_from_duration:O:23:set_listing_ends_at_from_duration()"]
-T156 = T155 + ["listings.trg_guard_listing_proof_waiver:O:23:guard_listing_proof_waiver()"]
+T156 = T155 + ["listings.trg_guard_listing_proof_waiver:O:23:guard_listing_proof_waiver()",
+               "listings.trg_reservation_requires_disclosure:O:19:guard_reservation_requires_disclosure()",
+               "bids.trg_bid_requires_disclosure:O:7:guard_bid_requires_disclosure()"]
 TRG_154, TRG_155, TRG_156 = (",".join(sorted(t)) for t in (T154, T155, T156))   # str sort = COLLATE "C" (ASCII)
 READERS = ("public.listing_is_public(uuid)", "public.listing_private_party(uuid)", "public.is_public(public.listings)")
 LV_TABLE = "true|policies:0|grants:service_role:DELETE,service_role:INSERT,service_role:SELECT"
 WAIVER_CHECKS = ("listings_proof_waiver_all_or_none:5dfdcb9541b9c9e54e5b029a303911ad,"
+                 "listings_proof_waiver_never_approved:39f7f851c6d3e7840dcdefac865c4d56,"
                  "listings_proof_waiver_reason_check:abaad037782bfa31b92d52269587f106")
+# 154's one foreign key (also KEPT by 154's rollback with the table): state.sql lv_fk
+LV_FK = "listing_visibility_listing_id_fkey|r|FOREIGN KEY (listing_id) REFERENCES listings(id) ON DELETE RESTRICT"
 DURATION_72 = "CHECK ((duration_hours = ANY (ARRAY[1, 3, 6, 12, 24, 48, 72])))"
 
 
@@ -108,7 +125,7 @@ def main(pre_path, lists_path, out, n_hidden=113):
     for k in POL_GONE: s.pop(k)
     s.update(POL_NEW)
     s["triggers_listings_bids_lv"] = L["trg_154"]; s["triggers_154_156"] = TRG_154
-    s["lv_table"] = LV_TABLE; s["lv_rows"] = "0"
+    s["lv_table"] = LV_TABLE; s["lv_rows"] = "0"; s["lv_fk"] = LV_FK
     s["grants_anon_authenticated"] = L["grants_154"]
     post154 = dict(s)
     # 155
@@ -118,8 +135,11 @@ def main(pre_path, lists_path, out, n_hidden=113):
     s["triggers_listings_bids_lv"] = L["trg_155"]; s["triggers_154_156"] = TRG_155
     post155 = dict(s)
     # 156
-    ledger(s, "156"); census(s, f=2, g=1)
+    ledger(s, "156"); census(s, f=5, g=3)
     s["fn_public.guard_listing_proof_waiver()"] = FN["fn_public.guard_listing_proof_waiver()"]
+    for f in ("client_shows_proof_disclosure()", "guard_bid_requires_disclosure()", "guard_reservation_requires_disclosure()"):
+        s["fn_public." + f] = FN["fn_public." + f]
+        s["exec_public." + f] = "anon:false,authenticated:false,service_role:true"
     s["fn_public.current_user_is_admin()"] = FN["fn_public.current_user_is_admin()"]
     s["exec_public.guard_listing_proof_waiver()"] = "anon:false,authenticated:false,service_role:true"
     s["exec_public.current_user_is_admin()"] = "anon:false,authenticated:true,service_role:true"
@@ -135,7 +155,7 @@ def main(pre_path, lists_path, out, n_hidden=113):
     # 154's rollback (from post154): everything back to pre154 except the KEPT table
     rb = dict(pre)
     census(rb, t=1); rb["lv_table"] = LV_TABLE; rb["lv_rows"] = "0"
-    rb["rls_listing_visibility"] = lv_rls; rb["hidden_open_or_held"] = "0"
+    rb["rls_listing_visibility"] = lv_rls; rb["hidden_open_or_held"] = "0"; rb["lv_fk"] = LV_FK
     src = f"derived by rehearsal/predict.py from {Path(pre_path).name} + {Path(lists_path).name}"
     dump(post154, out / "post154.txt", [f"PREDICTED post-154 state: {src}"])
     dump(post155, out / "post155.txt", [f"PREDICTED post-155 state: {src}"])

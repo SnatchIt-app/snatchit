@@ -2,7 +2,7 @@
 rc=0
 == R1 apply 154 (expect rc 0)
 [pkg] prestate 154 vs pre154.txt
-[pkg] request sha256 2c3a9bda266c018dc92325d9f2d367212ed7c806b1e5dc8ab43c6b80592bdf4e (50278 bytes)
+[pkg] request sha256 1e44b38ef2843417b62f14d1f3f55258b9694030cc0c524824b5ea0d018c52d3 (52358 bytes)
 [pkg] post assertion 154 vs post154.txt
 [pkg] 154 APPLIED and verified
 rc=0
@@ -20,9 +20,10 @@ rc=0
   MISMATCH fnown_public.listing_private_party(uuid): expected absent | actual postgres|owner_of_listings=true|bypasses_rls=true
   MISMATCH grants_anon_authenticated: expected 2594|8033ed27a00192323b39d6865e12a476 | actual 2600|3c22c382aeb56c680970ee5a814766ae
   MISMATCH hidden_open_or_held: expected absent | actual 0
-  MISMATCH ledger_154: expected absent | actual listing_public_visibility|claude-a/owner-authorised-154|1|c0be8b08c6af36473fd6e1782056221d|25036
+  MISMATCH ledger_154: expected absent | actual listing_public_visibility|claude-a/owner-authorised-154|1|bda198b7efe87ef3811bcdb9b136de5f|26076
   MISMATCH ledger_count: expected 165 | actual 166
   MISMATCH ledger_max: expected 20261013000000 | actual 20261015000000
+  MISMATCH lv_fk: expected absent | actual listing_visibility_listing_id_fkey|r|FOREIGN KEY (listing_id) REFERENCES listings(id) ON DELETE RESTRICT
   MISMATCH lv_rows: expected absent | actual 0
   MISMATCH lv_table: expected absent | actual true|policies:0|grants:service_role:DELETE,service_role:INSERT,service_role:SELECT
   MISMATCH pol_bids.bids_select_all: expected SELECT|{public}|b326b5062b2f0e69046810717534cb09|d41d8cd98f00b204e9800998ecf8427e | actual <missing>
@@ -47,7 +48,7 @@ rc=0
   MISMATCH fnown_public.listing_is_public(uuid): expected absent | actual postgres|owner_of_listings=true|bypasses_rls=true
   MISMATCH fnown_public.listing_private_party(uuid): expected absent | actual postgres|owner_of_listings=true|bypasses_rls=true
   MISMATCH grants_anon_authenticated: expected 2594|8033ed27a00192323b39d6865e12a476 | actual 2600|3c22c382aeb56c680970ee5a814766ae
-  MISMATCH ledger_154: expected absent | actual listing_public_visibility|claude-a/owner-authorised-154|1|c0be8b08c6af36473fd6e1782056221d|25036
+  MISMATCH ledger_154: expected absent | actual listing_public_visibility|claude-a/owner-authorised-154|1|bda198b7efe87ef3811bcdb9b136de5f|26076
   MISMATCH ledger_count: expected 165 | actual 166
   MISMATCH ledger_max: expected 20261013000000 | actual 20261015000000
   MISMATCH pol_bids.bids_select_all: expected SELECT|{public}|b326b5062b2f0e69046810717534cb09|d41d8cd98f00b204e9800998ecf8427e | actual <missing>
@@ -63,28 +64,28 @@ rc=0
 rc=3
 == R3 rollback 154 (table kept, empty) (expect rc 0)
 [pkg] rollback guard 154: state must equal post154.txt
-  (ignored) lv_rows: expected 0 | actual 0
-  (ignored) nonparty_listings: expected 113 | actual 113
   (ignored) anon_listings: expected 113 | actual 113
-  (ignored) anon_bids: expected 5 | actual 5
+  (ignored) nonparty_listings: expected 113 | actual 113
   (ignored) nonparty_bids: expected 5 | actual 5
-[pkg] rollback request sha256 bae439647f0632c5fc0ffa51b06cc5d03185db41dd876ff3987aad235edc65c7
+  (ignored) anon_bids: expected 5 | actual 5
+  (ignored) lv_rows: expected 0 | actual 0
+[pkg] rollback request sha256 8182f6f4ebbf347f056a7c0529f6b2a58f7c6b502e9926f7ea265515305dd5d3
 [pkg] post-rollback 154 vs rb154.txt
-  (ignored) lv_rows: expected 0 | actual 0
-  (ignored) nonparty_listings: expected 113 | actual 113
   (ignored) anon_listings: expected 113 | actual 113
-  (ignored) anon_bids: expected 5 | actual 5
+  (ignored) nonparty_listings: expected 113 | actual 113
   (ignored) nonparty_bids: expected 5 | actual 5
+  (ignored) anon_bids: expected 5 | actual 5
+  (ignored) lv_rows: expected 0 | actual 0
 [pkg] 154 ROLLED BACK and verified
 rc=0
 == R4 rollback 154 again (negative) (expect rc 3)
 [pkg] rollback STOP for 154; nothing sent
 [pkg] rollback guard 154: state must equal post154.txt
-  (ignored) nonparty_bids: expected 5 | actual 5
-  (ignored) anon_bids: expected 5 | actual 5
   (ignored) nonparty_listings: expected 113 | actual 113
   (ignored) lv_rows: expected 0 | actual 0
+  (ignored) nonparty_bids: expected 5 | actual 5
   (ignored) anon_listings: expected 113 | actual 113
+  (ignored) anon_bids: expected 5 | actual 5
   MISMATCH census: expected 35|1218|37|45 | actual 35|1214|37|43
   MISMATCH exec_public.guard_hidden_listing_not_live(): expected anon:false,authenticated:false,service_role:true | actual absent
   MISMATCH exec_public.is_public(public.listings): expected anon:true,authenticated:true,service_role:true | actual absent
@@ -99,7 +100,7 @@ rc=0
   MISMATCH fnown_public.listing_is_public(uuid): expected postgres|owner_of_listings=true|bypasses_rls=true | actual absent
   MISMATCH fnown_public.listing_private_party(uuid): expected postgres|owner_of_listings=true|bypasses_rls=true | actual absent
   MISMATCH grants_anon_authenticated: expected 2600|3c22c382aeb56c680970ee5a814766ae | actual 2594|8033ed27a00192323b39d6865e12a476
-  MISMATCH ledger_154: expected listing_public_visibility|claude-a/owner-authorised-154|1|c0be8b08c6af36473fd6e1782056221d|25036 | actual absent
+  MISMATCH ledger_154: expected listing_public_visibility|claude-a/owner-authorised-154|1|bda198b7efe87ef3811bcdb9b136de5f|26076 | actual absent
   MISMATCH ledger_count: expected 166 | actual 165
   MISMATCH ledger_max: expected 20261015000000 | actual 20261013000000
   MISMATCH pol_bids.bids_select_visible: expected SELECT|{anon,authenticated}|bf373b0b04578b109b60045d048d7f7c|d41d8cd98f00b204e9800998ecf8427e | actual <missing>
@@ -113,11 +114,12 @@ rc=3
 [pkg] prestate 154 vs pre154.txt
   MISMATCH census: expected 34|1214|37|43 | actual 35|1214|37|43
   MISMATCH hidden_open_or_held: expected absent | actual 0
+  MISMATCH lv_fk: expected absent | actual listing_visibility_listing_id_fkey|r|FOREIGN KEY (listing_id) REFERENCES listings(id) ON DELETE RESTRICT
   MISMATCH lv_rows: expected absent | actual 0
   MISMATCH lv_table: expected absent | actual true|policies:0|grants:service_role:DELETE,service_role:INSERT,service_role:SELECT
   MISMATCH rls_listing_visibility: expected absent | actual postgres|rls=true|force=false
 [pkg] prestate 154 vs rb154.txt (re-apply after this migration's own rollback)
-[pkg] request sha256 2c3a9bda266c018dc92325d9f2d367212ed7c806b1e5dc8ab43c6b80592bdf4e (50278 bytes)
+[pkg] request sha256 1e44b38ef2843417b62f14d1f3f55258b9694030cc0c524824b5ea0d018c52d3 (52358 bytes)
 [pkg] post assertion 154 vs post154.txt
 [pkg] 154 APPLIED and verified
 rc=0
@@ -129,14 +131,14 @@ rc=0
 rc=0
 == R7 apply 156 (expect rc 0)
 [pkg] prestate 156 vs post155.txt
-[pkg] request sha256 c264689831e5f5bf1cc6f7c3c62d04de44f92a9189c3e0733357d640504f5e6b (17787 bytes)
+[pkg] request sha256 11a69c9459a86ad6fdc715131dc968f186866a5473ebd8a8053045de97c356d2 (38267 bytes)
 [pkg] post assertion 156 vs post156.txt
 [pkg] 156 APPLIED and verified
 rc=0
 == R8 split: delete 156's ledger row (objects stay)
 split rc=0
 == R8b apply 156 --ledger-only (resume) (expect rc 0)
-[pkg] ledger-only request sha256 e4b2ada34ac4dbe89257a6860c6b8e405e15f6aa0eef5c675979c08f5adbef65
+[pkg] ledger-only request sha256 513e723482346347628ab13bf8b3b1eeaece31ecd4a399ee6330f253e72165a2
 [pkg] 156 ledger row restored and verified
 rc=0
 == R8c apply 156 --ledger-only again (negative: row present) (expect rc 3)
@@ -173,34 +175,34 @@ rc=0
 rc=0
 == R14 rollback 156 with rows hidden (data keys ignored) (expect rc 0)
 [pkg] rollback guard 156: state must equal post156.txt
-  (ignored) nonparty_listings: expected 113 | actual 0
-  (ignored) nonparty_bids: expected 5 | actual 0
   (ignored) lv_rows: expected 0 | actual 113
+  (ignored) nonparty_bids: expected 5 | actual 0
+  (ignored) nonparty_listings: expected 113 | actual 0
   (ignored) anon_listings: expected 113 | actual 0
   (ignored) anon_bids: expected 5 | actual 0
-[pkg] rollback request sha256 a161310172facbb65a0fe5d33b2721a9290e0760b311108ee1895ebc3e4afbb4
+[pkg] rollback request sha256 eaa87a10a415a718dae6d150ff292f150da59c6e9844f6a03192b5ca27ce1636
 [pkg] post-rollback 156 vs post155.txt
-  (ignored) nonparty_listings: expected 113 | actual 0
-  (ignored) nonparty_bids: expected 5 | actual 0
   (ignored) lv_rows: expected 0 | actual 113
+  (ignored) nonparty_bids: expected 5 | actual 0
+  (ignored) nonparty_listings: expected 113 | actual 0
   (ignored) anon_listings: expected 113 | actual 0
   (ignored) anon_bids: expected 5 | actual 0
 [pkg] 156 ROLLED BACK and verified
 rc=0
 == R15 rollback 155 (expect rc 0)
 [pkg] rollback guard 155: state must equal post155.txt
-  (ignored) nonparty_bids: expected 5 | actual 0
-  (ignored) anon_listings: expected 113 | actual 0
   (ignored) anon_bids: expected 5 | actual 0
-  (ignored) nonparty_listings: expected 113 | actual 0
   (ignored) lv_rows: expected 0 | actual 113
+  (ignored) anon_listings: expected 113 | actual 0
+  (ignored) nonparty_bids: expected 5 | actual 0
+  (ignored) nonparty_listings: expected 113 | actual 0
 [pkg] rollback request sha256 86b4f847e57257a8e94aefff5882a44e0e5652250771ec8ebd8f30d0634ea34c
 [pkg] post-rollback 155 vs post154.txt
-  (ignored) nonparty_bids: expected 5 | actual 0
-  (ignored) anon_listings: expected 113 | actual 0
   (ignored) anon_bids: expected 5 | actual 0
-  (ignored) nonparty_listings: expected 113 | actual 0
   (ignored) lv_rows: expected 0 | actual 113
+  (ignored) anon_listings: expected 113 | actual 0
+  (ignored) nonparty_bids: expected 5 | actual 0
+  (ignored) nonparty_listings: expected 113 | actual 0
 [pkg] 155 ROLLED BACK and verified
 rc=0
 == R16 rollback 154 (113 rows KEPT, inert) (expect rc 0)
@@ -208,15 +210,15 @@ rc=0
   (ignored) nonparty_bids: expected 5 | actual 0
   (ignored) anon_listings: expected 113 | actual 0
   (ignored) anon_bids: expected 5 | actual 0
-  (ignored) lv_rows: expected 0 | actual 113
   (ignored) nonparty_listings: expected 113 | actual 0
-[pkg] rollback request sha256 bae439647f0632c5fc0ffa51b06cc5d03185db41dd876ff3987aad235edc65c7
+  (ignored) lv_rows: expected 0 | actual 113
+[pkg] rollback request sha256 8182f6f4ebbf347f056a7c0529f6b2a58f7c6b502e9926f7ea265515305dd5d3
 [pkg] post-rollback 154 vs rb154.txt
   (ignored) nonparty_bids: expected 5 | actual 5
   (ignored) anon_listings: expected 113 | actual 113
   (ignored) anon_bids: expected 5 | actual 5
-  (ignored) lv_rows: expected 0 | actual 113
   (ignored) nonparty_listings: expected 113 | actual 113
+  (ignored) lv_rows: expected 0 | actual 113
 [pkg] 154 ROLLED BACK and verified
 rc=0
 == R17 kept rows are inert: anon sees the listings again; the 113 visibility rows survive
@@ -226,6 +228,7 @@ lv_rows=113
 [pkg] prestate 154 vs pre154.txt
   MISMATCH census: expected 34|1214|37|43 | actual 35|1214|37|43
   MISMATCH hidden_open_or_held: expected absent | actual 0
+  MISMATCH lv_fk: expected absent | actual listing_visibility_listing_id_fkey|r|FOREIGN KEY (listing_id) REFERENCES listings(id) ON DELETE RESTRICT
   MISMATCH lv_rows: expected absent | actual 113
   MISMATCH lv_table: expected absent | actual true|policies:0|grants:service_role:DELETE,service_role:INSERT,service_role:SELECT
   MISMATCH rls_listing_visibility: expected absent | actual postgres|rls=true|force=false

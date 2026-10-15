@@ -25,12 +25,14 @@ EXCEPTION WHEN others THEN
 END $f$;
 -- The client create shape (CreateListingScreen / web create-listing) with a chosen duration and the
 -- ends_at the device computed (deliberately NOT now() + duration, so the server's value is observable).
+-- It carries a proof path, as every client does (156 refuses an untrusted create with no waiver and no proof).
 CREATE FUNCTION tap._create222(p_hours int, p_tag text, p_client_ends interval DEFAULT interval '1 hour') RETURNS text LANGUAGE sql AS $f$
   SELECT format($i$ INSERT INTO public.listings
        (seller_id, event_name, venue, neighborhood, event_date, event_time, ticket_type, quantity,
-        transfer_method, starting_bid, buy_now_enabled, duration_hours, ends_at, current_bid, cover_image_path)
+        transfer_method, starting_bid, buy_now_enabled, duration_hours, ends_at, current_bid, cover_image_path,
+        proof_of_ownership_path)
      VALUES (%L, %L, 'Club 222', 'wynwood', current_date + 7, '21:00', 'GA', 2,
-             'mobile_transfer', 60, false, %s, now() + %L::interval, 60, 'covers/222.jpg') $i$,
+             'mobile_transfer', 60, false, %s, now() + %L::interval, 60, 'covers/222.jpg', 'proofs/222.png') $i$,
      tap.seller(), 'Fixture 222 ' || p_tag, p_hours, p_client_ends) $f$;
 CREATE FUNCTION tap._stored222(p_tag text) RETURNS text LANGUAGE sql AS $f$
   SELECT duration_hours || '|' || (ends_at - now())::text FROM public.listings WHERE event_name = 'Fixture 222 ' || p_tag $f$;
