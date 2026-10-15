@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Listing cleanup (owner, 2026-10-15): only approved listings are public. RLS on listings hides the
 // rest from non-participants, so the public catalog (home, browse, related, /api/public/events,
-// sitemap) must read as an anonymous visitor would: a cookie-client read gave a signed-in seller or
+// sitemap) must read as an anonymous visitor would (RLS returns only public listings to anon): a cookie-client read gave a signed-in seller or
 // bidder their hidden rows, and the feed's `Cache-Control: public` body would then be served to
 // everyone. Seller mutations must not read a failed or filtered result as "0 bids" / "done".
 
@@ -83,7 +83,7 @@ afterEach(() => vi.unstubAllGlobals());
 const listingReads = () => calls.filter((c) => c.url.pathname === "/rest/v1/listings");
 
 describe("the public catalog reads as an anonymous visitor", () => {
-  it("getActiveListings: cookieless anon request, hidden rows excluded explicitly", async () => {
+  it("getActiveListings: cookieless anon request, live filters kept", async () => {
     const { getActiveListings } = await import("@/lib/listings");
     await getActiveListings({ category: "clubs" }, 24);
     expect(h.serverCalled).toBe(0);
@@ -92,7 +92,6 @@ describe("the public catalog reads as an anonymous visitor", () => {
     expect(c).toBeDefined();
     // The anon key is the only credential: no user JWT reaches PostgREST.
     expect(c.headers.get("authorization")).toBe("Bearer anon-test-key");
-    expect(c.url.searchParams.get("public_hidden_at")).toBe("is.null");
     expect(c.url.searchParams.get("status")).toBe("eq.active");
     expect(c.url.searchParams.get("auction_status")).toBe("eq.active");
     expect(c.url.searchParams.get("category")).toBe("eq.clubs");
@@ -106,7 +105,6 @@ describe("the public catalog reads as an anonymous visitor", () => {
     expect(h.serverCalled).toBe(0);
     expect(h.cookiesCalled).toBe(0);
     expect(listingReads()[0].headers.get("authorization")).toBe("Bearer anon-test-key");
-    expect(listingReads()[0].url.searchParams.get("public_hidden_at")).toBe("is.null");
   });
 
   it("sitemap: rendered per request (not frozen at build) from the anonymous catalog", async () => {
@@ -122,7 +120,7 @@ describe("the public catalog reads as an anonymous visitor", () => {
     await getRelatedListings({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1", category: "clubs" } as never, 4);
     expect(h.serverCalled).toBe(0);
     expect(listingReads().length).toBeGreaterThan(0);
-    for (const c of listingReads()) expect(c.url.searchParams.get("public_hidden_at")).toBe("is.null");
+    for (const c of listingReads()) expect(c.headers.get("authorization")).toBe("Bearer anon-test-key");
   });
 });
 

@@ -75,15 +75,13 @@ export interface BrowseFilters {
 export async function getActiveListings(filters: BrowseFilters = {}, limit = 24): Promise<WebListing[]> {
   if (!hasSupabaseEnv) return applyFiltersLocally(FIXTURE_LISTINGS, filters);
 
-  // The public catalog: cookieless, so a signed-in participant never gets a
-  // hidden listing here (and the CDN-cached feed can never store one). The
-  // public_hidden_at predicate repeats RLS on purpose: hidden ⇒ never public,
-  // whichever client runs this.
+  // The public catalog reads as an anonymous visitor: RLS (154) returns only
+  // public listings to anon, so a signed-in participant's hidden rows can never
+  // reach these pages or the CDN-cached feed, whatever the live filters below.
   const supabase = createSupabasePublicClient();
   let query = supabase
     .from("listings")
     .select(LISTING_COLUMNS)
-    .is("public_hidden_at", null)
     .eq("status", "active")
     .eq("auction_status", "active")
     .gt("ends_at", new Date().toISOString());
