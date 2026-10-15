@@ -40,3 +40,27 @@ describe('the disclosure gate', () => {
     }
   });
 });
+
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { LISTING_DETAILS_UNAVAILABLE_COPY } from '../src/lib/checkout/listingSummary';
+
+describe('the checkout screen feeds the gate (not gated: CheckoutNative.tsx)', () => {
+  const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+  const n = strip(readFileSync(resolve(__dirname, '..', 'src/screens/checkout/CheckoutNative.tsx'), 'utf8'));
+
+  it('DG7: the details read records loading / ready / failed, and is re-runnable', () => {
+    expect(n).toMatch(/const \[detailsState, setDetailsState\] = useState<'loading' \| 'ready' \| 'failed'>\('loading'\);/);
+    expect(n).toMatch(/if \(error \|\| !data\) \{[\s\S]{0,300}setDetailsState\('failed'\);/);
+    expect(n).toMatch(/setDisplay\(mapListingSummary\(row, \{ eventName, venue \}\)\);\s*setDetailsState\('ready'\);/);
+    expect(n).toMatch(/const reloadDetails = useCallback\(/);
+  });
+  it('DG8: payControl receives the details state, and reload_details re-reads them', () => {
+    expect(n).toMatch(/payControl\(\{[\s\S]{0,600}disclosure: detailsState,/);
+    expect(n).toMatch(/pay\.action === 'reload_details' \? reloadDetails/);
+  });
+  it('DG9: a failed details read is said on screen, with its own retry', () => {
+    expect(LISTING_DETAILS_UNAVAILABLE_COPY.title).toBe("Couldn't load listing details");
+    expect(n).toMatch(/: detailsState === 'failed' \? \{\s*title: LISTING_DETAILS_UNAVAILABLE_COPY\.title,\s*body: LISTING_DETAILS_UNAVAILABLE_COPY\.body,/);
+  });
+});

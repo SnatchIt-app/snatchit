@@ -16,7 +16,7 @@
  */
 
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Platform } from 'react-native';
 import {
   isPlatformPaySupported,
@@ -48,6 +48,7 @@ import CheckoutView, {
   RefundView,
 } from './CheckoutView';
 import {
+  LISTING_DETAILS_UNAVAILABLE_COPY,
   LISTING_SUMMARY_COLUMNS,
   mapListingSummary,
   reservedUntilMs,
@@ -171,37 +172,44 @@ export default function CheckoutScreen() {
 
   // -- Listing display: what the buyer is paying for ------------------------
   // A read-only fetch of the event's display fields, independent of the payment
-  // flow. It touches no money and never blocks or fails payment. The old screen
-  // showed the event and venue as two text rows and no artwork at all, on the
-  // one screen where the money actually leaves.
+  // flow. It touches no money and never fails payment. The old screen showed the
+  // event and venue as two text rows and no artwork at all, on the one screen
+  // where the money actually leaves.
+  //
+  // It now GATES Pay (owner, 2026-10-15): it carries the owner proof-waiver state
+  // (156), and payment must never be offered while a waiver disclosure could be
+  // missing. Until it answers, payControl withholds Pay; if it fails, the control's
+  // only action re-reads it.
   const [display, setDisplay] = useState<ListingSummary | null>(null);
   const [reservedUntil, setReservedUntil] = useState<number | null>(null);
+  const [detailsState, setDetailsState] = useState<'loading' | 'ready' | 'failed'>('loading');
+  const detailsAliveRef = useRef(true);
+  useEffect(() => () => { detailsAliveRef.current = false; }, []);
 
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      const { data, error } = await supabase
-        .from('listings')
-        .select(LISTING_SUMMARY_COLUMNS)
-        .eq('id', listingId)
-        .maybeSingle();
-      if (!alive) return;
-      if (error || !data) {
-        // F1: this read is cosmetic — it must never block or fail the payment.
-        // It stays quiet and the screen keeps the values navigation passed in.
-        if (error) console.warn('[checkout] listing summary unavailable:', error.message);
-        return;
-      }
-      const row = data as ListingSummaryRow;
-      setDisplay(mapListingSummary(row, { eventName, venue }));
-      if (isBuyNow) {
-        const until = reservedUntilMs(row);
-        if (until != null) setReservedUntil(until);
-      }
-    })();
-    return () => { alive = false; };
+  const reloadDetails = useCallback(async () => {
+    setDetailsState('loading');
+    const { data, error } = await supabase
+      .from('listings')
+      .select(LISTING_SUMMARY_COLUMNS)
+      .eq('id', listingId)
+      .maybeSingle();
+    if (!detailsAliveRef.current) return;
+    if (error || !data) {
+      if (error) console.warn('[checkout] listing summary unavailable:', error.message);
+      setDetailsState('failed');
+      return;
+    }
+    const row = data as ListingSummaryRow;
+    setDisplay(mapListingSummary(row, { eventName, venue }));
+    setDetailsState('ready');
+    if (isBuyNow) {
+      const until = reservedUntilMs(row);
+      if (until != null) setReservedUntil(until);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listingId]);
+
+  useEffect(() => { void reloadDetails(); }, [reloadDetails]);
 
   // Live reservation countdown for Buy Now.
   const [nowTs, setNowTs] = useState(() => Date.now());
@@ -812,10 +820,12 @@ export default function CheckoutScreen() {
     statusUnknown,
     reservationMsLeft: isBuyNow ? reservationMsLeft : null,
     formattedTotal: formatCents(totalCents),
+    disclosure: detailsState,
   });
   const payOnPress =
     pay.action === 'pay' ? payHandler
     : pay.action === 'retry' ? () => setupPaymentRef.current?.()
+    : pay.action === 'reload_details' ? reloadDetails
     // A plain back navigation, so the listing screen's own exit path runs.
     : pay.action === 'back' ? () => router.back()
     : undefined;
@@ -856,6 +866,10 @@ export default function CheckoutScreen() {
             title: "We couldn't confirm your payment yet",
             body: "Your last attempt may or may not have gone through. Please don't pay again. We'll keep checking; you can also check now.",
             action: { label: 'Check status', onPress: recheckPayment, loading: checking },
+          }
+        : detailsState === 'failed' ? {
+            title: LISTING_DETAILS_UNAVAILABLE_COPY.title,
+            body: LISTING_DETAILS_UNAVAILABLE_COPY.body,
           }
         : null
       }

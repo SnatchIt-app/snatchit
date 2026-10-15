@@ -36,6 +36,15 @@ export const LISTING_SUMMARY_COLUMNS =
   // (migration 156). Display only. These columns exist only once 156 is applied.
   'cover_image_path, event_name, venue, event_date, event_time, reserved_until, quantity, ticket_type, proof_status, proof_waived_at';
 
+/**
+ * The details read failed, so whether the listing carries an owner proof waiver is unknown. Pay waits for the
+ * details (owner, 2026-10-15); the pay control's only action re-reads them.
+ */
+export const LISTING_DETAILS_UNAVAILABLE_COPY = {
+  title: "Couldn't load listing details",
+  body: "Pay becomes available once this listing's details load, including any ticket-proof notice. Check your connection and try again.",
+} as const;
+
 export type ListingSummaryRow = {
   cover_image_path?: string | null;
   /** Legacy absolute URL. NOT selected — tolerated if a caller has one. */
