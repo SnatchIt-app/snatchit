@@ -34,6 +34,7 @@ import { authPhase, isResetScreen, recoveryRouteTarget, rootRouteDecision, type 
 import { supabase } from '@/src/lib/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { clearRecoveryPending, markRecoveryPending, recoveryPendingFor } from '@/src/lib/auth/recoveryMarker';
+import { useRecoveryHold } from '@/src/lib/auth/recoveryHold';
 import ErrorBoundary from '@/src/components/ErrorBoundary';
 // Imported from the leaf module (not the ui barrel) so the web-safe root layout
 // pulls in no native-only siblings. Spinner's own deps are all platform-safe.
@@ -95,7 +96,8 @@ function ThemedShell({ children, fontsReady }: { children: ReactNode; fontsReady
 
 function RootLayout() {
   const { session, loading } = useAuth();
-  const [isRecovery, setIsRecovery] = useState(false);
+  // N7c: process-wide, not useState — a cold-start remount must not lose a hold the first instance raised.
+  const [isRecovery, setIsRecovery] = useRecoveryHold();
   // Sign up creates the account partway through, so a session appears while the
   // person still has steps to answer. While that flag is raised the signup screen
   // owns navigation and this gate stays out of the way. It gates routing only:
@@ -135,7 +137,7 @@ function RootLayout() {
       }
     });
     return () => subscription.unsubscribe();
-  }, []);
+  }, [setIsRecovery]);
 
   // Identity reporting tracks the current user on every change, including the
   // ones that must not navigate.
@@ -168,7 +170,7 @@ function RootLayout() {
       if (!cancelled) setRecoveryChecked(true);
     })();
     return () => { cancelled = true; };
-  }, [loading, recoveryChecked, userId]);
+  }, [loading, recoveryChecked, userId, setIsRecovery]);
   useEffect(() => {
     if (isRecovery && userId) void markRecoveryPending(AsyncStorage, userId);
   }, [isRecovery, userId]);
