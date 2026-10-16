@@ -191,6 +191,8 @@ function RootLayout() {
       phase,
       lastRoutedPhase: routedPhaseRef.current,
       inSignedInArea,
+      // The Stack renders once fonts are ready and AppearanceProvider has read the stored choice; that read is
+      // queued on AsyncStorage's serial queue before useAuth's first session read, so it always lands first.
       navigatorReady: fontsReady,
     });
     if (!decision.navigate) return;

@@ -8,7 +8,9 @@
  * dispatch raised the hold — into the dead instance's useState. SIGNED_IN then reached the live
  * instance with no hold and the phase router went to Home. The claim was process-wide; the hold was
  * per-instance. The hold now lives for the process too, so any root instance — first, remounted or
- * later — reads the same hold. Mocked network, real auth-js and real dispatch: NOT device evidence.
+ * later — reads the same hold. Fresh roots are rendered with react-dom/server (no subscription); the root
+ * that is already mounted when the hold is raised is recovery-hold-live-root (RH6). Mocked network, real
+ * auth-js and real dispatch: NOT device evidence.
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -39,7 +41,7 @@ describe('N7c — one hold per process', () => {
     expect(mountFreshRoot()).toContain('held');
   });
 
-  it('RH2: the setter an earlier, since-replaced instance captured still reaches the instance that replaced it', () => {
+  it('RH2: the setter an earlier, since-replaced instance captured writes the one hold every later read sees', () => {
     mountFreshRoot();
     const setterFromFirstInstance = capturedSetter!;
     expect(mountFreshRoot()).toContain('free');          // the replacement mounts before the claim resolves
@@ -116,7 +118,7 @@ describe('N7c — the production T1 sequence, replayed with the real funnel and 
 
     expect(second).toEqual({ kind: 'ignored' });          // the claim is process-wide
     expect(first).toEqual({ kind: 'pkce', error: null }); // the session was minted by instance 1's dispatch
-    expect(mountFreshRoot()).toContain('held');           // and the live root still puts them on "New password"
+    expect(mountFreshRoot()).toContain('held');           // any root reading now holds; the already-mounted root is RH6
   });
 });
 
