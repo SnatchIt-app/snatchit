@@ -48,6 +48,11 @@ export function trimToWordBoundary(
   return `${trimmed.replace(/[\s.,;:·—-]+$/u, '')}${ELLIPSIS}`;
 }
 
+/**
+ * `maxLines={null}` is NO cap: the whole name, wrapped, with no trimming pass. It is for the screens
+ * whose job is to say which listing this is — the listing itself and the bid review that commits to
+ * it ("Adiel & Yu Su with JOVIGIBS at Jolene Sound…" on build 28). Rows and cards keep the default 2.
+ */
 export function NameText({
   children,
   token,
@@ -56,19 +61,20 @@ export function NameText({
 }: {
   children: string;
   token: NameToken;
-  maxLines?: number;
+  maxLines?: number | null;
   style?: StyleProp<TextStyle>;
 }) {
   const [display, setDisplay] = useState<string | null>(null);
+  const cap = maxLines ?? undefined;
 
   return (
     <Text
       style={[textStyle(token), style]}
-      numberOfLines={maxLines}
-      onTextLayout={(e) => {
+      numberOfLines={cap}
+      onTextLayout={cap === undefined ? undefined : (e) => {
         if (display !== null) return;   // one corrective pass only
         const lines = e.nativeEvent.lines?.map((l) => l.text) ?? [];
-        const trimmed = trimToWordBoundary(children, lines, maxLines);
+        const trimmed = trimToWordBoundary(children, lines, cap);
         if (trimmed !== null) setDisplay(trimmed);
       }}
     >

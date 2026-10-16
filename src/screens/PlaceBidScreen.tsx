@@ -339,9 +339,9 @@ export default function PlaceBidScreen({ id, fixture }: Props) {
       <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         {/* V3 (pkg2 ①): the listing is RESTATED, not re-sold — the name in the display voice,
             the dated line home and search also use, and the quantity, because the bid buys the
-            whole listing. */}
+            whole listing. The name is uncapped: a bid commits to it, so none of it may be cut. */}
         {listing?.event_name ? (
-          <NameText token="nameOrder" maxLines={2} style={s.eventName}>{listing.event_name}</NameText>
+          <NameText token="nameOrder" maxLines={null} style={s.eventName}>{listing.event_name}</NameText>
         ) : null}
         {listing?.venue && listing?.event_date ? (
           <Text style={[textStyle('bodySm'), s.venue]} numberOfLines={1}>

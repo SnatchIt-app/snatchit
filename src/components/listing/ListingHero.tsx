@@ -126,7 +126,12 @@ export function ListingHero({
         <Text style={[textStyle('bodySm'), styles.when]}>
           {`${rowWhenLabel(eventDate, eventTime)} · ${venue}`}
         </Text>
-        <NameText token="nameDetail" maxLines={2} style={styles.title}>
+        {/*
+          No line cap either, for the same reason as the date line: this is the screen that says which
+          listing it is, and build 28 cut "Adiel & Yu Su with JOVIGIBS at Jolene Sound…" at two lines.
+          The name wraps; the page scrolls.
+        */}
+        <NameText token="nameDetail" maxLines={null} style={styles.title}>
           {eventName}
         </NameText>
       </View>
