@@ -29,11 +29,15 @@ export function parsePayoutStatusReply(data: unknown): ServerPayoutStatus | null
   return isServerPayoutStatus(status) ? status : null;
 }
 
-/** After the profile read: no Connect account is a definitive answer; a failed read or an account id is not. */
+/**
+ * After the profile read: no Connect account is a definitive answer; a failed read or an account id is not.
+ * An account id CONTRADICTS an earlier 'not_connected' (the seller onboarded since the screen last read
+ * it — Profile stays mounted), so that value goes back to 'checking' instead of surviving a failed probe.
+ */
 export function payoutViewAfterProfileRead(current: PayoutView, read: { connectId: string | null } | null): PayoutView {
   if (read === null) return isServerPayoutStatus(current) ? current : 'unavailable';
   if (!read.connectId) return 'not_connected';
-  return isServerPayoutStatus(current) ? current : 'checking';
+  return current === 'connected' || current === 'onboarding_required' ? current : 'checking';
 }
 
 /** After the probe settles: a reported status wins; no answer keeps a known status and never invents a negative. */
@@ -42,19 +46,27 @@ export function settlePayoutView(current: PayoutView, reported: ServerPayoutStat
   return isServerPayoutStatus(current) ? current : 'unavailable';
 }
 
-/** Profile → Payouts row. */
+/**
+ * Profile → Payouts row. 'connected' is what the probe reports once Stripe has the onboarding details
+ * (details_submitted); it says nothing about payouts_enabled, so the row says "Onboarding complete",
+ * the mirror of "Onboarding incomplete", and not "Payouts enabled".
+ */
 export const PAYOUT_ROW_COPY: Record<PayoutView, { title: string; state: string; tone: 'success' | 'warning' | 'neutral' }> = {
-  connected:           { title: 'Connected to Stripe',   state: 'Payouts enabled',            tone: 'success' },
+  connected:           { title: 'Connected to Stripe',   state: 'Onboarding complete',        tone: 'success' },
   onboarding_required: { title: 'Complete payout setup', state: 'Onboarding incomplete',      tone: 'warning' },
   not_connected:       { title: 'Set up payouts',        state: 'Not set up',                 tone: 'warning' },
   checking:            { title: 'Payouts',               state: 'Checking status…',           tone: 'neutral' },
   unavailable:         { title: 'Payouts',               state: 'Status unavailable — tap to check', tone: 'neutral' },
 };
 
-/** Payout setup while the status is unknown: say so, and offer a re-check instead of a setup call to action. */
+/**
+ * Payout setup while the status is unknown: say so, and offer a re-check instead of a setup call to action.
+ * Only what the app knows: the check did not complete. Not which service failed (it may be the profile
+ * read, before Stripe is asked) and not that nothing changed (it cannot know).
+ */
 export const PAYOUT_UNKNOWN_SETUP_COPY = {
   title: 'Payout status unavailable',
-  description: "We couldn't reach Stripe to check your payout status just now. Nothing has changed with your account or your payouts.",
+  description: "We couldn't check your payout status just now.",
   statusLabel: 'Unknown',
   statusSub: 'Try again in a moment.',
   btnLabel: 'Try again',

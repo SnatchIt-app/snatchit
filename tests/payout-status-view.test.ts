@@ -62,7 +62,26 @@ describe('what the screens show', () => {
     expect(view).toBe('unavailable');
     expect(PAYOUT_ROW_COPY[view].state).not.toMatch(/not set up|not connected/i);
     expect(PAYOUT_ROW_COPY.not_connected.state).toBe('Not set up');                 // the real negative is unchanged
-    expect(PAYOUT_ROW_COPY.connected.state).toBe('Payouts enabled');
+    expect(PAYOUT_ROW_COPY.connected.state).toBe('Onboarding complete');
+  });
+
+  it('PV8: a profile read that now shows a Connect account overrides an earlier "not connected" (review, 2026-10-16)', () => {
+    // Profile stays mounted: first visit had no account; the seller onboarded, listed, and came back.
+    expect(payoutViewAfterProfileRead('not_connected', { connectId: 'acct_new' })).toBe('checking');
+    // ...and if that probe then times out, the row says "unavailable", never the stale "Not set up".
+    expect(settlePayoutView(payoutViewAfterProfileRead('not_connected', { connectId: 'acct_new' }), null)).toBe('unavailable');
+    // A known positive status is still kept through a re-check (no flicker), and a failed read changes nothing.
+    expect(payoutViewAfterProfileRead('onboarding_required', { connectId: 'acct_x' })).toBe('onboarding_required');
+    expect(payoutViewAfterProfileRead('not_connected', null)).toBe('not_connected');
+    expect(payoutViewAfterProfileRead('not_connected', { connectId: null })).toBe('not_connected');
+  });
+
+  it('PV9: the copy claims only what the server says — "connected" means details submitted, and an unknown state knows nothing', () => {
+    // The status_only probe reports 'connected' on details_submitted alone; payouts_enabled is not in the reply.
+    expect(PAYOUT_ROW_COPY.connected.state).not.toMatch(/payouts enabled/i);
+    // A failed check knows neither which service failed nor whether anything changed.
+    expect(PAYOUT_UNKNOWN_SETUP_COPY.description).not.toMatch(/stripe|nothing has changed/i);
+    expect(PAYOUT_UNKNOWN_SETUP_COPY.description).toBe("We couldn't check your payout status just now.");
   });
 
   it('PV5: the unknown-state copy on Payout setup offers a re-check, never a setup call to action', () => {
