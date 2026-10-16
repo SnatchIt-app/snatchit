@@ -52,6 +52,16 @@ describe("titles don't repeat the venue", () => {
     expect(listingTitle("ANOTR — Watson Island Park", "Watson Island Park", "Fri, Dec 4, 2026")).toBe("ANOTR — Watson Island Park — Fri, Dec 4, 2026");
   });
 
+  it.each([
+    // The four live titles after the owner-approved retitle (A, 2026-10-16), with their stored venues.
+    ["IDEMI: Halloween Night at Jolene Sound Room", "Jolene Sound Room (200 E Flagler St, Basement)", "Sat, Oct 31, 2026"],
+    ["Adiel & Yu Su with JOVIGIBS at Jolene Sound Room", "Jolene Sound Room (200 E Flagler St, Basement)", "Fri, Nov 13, 2026"],
+    ["James Hype + HILLS at Club Space", "Club Space (Terrace)", "Fri, Nov 13, 2026"],
+    ["ANOTR at Watson Island Park", "Watson Island Park", "Fri, Dec 4, 2026"],
+  ])("live title %s: venue not repeated", (name, venue, date) => {
+    expect(listingTitle(name, venue, date)).toBe(`${name} — ${date}`);
+  });
+
   it("otherwise the venue is added as before", () => {
     expect(listingTitle("III Points Saturday", "Mana Wynwood", "Sat, Sep 12, 2026")).toBe("III Points Saturday at Mana Wynwood — Sat, Sep 12, 2026");
   });
