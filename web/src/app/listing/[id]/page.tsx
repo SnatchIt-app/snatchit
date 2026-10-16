@@ -28,7 +28,15 @@ import {
   platformLabel,
   deliveryLabel,
 } from "@/lib/format";
-import { eventWhen, proofWaiverNote, quantityLine, sellerVerifiedLabel } from "@/lib/listing-display";
+import {
+  eventStartIso,
+  eventWhen,
+  listingTitle,
+  proofWaiverNote,
+  quantityLine,
+  sellerVerifiedLabel,
+  showsFanBadge,
+} from "@/lib/listing-display";
 import { SITE_URL } from "@/lib/env";
 import { Container } from "@/components/ui/Container";
 import { Badge, LiveDot } from "@/components/ui/Badge";
@@ -62,7 +70,7 @@ export async function generateMetadata({
 
   const status = listingCardStatus(listing);
   const active = status === "LIVE" || status === "ENDING SOON";
-  const title = `${listing.event_name} at ${listing.venue} — ${fmtEventDate(listing.event_date)}`;
+  const title = listingTitle(listing.event_name, listing.venue, fmtEventDate(listing.event_date));
   const description = `${listing.ticket_type} ticket · ${neighborhoodLabel(listing.neighborhood)} · ${
     listing.buy_now_enabled && listing.buy_now_price
       ? `Buy Now ${allInFromDollars(listing.buy_now_price)} all-in`
@@ -77,7 +85,9 @@ export async function generateMetadata({
     openGraph: {
       title,
       description,
-      images: [{ url: coverImageUrl(listing.cover_image_path), width: 1200, height: 900 }],
+      // No declared size: covers are posters of any shape, and a fixed 1200×900 made social
+      // cards crop portrait posters.
+      images: [{ url: coverImageUrl(listing.cover_image_path) }],
     },
   };
 }
@@ -120,7 +130,7 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
     "@context": "https://schema.org",
     "@type": "Event",
     name: listing.event_name,
-    startDate: `${listing.event_date}T${listing.event_time}`,
+    startDate: eventStartIso(listing.event_date, listing.event_time),
     eventStatus: "https://schema.org/EventScheduled",
     eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode",
     location: {
@@ -129,14 +139,20 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
       address: { "@type": "PostalAddress", addressLocality: "Miami", addressRegion: "FL" },
     },
     image: [coverImageUrl(listing.cover_image_path)],
-    description: `Peer-to-peer resale listing on Snatch It. ${listing.ticket_type} ticket delivered by ${delivery.toLowerCase()} after purchase. Price includes all fees.`,
+    // A proof-waived listing is the platform owner's own inventory (156), not a peer resale.
+    description: `${proofNote ? "Listed by Snatch It." : "Peer-to-peer resale listing on Snatch It."} ${listing.ticket_type} ticket delivered by ${delivery.charAt(0).toLowerCase()}${delivery.slice(1)} after purchase. Price includes all fees.`,
     offers: {
       "@type": "Offer",
       price: (buyerTotalCents(dollarsToCents(base)) / 100).toFixed(2),
       priceCurrency: "USD",
       availability: isActive ? "https://schema.org/InStock" : "https://schema.org/SoldOut",
       url: `${SITE_URL}/listing/${listing.id}`,
-      ...(seller?.display_name ? { offeredBy: { "@type": "Person", name: seller.display_name } } : {}),
+      validThrough: listing.ends_at,
+      ...(proofNote
+        ? { offeredBy: { "@type": "Organization", name: "Snatch It" } }
+        : seller?.display_name
+          ? { offeredBy: { "@type": "Person", name: seller.display_name } }
+          : {}),
     },
   };
 
@@ -193,7 +209,7 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
           {/* Identity + purchase: under the poster on phones (native order), the right column on desktop. */}
           <aside className="min-w-0 lg:col-start-2 lg:row-span-2 lg:row-start-1" aria-label="Purchase">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge>From a fan</Badge>
+              {showsFanBadge(listing) ? <Badge>From a fan</Badge> : null}
               {status === "LIVE" ? (
                 <Badge tone="brand">
                   <LiveDot /> Live auction

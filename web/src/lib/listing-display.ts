@@ -138,3 +138,40 @@ export function sellerVerifiedLabel(
   if (!isVerifiedSeller) return null;
   return proofWaived ? "Verified seller" : "Verified";
 }
+
+/**
+ * "From a fan" describes a peer listing. A proof-waived listing is the platform owner's own
+ * inventory by construction (156 only lets an admin waive proof on their own listing), so it
+ * doesn't get the pill.
+ */
+export function showsFanBadge(l: { proof_waived_at?: string | null }): boolean {
+  return !l.proof_waived_at;
+}
+
+/**
+ * ISO start for structured data, with Miami's offset for that date (EDT −04:00 / EST −05:00).
+ * Without it, crawlers read the wall-clock time as UTC or guess.
+ */
+export function eventStartIso(eventDate: string, eventTime: string): string {
+  const time = /^\d{2}:\d{2}$/.test(eventTime) ? `${eventTime}:00` : eventTime;
+  // The offset at ~that wall-clock moment (events are never in the 1–3 AM switch-over window
+  // that would make this ambiguous by an hour).
+  const probe = new Date(`${eventDate}T${time}Z`);
+  if (Number.isNaN(probe.getTime())) return `${eventDate}T${time}`;
+  const name = new Intl.DateTimeFormat("en-US", { timeZone: MARKET_TIME_ZONE, timeZoneName: "shortOffset" })
+    .formatToParts(new Date(probe.getTime() + 5 * 3_600_000))
+    .find((p) => p.type === "timeZoneName")?.value; // "GMT-4" / "GMT-5"
+  const m = name?.match(/^GMT([+-])(\d{1,2})(?::(\d{2}))?$/);
+  if (!m) return `${eventDate}T${time}`;
+  return `${eventDate}T${time}${m[1]}${m[2].padStart(2, "0")}:${m[3] ?? "00"}`;
+}
+
+/**
+ * Page/social title. Many event names already end in the venue ("IDEMI — … at Jolene Sound
+ * Room"); appending "at <venue>" again read "at Jolene Sound Room at Jolene Sound Room (…)".
+ */
+export function listingTitle(eventName: string, venue: string, dateLabel: string): string {
+  const venueBase = venue.split(" (")[0].trim();
+  const named = venueBase.length > 0 && eventName.toLowerCase().includes(venueBase.toLowerCase());
+  return named ? `${eventName} — ${dateLabel}` : `${eventName} at ${venue} — ${dateLabel}`;
+}
