@@ -148,3 +148,33 @@ describe('2 — no "From a fan" on the owner\'s proof-waived inventory (web #111
     expect(heroes[1]).toContain('showsFanBadge={showsFanBadge(listing)}');
   });
 });
+
+describe('3 — nothing scrolls under the status bar', () => {
+  it('RC7: both listing layouts paint the status-bar band, after the scroll view so it draws over it', () => {
+    const src = code('src/screens/ListingDetailScreen.tsx');
+    expect(src).toContain("import { StatusBarBand } from '@/src/components/ui/StatusBarBand';");
+    expect(src.match(/<\/ScrollView>\s*<StatusBarBand \/>/g) ?? []).toHaveLength(2);
+    expect(src.match(/<StatusBarBand \/>/g) ?? []).toHaveLength(2);
+  });
+
+  it('RC7b: the band is an opaque canvas overlay of the hero\'s own (badge-aware) inset, and takes no touches', async () => {
+    const mod = await import('@/src/components/ui/StatusBarBand');
+    const Band = mod.StatusBarBand as unknown as () => unknown;
+    const host = new HookHost(() => Band(), new Map());
+    host.mount();
+    host.flush();
+    const band = findElement(host.output, (el) => el.type === 'View');
+    expect(band).toBeDefined();
+    expect(band!.props.pointerEvents).toBe('none');
+    expect(flat(band!.props.style)).toEqual({ position: 'absolute', top: 0, left: 0, right: 0, height: 62, backgroundColor: light.surface.canvas });
+    // The same helper the hero's navigation row pads by — never the raw inset.
+    const src = code('src/components/ui/StatusBarBand.tsx');
+    expect(src).toContain('useTopInset()');
+    expect(src).not.toMatch(/insets\.top|useSafeAreaInsets/);
+  });
+
+  it('RC8: the outbid toast still draws above the band (it sits in the same area)', () => {
+    expect(code('src/components/listing/OutbidToast.tsx')).toMatch(/zIndex: \d+/);
+    expect(code('src/components/ui/StatusBarBand.tsx')).not.toMatch(/zIndex/);
+  });
+});

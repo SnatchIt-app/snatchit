@@ -59,6 +59,7 @@ import { PROOF_REVIEWED_ROW, PROOF_WAIVED_NOTICE, proofIsReviewed, proofIsWaived
 // `BarAction` is the V3 pill with its sub-line inside it. Imported from the module rather than
 // the `ui` barrel because that barrel is owned centrally; it belongs in the barrel's exports.
 import { BarAction } from '@/src/components/ui/StickyBar';
+import { StatusBarBand } from '@/src/components/ui/StatusBarBand';
 import { BidActivity } from '@/src/components/listing/BidActivity';
 import { ListingHero } from '@/src/components/listing/ListingHero';
 import { ListingStatusBanner } from '@/src/components/listing/ListingStatusBanner';
@@ -1115,6 +1116,8 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
           onBack={() => router.back()}
         />
       </ScrollView>
+      {/* Over the status-bar area once the hero's navigation row has scrolled away (build 28 drew text under the clock). */}
+      <StatusBarBand />
 
       <StickyBar
         onLayout={(e) => setFooterHeight(e.nativeEvent.layout.height)}
@@ -1493,6 +1496,8 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
         ) : null}
 
       </ScrollView>
+      {/* Over the status-bar area once the hero's navigation row has scrolled away (build 28 drew text under the clock). */}
+      <StatusBarBand />
 
       {/*
         THE FOOTER AS THE BOARD DRAWS IT (pkg8-listing-dark/light). Full-width pill actions in a
@@ -1567,8 +1572,8 @@ function makeStyles(p: Palette) {
   ctaSubLabel: { color: p.text.muted, textAlign: 'center' },
   safe: { flex: 1, backgroundColor: p.surface.canvas },
 
-  // The artwork runs under the status bar: the hero is the first thing on the
-  // screen and a safe-area gap above it would frame it like a card.
+  // The scroll view starts at the top of the screen: the hero's navigation row carries the
+  // status-bar inset, and `StatusBarBand` covers that area once the row has scrolled away.
   /*
    * No constant here any more. Clearance is `scrollPad`, computed from the footer's MEASURED
    * height — a 96 pt spacer plus a 64 pt constant came to about 160 pt against a footer that is
