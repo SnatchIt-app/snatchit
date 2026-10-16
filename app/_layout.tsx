@@ -191,11 +191,12 @@ function RootLayout() {
       phase,
       lastRoutedPhase: routedPhaseRef.current,
       inSignedInArea,
+      navigatorReady: fontsReady,
     });
     if (!decision.navigate) return;
     routedPhaseRef.current = phase;
     router.replace(decision.to);
-  }, [session, routingLoading, isRecovery, onboarding, inDevHarness, inSignedInArea]);
+  }, [session, routingLoading, isRecovery, onboarding, inDevHarness, inSignedInArea, fontsReady]);
 
   // Reduce Motion: every push and pop still happens, as a cross-fade (CFT-206).
   const reduceMotion = useReducedMotion();
