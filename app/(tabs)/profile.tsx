@@ -49,6 +49,14 @@ import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 import { setDockAvatar } from '@/src/lib/nav/dockAvatar';
+import {
+  PAYOUT_ROW_COPY,
+  parsePayoutStatusReply,
+  payoutViewAfterProfileRead,
+  settlePayoutView,
+  type PayoutView,
+  type ServerPayoutStatus,
+} from '@/src/lib/payout/payoutStatusView';
 
 // ─── Types (data layer — unchanged) ─────────────────────────────────────────────
 
@@ -64,7 +72,6 @@ type Profile = {
   stripe_connect_id:  string | null;
 };
 
-type PayoutStatus = 'not_connected' | 'onboarding_required' | 'connected';
 type SellerStats = { active: number; sold: number; revenue: number };
 
 // ─── Helpers (unchanged) ────────────────────────────────────────────────────────
@@ -83,19 +90,13 @@ function getInitials(name: string | null): string {
   return name.trim().split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? '').join('');
 }
 
-const PAYOUT_COPY: Record<PayoutStatus, { title: string; state: string; tone: 'success' | 'warning' }> = {
-  connected:           { title: 'Connected to Stripe',    state: 'Payouts enabled',       tone: 'success' },
-  onboarding_required: { title: 'Complete payout setup',  state: 'Onboarding incomplete', tone: 'warning' },
-  not_connected:       { title: 'Set up payouts',         state: 'Not set up',            tone: 'warning' },
-};
-
 // ─── Screen ─────────────────────────────────────────────────────────────────────
 
 /** Harness-only literals in place of the reads: profile row, counts, payout state. */
 export type ProfileFixture = {
   profile: Profile;
   stats: SellerStats;
-  payoutStatus: PayoutStatus;
+  payoutStatus: ServerPayoutStatus;
   /** A bundled/data uri for the with-avatar case; null renders the initials fallback. */
   avatarUri: string | null;
 };
@@ -123,7 +124,8 @@ export default function ProfileScreen({ fixture }: { fixture?: ProfileFixture } 
   // the same event loop reads the same stale state closure and walks past a state guard, and `disabled` cannot
   // stop it either because React has not re-rendered yet. Same pattern as F-AVATAR-2 and F-DESTRUCT-1.
   const avatarInFlight = useRef(false);
-  const [payoutStatus,    setPayoutStatus]    = useState<PayoutStatus>('not_connected');
+  // Payout row: UNKNOWN until Stripe answers — never shown as "Not set up" (payoutStatusView).
+  const [payoutView,      setPayoutView]      = useState<PayoutView>('checking');
 
   async function loadData() {
     if (!user) return;
@@ -173,7 +175,8 @@ export default function ProfileScreen({ fixture }: { fixture?: ProfileFixture } 
     setStats({ active: activeCount ?? 0, sold: soldCount, revenue: totalRevenue });
 
     // 4. Payout status — non-blocking, 6s timeout so a slow Stripe call can never
-    //    wedge the tab.
+    //    wedge the tab. A failed read or probe leaves the row "checking"/"unavailable", never "Not set up".
+    setPayoutView((v) => payoutViewAfterProfileRead(v, profileData ? { connectId: profileData.stripe_connect_id ?? null } : null));
     if (profileData?.stripe_connect_id) {
       void (async () => {
         try {
@@ -184,17 +187,9 @@ export default function ProfileScreen({ fixture }: { fixture?: ProfileFixture } 
             ),
           ]);
           const { data: statusData, error: statusErr } = result as { data: unknown; error: { message: string } | null };
-          if (!statusErr && statusData) {
-            const parsed = typeof statusData === 'string' ? JSON.parse(statusData) : statusData;
-            const st = (parsed as { status?: string })?.status;
-            if (st === 'connected' || st === 'onboarding_required' || st === 'not_connected') {
-              setPayoutStatus(st);
-            }
-          }
-        } catch { /* keep current */ }
+          setPayoutView((v) => settlePayoutView(v, statusErr ? null : parsePayoutStatusReply(statusData)));
+        } catch { setPayoutView((v) => settlePayoutView(v, null)); }
       })();
-    } else {
-      setPayoutStatus('not_connected');
     }
   }
 
@@ -203,7 +198,7 @@ export default function ProfileScreen({ fixture }: { fixture?: ProfileFixture } 
     if (fixture) {
       setProfile(fixture.profile);
       setStats(fixture.stats);
-      setPayoutStatus(fixture.payoutStatus);
+      setPayoutView(fixture.payoutStatus);
       setAvatarUrl(fixture.avatarUri);
       setPageLoading(false);
       return;
@@ -280,7 +275,7 @@ export default function ProfileScreen({ fixture }: { fixture?: ProfileFixture } 
   const maskedPhone = maskPhone(profile?.phone_number ?? null);
   const totalListings = stats.active + stats.sold;
   const showPayouts = stats.sold > 0 || stats.active > 0;
-  const payout = PAYOUT_COPY[payoutStatus];
+  const payout = PAYOUT_ROW_COPY[payoutView];
 
   return (
     <View style={s.root}>

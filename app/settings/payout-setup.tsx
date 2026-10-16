@@ -25,10 +25,17 @@ import { textStyle } from '@/src/theme/typography';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
+import {
+  PAYOUT_UNKNOWN_SETUP_COPY,
+  isServerPayoutStatus,
+  parsePayoutStatusReply,
+  payoutViewAfterProfileRead,
+  settlePayoutView,
+  type PayoutView,
+  type ServerPayoutStatus,
+} from '@/src/lib/payout/payoutStatusView';
 
 const PAYOUT_AUTH_CALLBACK = 'snatchit://payout-return';
-
-type PayoutStatus = 'not_connected' | 'onboarding_required' | 'connected';
 
 export default function PayoutSetupScreen() {
   const { palette } = useTheme();
@@ -36,7 +43,8 @@ export default function PayoutSetupScreen() {
   const { session } = useAuth();
   const userId = session?.user.id ?? '';
 
-  const [status, setStatus] = useState<PayoutStatus>('not_connected');
+  // UNKNOWN until Stripe answers: a failed first check is "unavailable", never "not connected" (payoutStatusView).
+  const [status, setStatus] = useState<PayoutView>('checking');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
@@ -49,7 +57,9 @@ export default function PayoutSetupScreen() {
     if (!userId) { setLoading(false); checkingRef.current = false; return; }
     try {
       const { data: profile } = await supabase.rpc('get_my_profile').returns<MyProfileRPC[]>().maybeSingle();
-      if (!profile?.stripe_connect_id) { setStatus('not_connected'); setLoading(false); checkingRef.current = false; return; }
+      const read = profile ? { connectId: profile.stripe_connect_id ?? null } : null;
+      setStatus((v) => payoutViewAfterProfileRead(v, read));
+      if (!read?.connectId) { setLoading(false); checkingRef.current = false; return; }
       const result = await Promise.race([
         supabase.functions.invoke('create-connect-account', { body: { status_only: true } }),
         new Promise<{ data: null; error: { message: string } }>((resolve) =>
@@ -57,16 +67,12 @@ export default function PayoutSetupScreen() {
         ),
       ]);
       const { data, error } = result as { data: unknown; error: { message: string } | null };
-      if (!error && data) {
-        const parsed = typeof data === 'string' ? JSON.parse(data) : data;
-        const serverStatus = parsed?.status as PayoutStatus | undefined;
-        if (serverStatus === 'connected' || serverStatus === 'onboarding_required' || serverStatus === 'not_connected') {
-          setStatus(serverStatus);
-        }
-      }
-      // On error / unrecognised: keep the current status. Never regress on a blip.
+      // On error / unrecognised: keep the current status. Never regress on a blip — and never turn
+      // "don't know yet" into "not connected".
+      setStatus((v) => settlePayoutView(v, error ? null : parsePayoutStatusReply(data)));
     } catch {
-      // keep current status
+      // keep current status (an unknown one becomes "unavailable")
+      setStatus((v) => settlePayoutView(v, null));
     }
     setLoading(false);
     checkingRef.current = false;
@@ -103,7 +109,7 @@ export default function PayoutSetupScreen() {
           if (ctx && typeof ctx.json === 'function') {
             const body = await ctx.json();
             reason = body.error ?? body.message ?? reason;
-            if (body.status) setStatus(body.status as PayoutStatus);
+            if (isServerPayoutStatus(body.status)) setStatus(body.status);
           }
         } catch {}
         if (webWindow) webWindow.close();
@@ -113,7 +119,7 @@ export default function PayoutSetupScreen() {
       }
       const parsed = typeof data === 'string' ? JSON.parse(data) : data;
       const url: string | undefined = parsed?.url;
-      const returnedStatus = parsed?.status as PayoutStatus | undefined;
+      const returnedStatus = parsePayoutStatusReply(parsed);
       if (returnedStatus) setStatus(returnedStatus);
       if (!url || typeof url !== 'string' || !(url.startsWith('https://') || url.startsWith('http://'))) {
         if (webWindow) webWindow.close();
@@ -141,7 +147,7 @@ export default function PayoutSetupScreen() {
     setSubmitting(false);
   }
 
-  const uiMap: Record<PayoutStatus, { title: string; description: string; tone: 'success' | 'warning'; statusLabel: string; statusSub: string; btnLabel: string }> = {
+  const uiMap: Record<ServerPayoutStatus, { title: string; description: string; tone: 'success' | 'warning'; statusLabel: string; statusSub: string; btnLabel: string }> = {
     not_connected: {
       title: 'Set up payouts',
       description: 'Verify your identity and add a bank account to get paid. This usually takes about 2 minutes. Anyone can sell, no business registration needed.',
@@ -163,7 +169,9 @@ export default function PayoutSetupScreen() {
       tone: 'success', statusLabel: 'Connected', statusSub: 'Your banking details are securely managed by Stripe.', btnLabel: 'Manage payouts',
     },
   };
-  const ui = uiMap[status];
+  const statusKnown = isServerPayoutStatus(status);
+  const ui = statusKnown ? uiMap[status] : { ...PAYOUT_UNKNOWN_SETUP_COPY, tone: 'neutral' as const };
+  const recheck = () => { setLoading(true); checkStatusReal(); };
 
   return (
     <View style={s.root}>
@@ -181,9 +189,9 @@ export default function PayoutSetupScreen() {
           </View>
 
           <View style={s.actions}>
-            <Button label={ui.btnLabel} onPress={handleSetup} loading={submitting} disabled={submitting} block />
-            {status !== 'connected' ? (
-              <Button label="Refresh status" variant="ghost" onPress={() => { setLoading(true); checkStatusReal(); }} block />
+            <Button label={ui.btnLabel} onPress={statusKnown ? handleSetup : recheck} loading={submitting} disabled={submitting} block />
+            {statusKnown && status !== 'connected' ? (
+              <Button label="Refresh status" variant="ghost" onPress={recheck} block />
             ) : null}
           </View>
 
