@@ -47,6 +47,7 @@ describe('wiring', () => {
       .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
     expect(layout).toMatch(/const inSignedInArea = \(segments as string\[\]\)\[0\] === '\(tabs\)';/);
     expect(layout).toMatch(/rootRouteDecision\(\{[\s\S]{0,300}inSignedInArea,/);
-    expect(layout).toMatch(/\}, \[session, routingLoading, isRecovery, onboarding, inDevHarness, inSignedInArea\]\);/);
+    // N7c added fontsReady (the navigator-ready gate) after inSignedInArea.
+    expect(layout).toMatch(/\}, \[session, routingLoading, isRecovery, onboarding, inDevHarness, inSignedInArea, fontsReady\]\);/);
   });
 });

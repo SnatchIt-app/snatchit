@@ -38,7 +38,7 @@ export function authPhase(session: { user?: { id?: string | null } | null } | nu
 export type RootRouteTarget = '/(tabs)/home' | '/(auth)/login';
 
 export type RootRouteDecision =
-  | { navigate: false; reason: 'loading' | 'recovery' | 'onboarding' | 'same_phase' }
+  | { navigate: false; reason: 'loading' | 'navigator' | 'recovery' | 'onboarding' | 'same_phase' }
   | { navigate: true; to: RootRouteTarget };
 
 export interface RootRouteInput {
@@ -57,6 +57,11 @@ export interface RootRouteInput {
    * signed out — Expo Router routes snatchit://?code=… to "/" → Home — without any phase change.
    */
   inSignedInArea?: boolean;
+  /**
+   * N7c: the root Stack exists. A replace issued before it mounts makes Expo Router remount the whole root
+   * layout (production T1, 2026-10-16), so the rule waits. Omitted means ready, as before.
+   */
+  navigatorReady?: boolean;
 }
 
 /**
@@ -67,6 +72,7 @@ export interface RootRouteInput {
  */
 export function rootRouteDecision(input: RootRouteInput): RootRouteDecision {
   if (input.loading) return { navigate: false, reason: 'loading' };
+  if (input.navigatorReady === false) return { navigate: false, reason: 'navigator' };
   if (input.isRecovery) return { navigate: false, reason: 'recovery' };
   if (input.onboarding) return { navigate: false, reason: 'onboarding' };
 
