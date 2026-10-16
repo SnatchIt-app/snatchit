@@ -53,6 +53,12 @@ export interface ListingHeroProps {
   /** Stored values; the §3 dated line is built here so home, search and this hero agree. */
   eventDate: string;
   eventTime: string;
+  /**
+   * "From a fan" is a claim about who is selling, so the caller decides it from the loaded row:
+   * `showsFanBadge(listing)` (web #111's rule — a proof-waived listing is the owner's inventory), and
+   * `false` while the row is still loading, when nobody knows yet.
+   */
+  showsFanBadge: boolean;
   onBack: () => void;
   /** Omitted for the seller's own listing: there is no point reporting yourself. */
   onOverflow?: () => void;
@@ -70,6 +76,7 @@ export function ListingHero({
   venue,
   eventDate,
   eventTime,
+  showsFanBadge,
   onBack,
   onOverflow,
 }: ListingHeroProps) {
@@ -114,9 +121,11 @@ export function ListingHero({
           artwork with the rest of the block — and it drops `onArt` for the same reason the lines
           below it do.
         */}
-        <View style={styles.badge}>
-          <FromAFanBadge />
-        </View>
+        {showsFanBadge ? (
+          <View style={styles.badge}>
+            <FromAFanBadge />
+          </View>
+        ) : null}
         {/*
           No line cap: at the largest accessibility size this read "Sat 24 Oct · 1…", losing the
           time entirely (owner, 2026-10-08 — the complete date and time must be available). It is

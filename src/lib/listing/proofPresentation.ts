@@ -22,3 +22,12 @@ export function proofIsReviewed(l: ProofFacts): boolean {
 export function proofIsWaived(l: ProofFacts): boolean {
   return !proofIsReviewed(l) && typeof l?.proof_waived_at === 'string' && l.proof_waived_at.trim().length > 0;
 }
+
+/**
+ * "From a fan" describes a peer listing. A proof-waived listing is the platform owner's own inventory
+ * by construction (156 only lets an admin waive proof, on their own listing), so it doesn't get the
+ * pill. The same rule as web #111's `showsFanBadge`, on purpose: the two surfaces must agree.
+ */
+export function showsFanBadge(l: ProofFacts): boolean {
+  return !l?.proof_waived_at;
+}

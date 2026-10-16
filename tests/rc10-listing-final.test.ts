@@ -118,3 +118,33 @@ describe('1 — the full event name where the listing is identified and committe
     expect(src).not.toMatch(/token="nameOrder" maxLines=\{2\}/);
   });
 });
+
+describe('2 — no "From a fan" on the owner\'s proof-waived inventory (web #111)', () => {
+  it('RC4: showsFanBadge is the web rule — a waived listing has no pill; everything else keeps it', async () => {
+    const { showsFanBadge } = await import('@/src/lib/listing/proofPresentation');
+    expect(showsFanBadge({ proof_waived_at: '2026-10-15T23:55:00Z', proof_status: 'pending_review' })).toBe(false);
+    expect(showsFanBadge({ proof_waived_at: '2026-10-15T23:55:00Z', proof_status: 'approved' })).toBe(false);
+    expect(showsFanBadge({ proof_waived_at: null, proof_status: 'approved' })).toBe(true);
+    expect(showsFanBadge({ proof_status: 'pending_review' })).toBe(true);
+  });
+
+  it('RC5: the hero draws the pill only when told to, and leaves no empty badge row behind', async () => {
+    const withPill = await mountHero({ showsFanBadge: true });
+    expect(findElement(withPill.output, (el) => el.type === 'FromAFanBadge')).toBeDefined();
+
+    const without = await mountHero({ showsFanBadge: false });
+    expect(findElement(without.output, (el) => el.type === 'FromAFanBadge')).toBeUndefined();
+    const emptyBadgeRow = findElement(without.output, (el) =>
+      el.type === 'View' && flat(el.props.style).alignSelf === 'flex-start' && flat(el.props.style).marginBottom !== undefined);
+    expect(emptyBadgeRow, 'the badge wrapper goes with the badge').toBeUndefined();
+  });
+
+  it('RC6: the screen decides from the loaded row, and says nothing about provenance before it loads', () => {
+    const src = code('src/screens/ListingDetailScreen.tsx');
+    const heroes = src.match(/<ListingHero[\s\S]*?\/>/g) ?? [];
+    expect(heroes).toHaveLength(2);
+    // The handoff branch paints while the row is still loading: provenance is unknown there.
+    expect(heroes[0]).toContain('showsFanBadge={false}');
+    expect(heroes[1]).toContain('showsFanBadge={showsFanBadge(listing)}');
+  });
+});

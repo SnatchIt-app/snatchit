@@ -81,6 +81,7 @@ async function mountHero(over: Record<string, unknown> = {}) {
     eventDate: '2026-09-26',
     eventTime: '19:30:00',
     neighborhood: 'Bushwick',
+    showsFanBadge: true,
     onBack: () => {},
     onOverflow: () => {},
     ...over,

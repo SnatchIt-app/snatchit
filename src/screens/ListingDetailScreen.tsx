@@ -55,7 +55,7 @@ import { sendLocalNotification } from '@/src/utils/notifications';
 import { StateView, EmptyState, Spinner, StickyBar } from '@/src/components/ui';
 import { LISTING_UNAVAILABLE_COPY } from '@/src/lib/listing/unavailable';
 import { cameToForeground } from '@/src/lib/ui/appForeground';
-import { PROOF_REVIEWED_ROW, PROOF_WAIVED_NOTICE, proofIsReviewed, proofIsWaived } from '@/src/lib/listing/proofPresentation';
+import { PROOF_REVIEWED_ROW, PROOF_WAIVED_NOTICE, proofIsReviewed, proofIsWaived, showsFanBadge } from '@/src/lib/listing/proofPresentation';
 // `BarAction` is the V3 pill with its sub-line inside it. Imported from the module rather than
 // the `ui` barrel because that barrel is owned centrally; it belongs in the barrel's exports.
 import { BarAction } from '@/src/components/ui/StickyBar';
@@ -1110,6 +1110,8 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
           venue={handoff.venue}
           eventDate={handoff.eventDate}
           eventTime={handoff.eventTime}
+          // The row has not loaded, so nobody knows yet who is selling: no provenance claim.
+          showsFanBadge={false}
           onBack={() => router.back()}
         />
       </ScrollView>
@@ -1376,6 +1378,8 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
           venue={listing.venue}
           eventDate={listing.event_date}
           eventTime={listing.event_time}
+          // web #111: a proof-waived listing is the owner's inventory, not a fan's resale.
+          showsFanBadge={showsFanBadge(listing)}
           onBack={() => router.back()}
           onOverflow={openListingActions}
         />
