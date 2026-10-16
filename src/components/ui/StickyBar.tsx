@@ -23,6 +23,7 @@ import { useMemo } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useKeyboardUp } from '@/src/hooks/useKeyboardUp';
+import { edgeFade, FOOTER_FADE } from '@/src/lib/design/edgeFade';
 import { stickyBottomPadding } from '@/src/lib/nav/keyboardLift';
 
 import { useTheme } from '@/src/theme/appearance';
@@ -87,6 +88,14 @@ export function StickyBar({ left, children, layout = 'row', style, testID, onLay
         style,
       ]}
     >
+      {/*
+        The stacked footer has no rule or raised panel, so the scroll view above it ended in a hard
+        cut through whatever line sat at its edge (build 28: half of the listing's name just above
+        Place a bid). This fade sits just above the bar, over that edge, and takes no touches.
+      */}
+      {column ? (
+        <View pointerEvents="none" style={[styles.fade, { experimental_backgroundImage: edgeFade(palette.surface.canvas) }]} />
+      ) : null}
       {left ? <View style={stacked ? styles.leftStacked : styles.left}>{left}</View> : null}
       <View style={column ? styles.actionsColumn : stacked ? styles.actionsStacked : styles.actions}>
         {children}
@@ -191,6 +200,8 @@ function makeStyles(p: Palette) {
   // The V3 footer sits ON the page (board: no rule, no raised panel) — the actions carry the
   // separation themselves. The bar is still opaque, so scrolled content passes cleanly under it.
   barCanvas: { backgroundColor: p.surface.canvas, borderTopWidth: 0 },
+  // Above the bar's top edge, outside its box (iOS does not clip overflow here).
+  fade: { position: 'absolute', top: -FOOTER_FADE, left: 0, right: 0, height: FOOTER_FADE },
   // minWidth 0 so a long price shrinks instead of pushing the action off the bar.
   left: { flex: 1, minWidth: 0 },
   leftStacked: { alignSelf: 'stretch' },

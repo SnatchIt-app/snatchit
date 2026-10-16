@@ -178,3 +178,33 @@ describe('3 — nothing scrolls under the status bar', () => {
     expect(code('src/components/ui/StatusBarBand.tsx')).not.toMatch(/zIndex/);
   });
 });
+
+describe('4 — content fades into the footer instead of being sliced at its edge', () => {
+  it('RC9: edgeFade is a transparent-to-opaque gradient of exactly the given colour', async () => {
+    const { edgeFade, FOOTER_FADE } = await import('@/src/lib/design/edgeFade');
+    expect(edgeFade('#FFFFFF')).toBe('linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,1) 100%)');
+    expect(edgeFade('#000000')).toBe('linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,1) 100%)');
+    expect(edgeFade('#f4a')).toBe('linear-gradient(to bottom, rgba(255,68,170,0) 0%, rgba(255,68,170,1) 100%)');
+    // Not a hex colour: no gradient rather than a wrong one (the bar stays opaque either way).
+    expect(edgeFade('red')).toBeUndefined();
+    expect(FOOTER_FADE).toBeGreaterThanOrEqual(16);
+    expect(FOOTER_FADE).toBeLessThanOrEqual(32);
+  });
+
+  it('RC10: the stacked footer carries the fade above its top edge, untouchable; the row bar does not (control)', async () => {
+    const { edgeFade, FOOTER_FADE } = await import('@/src/lib/design/edgeFade');
+    const stack = await mountBar('stack');
+    const fade = findElement(stack.output, (el) => el.type === 'View' && el.props.pointerEvents === 'none');
+    expect(fade, 'a non-interactive fade view').toBeDefined();
+    const st = flat(fade!.props.style);
+    expect(st.position).toBe('absolute');
+    expect(st.top).toBe(-FOOTER_FADE);
+    expect(st.height).toBe(FOOTER_FADE);
+    expect(st.left).toBe(0);
+    expect(st.right).toBe(0);
+    expect(st.experimental_backgroundImage).toBe(edgeFade(light.surface.canvas));
+
+    const row = await mountBar('row');
+    expect(findElement(row.output, (el) => el.type === 'View' && el.props.pointerEvents === 'none')).toBeUndefined();
+  });
+});
