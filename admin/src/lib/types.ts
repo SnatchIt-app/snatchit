@@ -307,7 +307,10 @@ export type ActionType =
   | "job_retry"
   | "setting_set"
   | "approval_decide"
-  | "case_create";
+  | "case_create"
+  // migration 144 — classifying a refund-resolution case is not closing it
+  | "case_refund_classify"
+  | "case_refund_obligation";
 
 export type RejectionReason = "stale_state" | "precondition" | "not_allowed" | "disabled" | "not_supported" | (string & {});
 
@@ -1379,6 +1382,19 @@ export type OpsAlert = {
   first_fired_at?: string | null;
   last_fired_at?: string | null;
   fire_count?: number | null;
+  // migration 146. queued is NOT delivered: queued_at means pg_net accepted the
+  // post and nothing more, delivered_at means notify-report answered 2xx AND
+  // reported that it delivered something. acknowledged_at is the only field
+  // that records a PERSON, and only because one pressed the button.
+  queued_at?: string | null;
+  delivered_at?: string | null;
+  delivery_status?: number | null;
+  notify_attempts?: number | null;
+  last_notify_error?: string | null;
+  acknowledged_at?: string | null;
+  acknowledged_by?: string | null;
+  /** Bumped when the condition cleared and came back: a NEW incident, needing its own acknowledgement. */
+  incident_seq?: number | null;
 };
 
 export type JobHealth = {
@@ -1463,6 +1479,14 @@ export function toJobHealth(v: unknown): JobHealth | null {
       first_fired_at: str(a.first_fired_at),
       last_fired_at: str(a.last_fired_at),
       fire_count: num(a.fire_count),
+      queued_at: str(a.queued_at),
+      delivered_at: str(a.delivered_at),
+      delivery_status: num(a.delivery_status),
+      notify_attempts: num(a.notify_attempts),
+      last_notify_error: str(a.last_notify_error),
+      acknowledged_at: str(a.acknowledged_at),
+      acknowledged_by: str(a.acknowledged_by),
+      incident_seq: num(a.incident_seq),
     })),
     raw: v,
   };

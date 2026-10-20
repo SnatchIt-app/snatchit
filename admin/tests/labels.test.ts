@@ -12,6 +12,10 @@ describe("labelFor", () => {
     expect(labelFor("approval", "stale")).toMatch(/terms changed/i);
     expect(labelFor("report", "actioned")).toBe("Actioned");
     expect(labelFor("action_type", "refund_execute")).toBe("Execute refund");
+    // migration 144's action types must be nameable, or the /system action
+    // filter cannot even list rows of these types
+    expect(labelFor("action_type", "case_refund_classify")).toBe("Classify refund");
+    expect(labelFor("action_type", "case_refund_obligation")).toBe("Record refund obligation");
   });
   it("never hides an unknown value", () => {
     expect(labelFor("payment", "brand_new_state")).toBe("Brand New State");
