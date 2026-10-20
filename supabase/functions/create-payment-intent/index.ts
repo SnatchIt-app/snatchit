@@ -225,43 +225,50 @@ async function ensureStripeCustomerAndEphemeralKey(
 // failures are logged and never change the caller's response.
 type RetireScope = { kind: 'buyer'; mode: string } | { kind: 'other-buyers' };
 
+// Returns true only when every matching row was provably retired (132, D review
+// F-132-2): the 'other-buyers' caller refuses to hand out a secret otherwise. The
+// 'buyer' scope runs on a refusal, so its result is ignored there.
 async function retirePendingIntents(
   supabase: SupabaseClient,
   listingId: string,
   buyerId: string,
   scope: RetireScope,
   reason: string,
-): Promise<void> {
+  bound: <T>(p: Promise<T>, label: string) => Promise<T> = (p) => p,
+): Promise<boolean> {
   let q = supabase
     .from('payments')
-    .select('id, stripe_payment_intent_id, buyer_id')
+    .select('id, stripe_payment_intent_id, buyer_id, status')
     .eq('listing_id', listingId);
   q = scope.kind === 'buyer'
-    ? q.eq('buyer_id', buyerId).eq('mode', scope.mode)
-    : q.neq('buyer_id', buyerId);
-  const { data, error } = await q.eq('status', 'pending');
+    ? q.eq('buyer_id', buyerId).eq('mode', scope.mode).eq('status', 'pending')
+    // another buyer's `processing` row may still capture: it must be provably dead too
+    : q.neq('buyer_id', buyerId).in('status', ['pending', 'processing']);
+  const { data, error } = await q;
   const tag = scope.kind === 'buyer' ? 'retire-stale-pending' : 'retire-other-pending';
   if (error) {
-    console.warn(`${tag}: lookup failed (continuing):`, error.message);
-    return;
+    console.warn(`${tag}: lookup failed:`, error.message);
+    return false;
   }
-  const rows = (data ?? []) as unknown as { id: string; stripe_payment_intent_id: string | null; buyer_id: string }[];
+  const rows = (data ?? []) as unknown as { id: string; stripe_payment_intent_id: string | null; buyer_id: string; status: string }[];
+  let allRetired = true;
   for (const row of rows) {
-    const canceled = await cancelPaymentIntentBestEffort(row.stripe_payment_intent_id, tag);
-    if (!canceled) continue;
-    const { error: retireErr } = await supabase
-      .from('payments')
-      .update({ status: 'failed' })
-      .eq('id', row.id)
-      .eq('status', 'pending');
+    const canceled = await cancelPaymentIntentBestEffort(row.stripe_payment_intent_id, tag, bound);
+    if (!canceled) { allRetired = false; continue; }
+    const retire = supabase.from('payments').update({ status: 'failed' }).eq('id', row.id);
+    const { error: retireErr } = scope.kind === 'buyer'
+      ? await retire.eq('status', 'pending')
+      : await retire.in('status', ['pending', 'processing']);
     if (retireErr) {
-      console.warn(`${tag}: row update failed (continuing):`, retireErr.message);
+      console.warn(`${tag}: row update failed:`, retireErr.message);
+      allRetired = false;
     }
     logStage(scope.kind === 'buyer' ? 'stale-pending-retired' : 'other-buyer-pending-retired', {
       payment_row: row.id, pi_id: row.stripe_payment_intent_id, reason,
       ...(scope.kind === 'other-buyers' ? { other_buyer_id: row.buyer_id } : {}),
     });
   }
+  return allRetired;
 }
 
 // Cancel a PaymentIntent at Stripe. Returns true only when Stripe confirms the
@@ -337,6 +344,84 @@ async function releaseCheckout(supabase: SupabaseClient, claim: CheckoutClaim | 
   }
 }
 
+// ── Migration 132: pre-mint checkout group record ─────────────────────────────
+// 130's claim lives on a pending payment row, so two concurrent requests that
+// both find NO pending row both mint; when their idempotency keys diverge (the
+// `_u` replay retry, a re-price between reads, a failedAttempts flip) that is two
+// intents, two secrets and two captured charges. Every request therefore takes
+// the (listing, buyer, mode) group record BEFORE it reads prior payments and
+// holds it through every mint and hand-out. claim_held is retried briefly and
+// then answered 409 without a mint or a secret. There is no degraded mode: if
+// 132 is absent (PGRST202) or the claim errors, the request fails closed (503),
+// so migration 132 must be applied before this edge ships.
+type GroupClaim = { listingId: string; buyerId: string; mode: string; token: string };
+type GroupClaimResult =
+  | { kind: 'held'; claim: GroupClaim }
+  | { kind: 'refused'; reason: string }
+  | { kind: 'error'; message: string };
+
+async function claimCheckoutGroup(
+  supabase: SupabaseClient, listingId: string, buyerId: string, mode: string,
+): Promise<GroupClaimResult> {
+  for (let attempt = 0; attempt < CLAIM_RETRY_ATTEMPTS; attempt++) {
+    const { data, error } = await supabase.rpc('claim_checkout_group', {
+      p_listing_id: listingId, p_buyer_id: buyerId, p_mode: mode,
+    });
+    if (error) {
+      const e = error as { code?: string; message?: string };
+      if (e.code === 'PGRST202') {
+        await captureException('create-payment-intent', new Error(`claim_checkout_group unavailable (migration 132 not applied): ${e.message ?? ''}`));
+      }
+      return { kind: 'error', message: `${e.code ?? '?'} ${e.message ?? ''}` };
+    }
+    const r = (data ?? null) as { claimed?: boolean; claim_token?: string | null; reason?: string } | null;
+    if (!r || typeof r.claimed !== 'boolean') return { kind: 'error', message: 'claim_checkout_group returned no result' };
+    if (r.claimed && r.claim_token) return { kind: 'held', claim: { listingId, buyerId, mode, token: r.claim_token } };
+    if (r.reason !== 'claim_held') return { kind: 'refused', reason: r.reason ?? 'unknown' };
+    if (attempt < CLAIM_RETRY_ATTEMPTS - 1) await new Promise((res) => setTimeout(res, CLAIM_RETRY_DELAY_MS));
+  }
+  return { kind: 'refused', reason: 'claim_held' };
+}
+
+async function releaseCheckoutGroup(supabase: SupabaseClient, claim: GroupClaim): Promise<void> {
+  const { data, error } = await supabase.rpc('release_checkout_group', {
+    p_listing_id: claim.listingId, p_buyer_id: claim.buyerId, p_mode: claim.mode, p_claim_token: claim.token,
+  });
+  const r = (data ?? null) as { released?: boolean; reason?: string } | null;
+  if (error || !r?.released) {
+    // Not fatal: an unreleased group record lapses after 120 s. Surfaced so it is visible.
+    console.warn('release_checkout_group did not release:', { mode: claim.mode, reason: r?.reason ?? null, error: error?.message ?? null });
+  }
+}
+
+// 132 (D review, reuse-order): the pending row is recorded ONLY while this
+// request still holds the group claim. A plain INSERT is not bound to the claim:
+// a request stalled in transit could commit its row after a reclaimer had minted
+// and handed out its own secret, and the stalled row — newest by created_at —
+// would then be reused, giving two live secrets. record_checkout_attempt takes
+// the group row FOR SHARE on the token, so a reclaim waits for this insert and
+// reuses it, and an abandoned holder records nothing.
+type RecordedAttempt =
+  | { kind: 'recorded' }
+  | { kind: 'claim_lost' }
+  | { kind: 'error'; error: { code?: string; message?: string; details?: string; hint?: string } };
+
+async function recordCheckoutAttempt(
+  supabase: SupabaseClient, claim: GroupClaim,
+  row: { sellerId: string | null; amount: number; buyerFee: number; sellerFee: number; total: number; intentId: string; livemode: boolean | null },
+): Promise<RecordedAttempt> {
+  const { data, error } = await supabase.rpc('record_checkout_attempt', {
+    p_listing_id: claim.listingId, p_buyer_id: claim.buyerId, p_mode: claim.mode, p_claim_token: claim.token,
+    p_seller_id: row.sellerId, p_amount: row.amount, p_buyer_fee: row.buyerFee, p_seller_fee: row.sellerFee,
+    p_total: row.total, p_payment_intent_id: row.intentId, p_livemode: row.livemode,
+  });
+  if (error) return { kind: 'error', error: error as { code?: string; message?: string } };
+  const r = (data ?? null) as { inserted?: boolean; reason?: string } | null;
+  if (r?.inserted === true) return { kind: 'recorded' };
+  if (r?.reason === 'claim_lost') return { kind: 'claim_lost' };
+  return { kind: 'error', error: { code: 'PGRST-noresult', message: `record_checkout_attempt returned ${JSON.stringify(r)}` } };
+}
+
 // ── E-1: the 120 s stale window must bind the request that HOLDS the claim ────
 // claim_checkout_supersede treats a claim older than 120 s as abandoned, so a
 // holder that is still running past that point could act after another request
@@ -359,11 +444,13 @@ class ClaimedSectionTimeout extends Error {}
 
 type ClaimGuard = {
   bound: <T>(p: Promise<T>, label: string) => Promise<T>;
-  /** 'held' also when no claim is in force (degraded / fresh mint): nothing to guard. */
+  /** checks the 132 group record, then 130's row claim when one is in force (reuse / supersede). */
   check: () => Promise<'held' | 'lost' | 'expired' | 'error'>;
 };
 
-function makeClaimGuard(supabase: SupabaseClient, getClaim: () => CheckoutClaim | null, startedMs: number): ClaimGuard {
+function makeClaimGuard(
+  supabase: SupabaseClient, group: GroupClaim, getClaim: () => CheckoutClaim | null, startedMs: number,
+): ClaimGuard {
   const callMs = positiveMsFromEnv('CHECKOUT_STRIPE_TIMEOUT_MS', DEFAULT_STRIPE_CALL_TIMEOUT_MS);
   const budgetMs = positiveMsFromEnv('CHECKOUT_CLAIM_BUDGET_MS', DEFAULT_CLAIM_BUDGET_MS);
   const remaining = () => budgetMs - (Date.now() - startedMs);
@@ -377,9 +464,18 @@ function makeClaimGuard(supabase: SupabaseClient, getClaim: () => CheckoutClaim 
       return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
     },
     check: async () => {
+      if (remaining() <= 0) return 'expired';
+      const { data: g, error: gErr } = await supabase
+        .from('checkout_group_claim')
+        .select('claim_token')
+        .eq('listing_id', group.listingId)
+        .eq('buyer_id', group.buyerId)
+        .eq('mode', group.mode)
+        .maybeSingle();
+      if (gErr) return 'error';
+      if ((g as { claim_token?: string | null } | null)?.claim_token !== group.token) return 'lost';
       const claim = getClaim();
       if (!claim || claim.kind !== 'held') return 'held';
-      if (remaining() <= 0) return 'expired';
       const { data, error } = await supabase
         .from('payments')
         .select('supersede_claim_token')
@@ -656,6 +752,29 @@ serve(async (req: Request) => {
     );
     logStage('stripe-customer', { customer_id: customerCtx.customerId });
 
+    // 132: the group record precedes the prior-payments read and every mint.
+    const groupClaim = await claimCheckoutGroup(supabase, listing_id, buyerId, mode);
+    if (groupClaim.kind === 'error') {
+      logStage('checkout-group-claim-error', { listing_id, mode, error: groupClaim.message });
+      return new Response(
+        JSON.stringify({ error: 'Service temporarily unavailable. Please try again shortly.' }),
+        { status: 503, headers: { 'Content-Type': 'application/json', 'Retry-After': '5', ...getResponseHeaders(req) } }
+      );
+    }
+    if (groupClaim.kind === 'refused') {
+      logStage('checkout-group-claim-refused', { listing_id, mode, reason: groupClaim.reason });
+      return new Response(
+        JSON.stringify({ error: 'Your checkout is being updated. Please try again.', server_total_cents: totalCents }),
+        { status: 409, headers: { 'Content-Type': 'application/json', 'Retry-After': '2', ...getResponseHeaders(req) } }
+      );
+    }
+    // E-1: the section budget starts when the group record is taken.
+    const sectionStartedMs = Date.now();
+    // 130: the row claim is taken below, before reusing or superseding an attempt.
+    let checkoutClaim: CheckoutClaim | null = null;
+    const claimGuard = makeClaimGuard(supabase, groupClaim.claim, () => checkoutClaim, sectionStartedMs);
+    try {
+
     // Fetch EVERY prior payment row for this (listing, buyer, mode), terminal
     // ones included. Failed attempts don't block a retry, but they MUST salt
     // the Stripe idempotency key below: after a failed attempt this function
@@ -664,17 +783,20 @@ serve(async (req: Request) => {
     // then collides with the failed row under payments' UNIQUE
     // (stripe_payment_intent_id). That exact chain 500'd every checkout
     // retry on 2026-08-03.
+    //
+    // 132 (D review F-132-1): the read spans BOTH modes. One buyer can be entitled
+    // to Buy Now and to the auction on the same listing at once, and the
+    // succeeded / processing / live-attempt decisions below must see both.
     const { data: allPayments, error: paymentsErr } = await supabase
       .from('payments')
-      .select('id, stripe_payment_intent_id, status')
+      .select('id, stripe_payment_intent_id, status, mode')
       .eq('listing_id', listing_id)
       .eq('buyer_id', buyerId)
-      .eq('mode', mode)
       // newest first, so "the pending attempt" is deterministic (R-2)
       .order('created_at', { ascending: false });
 
     const existingPayments = (allPayments ?? []) as
-      { id: string; stripe_payment_intent_id: string; status: string }[];
+      { id: string; stripe_payment_intent_id: string; status: string; mode: string }[];
     logStage('payments-lookup', {
       count:    existingPayments.length,
       statuses: existingPayments.map((p) => p.status),
@@ -688,22 +810,143 @@ serve(async (req: Request) => {
       );
     }
 
-    let failedAttempts = existingPayments.filter((p) => p.status === 'failed').length;
+    // 132 (D review F-132-3): before ANY hand-out, every other live attempt of this
+    // buyer on this listing must be provably dead. Two same-mode pending rows can
+    // outlive one request — the supersede path inserts the replacement and then
+    // cancels the superseded intent, and a crash between the two leaves both — and
+    // the next request would hand out the newest while the older secret is still
+    // confirmable. The read is FRESH (not the snapshot) so it also covers a writer
+    // this request never saw. Same fail-closed rule as the other-buyer retire.
+    const otherLiveAttemptsCleared = async (keepIntentId: string, stage: string): Promise<boolean> => {
+      const { data, error } = await supabase
+        .from('payments')
+        .select('id, stripe_payment_intent_id, status')
+        .eq('listing_id', listing_id)
+        .eq('buyer_id', buyerId)
+        .in('status', ['pending', 'processing']);
+      if (error) {
+        logStage('other-attempt-sweep-failed', { stage, error: error.message });
+        return false;
+      }
+      let clear = true;
+      for (const row of (data ?? []) as { id: string; stripe_payment_intent_id: string | null; status: string }[]) {
+        if (row.stripe_payment_intent_id === keepIntentId) continue;
+        const canceled = await cancelPaymentIntentBestEffort(row.stripe_payment_intent_id, 'retire-other-attempt', claimGuard.bound);
+        if (!canceled) { clear = false; continue; }
+        const { error: retireErr } = await supabase
+          .from('payments')
+          .update({ status: 'failed' })
+          .eq('id', row.id)
+          .in('status', ['pending', 'processing']);
+        if (retireErr) { clear = false; continue; }
+        logStage('other-attempt-retired', { stage, payment_row: row.id, pi_id: row.stripe_payment_intent_id });
+      }
+      return clear;
+    };
+
+    // Withdrawing an intent this request minted is safe ONLY while no payments row
+    // references it. Stripe replays one intent for a repeated idempotency key, so a
+    // concurrent request of the same group can hold the SAME intent and may already
+    // have recorded and handed it out; cancelling it then kills a live checkout.
+    const withdrawUnrecordedIntent = async (intentId: string, tag: string): Promise<void> => {
+      const { data, error } = await supabase
+        .from('payments')
+        .select('id')
+        .eq('stripe_payment_intent_id', intentId)
+        .maybeSingle();
+      if (error) {
+        logStage('withdraw-skipped-unknown', { tag, pi_id: intentId, error: error.message });
+        return;
+      }
+      if (data) {
+        logStage('withdraw-skipped-recorded-elsewhere', { tag, pi_id: intentId });
+        return;
+      }
+      await cancelPaymentIntentBestEffort(intentId, tag, claimGuard.bound);
+    };
+
+    // E-1 (D note N-132-1): the sweep itself makes bounded Stripe calls, so the
+    // check that preceded it is stale by the sweep's duration. The claim is
+    // re-checked AFTER it, so the claim really is the last word before a secret
+    // leaves. Returns a refusal Response, or null when the hand-out may proceed.
+    const handOutBlocked = async (keepIntentId: string, stage: string): Promise<Response | null> => {
+      if (!await otherLiveAttemptsCleared(keepIntentId, stage)) {
+        return checkoutBusy('checkout-refused-other-attempt', { stage });
+      }
+      const verdict = await claimGuard.check();
+      return verdict === 'held' ? null : claimLost(verdict, `${stage}-after-sweep`);
+    };
+
+    const checkoutBusy = (stage: string, detail: Record<string, unknown> = {}): Response => {
+      logStage(stage, { listing_id, mode, ...detail });
+      return new Response(
+        JSON.stringify({ error: 'Your checkout is being updated. Please try again.', server_total_cents: totalCents }),
+        { status: 409, headers: { 'Content-Type': 'application/json', 'Retry-After': '5', ...getResponseHeaders(req) } }
+      );
+    };
+
+    // 132 (P1): an attempt of this buyer on this listing (either mode) that is
+    // still `processing` may yet capture. Minting, reusing or superseding another
+    // attempt now would hand out a second confirmable secret whose capture
+    // collides with it. Nothing sweeps `processing` rows (get_unsettled_payments
+    // has no such arm), so the refusal asks Stripe instead of waiting for the
+    // webhook: a canceled intent is retired and no longer blocks; a succeeded one
+    // is the completed payment; anything else, or no answer, refuses without a secret.
+    for (const proc of existingPayments.filter((p) => p.status === 'processing')) {
+      let piStatus: string | null = null;
+      try {
+        const got = await claimGuard.bound(stripeFetchRaw(`/payment_intents/${proc.stripe_payment_intent_id}`), 'retrieve processing intent');
+        piStatus = got.ok ? ((got.data as { status?: string } | null)?.status ?? null) : null;
+      } catch { piStatus = null; }
+      if (piStatus === 'succeeded') {
+        return new Response(
+          JSON.stringify({ error: 'Payment already completed for this listing' }),
+          { status: 400, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } }
+        );
+      }
+      if (piStatus !== 'canceled') {
+        return checkoutBusy('checkout-refused-processing', { payment_row: proc.id, pi_status: piStatus });
+      }
+      const { error: retireErr } = await supabase
+        .from('payments')
+        .update({ status: 'failed' })
+        .eq('id', proc.id)
+        .eq('status', 'processing');
+      if (retireErr) return checkoutBusy('checkout-refused-processing-retire-failed', { payment_row: proc.id });
+      proc.status = 'failed';
+      logStage('processing-row-retired-canceled-at-stripe', { payment_row: proc.id });
+    }
+
+    // 132 (D review F-132-1): a live attempt of this buyer in the OTHER mode is a
+    // confirmable secret for a different amount. Neither reuse nor supersede is
+    // defined across modes, so refuse without a secret or a Stripe call; the
+    // attempt resolves through its own mode (paid, failed, or retired with its hold).
+    const otherModeLive = existingPayments.find((p) => p.mode !== mode && p.status === 'pending');
+    if (otherModeLive) {
+      return checkoutBusy('checkout-refused-other-mode-live', { payment_row: otherModeLive.id, other_mode: otherModeLive.mode });
+    }
+
+    let failedAttempts = existingPayments.filter((p) => p.status === 'failed' && p.mode === mode).length;
     // L1: a pending attempt this request supersedes (amount/currency changed).
     // It is cancelled only AFTER the replacement's row exists — see below.
     let superseded: { id: string; stripe_payment_intent_id: string } | null = null;
 
     // This buyer is entitled and is about to receive a confirmable secret
-    // (reused or freshly minted). Retire every OTHER buyer's pending
-    // PaymentIntent on the listing first (review round 1, MAJOR-3): a lapsed
-    // holder who never calls back still owns a live secret otherwise.
-    // Best-effort — never fails this request.
-    await retirePendingIntents(supabase, listing_id, buyerId, { kind: 'other-buyers' }, 'entitled-buyer-checkout');
+    // (reused or freshly minted). Retire every OTHER buyer's live PaymentIntent
+    // on the listing first (review round 1, MAJOR-3): a lapsed holder who never
+    // calls back still owns a live secret otherwise.
+    // 132 (D review F-132-2): this FAILS CLOSED. An intent that is not provably
+    // cancelled (Stripe refuses because it is processing or succeeded, the cancel
+    // errors or times out) or a row already `processing` may still capture; handing
+    // this buyer a second secret would collide. Refuse without a secret or a mint.
+    const othersClear = await retirePendingIntents(
+      supabase, listing_id, buyerId, { kind: 'other-buyers' }, 'entitled-buyer-checkout', claimGuard.bound,
+    );
+    if (!othersClear) {
+      return checkoutBusy('checkout-refused-other-buyer-live');
+    }
 
-    const pendingPayment = existingPayments.find((p) => p.status === 'pending');
-    // 130: hold the group claim before reusing or superseding this attempt.
-    let checkoutClaim: CheckoutClaim | null = null;
-    const claimGuard = makeClaimGuard(supabase, () => checkoutClaim, Date.now());
+    const pendingPayment = existingPayments.find((p) => p.status === 'pending' && p.mode === mode);
     // E-1: a guard verdict other than 'held' never hands out a secret.
     const claimLost = (verdict: 'lost' | 'expired' | 'error', stage: string): Response => {
       logStage('checkout-claim-lost', { stage, verdict });
@@ -788,6 +1031,8 @@ serve(async (req: Request) => {
         } else if (existingPiData.client_secret) {
           const verdict = await claimGuard.check();
           if (verdict !== 'held') return claimLost(verdict, 'before-reuse-secret');
+          const blocked = await handOutBlocked(existingPiData.id ?? '', 'before-reuse-secret');
+          if (blocked) return blocked;
           logStage('reuse-pending-pi', { pi_id: existingPiData.id, pi_status: existingPiData.status, amount_cents: existingPiData.amount });
           return new Response(
             JSON.stringify({
@@ -891,28 +1136,24 @@ serve(async (req: Request) => {
       // E-1: never record (and so never later expose) a replacement once the claim is gone.
       const verdict = await claimGuard.check();
       if (verdict !== 'held') {
-        await cancelPaymentIntentBestEffort(stripeData.id, 'claim-lost-before-insert', claimGuard.bound);
+        await withdrawUnrecordedIntent(stripeData.id, 'claim-lost-before-insert');
         return claimLost(verdict, 'before-insert');
       }
     }
-    const { error: insertErr } = await supabase
-      .from('payments')
-      .insert({
-        listing_id,
-        buyer_id:   buyerId,
-        seller_id:  listing.seller_id,
-        amount:     amountCents,
-        buyer_fee:  buyerFeeCents,
-        seller_fee: sellerFeeCents,
-        total:      totalCents,
-        stripe_payment_intent_id: stripeData.id,
-        status:     'pending',
-        mode,
-        // Mode boundary (migration 045): recorded from Stripe's OWN
-        // livemode field, never inferred. Financial automation only acts
-        // on stripe_livemode = true rows.
-        stripe_livemode: stripeData.livemode ?? null,
-      });
+    // Mode boundary (migration 045): stripe_livemode is recorded from Stripe's OWN
+    // livemode field, never inferred. Financial automation only acts on live rows.
+    const recorded = await recordCheckoutAttempt(supabase, groupClaim.claim, {
+      sellerId: listing.seller_id, amount: amountCents, buyerFee: buyerFeeCents, sellerFee: sellerFeeCents,
+      total: totalCents, intentId: stripeData.id, livemode: stripeData.livemode ?? null,
+    });
+    if (recorded.kind === 'claim_lost') {
+      // The claim was reclaimed while this request was recording: the row was not
+      // written and this secret was never exposed. Withdraw the intent and refuse.
+      await withdrawUnrecordedIntent(stripeData.id, 'claim-lost-at-record');
+      logStage('checkout-record-refused', { pi_id: stripeData.id, reason: 'claim_lost' });
+      return claimLost('lost', 'at-record');
+    }
+    const insertErr = recorded.kind === 'error' ? recorded.error : null;
 
     if (insertErr) {
       const e = insertErr as { code?: string; message?: string; details?: string; hint?: string };
@@ -945,6 +1186,8 @@ serve(async (req: Request) => {
         ) {
           const verdict = await claimGuard.check();
           if (verdict !== 'held') return claimLost(verdict, 'before-race-recovered-secret');
+          const blocked = await handOutBlocked(stripeData.id, 'before-race-recovered-secret');
+          if (blocked) return blocked;
           logStage('db-insert-race-recovered', { pi_id: stripeData.id });
           return new Response(
             JSON.stringify({
@@ -1036,6 +1279,8 @@ serve(async (req: Request) => {
       // hand it out.
       const verdict = await claimGuard.check();
       if (verdict !== 'held') return claimLost(verdict, 'before-secret');
+      const blocked = await handOutBlocked(stripeData.id, 'before-secret');
+      if (blocked) return blocked;
     }
     return new Response(
       JSON.stringify({
@@ -1054,6 +1299,10 @@ serve(async (req: Request) => {
     } finally {
       // 130: every exit after the claim — success, 400/409/500, or a throw — releases it.
       await releaseCheckout(supabase, checkoutClaim);
+    }
+    } finally {
+      // 132: every exit after the group record — including the 130 claim's own refusals — releases it.
+      await releaseCheckoutGroup(supabase, groupClaim.claim);
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : '';
