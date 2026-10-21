@@ -219,7 +219,7 @@ database-mode guest list/door and writes stay with D). Not pushed, not deployed;
 | Entry default | Database mode starts from `{kind: "denied"}`; a non-UUID route can never come back as the fixture entry. |
 | Resale policy | Venue-scope policies are read for the route venue; in-force policy = event scope first, then highest version (the rule in 088 `create_native_listing` / `buy_now`). RLS hides a draft event's own policy from every client, so a draft without a visible own row shows "Resale not readable until published" instead of its venue's policy, which could be more permissive than the one the server applies. Unapproved venues' venue-wide policies are still hidden by RLS and read as absent. |
 | `.vercelignore` | A CLI deploy from `venue/` never uploads `.env*`, key files, `.vercel`, `.next`, `node_modules`, `*.tsbuildinfo`, `next-env.d.ts`, kit `.runs/`, harness state, logs or `.f-handoff`. |
-| Domain readiness | `POST /logout` answers 303 with a relative `Location: /login`. Confirmed host-agnostic: no absolute URL in `src/`, CSP and headers carry no host (`connect-src 'self'`, every Supabase call is server-side), sign-in `next=` is relative-only, and the `@supabase/ssr` cookies are host-only (no Domain), `Path=/`, `SameSite=Lax`. |
+| Domain readiness | `POST /logout` answers 303 with a relative `Location: /login`. Confirmed host-agnostic: no absolute URL in `src/`, CSP and headers carry no host (`connect-src 'self'`, every Supabase call is server-side), sign-in `next=` is relative-only, and the `@supabase/ssr` cookies are host-only (no Domain), `Path=/`, `SameSite=Lax`, and now `Secure` + `HttpOnly` (`lib/supabase/cookies.ts`, both SSR clients; no browser code reads the session, pinned by a test). Production responses add `Strict-Transport-Security: max-age=63072000` (no `includeSubDomains`, no preload) and admin's `Permissions-Policy`. |
 | Next.js | `next` 16.3.3 → 16.3.8 exact (clears the critical advisory for 16.0.0–16.3.7). |
 
 Verification (Node 24.13.1): typecheck and lint clean; vitest 16 files / 235 tests; `next build`
@@ -238,7 +238,10 @@ Hosting notes for `venue.snatchitapp.com` (code side; nothing configured):
   today. Adding reset or magic-link sign-in later would need `https://venue.snatchitapp.com/**` in
   the Auth redirect allow-list.
 - Session cookies are host-only, so the venue session is never shared with `admin.snatchitapp.com`
-  or `snatchitapp.com`. They are not `HttpOnly` and not `Secure` (`@supabase/ssr` defaults); setting
-  `cookieOptions: { secure: true, httpOnly: true }` for the production host is a reasonable
-  hardening step, to be checked against the kit's H2/H3 cookie handling first.
+  or `snatchitapp.com`. They are `Secure` and `HttpOnly` on every host. Chrome treats plain-http
+  localhost as secure, so local runs keep working, but the kit's H2/H3/H6 cookie checks have not
+  been re-run with these attributes yet (a later heavy step; the kit copies `secure`/`httpOnly`
+  from the cookie it reads when it rewrites one).
+- HSTS is `max-age=63072000` only. `includeSubDomains` would bind every `snatchitapp.com`
+  subdomain to HTTPS, which needs the owner to confirm they all are first.
 - No CORS is involved: the browser only talks to its own origin.

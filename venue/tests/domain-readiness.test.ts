@@ -3,6 +3,9 @@
  * (localhost, a *.vercel.app preview, the custom domain) without a host baked in:
  *   - the Supabase session cookies are host-only (no Domain attribute), so a venue session is
  *     never sent to admin.snatchitapp.com, snatchitapp.com or any other sibling host;
+ *   - they are Secure (never sent over plain http) and HttpOnly (no script can read the refresh
+ *     token): every Supabase call is server-side, so no browser code needs the session;
+ *   - production responses carry HSTS (max-age only: no includeSubDomains, no preload);
  *   - sign-out redirects with a relative Location;
  *   - no absolute URL is hard-coded in src/, and the security headers carry no host.
  *
@@ -61,9 +64,11 @@ const hostOnly = (options: Record<string, unknown>) => {
   expect(options.domain).toBeUndefined();
   expect(options.path).toBe("/");
   expect(options.sameSite).toBe("lax");
+  expect(options.secure).toBe(true);
+  expect(options.httpOnly).toBe(true);
 };
 
-describe("session cookies are host-only (no Domain attribute)", () => {
+describe("session cookies are host-only (no Domain attribute), Secure and HttpOnly", () => {
   it("sign-in through the server client writes auth cookies without a Domain", async () => {
     const { createSupabaseServerClient } = await import("@/lib/supabase/server");
     const sb = await createSupabaseServerClient();
@@ -84,6 +89,9 @@ describe("session cookies are host-only (no Domain attribute)", () => {
     for (const c of setCookies) {
       expect(c).not.toMatch(/;\s*domain=/i);
       expect(c).toMatch(/;\s*path=\//i);
+      expect(c).toMatch(/;\s*secure(;|$)/i);
+      expect(c).toMatch(/;\s*httponly(;|$)/i);
+      expect(c).toMatch(/;\s*samesite=lax/i);
     }
   });
 
@@ -97,6 +105,25 @@ describe("session cookies are host-only (no Domain attribute)", () => {
       hostOnly(c.options);
       expect(c.value).toBe("");
     });
+  });
+});
+
+describe("HttpOnly costs nothing: no browser code reads the session", () => {
+  const files = (dir: string): string[] =>
+    readdirSync(dir).flatMap((n) => {
+      const p = join(dir, n);
+      return statSync(p).isDirectory() ? files(p) : /\.(ts|tsx)$/.test(n) ? [p] : [];
+    });
+  const src = new URL("../src", import.meta.url).pathname;
+  it("no browser Supabase client and no document.cookie anywhere in src/", () => {
+    const hits = files(src).filter((f) => /createBrowserClient|document\.cookie/.test(readFileSync(f, "utf8")));
+    expect(hits).toEqual([]);
+  });
+  it("no client component imports Supabase or the server client", () => {
+    const client = files(src).filter((f) => /^\s*["']use client["']/m.test(readFileSync(f, "utf8")));
+    expect(client.length).toBeGreaterThan(0);
+    const hits = client.filter((f) => /@supabase\/|@\/lib\/supabase\//.test(readFileSync(f, "utf8")));
+    expect(hits).toEqual([]);
   });
 });
 
@@ -132,5 +159,23 @@ describe("no host is hard-coded", () => {
     expect(values).toContain("default-src 'self'");
     expect(values).toContain("connect-src 'self'");
     expect(values).not.toMatch(/https?:|\*\.|snatchitapp|vercel\.app|supabase/i);
+  });
+});
+
+describe("transport headers", () => {
+  const header = async (key: string) => {
+    const { default: config } = await import("../next.config");
+    const rules = await config.headers!();
+    return rules.flatMap((r) => r.headers).find((h) => h.key.toLowerCase() === key.toLowerCase())?.value;
+  };
+  it("production sends Strict-Transport-Security with max-age only (no includeSubDomains, no preload)", async () => {
+    expect(await header("Strict-Transport-Security")).toBe("max-age=63072000");
+  });
+  it("next dev sends no HSTS (as admin/next.config.ts)", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    expect(await header("Strict-Transport-Security")).toBeUndefined();
+  });
+  it("Permissions-Policy turns off the browser features the dashboard never uses (as admin)", async () => {
+    expect(await header("Permissions-Policy")).toBe("camera=(), microphone=(), geolocation=(), payment=(), usb=()");
   });
 });

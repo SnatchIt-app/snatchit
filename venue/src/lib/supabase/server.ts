@@ -3,6 +3,7 @@ import "server-only";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { SUPABASE_ANON_KEY, SUPABASE_URL, keyLooksPrivileged } from "@/lib/env";
+import { sessionCookieOptions } from "@/lib/supabase/cookies";
 
 export class SupabaseConfigError extends Error {
   constructor(message: string) {
@@ -28,6 +29,8 @@ export async function createSupabaseServerClient() {
   return createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     // Authenticated reads must never be served from Next's fetch cache to another request/user.
     global: { fetch: (input: RequestInfo | URL, init?: RequestInit) => fetch(input, { ...init, cache: "no-store" }) },
+    // Secure, HttpOnly, SameSite=Lax, Path=/, host-only (lib/supabase/cookies.ts).
+    cookieOptions: sessionCookieOptions(),
     cookies: {
       getAll() {
         return cookieStore.getAll();

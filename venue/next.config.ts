@@ -12,6 +12,14 @@ const isDev = process.env.NODE_ENV === "development";
  * future change adds a browser-side call, its origin must be added here on
  * purpose, not inherited. No value here is host-specific, so the same policy
  * serves the preview host and venue.snatchitapp.com.
+ *
+ * Mirrors admin/next.config.ts where it applies: the same Permissions-Policy,
+ * and HSTS outside `next dev`. HSTS is max-age only: includeSubDomains would
+ * bind every snatchitapp.com subdomain to HTTPS, which is not this app's call,
+ * and preload is not wanted. Browsers ignore HSTS on plain http (localhost).
+ * Not mirrored: admin's upgrade-insecure-requests. Every subresource here is
+ * same-origin and relative (no absolute URL in src/, pinned by a test), so it
+ * would change nothing on https and only matter on http://localhost.
  */
 const csp = [
   "default-src 'self'",
@@ -33,6 +41,8 @@ const securityHeaders = [
   { key: "X-Frame-Options", value: "DENY" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   { key: "X-Robots-Tag", value: "noindex, nofollow" },
+  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=(), usb=()" },
+  ...(isDev ? [] : [{ key: "Strict-Transport-Security", value: "max-age=63072000" }]),
 ];
 
 const nextConfig: NextConfig = {
