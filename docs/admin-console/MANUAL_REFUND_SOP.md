@@ -424,6 +424,8 @@ If the owner decides on a partial refund:
 
 ## 9. Refund after the seller was paid (owner decision)
 
+**Do not use this SOP for these orders at all until the owner has ruled on "refund after a released payout".** That ruling is open on the owner's decision list. Until it exists, stop at §2 row 8 and escalate to the owner. Nothing in Stripe, nothing in the console.
+
 **How to recognise it:** §2 row 8. "Release recorded at" is set, or "Stripe
 Transfer (connected account)" shows a `tr_…`.
 
