@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { callOps } from "@/lib/ops";
 import { isIdempotencyKey, IDEMPOTENCY_FIELD } from "@/lib/idempotency";
-import { isRecord, parseApprovalDecision, pick, str, toActionOutcome, type ActionOutcome, type ActionType, type ApprovalDecision } from "@/lib/types";
+import { isRecord, parseApprovalDecision, str, toActionOutcome, type ActionOutcome, type ActionType, type ApprovalDecision } from "@/lib/types";
 import { coerceParam, parseParamField } from "@/lib/form-params";
 import type { OpsFailure } from "@/lib/ops-errors";
 
@@ -32,6 +32,15 @@ export type ActionFormState = {
   invalid?: string;
 };
 
+/** The first of `keys` holding a non-empty string. Not pick(): it stops at the first key present, even one that is null. */
+function firstText(r: Record<string, unknown> | null, ...keys: string[]): string | null {
+  for (const k of keys) {
+    const v = str(r?.[k]);
+    if (v) return v;
+  }
+  return null;
+}
+
 /**
  * A mutation answer with a status the console does not know (a status added
  * server-side after this build). Shown as a generic failure that keeps the
@@ -41,8 +50,8 @@ export type ActionFormState = {
 function unrecognisedResponse(fn: "execute_action" | "approve_action", data: unknown): OpsFailure {
   const r = isRecord(data) ? data : null;
   const status = str(r?.status);
-  const code = str(pick(r, "reject_reason", "reason", "code"));
-  const message = str(pick(r, "message", "detail", "error"));
+  const code = firstText(r, "reject_reason", "reason", "code");
+  const message = firstText(r, "message", "detail", "error");
   return {
     ok: false,
     kind: "error",

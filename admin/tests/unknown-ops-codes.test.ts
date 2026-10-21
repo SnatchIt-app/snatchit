@@ -147,6 +147,18 @@ describe("an answer with a status the console does not know keeps the DB's words
       expect(html).toContain("duplicate_unsettled");
     });
 
+    it(`${fn}: a null or empty earlier field does not hide a later code or message`, async () => {
+      // pick() returns the first key PRESENT, so reject_reason: null used to win over a real code
+      for (const data of [
+        { status: "x", reject_reason: null, code: "P9999", message: null, detail: "a rule added after this build" },
+        { status: "x", reject_reason: "", reason: null, code: "P9999", message: "", error: "a rule added after this build" },
+      ]) {
+        rpc.reply = { data, error: null };
+        const state = await submitActionForm({}, form());
+        expect(state.failure, JSON.stringify(data)).toEqual({ ok: false, kind: "error", code: "P9999", message: `Unrecognised response from ${fn} (status x): a rule added after this build` });
+      }
+    });
+
     it(`${fn}: a payload with nothing to quote keeps the plain line (control)`, async () => {
       for (const data of [null, "x", [], {}, { status: 7 }]) {
         rpc.reply = { data, error: null };
