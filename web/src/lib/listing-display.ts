@@ -166,12 +166,32 @@ export function eventStartIso(eventDate: string, eventTime: string): string {
   return `${eventDate}T${time}${m[1]}${m[2].padStart(2, "0")}:${m[3] ?? "00"}`;
 }
 
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+}
+
 /**
- * Page/social title. Many event names already end in the venue ("IDEMI — … at Jolene Sound
- * Room"); appending "at <venue>" again read "at Jolene Sound Room at Jolene Sound Room (…)".
+ * Whether the event name already names the venue: the venue's name before any "(…)" detail,
+ * matched as whole words (a letter, digit or underscore may not touch either end), ignoring
+ * case. A plain substring test read venue "LIV" into "Olivia Rodrigo Night" and "Delivery Boys
+ * Live".
  */
-export function listingTitle(eventName: string, venue: string, dateLabel: string): string {
+function namesVenue(eventName: string, venue: string): boolean {
   const venueBase = venue.split(" (")[0].trim();
-  const named = venueBase.length > 0 && eventName.toLowerCase().includes(venueBase.toLowerCase());
-  return named ? `${eventName} — ${dateLabel}` : `${eventName} at ${venue} — ${dateLabel}`;
+  if (venueBase.length === 0) return false;
+  return new RegExp(`(?<![\\p{L}\\p{N}_])${escapeRegExp(venueBase)}(?![\\p{L}\\p{N}_])`, "iu").test(eventName);
+}
+
+/**
+ * "ANOTR at Watson Island Park": the event and where it is, without repeating a venue the event
+ * name already carries ("… at Jolene Sound Room at Jolene Sound Room (…)"). The one source for
+ * the page title, the social title, poster alt text and card link labels.
+ */
+export function eventAtVenue(eventName: string, venue: string): string {
+  return namesVenue(eventName, venue) ? eventName : `${eventName} at ${venue}`;
+}
+
+/** Page/social title: the event and venue, then the date. */
+export function listingTitle(eventName: string, venue: string, dateLabel: string): string {
+  return `${eventAtVenue(eventName, venue)} — ${dateLabel}`;
 }

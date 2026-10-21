@@ -29,6 +29,7 @@ import {
   deliveryLabel,
 } from "@/lib/format";
 import {
+  eventAtVenue,
   eventStartIso,
   eventWhen,
   listingTitle,
@@ -198,7 +199,7 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
           <div className="lg:col-start-1 lg:row-start-1">
             <Poster
               path={listing.cover_image_path}
-              alt={`${listing.event_name} at ${listing.venue}`}
+              alt={eventAtVenue(listing.event_name, listing.venue)}
               sizes="(min-width: 1280px) 600px, (min-width: 1024px) 55vw, 100vw"
               priority
               rounded="rounded-none sm:rounded-card"
