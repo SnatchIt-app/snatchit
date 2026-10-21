@@ -86,6 +86,7 @@ SELECT alike((SELECT pg_get_triggerdef(oid) FROM pg_trigger WHERE tgrelid = 'pub
 -- NEW.created_at := now() (it cannot refuse, locks nothing, writes no table), so the rule this pins (the parties
 -- refusal fires before validate_and_apply_bid locks or updates the listing) is unchanged. The exemption holds only
 -- while that trigger runs that function; any other BEFORE trigger sorting ahead of the guard still fails A2.
+-- That function's body is pinned by 242 A3 (md5 of pg_get_functiondef), so it cannot gain a refusal or a lock unseen.
 SELECT ok('before_bid_guard_parties' < (SELECT min(tgname) FROM pg_trigger WHERE tgrelid = 'public.bids'::regclass
             AND NOT tgisinternal AND tgname <> 'before_bid_guard_parties' AND tgtype & 2 = 2
             AND NOT (tgname = 'before_bid_created_at_server_owned'
