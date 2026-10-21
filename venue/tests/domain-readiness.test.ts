@@ -60,6 +60,12 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+// Next calls a route handler with the incoming Request. /logout ignores it, but the tests pass a real one,
+// so a regression to `NextResponse.redirect(new URL("/login", request.url))` fails on the Location
+// assertion (absolute URL) instead of with a TypeError on a missing request.
+type RouteHandler = (request: Request) => Promise<Response>;
+const logoutRequest = () => new Request("https://venue.snatchitapp.com/logout", { method: "POST" });
+
 const hostOnly = (options: Record<string, unknown>) => {
   expect(options.domain).toBeUndefined();
   expect(options.path).toBe("/");
@@ -98,7 +104,8 @@ describe("session cookies are host-only (no Domain attribute), Secure and HttpOn
   it("sign-out clears the cookies host-only too (a Domain mismatch would leave the session behind)", async () => {
     jar.cookies = [{ name: COOKIE, value: `base64-${b64(session(Math.floor(Date.now() / 1000) + 3600))}` }];
     const { POST } = await import("@/app/logout/route");
-    await POST();
+    const logout: RouteHandler = POST;
+    await logout(logoutRequest());
     const cleared = jar.set.filter((c) => c.name.startsWith(COOKIE));
     expect(cleared.length).toBeGreaterThan(0);
     cleared.forEach((c) => {
@@ -130,7 +137,8 @@ describe("HttpOnly costs nothing: no browser code reads the session", () => {
 describe("redirects are relative", () => {
   it("POST /logout answers 303 with a relative Location: /login (no host in it)", async () => {
     const { POST } = await import("@/app/logout/route");
-    const res = await POST();
+    const logout: RouteHandler = POST;
+    const res = await logout(logoutRequest());
     expect(res.status).toBe(303);
     expect(res.headers.get("location")).toBe("/login");
   });
