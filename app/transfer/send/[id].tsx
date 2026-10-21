@@ -34,6 +34,7 @@ import { ROW_ART } from '@/src/lib/design/featureMetrics';
 import {
   formatCountdown,
   sellerAlreadySent,
+  sellerSendHalted,
   sellerDeliveryMissing,
   sellerWindowView,
   sellerHoldLine,
@@ -333,6 +334,7 @@ export default function TransferSendScreen({ fixture }: { fixture?: SendFixture 
 
   const platform: TicketPlatform = transfer?.listing?.ticket_platform ?? 'other';
   const alreadySent = transfer ? sellerAlreadySent(transfer.status) : false;
+  const sendHalted = transfer ? sellerSendHalted(transfer.status) : false;
   const busy = submitting || evidenceUpload.busy;
   const buyerDeliveryMissing = transfer ? sellerDeliveryMissing(transfer) : false;
   const windowView = transfer
@@ -463,7 +465,7 @@ export default function TransferSendScreen({ fixture }: { fixture?: SendFixture 
             follows the final fulfilment policy (owner, 2026-09-19). On a closed order the heading is neutral, because
             "Send tickets to" would instruct the opposite of the block above it (owner, via D). */}
         <View style={[s.section, s.sendToPanel]}>
-          <Text style={[textStyle('title'), s.sendToTitle]}>{orderClosed ? "Buyer's delivery details" : 'Send tickets to'}</Text>
+          <Text style={[textStyle('title'), s.sendToTitle]}>{orderClosed || sendHalted ? "Buyer's delivery details" : 'Send tickets to'}</Text>
           {(transfer.delivery_email || transfer.delivery_phone) ? (
             <Text style={[textStyle('body'), s.sendToValue]}>
               {[
@@ -484,7 +486,7 @@ export default function TransferSendScreen({ fixture }: { fixture?: SendFixture 
           ) : null}
         </View>
 
-        {!alreadySent && !orderClosed ? (
+        {!alreadySent && !orderClosed && !sendHalted ? (
           <PlatformInstructions platform={platform} role="seller" buyerEmail={transfer.delivery_email} buyerPhone={transfer.delivery_phone} />
         ) : null}
 
