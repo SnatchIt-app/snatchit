@@ -290,17 +290,18 @@ and E11 assert that the view does not.
 ### 4.5 Review round (2026-10-21): plan 56 to 71
 
 The reviewer ran r1–r4 on a scratch copy against plan 56, and all four survived with 56/56 PASS.
-r5 is the reviewer's reasoning case and was not run. The last column is what plan 71 is
-**expected** to do. It is **not run**, because this
-revision was written in a wave with no database (§8).
+r5 is the reviewer's reasoning case and was not run. The third column is what plan 71 was
+**expected** to do when this revision was written (a wave with no database). The last column is
+the run of plan 72 on 2026-10-21 (§5.5). Every prediction held.
 
-| Mutant | 56 (reviewer, run) | 71 (expected, not run) |
-|---|---|---|
-| r1 `REVOKE SELECT (neighborhood) ON catalog.venue FROM authenticated` and `REVOKE SELECT (royalty_bps) ON catalog.resale_policy FROM authenticated`. The views stay, but every caller read raises `permission denied for table venue`. | survived | C22 raises 42501, the run stops and the plan does not match. The file FAILS. |
-| r2 venues `WHERE false` | survived | C22, C25, C26, C28 (NULL value), D6, D8, F6 |
-| r3 resale_policies `WHERE false` | survived | C24, C27, C29 (NULL value), D7, D9, F6 |
-| r4 `s.ends_at AS starts_at, s.starts_at AS ends_at` in event_sessions (188 also 47/47) | survived | C30 (starts 23:30 / ends 20:00 against the fixture's 20:00 / 23:30), F6 |
-| r5 `ALTER DEFAULT PRIVILEGES FOR ROLE postgres GRANT SELECT ON TABLES TO authenticated` (global, not in the schema). The reviewer's "future" case. | F3 stays green (reviewer, by reading) | F7 |
+| Mutant | 56 (reviewer, run) | 71 (expected) | 72 (run, §5.5) |
+|---|---|---|---|
+| r1 `REVOKE SELECT (neighborhood) ON catalog.venue FROM authenticated` and `REVOKE SELECT (royalty_bps) ON catalog.resale_policy FROM authenticated`. The views stay, but every caller read raises `permission denied for table venue`. | survived | C22 raises 42501, the run stops and the plan does not match. The file FAILS. | FAIL. First error at line 217 (C22), `permission denied for table venue`. With `ON_ERROR_STOP=1` psql exits 3 after 46 of 72 TAP lines. |
+| r2 venues `WHERE false` | survived | C22, C25, C26, C28 (NULL value), D6, D8, F6 | FAIL: C22, C25, C26, C28, D6, D8, F6 |
+| r3 resale_policies `WHERE false` | survived | C24, C27, C29 (NULL value), D7, D9, F6 | FAIL: C24, C27, C29, D7, D9, F6 |
+| r4 `s.ends_at AS starts_at, s.starts_at AS ends_at` in event_sessions (188 also 47/47) | survived | C30 (starts 23:30 / ends 20:00 against the fixture's 20:00 / 23:30), F6 | FAIL: C30, F6 |
+| r5 `ALTER DEFAULT PRIVILEGES FOR ROLE postgres GRANT SELECT ON TABLES TO authenticated` (global, not in the schema). The reviewer's "future" case. | F3 stays green (reviewer, by reading) | F7 | FAIL: F7 only (F1 stays green: the views carry that SELECT anyway) |
+| r5b (added in the run) the same, but `GRANT ALL ON TABLES TO anon` | — | — | FAIL: A8, A10, F1, F7 |
 
 **How an uncaught error shows up.** CI runs 226 through `supabase test db`, that is pg_prove,
 which runs psql with `ON_ERROR_STOP=1`. An uncaught error (42501 for r1 at C22, for m03 at C4)
@@ -376,13 +377,13 @@ What each kind of added object is caught by:
 | an enum, domain, range or multirange type | F8 |
 | an operator, collation, text-search object or statistics object, or a trigger or rule on a view | not swept |
 
-**Expected, not run** (no database in this wave, §8):
+Written with no database. The last column is the run of 2026-10-21 (§5.5):
 
-| Mutant (planted in a copy of the migration) | 71 (by reading) | 72 (expected) |
-|---|---|---|
-| r6 `CREATE TYPE venue_api.r6 AS ENUM ('a')` | survives: A2, A3, F1 and F5 read no `pg_type` | F8 |
-| r7 `CREATE TABLE venue_api.r7 ()` (no columns, no grant) | survives: not a view or function, no ACL entry, no columns | F8 |
-| control: the migration unchanged | — | F8 green: the only types are the eight row types and their eight array types |
+| Mutant (planted in a copy of the migration) | 71 (by reading) | 72 (expected) | 72 (run) |
+|---|---|---|---|
+| r6 `CREATE TYPE venue_api.r6 AS ENUM ('a')` | survives: A2, A3, F1 and F5 read no `pg_type` | F8 | FAIL: F8 only |
+| r7 `CREATE TABLE venue_api.r7 ()` (no columns, no grant) | survives: not a view or function, no ACL entry, no columns | F8 | FAIL: F8 only |
+| control: the migration unchanged | — | F8 green: the only types are the eight row types and their eight array types | PASS 72/72 |
 
 F8 changes none of the §4.5 predictions. It is green for r2–r5, and for r1 it is never reached,
 like every assertion after C22.
@@ -391,7 +392,7 @@ like every assertion after C22.
 
 **This evidence is from commit `460d85f9`.** At that commit the suite was numbered 224, with
 plan 56. Every "224" below means that file, which is now `226_venue_api_read_views.sql`. The
-rename itself changes no SQL. The renamed file has not been re-run.
+rename itself changes no SQL. §5.5 is the re-run of the renamed file at plan 72.
 
 **Environment and scope**
 - The local CI-equivalent replay is `scripts/local/replay.sh`:
@@ -492,7 +493,69 @@ On-disk totals for CI (`ls supabase/tests/*.sql`): 103 files and 5944 planned as
 
 **After the review rounds (plan 72):** 103 files and 5960 planned. That figure is the sum of every
 file's `plan(N)` line. The same count gives 5944 at `3bf24c0b`, which matches the run above, and
-5959 at `3d2b0bf5` (plan 71). It was **not** run. 226 still uses no `todo()` or `skip()`.
+5959 at `3d2b0bf5` (plan 71). It was run in §5.5: the runner's TOTAL of 5954 plus
+`000_helpers`' 6. 226 still uses no `todo()` or `skip()`.
+
+### 5.5 Plan-72 re-run (2026-10-21, tree `977a17a4`)
+
+`977a17a4` is a docs-only commit on `ad728964`: the migration, rollback and 226 are the same
+bytes (migration body sha256 `fb3cf536…1199e70`, rollback body `d191b761…27b7340`).
+
+**Base.** `f_venueapi_pgbase_rehears`: `replay_upto.sh` of the 171 base files plus
+`parity_grants.sql`, run as `postgres` (5 s). Its full-catalog fingerprint is 3745 lines,
+`65c5064b183004c8464a18a486e5f10d`, the same as §5.3's pre-apply state. Every clone below was
+made from it with `createdb -T`.
+
+The replay must run as `postgres`. A replay run as another superuser owns every object as that
+role, and two things break:
+- the shim's `ALTER DEFAULT PRIVILEGES FOR ROLE postgres` rows do not apply, so 87 fingerprint
+  lines differ (52 function ACLs, 35 table ACLs)
+- 156's `guard_listing_proof_waiver` is SECURITY DEFINER, so it sees its owner as
+  `current_user`, not `postgres`. `tap.seed_core()` then fails with `Upload proof of ownership.`,
+  and every suite that seeds fails, with or without this migration. A RED run on such a base
+  proves nothing.
+
+| Check | Result |
+|---|---|
+| RED: 226 on a base clone (`venue_api` absent) | FAIL: ok 2 (A3, A4, both zero counts), not ok 2 (A1, A2), 121 psql errors from line 101 `schema "venue_api" does not exist`, runner rc 1 |
+| GREEN: the same base + `20261021120000` (rc 0, 65 ms) | PASS 72/72 |
+| CI gates before and after the apply, before pgTAP is installed | Gate-2 35\|126\|37\|49 = `EXPECT_*` both times. expected_grants.txt IDENTICAL (72 rows) both times. profiles: 0 table grants, 8 column grants. Grant-decision manifest PASS (8 notices) both times |
+| P1 before the apply, as `postgres` | `t \| postgres \| 0 \| 0` |
+| V1–V10 after the apply | as §7 step 6 expects: owner `postgres`, 8 views with both options, 8 × `authenticated` SELECT, anon and service_role without USAGE, 0 functions, 0 default-ACL rows, census 35\|126\|37\|49, 19 base policies, V10 `0 \| 0` |
+| Direct replay of all 172 files (`scripts/local/replay.sh`, 7 s) | `REPLAY OK: 172`, 0 duplicate versions, CI gates as above. Fingerprint 3817 lines `862c7423…`, the same as base + apply |
+| Full suite on that replay | 102 files plus helpers: TOTAL plan=5954 ok=5954 ALL-PASS (44 s) |
+| Full suite on the GREEN clone, and on a base clone | 5952/5954 and 5882/5954. 132 D-5/8 and D-5/9 fail on both clones, with or without the migration: the cron job row keeps the template database's name. 226 is RED on the base clone. The other 101 files' lines are identical on all three databases |
+| The 57 files that read `catalog`, `venue` or `kernel` (140, 141, 142, 144, 145, 154 and 187 among them) | 57/57 PASS, 4392/4392, on the GREEN clone and on the replay |
+| Mutants m01–m14 (§4.4) | 14/14 killed. m01 A6, A8, A10, C21, F1, F2; m02 A4, C15, C17, D1, D4; m03 B1, then stops at C4 (line 120); m04 E9, F6; m05 E11, F6; m06 F3; m07 F1; m08 A10, F1; m09 A6, F2; m10 F5, F6; m11 F4; m12 E1, F5, F6; m13 A2, F4, F5, F6; m14 A3 |
+| Mutants r1–r7 and r5b (§4.5, §4.6) | 8/8 killed. The unchanged migration, run the same way as a control: PASS 72/72 |
+
+**Apply, rollback, re-apply** (`f_venueapi_seq_rehears`, a base clone with no pgTAP objects):
+- pre-apply: 3745 lines, `65c5064b…`
+- apply: 3817 lines, `862c7423…`. +72 lines (1 nsp, 8 rel, 55 col, 8 viewdef), none outside
+  `venue_api`, nothing removed
+- rollback: IDENTICAL to pre-apply, and so is a pg_type sweep of every non-system schema (275
+  lines; the apply added the 8 row types and 8 array types)
+- re-apply: IDENTICAL to the first apply, then 226 PASS 72/72
+- rollback with the pgTAP helpers installed, then 226 RED (2/2, 121 errors), then the rollback
+  again: IDENTICAL (idempotent), then re-apply and 226 PASS 72/72
+
+**Negative controls.**
+- A rollback without `DROP SCHEMA` leaves 1 line (`nsp|venue_api…`) against pre-apply.
+- m06 then the real rollback: IDENTICAL to pre-apply.
+- A stray table in `venue_api`: the rollback refuses (`cannot drop schema venue_api because
+  other objects depend on it`) and all 8 views stay.
+- A table planted in `public`: census 36, expected_grants DIFFERENT, manifest FAIL
+  (`__planted_t`).
+- A granted table planted in `venue_api`: all three CI manifests stay green. 226 is the gate.
+- expected_grants.txt plus the 8 `authenticated|<view>|SELECT` lines: 8 expected-only lines.
+- CI's masking scanner (the `MASKAWK` program, run with macOS awk): TOTALS 0 for the tree, and
+  1 call / 1 masked with a planted `todo(1)`.
+
+**Migrations guard.** The `Check migrations` step (the same as `migrations-guard.yml`'s run block
+apart from a trailing newline) against base `bfc5cf97`: rc 0, `20261021120000 > 20261015000200
+(ts)`.
+
+On disk: 103 files, 5960 planned (CI's `grep | bc`), up from 102 / 5888 at `bfc5cf97`.
 
 ## 6. Rollback procedure
 
@@ -671,19 +734,10 @@ D's acceptance kit (V0–V10) is the instrument for this, in the sandbox window.
 
 ## 8. Limits
 
-- **pgTAP 226 after the review rounds has not been run.** That covers the rename, the new fixture
-  block, C22–C30, D6–D9, F6, F7, F8 and the reworded F3. It was written in a wave with no database access, so all
-  numbers in §5 are from the plan-56 file at `460d85f9`. The checks that did run were static:
-  - the migration body hash is unchanged
-  - the eight F6 temp-view SELECTs are byte-identical to the migration's
-  - the plan equals the assertion count
-
-  Owed before A's review counts it:
-  - a full-chain replay
-  - 226 RED without the migration and GREEN with it
-  - mutants r1–r7 FAILING, and the unchanged migration green on F8
-  - rollback and re-apply
-  - the neighbouring suites
+- **pgTAP 226 at plan 72 has run locally (§5.5), not in GitHub CI.** §5.1–5.4 are from the
+  plan-56 file at `460d85f9`. §5.5 covers what was owed: a full-chain replay, 226 RED without the
+  migration and GREEN with it, mutants r1–r7 FAILING with the unchanged migration green on F8,
+  rollback and re-apply, and the neighbouring suites.
 
   F7 also rests on a record. The `supabase/ci/parity_grants.sql` header (2026-08-27) says the CI
   stack carries no TABLE default-ACL entries. If the CI image does carry a global TABLE row for
