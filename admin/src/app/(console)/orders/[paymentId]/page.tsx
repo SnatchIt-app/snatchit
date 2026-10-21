@@ -19,6 +19,7 @@ import { IdLink, PartyLink } from "@/components/ui/IdLink";
 import { EvidenceList } from "@/components/ui/EvidenceLink";
 import { CaseTable } from "@/components/cases/CaseTable";
 import { OrderActions } from "@/components/orders/OrderActions";
+import { loadMoneyGuards } from "@/lib/pending-actions";
 import { ActionTable } from "@/components/actions/ActionTable";
 import { Timeline } from "@/components/orders/Timeline";
 
@@ -78,6 +79,11 @@ export default async function OrderPage({ params }: { params: Promise<{ paymentI
   const disputeOpen = Boolean(t?.disputed_at) && !t?.dispute_resolved_at;
   const canRelease = t?.status === "seller_sent" && !t?.payout_released_at && !disputeOpen;
   const canRefund = p.status === "succeeded";
+  // order_detail's `actions` holds only the newest 50 rows across payment,
+  // transfer and listing, so an older unsettled request can be missing from
+  // it. Ask list_actions for this exact subject before offering a money form;
+  // a failed read hides the form (fail closed).
+  const guards = await loadMoneyGuards((fn, args) => callOps<unknown>(fn, args), d, { release: canRelease && Boolean(t?.id), refund: canRefund });
   const eventTitle = l?.event_name ?? "Order";
 
   return (
@@ -301,7 +307,7 @@ export default async function OrderPage({ params }: { params: Promise<{ paymentI
         </div>
 
         <div className="space-y-6">
-          <OrderActions d={d} me={me} path={path} refundEnabled={refundEnabled} disputeOpen={disputeOpen} canRelease={canRelease} canRefund={canRefund} />
+          <OrderActions d={d} me={me} path={path} refundEnabled={refundEnabled} disputeOpen={disputeOpen} canRelease={canRelease} canRefund={canRefund} guards={guards} />
         </div>
       </div>
 

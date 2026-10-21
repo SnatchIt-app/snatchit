@@ -1,9 +1,11 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import type { Operator } from "@/lib/auth/session";
 import { newIdempotencyKey } from "@/lib/idempotency";
 import { canRequest } from "@/lib/permissions";
 import { ACTION_STATE_LABELS, DISPUTE_OUTCOME_LABELS, labelFor } from "@/lib/format";
 import type { OpsAction, OrderDetail } from "@/lib/types";
+import type { MoneyGuards, PendingGuard } from "@/lib/pending-actions";
 import { Panel } from "@/components/ui/Panel";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Money } from "@/components/ui/Money";
@@ -11,27 +13,8 @@ import { Alert } from "@/components/ui/Alert";
 import { ConfirmForm } from "@/components/ui/ConfirmForm";
 import { NewCaseForm } from "@/components/cases/NewCaseForm";
 
-/**
- * Action states that are not settled. While one exists for a payment or
- * transfer, a second request of the same kind must not be parked from this
- * page: "unknown" and "succeeded_at_provider" count too — a refund may already
- * have happened at Stripe.
- */
-const UNSETTLED = new Set(["requested", "awaiting_approval", "processing", "succeeded_at_provider", "unknown"]);
-
-/** The newest unsettled action of this type on this subject, from what the console already read. */
-export function unsettledAction(actions: OpsAction[], type: string, subjectId: string): OpsAction | null {
-  const seen = new Set<string>();
-  const open = actions.filter((a) => {
-    if (a.action_type !== type || a.subject_id !== subjectId || !UNSETTLED.has(a.state ?? "")) return false;
-    const k = a.id ?? `${a.requested_at}`;
-    if (seen.has(k)) return false;
-    seen.add(k);
-    return true;
-  });
-  open.sort((x, y) => String(y.requested_at ?? "").localeCompare(String(x.requested_at ?? "")));
-  return open[0] ?? null;
-}
+/** Kept importable from here for existing callers; the logic lives in lib/pending-actions. */
+export { unsettledAction } from "@/lib/pending-actions";
 
 function PendingRequest({ action }: { action: OpsAction }) {
   return (
@@ -46,6 +29,25 @@ function PendingRequest({ action }: { action: OpsAction }) {
   );
 }
 
+/**
+ * list_actions could not confirm that nothing is pending. The form stays
+ * hidden: re-offering it could park a second request for the same money.
+ */
+function GuardUnverified({ path }: { path: string }) {
+  return (
+    <Alert state="failed" title="Couldn't check for an earlier request" retryHref={path} retryLabel="Try again" compact>
+      The request form is hidden until ops.list_actions answers, so a second request cannot be parked by mistake. Nothing was changed.
+    </Alert>
+  );
+}
+
+/** pending → the existing request; clear → the form; anything else (failed read, missing guard) → hidden. */
+function guarded(guard: PendingGuard | null, path: string, form: ReactNode) {
+  if (guard?.kind === "pending") return <PendingRequest action={guard.action} />;
+  if (guard?.kind === "clear") return form;
+  return <GuardUnverified path={path} />;
+}
+
 /** The order's state-changing actions: dispute resolution, payout release, refund execution, a manual case. */
 export function OrderActions({
   d,
@@ -55,6 +57,7 @@ export function OrderActions({
   disputeOpen,
   canRelease,
   canRefund,
+  guards,
 }: {
   d: OrderDetail;
   me: Pick<Operator, "role">;
@@ -63,12 +66,12 @@ export function OrderActions({
   disputeOpen: boolean;
   canRelease: boolean;
   canRefund: boolean;
+  /** From loadMoneyGuards(): list_actions plus the rows already read. Required, so no caller can skip the check. */
+  guards: MoneyGuards;
 }) {
   const p = d.payment!;
   const t = d.transfer;
   const nothing = !disputeOpen && !canRelease && !canRefund;
-  const pendingRelease = t?.id ? unsettledAction(d.actions, "payout_release", t.id) : null;
-  const pendingRefund = p.id ? unsettledAction([...d.refund.refund_actions, ...d.actions], "refund_execute", p.id) : null;
   return (
     <>
       <Panel eyebrow="Safe actions" title="Actions">
@@ -122,9 +125,10 @@ export function OrderActions({
 
       {canRelease && t?.id ? (
         <Panel eyebrow="Two-founder approval" title="Release held payout">
-          {canRequest(me.role, "payout_release") && pendingRelease ? (
-            <PendingRequest action={pendingRelease} />
-          ) : canRequest(me.role, "payout_release") ? (
+          {canRequest(me.role, "payout_release") ? (
+            guarded(
+              guards.release,
+              path,
             <ConfirmForm
               idempotencyKey={newIdempotencyKey()}
               actionType="payout_release"
@@ -142,7 +146,8 @@ export function OrderActions({
                 Current review status: <StatusBadge status={t.payout_review_status} label={labelFor("payout_review", t.payout_review_status ?? "none")} />
                 {t.payout_risk_tier ? <> · risk tier {t.payout_risk_tier}</> : null}
               </p>
-            </ConfirmForm>
+            </ConfirmForm>,
+            )
           ) : (
             <Alert state="info" title="Only a founder can request a payout release." compact />
           )}
@@ -153,9 +158,10 @@ export function OrderActions({
         <Panel eyebrow="Two-founder approval" title="Execute refund">
           {!canRequest(me.role, "refund_execute") ? (
             <Alert state="info" title="Only a founder can request a refund." compact />
-          ) : pendingRefund ? (
-            <PendingRequest action={pendingRefund} />
           ) : (
+            guarded(
+              guards.refund,
+              path,
             <>
               {!refundEnabled ? (
                 <Alert state="warning" title="Disabled until ops-refund-execute is deployed." compact>
@@ -182,7 +188,8 @@ export function OrderActions({
                   Parked as awaiting approval; after the other founder approves, the ops-refund-execute function calls Stripe with a stable idempotency key. The console never calls Stripe. The payment shows “refunded” only after the webhook lands.
                 </p>
               </ConfirmForm>
-            </>
+            </>,
+            )
           )}
         </Panel>
       ) : null}

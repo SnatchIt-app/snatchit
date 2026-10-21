@@ -12,6 +12,7 @@ import { selfHref } from "@/lib/search-params";
 import { deniedReasonCode, deniedReasonText, signInErrorMessage } from "@/lib/auth/messages";
 import { OutcomeText, blockWhilePending, ConfirmForm } from "@/components/ui/ConfirmForm";
 import { OrderActions, unsettledAction } from "@/components/orders/OrderActions";
+import { loadMoneyGuards } from "@/lib/pending-actions";
 import { CaseTable } from "@/components/cases/CaseTable";
 import { AttentionSummary } from "@/components/analytics/sections";
 import { TrendChart } from "@/components/charts/TrendChart";
@@ -117,21 +118,24 @@ const detail = (actions: OpsAction[], refundActions: OpsAction[] = []): OrderDet
     listing: null, buyer: null, seller: null, disputes: [], dispute_resolutions: [], payout_decisions: [],
     refund: { refund_actions: refundActions }, seller_funds_state: null, cases: [], actions, evidence: [], bank_payout: { tracked: false, note: null }, raw: {},
   }) as unknown as OrderDetail;
-const orderActions = (d: OrderDetail) => h(createElement(OrderActions, { d, me: { role: "platform_admin" }, path: `/orders/${PAY}`, refundEnabled: true, disputeOpen: false, canRelease: true, canRefund: true }));
+// list_actions answers "nothing else pending" here, so only the rows order_detail already holds decide (F1 covers list_actions itself).
+const nothingListed = async () => ({ ok: true as const, data: { items: [], next_cursor: null } });
+const orderActions = async (d: OrderDetail) =>
+  h(createElement(OrderActions, { d, me: { role: "platform_admin" }, path: `/orders/${PAY}`, refundEnabled: true, disputeOpen: false, canRelease: true, canRefund: true, guards: await loadMoneyGuards(nothingListed, d, { release: true, refund: true }) }));
 
 describe("A11 (item 4) — no second refund or release can be parked from the order page", () => {
-  it("positive control: with nothing pending both forms are offered", () => {
-    expect(actionTypes(orderActions(detail([])))).toEqual(expect.arrayContaining(["payout_release", "refund_execute"]));
+  it("positive control: with nothing pending both forms are offered", async () => {
+    expect(actionTypes(await orderActions(detail([])))).toEqual(expect.arrayContaining(["payout_release", "refund_execute"]));
   });
-  it("a refund awaiting approval replaces the refund form with the pending state and a link to the action", () => {
-    const html = orderActions(detail([], [action({})]));
+  it("a refund awaiting approval replaces the refund form with the pending state and a link to the action", async () => {
+    const html = await orderActions(detail([], [action({})]));
     expect(actionTypes(html)).not.toContain("refund_execute");
     expect(actionTypes(html)).toContain("payout_release");
     expect(html).toContain("Already requested — Awaiting approval");
     expect(html).toContain('href="/actions/aaaaaaaa-0000-4000-8000-000000000001"');
   });
-  it("a release in processing replaces the release form", () => {
-    const html = orderActions(detail([action({ action_type: "payout_release", subject_kind: "transfer", subject_id: TR, state: "processing" })]));
+  it("a release in processing replaces the release form", async () => {
+    const html = await orderActions(detail([action({ action_type: "payout_release", subject_kind: "transfer", subject_id: TR, state: "processing" })]));
     expect(actionTypes(html)).not.toContain("payout_release");
     expect(actionTypes(html)).toContain("refund_execute");
   });
