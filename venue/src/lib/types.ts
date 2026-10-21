@@ -12,9 +12,10 @@ export type EventStatus = "draft" | "announced" | "on_sale" | "live" | "complete
 export type SessionStatus = "scheduled" | "live" | "completed" | "cancelled";
 export type ResaleMode = "off" | "transfers_only" | "fixed_cap" | "face_value_queue" | "buy_now" | "auction" | "offer";
 /**
- * What the dashboard can say about an event's resale mode. `not_readable`: database mode, a draft event whose
- * own event-scope policy RLS hides from every client (078 catalog_resale_policy_sel_public), so the mode the
- * server would apply (088: event scope first) cannot be known; it is never guessed from the venue's policy.
+ * What the dashboard can say about an event's resale mode. `not_readable`: database mode, no own event-scope
+ * policy is visible and RLS (078 catalog_resale_policy_sel_public) hides a row the server would resolve (088:
+ * event scope first, then the venue's): a draft's own policy, or the venue-wide policy of a venue that is not
+ * approved. The mode that applies cannot be known, so it is never guessed from what is visible, nor shown as off.
  */
 export type ResaleDisplay = ResaleMode | "not_readable";
 export type TicketKind = "admission" | "table";

@@ -11,6 +11,8 @@ export type SessionRow = { session_id: string; event_id: string; session_label: 
 export type PolicyRow = { policy_id: string; scope_kind: string; venue_id: string | null; event_id: string | null; mode: string; version: number };
 export type TicketTypeRow = { ticket_type_id: string; event_id: string; kind: string; name: string; price_minor: number; currency: string; visibility: string };
 export type BatchRow = { batch_id: string; ticket_type_id: string; event_session_id: string; release_kind: string; remaining: number };
+/** venue_api.venues as the caller reads it; a venue whose row is not readable is simply absent. */
+export type VenueApprovalRow = { venue_id: string; approval_status: string };
 
 const EVENT_STATUS: EventStatus[] = ["draft", "announced", "on_sale", "live", "completed", "cancelled"];
 const SESSION_STATUS: SessionStatus[] = ["scheduled", "live", "completed", "cancelled"];
@@ -21,7 +23,8 @@ function pick<T extends string>(allowed: readonly T[], v: string, fallback: T): 
   return (allowed as readonly string[]).includes(v) ? (v as T) : fallback;
 }
 
-export function mapEvents(events: EventRow[], sessions: SessionRow[], policies: PolicyRow[]): Event[] {
+export function mapEvents(events: EventRow[], sessions: SessionRow[], policies: PolicyRow[], venues: VenueApprovalRow[]): Event[] {
+  const approved = new Set(venues.filter((v) => v.approval_status === "approved").map((v) => v.venue_id));
   return events.map((e) => {
     const mine: EventSession[] = sessions
       .filter((s) => s.event_id === e.event_id)
@@ -33,10 +36,15 @@ export function mapEvents(events: EventRow[], sessions: SessionRow[], policies: 
     const policy = policies
       .filter((p) => (p.scope_kind === "event" && p.event_id === e.event_id) || (p.scope_kind === "venue" && p.venue_id === e.venue_id))
       .sort((a, b) => Number(b.scope_kind === "event") - Number(a.scope_kind === "event") || b.version - a.version)[0];
-    // RLS (078 catalog_resale_policy_sel_public, `e.status <> 'draft'`) hides a draft's own event-scope rows from
-    // every client but not its venue's venue-wide row, and the server still resolves the hidden row first. So a
-    // draft is only readable when one of its own rows is visible; otherwise the mode is unknown, never the venue's.
-    const resaleMode: ResaleDisplay = e.status === "draft" && policy?.scope_kind !== "event" ? "not_readable" : policy ? pick(RESALE, policy.mode, "off") : "off";
+    // RLS (078 catalog_resale_policy_sel_public) hides two kinds of row from every client that the server (088,
+    // definer, no approval check) still resolves:
+    //   - a draft's own event-scope rows (`e.status <> 'draft'`), while its venue's venue-wide row stays visible;
+    //   - every venue-wide row of a venue that is not approved (`v.approval_status = 'approved'`), own staff included.
+    // In both cases what the caller sees can resolve to another mode than the one that applies, so such an event is
+    // only readable when one of its own event-scope rows is visible; otherwise the mode is unknown, never the
+    // venue's and never "off". A venue whose row the caller cannot read counts as not approved.
+    const hidden = e.status === "draft" || !approved.has(e.venue_id);
+    const resaleMode: ResaleDisplay = hidden && policy?.scope_kind !== "event" ? "not_readable" : policy ? pick(RESALE, policy.mode, "off") : "off";
     return {
       eventId: e.event_id,
       orgId: e.org_id,

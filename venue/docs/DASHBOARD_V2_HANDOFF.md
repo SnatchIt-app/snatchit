@@ -217,7 +217,7 @@ database-mode guest list/door and writes stay with D). Not pushed, not deployed;
 | Loading state | `src/app/o/[org]/v/[venue]/loading.tsx`: Shell-shaped skeleton (sidebar, top line, content), mode-neutral, `data-route-loading` for the kit. |
 | Mode-aware copy | Root metadata says DEMO / sample data only in the fixture build ("Venue dashboard · Snatch It" in database mode). Events eyebrow shows the venue's own name (`venue_api.venues.name`). Stale comments fixed (CSP note, package description, "eight views"). The empty events list no longer offers Create event in database mode. |
 | Entry default | Database mode starts from `{kind: "denied"}`; a non-UUID route can never come back as the fixture entry. **Defense in depth, not a closed leak:** every routed page already returned the denial on `!scope.ok` before reading the entry, so no route rendered fixture data in database mode before this change either. The RED is unit-level only (4 tests in `production-readiness.test.tsx`). |
-| Resale policy | Venue-scope policies are read for the route venue; in-force policy = event scope first, then highest version (the rule in 088 `create_native_listing` / `buy_now`). RLS hides a draft event's own policy from every client, so a draft without a visible own row shows "Resale not readable until published" instead of its venue's policy, which could be more permissive than the one the server applies. Unapproved venues' venue-wide policies are still hidden by RLS and read as absent. |
+| Resale policy | Venue-scope policies are read for the route venue; in-force policy = event scope first, then highest version (the rule in 088 `create_native_listing` / `buy_now`). RLS hides a draft event's own policy from every client, so a draft without a visible own row shows "Resale not readable until published" instead of its venue's policy, which could be more permissive than the one the server applies. RLS also hides every venue-wide policy of a venue that is not approved (088 still resolves it, with no approval check), so an event there without a visible own row shows "Resale not readable until the venue is approved", never "Off" (third pass below). |
 | `.vercelignore` | A CLI deploy from `venue/` never uploads `.env*`, key files, `.vercel`, `.next`, `node_modules`, `*.tsbuildinfo`, `next-env.d.ts`, kit `.runs/`, harness state, logs or `.f-handoff`. |
 | Domain readiness | `POST /logout` answers 303 with a relative `Location: /login`. Confirmed host-agnostic: no absolute URL in `src/`, CSP and headers carry no host (`connect-src 'self'`, every Supabase call is server-side), sign-in `next=` is relative-only, and the `@supabase/ssr` cookies are host-only (no Domain), `Path=/`, `SameSite=Lax`, and now `Secure` + `HttpOnly` (`lib/supabase/cookies.ts`, both SSR clients; no browser code reads the session, pinned by a test). Production responses add `Strict-Transport-Security: max-age=63072000` (no `includeSubDomains`, no preload) and admin's `Permissions-Policy`. |
 | Next.js | `next` 16.3.3 → 16.3.8 exact (clears the critical advisory for 16.0.0–16.3.7). |
@@ -245,6 +245,12 @@ Verification for this pass: targeted vitest runs of the touched test files only 
 the unfixed code, GREEN after, plus planted mutants) and eslint on the changed files. Still owed:
 full `npm test`, `npm run typecheck`, `next build` in both modes, and the kit `--phase all` rerun
 (H2/H3/H6 with the Secure/HttpOnly cookies included).
+
+### Review fixes (third pass, 2026-10-21)
+
+| Fix | What changed |
+|---|---|
+| Resale at an unapproved venue | `mapEvents` takes the venue's `approval_status` (`venue_api.venues`, read with the policies, in parallel). An event at a venue that is not approved, or whose row the caller cannot read, reads as `not_readable` unless one of its own event-scope rows is visible, exactly like a draft: RLS hides that venue's venue-wide rows from every client (own staff included) while 088 `create_native_listing` applies them. The line says "Resale not readable until the venue is approved" (drafts keep "… until published"). |
 
 Hosting notes for `venue.snatchitapp.com` (code side; nothing configured):
 

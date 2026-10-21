@@ -3,7 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient, SupabaseConfigError } from "@/lib/supabase/server";
 import { mapReadError, transportFailure, type ReadFailure, type ReadResult } from "@/lib/db/read-result";
-import { mapBatches, mapEvents, mapGrants, mapTicketTypes, type BatchRow, type EventRow, type OrgRoleRow, type PolicyRow, type VenueScopeRow, type SessionRow, type StaffRoleRow, type TicketTypeRow } from "@/lib/db/rows";
+import { mapBatches, mapEvents, mapGrants, mapTicketTypes, type BatchRow, type EventRow, type OrgRoleRow, type PolicyRow, type VenueScopeRow, type SessionRow, type StaffRoleRow, type TicketTypeRow, type VenueApprovalRow } from "@/lib/db/rows";
 import type { GrantSet } from "@/lib/roles";
 import type { Event, InventoryBatch, TicketType } from "@/lib/types";
 
@@ -53,18 +53,24 @@ export async function dbVenueScope(venueId: string): Promise<ReadResult<VenueSco
 }
 
 /**
- * Resale policies that can be in force for these events: their own event-scope rows plus the venue's
- * venue-wide rows. mapEvents picks one per event (event scope first, then the highest version).
- * RLS (catalog_resale_policy_sel_public) shows event rows of non-draft events and venue rows of
- * approved venues only, so a draft's own policy or a pending venue's policy reads as absent. mapEvents
- * then shows a draft without a visible own row as not readable rather than resolving it from the venue row.
+ * What mapEvents needs to say which resale policy is in force: the events' own event-scope rows, the venue's
+ * venue-wide rows, and the venue's approval_status (venue_api.venues). mapEvents picks one policy per event
+ * (event scope first, then the highest version). RLS (catalog_resale_policy_sel_public) shows event rows of
+ * non-draft events and venue rows of approved venues only, while the server resolves both regardless, so mapEvents
+ * shows a draft, or any event at a venue that is not approved, as not readable unless one of its own rows is visible.
+ * The three reads are independent and run together.
  */
-async function readPolicies(c: Client, eventIds: string[], venueId: string): Promise<ReadResult<PolicyRow[]>> {
-  const own = await select<PolicyRow[]>("venue_api.resale_policies", c.from("resale_policies").select(POLICY_COLS).in("event_id", eventIds));
+type ResaleInputs = { policies: PolicyRow[]; venues: VenueApprovalRow[] };
+async function readResaleInputs(c: Client, eventIds: string[], venueId: string): Promise<ReadResult<ResaleInputs>> {
+  const [own, venueWide, venues] = await Promise.all([
+    select<PolicyRow[]>("venue_api.resale_policies", c.from("resale_policies").select(POLICY_COLS).in("event_id", eventIds)),
+    select<PolicyRow[]>("venue_api.resale_policies", c.from("resale_policies").select(POLICY_COLS).eq("scope_kind", "venue").eq("venue_id", venueId)),
+    select<VenueApprovalRow[]>("venue_api.venues", c.from("venues").select("venue_id,approval_status").eq("venue_id", venueId)),
+  ]);
   if (!own.ok) return own;
-  const venueWide = await select<PolicyRow[]>("venue_api.resale_policies", c.from("resale_policies").select(POLICY_COLS).eq("scope_kind", "venue").eq("venue_id", venueId));
   if (!venueWide.ok) return venueWide;
-  return { ok: true, data: [...own.data, ...venueWide.data] };
+  if (!venues.ok) return venues;
+  return { ok: true, data: { policies: [...own.data, ...venueWide.data], venues: venues.data } };
 }
 
 /** B1 — venue_api.events + event_sessions + resale_policies, scoped to one venue by the route. */
@@ -77,9 +83,9 @@ export async function dbListEvents(venueId: string): Promise<ReadResult<Event[]>
   if (ids.length === 0) return { ok: true, data: [] };
   const sessions = await select<SessionRow[]>("venue_api.event_sessions", cl.c.from("event_sessions").select("session_id,event_id,session_label,starts_at,ends_at,doors_at,door_open_at,status").in("event_id", ids));
   if (!sessions.ok) return sessions;
-  const policies = await readPolicies(cl.c, ids, venueId);
-  if (!policies.ok) return policies;
-  return { ok: true, data: mapEvents(events.data, sessions.data, policies.data) };
+  const resale = await readResaleInputs(cl.c, ids, venueId);
+  if (!resale.ok) return resale;
+  return { ok: true, data: mapEvents(events.data, sessions.data, resale.data.policies, resale.data.venues) };
 }
 
 /** B1/B4 — one event with its sessions; a non-visible id is indistinguishable from a missing one (null). */
@@ -91,9 +97,9 @@ export async function dbGetEvent(eventId: string): Promise<ReadResult<Event | nu
   if (events.data.length === 0) return { ok: true, data: null };
   const sessions = await select<SessionRow[]>("venue_api.event_sessions", cl.c.from("event_sessions").select("session_id,event_id,session_label,starts_at,ends_at,doors_at,door_open_at,status").eq("event_id", eventId));
   if (!sessions.ok) return sessions;
-  const policies = await readPolicies(cl.c, [eventId], events.data[0].venue_id);
-  if (!policies.ok) return policies;
-  return { ok: true, data: mapEvents(events.data, sessions.data, policies.data)[0] ?? null };
+  const resale = await readResaleInputs(cl.c, [eventId], events.data[0].venue_id);
+  if (!resale.ok) return resale;
+  return { ok: true, data: mapEvents(events.data, sessions.data, resale.data.policies, resale.data.venues)[0] ?? null };
 }
 
 /** C1 — venue_api.ticket_types (hidden types appear only for manager / org-plane callers, by RLS). */
