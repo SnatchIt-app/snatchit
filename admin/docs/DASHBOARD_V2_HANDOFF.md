@@ -18,6 +18,49 @@ replace the current console UI, which is a separate owner decision.
 This document is committed on top of each code tip (docs only). Checkouts:
 `/Volumes/DEV-SSD/01_SNATCH_IT/repos/snatchit-admin-v2` and `…/snatchit-venue-v2`.
 
+## Integration branch (`admin/console-v2-integration`, 2026-10-21)
+
+Admin v2 rebuilt on the live console, admin/ only. **Local commits; not pushed,
+no PR, no CI run, not deployed.**
+
+- **Base:** `origin/admin/operating-console` @ `07100a35` (production, with #103).
+  `git diff --name-only 07100a35 HEAD -- . ':!admin'` is empty, so none of v2's
+  330 non-admin paths (stale edge functions, migrations, app/) come along.
+- **Merged:** `d916a69e` is v2's admin/ tree from `f1e783e1` (code `fae12913`),
+  byte for byte. `b82ef0b4` puts RC5 account suspension (#103) back on top, and
+  the "investigate" warning counts `listing_blocked` rows only.
+- **Fixes.** One commit each, with a test that failed on the unfixed code and
+  planted mutants that the tests had to catch:
+
+| | Commit | Fix | RED → GREEN | Mutants caught |
+|---|---|---|---|---|
+| F1 | `2e103504` | The money-form guard also reads `ops.list_actions` for the one subject in the unsettled states. `order_detail` stops at 50 rows; the guard no longer does. A failed or unrecognised read hides the form ("Couldn't check for an earlier request"). | page test 7 failed / 3 passed → 10/10, plus 10 unit tests | 10/10 |
+| F2 | `24180dc6` | "Sample data" notice only for an explicitly set label of exactly `local`, `harness` or `rehearsal`, and never on Vercel production or preview. The harness now sets `NEXT_PUBLIC_ENV_LABEL=harness`. | 3 failed / 1 passed → 5/5 | 6/6 |
+| F3 | `87509792` | `env.ts` refuses, at startup in every environment, an `sb_secret_` key or a JWT with any role other than anon (service_role included) in `NEXT_PUBLIC_SUPABASE_ANON_KEY`. The key is never printed. | 5 failed / 1 passed → 6/6 | 8/8 |
+| F4 | `e8517067` | `/mfa` calls `ops.whoami()` before the enrol flow. whoami has no aal check (115:1134-1152), so it answers at aal1. A non-operator goes to `/denied`; operators are unchanged. | 4 failed / 2 passed → 7/7 | 7/7 |
+| F5 | `36155fe0` | Session cookies are host-only by construction: `hostOnlyCookie()` drops any Domain. On a Vercel production deploy, `NEXT_PUBLIC_SITE_URL` must be `https://admin.snatchitapp.com`, or `https://snatchit-admin.vercel.app` during the transition. The CSP and headers are pinned as host-agnostic. | 6 failed / 4 passed → 10/10 | 13/13 |
+| F6 | `cd54a3dc` | next 16.3.3 → 16.3.8, exact. The lockfile change set is identical to `bdd1dfb5`. npm audit: 1 critical + 2 high → 2 high (sharp, source-map-js; transitive). | 1 failed / 2 passed → 3/3 | 5/5 |
+
+- **Gates at `cd54a3dc`** (npm ci, local Node v24.13.1):
+  - typecheck 0, lint 0;
+  - vitest **33 files / 262 tests**, against 26 / 211 after the import;
+  - `next build` 0 with the CI placeholder env: Next.js 16.3.8, 18 dynamic routes, /_not-found and the Proxy.
+  - A build with `NEXT_PUBLIC_VERCEL_ENV=production` and `NEXT_PUBLIC_SITE_URL=https://admin.snatchitapp.com` passes.
+  - Builds with an `sb_secret_` key, or with a production SITE_URL outside the allowlist, exit 1 with the refusal message.
+- **Domain notes (admin.snatchitapp.com):**
+  - Nothing in `admin/src` names the console's host. The only hit is `env.ts`'s dev default `http://localhost:3200`, which Vercel production refuses.
+  - `form-action`, `frame-ancestors` and `connect-src` are origin-relative (`'self'`) plus the Supabase origin, so they need no change on the new host.
+  - Server Actions stay same-origin (no `allowedOrigins`).
+  - Cookies are host-only, so operators sign in again on the new host. Sessions on `snatchit-admin.vercel.app` do not carry over, and none are shared with venue./app.
+  - Admin uses password + TOTP only, with no redirect-based auth flow. Remove the `snatchit-admin.vercel.app` entry from `PRODUCTION_SITE_HOSTS` once the custom domain is live and the alias is retired.
+- **Not done here:**
+  - push, draft PR and CI on Node 22;
+  - any browser, signed-in or aal2 render;
+  - Vercel domain, DNS, TLS and env changes (owner);
+  - the server-side duplicate refund/payout rule and relist expected-version (A's migrations; F1 stays a UI guard);
+  - `expected` on the suspend/restore forms (OC-17);
+  - the sharp and source-map-js lockfile advisories.
+
 ## What changed in the readiness pass
 
 A two-scope audit (route/action contracts; responsive/keyboard/error states)
@@ -193,7 +236,9 @@ it with `HARNESS_MFA_MODE=totp HARNESS_QR_ENCODER=<repo>/snatchit/node_modules/q
    one, and this applies to the current console too. `order_detail` `actions`
    is limit 50, so an old payout_release can fall out and re-arm the form.
    Recorded by A as a production finding for the owner, parked from this
-   release.
+   release. On `admin/console-v2-integration` (F1, `2e103504`) the 50-row gap is
+   closed: the guard also reads `ops.list_actions` and fails closed. The server
+   rule is still A's migration.
 3. A15: relist's expected state is not compared server-side (A/D, needs a migration; parked).
 4. A 429 at sign-in reads as a credentials error (A: stays as written).
 5. Box office has no lookup surface: the role matrix allows manual lookup but the door screen denies the role (D's roles spec).
