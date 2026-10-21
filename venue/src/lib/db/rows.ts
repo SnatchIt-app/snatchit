@@ -3,7 +3,7 @@
  * Unknown enum values are mapped to the safest neutral so a bad row never
  * renders as a legal state.
  */
-import type { Event, EventSession, EventStatus, InventoryBatch, ReleaseKind, ResaleMode, SessionStatus, TicketKind, TicketType, Visibility } from "@/lib/types";
+import type { Event, EventSession, EventStatus, InventoryBatch, ReleaseKind, ResaleDisplay, ResaleMode, SessionStatus, TicketKind, TicketType, Visibility } from "@/lib/types";
 import { isOrgRole, isVenueRole, type GrantSet } from "@/lib/roles";
 
 export type EventRow = { event_id: string; venue_id: string; org_id: string; title: string; status: string };
@@ -33,13 +33,17 @@ export function mapEvents(events: EventRow[], sessions: SessionRow[], policies: 
     const policy = policies
       .filter((p) => (p.scope_kind === "event" && p.event_id === e.event_id) || (p.scope_kind === "venue" && p.venue_id === e.venue_id))
       .sort((a, b) => Number(b.scope_kind === "event") - Number(a.scope_kind === "event") || b.version - a.version)[0];
+    // RLS (078 catalog_resale_policy_sel_public, `e.status <> 'draft'`) hides a draft's own event-scope rows from
+    // every client but not its venue's venue-wide row, and the server still resolves the hidden row first. So a
+    // draft is only readable when one of its own rows is visible; otherwise the mode is unknown, never the venue's.
+    const resaleMode: ResaleDisplay = e.status === "draft" && policy?.scope_kind !== "event" ? "not_readable" : policy ? pick(RESALE, policy.mode, "off") : "off";
     return {
       eventId: e.event_id,
       orgId: e.org_id,
       venueId: e.venue_id,
       title: e.title,
       status: pick(EVENT_STATUS, e.status, "draft"),
-      resaleMode: policy ? pick(RESALE, policy.mode, "off") : "off",
+      resaleMode,
       promoterCount: null, // venue.promoter is not readable in this slice
       sessions: mine,
     };

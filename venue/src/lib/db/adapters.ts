@@ -56,7 +56,8 @@ export async function dbVenueScope(venueId: string): Promise<ReadResult<VenueSco
  * Resale policies that can be in force for these events: their own event-scope rows plus the venue's
  * venue-wide rows. mapEvents picks one per event (event scope first, then the highest version).
  * RLS (catalog_resale_policy_sel_public) shows event rows of non-draft events and venue rows of
- * approved venues only, so a draft's own policy or a pending venue's policy reads as absent.
+ * approved venues only, so a draft's own policy or a pending venue's policy reads as absent. mapEvents
+ * then shows a draft without a visible own row as not readable rather than resolving it from the venue row.
  */
 async function readPolicies(c: Client, eventIds: string[], venueId: string): Promise<ReadResult<PolicyRow[]>> {
   const own = await select<PolicyRow[]>("venue_api.resale_policies", c.from("resale_policies").select(POLICY_COLS).in("event_id", eventIds));

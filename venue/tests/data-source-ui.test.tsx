@@ -7,6 +7,8 @@ import { DataSourceError, NotWiredState } from "@/components/ui/DataSourceError"
 import { EventsTable } from "@/components/events/EventsTable";
 import { EventSetup } from "@/components/events/EventSetup";
 import { InventoryOverview } from "@/components/inventory/InventoryOverview";
+import { RESALE_LABEL } from "@/lib/events";
+import type { Event } from "@/lib/types";
 
 const html = (el: React.ReactElement) => renderToStaticMarkup(el);
 const base = "/o/smp_org_wynwood/v/smp_ven_room";
@@ -28,6 +30,24 @@ describe("database-mode failures are explicit", () => {
     const out = html(<NotWiredState surface="Door status" />);
     expect(out).toContain("Door status is not wired to the database yet");
     expect(out).toContain("sample data is never shown in database mode");
+  });
+});
+
+describe("a draft's resale mode that RLS hides is shown as not readable", () => {
+  const db: PreviewContext = { role: "venue_manager", state: "live", source: "database", countersAvailable: false, writesEnabled: false };
+  const draft: Event = { ...EVENTS[0], status: "draft", resaleMode: "not_readable" };
+  it("the label says it is not readable until published, and names no mode", () => {
+    expect(RESALE_LABEL.not_readable).toMatch(/not readable until (the event is )?published/i);
+    const modes = Object.entries(RESALE_LABEL).filter(([k]) => k !== "not_readable").map(([, v]) => v);
+    for (const m of modes) expect(RESALE_LABEL.not_readable).not.toContain(m);
+  });
+  it("the events list and event setup show it, never a resale mode, for the draft", () => {
+    const table = html(<EventsTable events={[draft]} batches={[]} types={[]} holds={[]} ctx={db} basePath={base} timeZone={VENUE.timeZone} now={PREVIEW_NOW} filter={{}} />);
+    expect(table).toContain(RESALE_LABEL.not_readable);
+    const setup = html(<EventSetup event={draft} types={[]} batches={[]} ctx={db} basePath={base} timeZone={VENUE.timeZone} openManifestSessionIds={new Set()} />);
+    expect(setup).toContain(`Can tickets be passed on? ${RESALE_LABEL.not_readable}`);
+    expect(setup).toContain("can&#x27;t be read until the event is published");
+    for (const m of ["Buy now", "Auction", "Transfers only"]) expect(setup).not.toContain(`Can tickets be passed on? ${m}`);
   });
 });
 

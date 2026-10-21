@@ -37,6 +37,35 @@ describe("mapEvents resolves the in-force policy the way the server does", () =>
   });
 });
 
+// RLS (078 catalog_resale_policy_sel_public: `e.status <> 'draft'`) hides a draft's own event-scope policy
+// from every client, while its venue's venue-wide row stays visible. The server (088, definer) still resolves
+// the hidden event row first, so a draft resolved from what the caller can see could show a MORE permissive
+// mode than the one that will apply. A draft without a visible event-scope row is therefore not readable.
+describe("a draft event's resale mode is not resolved from the venue's policy alone", () => {
+  const draft = (event_id: string) => ({ ...ev(event_id), status: "draft" });
+  it("a draft that can see only its venue's policy reads as not_readable, never the venue's mode", () => {
+    const [e] = mapEvents([draft(E1)], [], [pol({ policy_id: "pv", scope_kind: "venue", venue_id: V, mode: "buy_now", version: 1 })]);
+    expect(e.resaleMode).toBe("not_readable");
+  });
+  it("a draft with no visible policy at all reads as not_readable, not 'off'", () => {
+    const [e] = mapEvents([draft(E1)], [], []);
+    expect(e.resaleMode).toBe("not_readable");
+  });
+  it("a draft whose own event-scope row is visible shows that row (event scope always wins)", () => {
+    const [e] = mapEvents([draft(E1)], [], [pol({ policy_id: "pv", scope_kind: "venue", venue_id: V, mode: "buy_now", version: 7 }), pol({ policy_id: "pe", scope_kind: "event", event_id: E1, mode: "transfers_only", version: 1 })]);
+    expect(e.resaleMode).toBe("transfers_only");
+  });
+  it("another event's visible row does not make a draft readable", () => {
+    const [e] = mapEvents([draft(E2)], [], [pol({ policy_id: "pe1", scope_kind: "event", event_id: E1, mode: "auction", version: 1 })]);
+    expect(e.resaleMode).toBe("not_readable");
+  });
+  it("only the 'draft' status hides the row: announced and unknown statuses resolve as before", () => {
+    const venueBuyNow = [pol({ policy_id: "pv", scope_kind: "venue", venue_id: V, mode: "buy_now", version: 1 })];
+    expect(mapEvents([{ ...ev(E1), status: "announced" }], [], venueBuyNow)[0].resaleMode).toBe("buy_now");
+    expect(mapEvents([{ ...ev(E1), status: "weird" }], [], [])[0].resaleMode).toBe("off");
+  });
+});
+
 // ---------------------------------------------------------------------------
 // The adapters must also READ the venue-scope rows. A tiny in-memory venue_api stands in for
 // PostgREST: it applies select/eq/in/limit to fixed rows, so only what the adapter asks for comes back.
@@ -102,6 +131,13 @@ describe("the event reads include the route venue's venue-wide policy", () => {
     const { dbGetEvent } = await import("@/lib/db/adapters");
     const r = await dbGetEvent(E2);
     expect(r.ok && r.data?.resaleMode).toBe("fixed_cap");
+  });
+  it("dbListEvents: a draft at the venue reads as not_readable even though the venue's policy is visible", async () => {
+    tables.rows.events = [ev(E1), { ...ev(E2), status: "draft" }];
+    const { dbListEvents } = await import("@/lib/db/adapters");
+    const r = await dbListEvents(V);
+    const byId = Object.fromEntries((r.ok ? r.data : []).map((e) => [e.eventId, e.resaleMode]));
+    expect(byId).toEqual({ [E1]: "transfers_only", [E2]: "not_readable" });
   });
   it("venue-scope rows are read for the event's venue only (eq venue_id + eq scope_kind)", async () => {
     const { dbGetEvent } = await import("@/lib/db/adapters");

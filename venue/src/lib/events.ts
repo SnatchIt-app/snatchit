@@ -53,4 +53,5 @@ export const RESALE_LABEL = {
   buy_now: "Buy now",
   auction: "Auction",
   offer: "Offer",
+  not_readable: "Resale not readable until published",
 } as const;
