@@ -50,6 +50,10 @@ type RealtimeResult = {
   highestBidderId: string | null;
   loading:         boolean;
   connection:      RealtimeConnection;
+  /** The initial (or retried) read failed: the list is unknown, not empty (B-D1). */
+  loadError:       boolean;
+  /** Re-run the full read. */
+  refetch:         () => void;
 };
 
 type Options = {
@@ -81,6 +85,9 @@ export function useListingRealtime(
 ): RealtimeResult {
   const [bids, setBids]       = useState<Bid[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  // Bumped by refetch() to re-run the subscription effect's full read.
+  const [readNonce, setReadNonce] = useState(0);
   const [connection, setConnection] = useState<RealtimeConnection>('connecting');
 
   // Always-current list — prevents stale-closure reads in async callbacks.
@@ -122,7 +129,8 @@ export function useListingRealtime(
     // ── Fetch helper ────────────────────────────────────────────────────────
     // supabase-js v2: .select() must be called immediately after .from().
     // Filters (.eq, .gt, .order) chain after .select().
-    async function fetchBids(opts: { since?: string } = {}): Promise<Bid[]> {
+    // null = the read failed. Never [] for a failure: "no bids" is a claim (B-D1).
+    async function fetchBids(opts: { since?: string } = {}): Promise<Bid[] | null> {
       let q = supabase
         .from('bids')
         .select(BIDS_SELECT)
@@ -134,7 +142,7 @@ export function useListingRealtime(
 
       if (error) {
         console.warn('[bids fetch] error:', error.message);
-        return [];
+        return null;
       }
 
       const rows = (data as Bid[]) ?? [];
@@ -143,10 +151,13 @@ export function useListingRealtime(
 
     // ── 1. Initial full fetch ───────────────────────────────────────────────
     // onNewBid is NOT called here — only realtime INSERTs fire that callback.
+    setLoadError(false);
     fetchBids().then((rows) => {
-      bidsRef.current      = rows;
-      lastBidAtRef.current = rows[0]?.created_at ?? '';
-      setBids(rows);
+      setLoadError(rows === null);
+      const list = rows ?? [];
+      bidsRef.current      = list;
+      lastBidAtRef.current = list[0]?.created_at ?? '';
+      setBids(list);
       setLoading(false);
     });
 
@@ -205,7 +216,7 @@ export function useListingRealtime(
           // onNewBid is intentionally NOT called for catch-up bids so haptics
           // do not re-fire after a reconnect.
           if (prev === 'CHANNEL_ERROR' || prev === 'TIMED_OUT') {
-            const missed = await fetchBids({ since: lastBidAtRef.current });
+            const missed = (await fetchBids({ since: lastBidAtRef.current })) ?? [];
             if (missed.length > 0) {
               const merged = [
                 ...missed.filter(m => !bidsRef.current.some(b => b.id === m.id)),
@@ -243,7 +254,9 @@ export function useListingRealtime(
         channelRef.current = null;
       }
     };
-  }, [listingId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [listingId, readNonce]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function refetch() { setReadNonce((n) => n + 1); }
 
   // ── Derived values ──────────────────────────────────────────────────────────
   // List order: newest first (never re-sorted by amount).
@@ -265,5 +278,7 @@ export function useListingRealtime(
     highestBidderId,
     loading,
     connection,
+    loadError,
+    refetch,
   };
 }
