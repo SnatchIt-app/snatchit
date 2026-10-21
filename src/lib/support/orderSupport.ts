@@ -31,8 +31,8 @@
  * Pure: no React Native, no network, no storage. Nothing here is persisted anywhere.
  */
 
-import { transferStatusMeta, type TransferRole } from '@/src/lib/transfer/transferState';
-import { disputeDecision, disputedStateMeta } from '@/src/lib/transfer/disputeOutcome';
+import { type TransferRole } from '@/src/lib/transfer/transferState';
+import { orderBadgeMeta } from '@/src/lib/transfer/orderBadge';
 
 /**
  * The support inbox. The same value app/settings/support.tsx uses; that file is a route module (it
@@ -103,7 +103,7 @@ function capped(s: string, max: number): string {
 }
 
 /**
- * The badge's word for this order — the same derivation both order screens use for their Badge:
+ * The badge's word for this order — orderBadgeMeta, the one selector both order screens use for their Badge:
  * a disputed row through the dispute decision (open → "Issue", decided → "Resolved"), every other
  * status through transferStatusMeta with the buyer-confirmed flag.
  */
@@ -111,11 +111,8 @@ export function orderSupportStatusWord(
   row: Pick<OrderSupportRow, 'status' | 'buyer_confirmed_at' | 'dispute_resolution'>,
   role: TransferRole,
 ): string {
-  const status = row.status ?? '';
-  const meta = status === 'disputed'
-    ? disputedStateMeta(disputeDecision({ status, dispute_resolution: row.dispute_resolution ?? null }), role)
-    : transferStatusMeta(status, role, { buyerConfirmed: row.buyer_confirmed_at != null });
-  return oneLine(meta.label);
+  // The SAME selector the order screens' badges use (orderBadge.ts), so the two words cannot drift.
+  return oneLine(orderBadgeMeta(row, role).label);
 }
 
 /** RFC 6068 mailto: each value UTF-8 percent-encoded, body line breaks as CRLF. `to` is a fixed address. */
