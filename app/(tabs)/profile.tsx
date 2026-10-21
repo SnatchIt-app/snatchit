@@ -30,6 +30,7 @@ import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } 
 import { useFocusEffect } from '@react-navigation/native';
 
 import { supabase } from '@/src/lib/supabase';
+import { ACTION_FAILED_COPY } from '@/src/lib/ui/errorCopy';
 import { SIGN_OUT_FAILED_COPY, signOutThisDevice } from '@/src/lib/auth/signOut';
 import type { MyProfileRPC } from '@/src/types';
 import { useAuth } from '@/src/hooks/useAuth';
@@ -241,7 +242,7 @@ export default function ProfileScreen({ fixture }: { fixture?: ProfileFixture } 
         return;
       }
       const { error: dbError } = await supabase.from('profiles').update({ avatar_path: result.storagePath }).eq('id', user.id);
-      if (dbError) { Alert.alert('Save failed', dbError.message); return; }
+      if (dbError) { console.warn('[avatar save]', dbError.message); Alert.alert(ACTION_FAILED_COPY.photo.title, ACTION_FAILED_COPY.photo.body); return; }
       setAvatarUrl(result.publicUrl);
       setProfile((prev) => (prev ? { ...prev, avatar_path: result.storagePath } : prev));
       setDockAvatar(user.id, result.storagePath);   // V3: the dock updates without a restart

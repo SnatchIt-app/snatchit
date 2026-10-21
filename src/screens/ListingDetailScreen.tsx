@@ -39,6 +39,7 @@ import type { AppStateStatus } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 
 import { supabase } from '@/src/lib/supabase';
+import { ACTION_FAILED_COPY } from '@/src/lib/ui/errorCopy';
 import { readServerRefusal } from '@/src/lib/moderation/serverRefusal';
 import { blockConfirmMessage } from '@/src/lib/moderation/blockCopy';
 import { PriceDisplay } from '@/src/components/PriceDisplay';
@@ -1083,7 +1084,8 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
             });
             // 23505 = unique_violation → already blocked. Treat as success.
             if (error && error.code !== '23505') {
-              Alert.alert('Could not block', error.message);
+              console.warn('[block]', error.message);
+              Alert.alert(ACTION_FAILED_COPY.block.title, ACTION_FAILED_COPY.block.body);
               return;
             }
             Alert.alert(

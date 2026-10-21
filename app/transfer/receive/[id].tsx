@@ -39,6 +39,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Alert, AppState, KeyboardAvoidingView, Linking, Platform, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
+import { ACTION_FAILED_COPY } from '@/src/lib/ui/errorCopy';
 import { confirmBlock, showMoreActions } from '@/src/lib/moderation/blockFlow';
 import { useAuth } from '@/src/hooks/useAuth';
 import { useSingleFlight } from '@/src/hooks/useSingleFlight';
@@ -340,7 +341,7 @@ export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixt
       p_delivery_phone: safePhone,
     });
     setSavingDelivery(false);
-    if (rpcErr) { Alert.alert('Error', rpcErr.message); return; }
+    if (rpcErr) { console.warn('[delivery info]', rpcErr.message); Alert.alert(ACTION_FAILED_COPY.delivery.title, ACTION_FAILED_COPY.delivery.body); return; }
     setTransfer((prev) => (prev ? { ...prev, delivery_email: email, delivery_phone: safePhone } : prev));
     fetchTransfer();
   }
