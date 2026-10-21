@@ -88,6 +88,7 @@ import {
 import { AMOUNT_MIN_FONT_SCALE, textStyle } from '@/src/theme/typography';
 import { refundReadState, refundStateLine, type RefundRead } from '@/src/lib/transfer/refundState';
 import { disputeDecision, disputedStateCopy, disputedStateMeta, refundDueContext } from '@/src/lib/transfer/disputeOutcome';
+import { OrderSupportAction } from '@/src/components/transfer/OrderSupportAction';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
@@ -754,6 +755,9 @@ export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixt
             ) : null}
           </StateBlock>
         ) : null}
+
+        {/* CFT-406: support, prefilled with this order's ID and status (no PII), in every state. */}
+        <OrderSupportAction role="buyer" transfer={transfer} />
 
         <View style={{ height: v2.space.xxl }} />
       </ScrollView>

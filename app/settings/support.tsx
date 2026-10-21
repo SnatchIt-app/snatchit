@@ -4,6 +4,9 @@
  * PRESENTATION rebuilt on the V2 system; content and behaviour are unchanged: the
  * same FAQ entries (verbatim), the same `support@snatchitapp.com` mailto, and the
  * same expand/collapse. No support chat or SLA invented.
+ *
+ * CFT-406 (slice 1): no screen shows a listing ID, so the copy that asked for one now points at the
+ * order screens' "Contact support about this order", which fills in the order ID and status.
  */
 
 import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -20,11 +23,11 @@ import * as v2 from '@/src/theme/v2';
 const FAQ = [
   {
     q: "I didn't receive my ticket after payment.",
-    a: "First, confirm receipt is still pending in your order details. If the seller has not marked the transfer as sent within the expected window, contact us with your listing ID and we will follow up on your behalf.",
+    a: "First, confirm receipt is still pending in your order details. If the seller has not marked the transfer as sent within the expected window, use \"Contact support about this order\" on that order's screen and we will follow up on your behalf.",
   },
   {
     q: 'I have a payment issue or was charged incorrectly.',
-    a: "Payments are processed by Stripe. If you were charged an unexpected amount or see a duplicate charge, email us with your account email and the listing ID. Do not initiate a chargeback before contacting us — we can often resolve issues faster directly.",
+    a: "Payments are processed by Stripe. If you were charged an unexpected amount or see a duplicate charge, use \"Contact support about this order\" on that order's screen, or email us with your account email. Do not initiate a chargeback before contacting us — we can often resolve issues faster directly.",
   },
   {
     q: "I can't access my account.",
@@ -67,7 +70,7 @@ export default function SupportScreen() {
           <Text style={[textStyle('bodySm'), s.body]}>
             {/* No response estimate (owner, 2026-09-24): support is one inbox, and "1 to 2 business
                 days" was a commitment nothing enforces. */}
-            Email us and include your account email, the listing ID if relevant, and a description of the issue. We&apos;ll reply by email as soon as we can.
+            Email us and include your account email and a description of the issue. For an order, use &quot;Contact support about this order&quot; on that order&apos;s screen — it fills in the order ID and status for you. We&apos;ll reply by email as soon as we can.
           </Text>
           <Button label={SUPPORT_EMAIL} variant="secondary" onPress={openEmail} style={s.emailBtn} />
         </AccountSection>
