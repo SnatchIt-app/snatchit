@@ -14,10 +14,17 @@
 # Every Location the package's rules emit is absolute on
 # https://app.snatchitapp.com/. A matrix row whose first Location is anything
 # else (relative, "//host", "/\host", another host) fails, even if following
-# it would end in the right place. Relative Locations are resolved with
-# python3's urllib.parse.urljoin (RFC 3986) to follow and report them; pass
-# and fail always compare the raw header, because a browser also reads "\" as
-# "/" and urljoin does not.
+# it would end in the right place.
+#
+# Every Location, relative or absolute, is resolved the way a browser resolves
+# it: node's WHATWG URL parser, new URL(location, request URL), which reads
+# "\" as "/" ("/\evil.example" is https://evil.example/). A hostile-path hop
+# whose resolved origin is neither the legacy host nor the app host fails,
+# whatever its raw text; a relative hop is followed only while its resolved
+# URL stays on the legacy host.
+#
+# Minimum rows: fewer than 30 matrix rows or 4 hostile rows is a failure, so
+# an emptied or truncated list cannot pass.
 #
 # VERIFY_LEGACY_ORIGIN=http://127.0.0.1:<port> replaces the legacy origin.
 # It exists only to exercise this script against a local emulator; leave it
@@ -36,6 +43,8 @@ APP="https://app.snatchitapp.com"
 MODE="redirect"
 DEST_CHECKS=1
 MAX_HOPS=3
+MIN_MATRIX_ROWS=30
+MIN_HOSTILE_ROWS=4
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -53,7 +62,7 @@ case "$MODE" in
 esac
 
 command -v curl >/dev/null 2>&1 || { echo "curl not found" >&2; exit 2; }
-command -v python3 >/dev/null 2>&1 || { echo "python3 not found (resolves relative Locations)" >&2; exit 2; }
+command -v node >/dev/null 2>&1 || { echo "node not found (resolves Locations with the WHATWG URL parser)" >&2; exit 2; }
 
 # Rows: <legacy path and query>  <final URL path and query on the app host>
 #       <hops: 308 responses until the request leaves the legacy host; always
@@ -115,22 +124,29 @@ MATRIX
 }
 
 # Request paths that would turn a relative Location into another host
-# ("//evil.example" is a scheme-relative URL). No hop may name a host other
-# than the legacy host or the app host. The one relative Location allowed is
-# Vercel's own duplicate-slash merge, which runs before any rule ("//x/"
-# answers 308 "/x/", seen on the live legacy host 2026-10-21) and stays on the
-# legacy host. No query on these rows: the merge re-encodes it.
+# ("//evil.example" is scheme-relative; a browser reads "/\evil.example" the
+# same way). Every hop's Location is resolved with the WHATWG URL parser; a
+# hop may stay on the legacy host or go to the app host, and any other origin
+# fails. Vercel's own duplicate-slash merge runs before any rule and answers
+# with a relative 308 on the legacy host (seen live 2026-10-21: "//x/" to
+# "/x/", "//\evil.example" to "/%5Cevil.example", "//x?next=//evil.example" to
+# "/x?next=%2F%2Fevil.example"); it passes only because it resolves there.
 hostile() {
   cat <<'HOSTILE'
 //evil.example/
 //evil.example
 /%2F%2Fevil.example
 /\evil.example
+//\evil.example
+/\//evil.example/
 ///evil.example/
+///\evil.example/
 /%2F%2Fevil.example/
 /\evil.example/
 /%5Cevil.example/
+/%2F/\evil.example
 /.//evil.example/
+//evil.example/?next=//evil.example
 HOSTILE
 }
 
@@ -154,25 +170,41 @@ trap 'rm -f "$HDR" "$HDR.dest"' EXIT
 STATUS=""
 LOCATION_RAW=""
 LOCATION=""
+# resolve BASE LOCATION: prints LOCATION resolved against BASE the way a
+# browser does (WHATWG URL: "\" is "/", tabs and newlines dropped, default
+# port removed); prints nothing and fails when it does not parse.
+resolve() {
+  node -e 'try { process.stdout.write(new URL(process.argv[1], process.argv[2]).href); } catch { process.exit(1); }' -- "$2" "$1" 2>/dev/null
+}
+
 # fetch URL: one GET, no redirect following, path sent exactly as given.
 # Sets STATUS, LOCATION_RAW (the Location header as sent) and LOCATION (that
-# header resolved against URL with urllib.parse.urljoin; empty without one).
+# header resolved against URL by resolve; empty without one or when it does
+# not parse).
 fetch() {
   : > "$HDR"
-  STATUS="$(curl -sS --path-as-is -o /dev/null -D "$HDR" -w '%{http_code}' --max-time 20 "$1" 2>/dev/null)" || STATUS="000"
+  STATUS="$(curl -sS --globoff --path-as-is -o /dev/null -D "$HDR" -w '%{http_code}' --max-time 20 "$1" 2>/dev/null)" || STATUS="000"
   LOCATION_RAW="$(grep -i '^location:' "$HDR" | tail -n 1 | sed -e 's/^[Ll][Oo][Cc][Aa][Tt][Ii][Oo][Nn]:[[:space:]]*//' | tr -d '\r')"
   LOCATION=""
   if [ -n "$LOCATION_RAW" ]; then
-    LOCATION="$(python3 -I -c 'import sys
-from urllib.parse import urljoin
-sys.stdout.write(urljoin(sys.argv[1], sys.argv[2]))' "$1" "$LOCATION_RAW")" || LOCATION=""
+    LOCATION="$(resolve "$1" "$LOCATION_RAW")" || LOCATION=""
   fi
 }
 
-# on_app VALUE: true when VALUE is an absolute URL on the app host.
+# on_app VALUE: true when VALUE is an absolute URL on the app host. Used on
+# raw headers (a rule's Location must be written absolute) and on resolved
+# URLs (where the origin is canonical: no userinfo, no default port).
 on_app() {
   case "$1" in
     "$APP"/*) return 0 ;;
+  esac
+  return 1
+}
+
+# on_legacy VALUE: true when VALUE (a resolved URL) is on the legacy origin.
+on_legacy() {
+  case "$1" in
+    "$LEGACY"/*) return 0 ;;
   esac
   return 1
 }
@@ -209,13 +241,11 @@ while read -r path final hops dest extra; do
     n=$((n + 1))
     [ "$n" = 1 ] && first="$LOCATION_RAW"
     [ "$STATUS" = "308" ] || break
-    case "$LOCATION" in
-      "$LEGACY"/*) if [ "$n" -lt "$MAX_HOPS" ]; then url="$LOCATION"; continue; fi ;;
-    esac
+    if on_legacy "$LOCATION" && [ "$n" -lt "$MAX_HOPS" ]; then url="$LOCATION"; continue; fi
     break
   done
   if ! on_app "$first"; then
-    fail "$path -> first Location ${first:-none} is not absolute on $APP/ (chain: $STATUS x$n ${LOCATION:-no Location})"
+    fail "$path -> first Location ${first:-none} is not absolute on $APP/ (chain: $STATUS x$n ${LOCATION_RAW:-no Location}, resolves to ${LOCATION:-nothing})"
   elif [ "$STATUS" = "308" ] && [ "$LOCATION_RAW" = "$want" ] && [ "$n" = "$hops" ]; then
     pass "$path -> 308 x$n $LOCATION_RAW"
   else
@@ -243,12 +273,14 @@ while read -r path; do
       301|302|303|307|308) ;;
       *) break ;;
     esac
-    if on_app "$LOCATION_RAW"; then break; fi
-    # Anything else must be Vercel's slash merge of this request's path.
-    reqpath="${url#"$LEGACY"}"
-    merged="$(printf '%s' "$reqpath" | sed -e 's#//*#/#g')"
-    if [ "$merged" = "$reqpath" ] || [ "$LOCATION_RAW" != "$merged" ]; then
-      bad="Location ${LOCATION_RAW:-none} is neither absolute on $APP/ nor the slash merge of $reqpath"
+    # Judge every hop by where a browser goes, never by the header's text.
+    if [ -z "$LOCATION" ]; then
+      bad="Location ${LOCATION_RAW:-none} does not resolve to a URL"
+      break
+    fi
+    if on_app "$LOCATION"; then break; fi
+    if ! on_legacy "$LOCATION"; then
+      bad="Location $LOCATION_RAW resolves to $LOCATION, off $LEGACY/ and $APP/"
       break
     fi
     if [ "$n" -ge "$MAX_HOPS" ]; then bad="more than $MAX_HOPS hops"; break; fi
@@ -262,10 +294,10 @@ while read -r path; do
     else
       fail "$path ->$chain (want 200 on the legacy host)"
     fi
-  elif [ "$STATUS" = "308" ] && on_app "$LOCATION_RAW"; then
+  elif [ "$STATUS" = "308" ] && on_app "$LOCATION_RAW" && on_app "$LOCATION"; then
     pass "$path ->$chain"
   else
-    fail "$path ->$chain (want 308 to $APP/...)"
+    fail "$path ->$chain (want 308 to $APP/..., written absolute)"
   fi
 done <<EOF
 $(hostile)
@@ -326,6 +358,14 @@ while read -r url; do
 done <<EOF
 $(sso_hosts)
 EOF
+
+echo
+echo "== row guard (at least $MIN_MATRIX_ROWS matrix rows and $MIN_HOSTILE_ROWS hostile rows ran)"
+if [ "$ROWS" -ge "$MIN_MATRIX_ROWS" ] && [ "$HROWS" -ge "$MIN_HOSTILE_ROWS" ]; then
+  pass "matrix rows $ROWS, hostile rows $HROWS"
+else
+  fail "matrix rows $ROWS (minimum $MIN_MATRIX_ROWS), hostile rows $HROWS (minimum $MIN_HOSTILE_ROWS)"
+fi
 
 echo
 echo "matrix rows: $ROWS   hostile rows: $HROWS   pass: $PASS   fail: $FAIL"

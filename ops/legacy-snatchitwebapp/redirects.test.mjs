@@ -27,22 +27,38 @@
 // this behaviour; verify.sh against the live host is.
 //
 // Every Location is resolved the way a client resolves it, with
-// new URL(location, legacy origin), never by string concatenation. A relative
-// or scheme-relative Location ("/x", "//host/x", "/\host") is therefore
-// followed to wherever a browser would go, which is what the hostile-path
-// test relies on.
+// new URL(location, legacy origin) (WHATWG: "\" reads as "/"), never by
+// string concatenation. A relative or scheme-relative Location ("/x",
+// "//host/x", "/\host") is therefore followed to wherever a browser would go,
+// which is what the hostile-path test relies on.
+//
+// Vercel's own slash merge runs before any route. It is modelled as observed
+// on the live legacy host on 2026-10-21 (LIVE_MERGE below pins every
+// observation): when the request path, as the edge escapes it, contains "//",
+// the answer is a 308 with a RELATIVE Location: that path with every run of
+// "/" merged and the query re-encoded. The edge escapes a path like Go's
+// net/url: a path made only of RFC 3986 path characters is kept as sent;
+// any other character ("\", "|", '"', ...) makes it decode the whole path
+// ("%2F" included) and percent-encode it again, so "\" comes out as "%5C"
+// ("//\evil.example" -> "/%5Cevil.example"). The query is decoded per
+// key and value ("+" is a space) and re-encoded like encodeURIComponent,
+// dropping empty pairs ("//x?next=//evil.example" -> "/x?next=%2F%2Fevil.example").
 //
 // Edge variants; every combination is tested:
 //   insensitive    routes match case-insensitively (Vercel's default for
 //                  routes; the live edge is not pinned down, so both)
 //   slashFallback  also try the path without its leading "/" (`vercel dev`)
-//   mergeSlashes   Vercel's own step before any route: a path containing "//"
-//                  answers 308 with every run of "/" merged, as a RELATIVE
-//                  Location. Observed on the live legacy host 2026-10-21:
-//                  "//evil.example/" -> "/evil.example/", "/a//b" -> "/a/b".
-//                  Without it, routes see the raw path.
+//   merge          'live': the slash merge above runs first; false: routes
+//                  see every path unmerged
+//   rawBackslash   routes see a "\" in the request path raw (true) or as the
+//                  edge escapes it, "%5C" (false). Not observed either way:
+//                  the live host answers 200 to "/\evil.example", no hop
 //   decodePath     routes match, and $n substitute, the percent-decoded path
 //                  (not observed either way, so both)
+// A merge that kept "\" raw is not one of the variants: it sends
+// "//\evil.example" to https://evil.example/ before any route runs, so no
+// vercel.json can pass it. The counterfactual test pins that, and verify.sh
+// checks the live encoding.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -117,15 +133,90 @@ const SHARED_RULES = [
 ];
 
 // Request paths that turn a relative Location into another host. The first
-// four are required; verify.sh's HOSTILE list must contain them, and every
-// entry of that list is run here too.
-const HOSTILE_REQUIRED = ['//evil.example/', '//evil.example', '/%2F%2Fevil.example', '/\\evil.example'];
+// six are required (the last two came from review: under a slash merge that
+// kept "\" raw they leave for evil.example); verify.sh's HOSTILE list must
+// contain them, and every entry of that list is run here too.
+const HOSTILE_REQUIRED = ['//evil.example/', '//evil.example', '/%2F%2Fevil.example', '/\\evil.example',
+  '//\\evil.example', '/\\//evil.example/'];
 const HOSTILE_EXTRA = [
   '///evil.example/', '/%2F%2Fevil.example/', '/%2f%2fevil.example', '/\\evil.example/', '/\\\\evil.example/',
   '/\\/evil.example/', '/%5Cevil.example/', '/%5C%5Cevil.example', '/.//evil.example/', '/%09/evil.example/',
   '//evil.example/a//b', '//evil.example/?next=//evil.example', '//evil.example:443/',
   '//user@evil.example/', '//evil.example%2F', '/https://evil.example/', '/https:evil.example/',
   '/settings//evil.example/', '/login//evil.example/', '/my-listings//evil.example', '/%2F/evil.example/',
+  '///\\evil.example/', '//\\/evil.example/', '//\\\\evil.example', '/\\\\//evil.example', '/%2F/\\evil.example',
+  '//%2F\\evil.example', '//%5C/evil.example', '/./\\//evil.example/', '//\\evil.example?next=//\\evil.example',
+  '/\\//evil.example/?next=%2F%2Fevil.example', '//x\\?next=//evil.example', '/\\%2F/evil.example/',
+];
+
+// Vercel's slash merge on the live legacy host, 2026-10-21 (curl --path-as-is
+// --globoff, GET): request -> Location of its 308, or null for "no merge"
+// (the request reached the legacy app and answered 200). The model must
+// reproduce every row. Known gap, left out: a malformed escape in the query
+// ("//x?a=%zz") came back as "a=zz"; the model keeps "%25zz".
+const LIVE_MERGE = [
+  ['//evil.example/', '/evil.example/'],
+  ['/a//b?q=a%20b&n=%2F', '/a/b?q=a%20b&n=%2F'],
+  ['//x/?a=1&a=2', '/x/?a=1&a=2'],
+  ['//\\evil.example', '/%5Cevil.example'],
+  ['/\\//evil.example/', '/%5C/evil.example/'],
+  ['///\\evil.example/', '/%5Cevil.example/'],
+  ['//\\/evil.example/', '/%5C/evil.example/'],
+  ['//\\\\evil.example', '/%5C%5Cevil.example'],
+  ['/\\\\//evil.example', '/%5C%5C/evil.example'],
+  ['//%2F\\evil.example', '/%5Cevil.example'],
+  ['/%2F/\\evil.example', '/%5Cevil.example'],
+  ['//%5C/evil.example', '/%5C/evil.example'],
+  ['/./\\//evil.example/', '/./%5C/evil.example/'],
+  ['/a/%2F%2F\\b', '/a/%5Cb'],
+  ['//x/a%2F%2Fb\\', '/x/a/b%5C'],
+  ['//x/%2f\\', '/x/%5C'],
+  ['//x/%2f', '/x/%2f'],
+  ['//x/%5c', '/x/%5c'],
+  ['//x/a%20b', '/x/a%20b'],
+  ['//x/%41', '/x/%41'],
+  ['//x/a:b@c', '/x/a:b@c'],
+  ["//x/!'()*~;,=&+$", "/x/!'()*~;,=&+$"],
+  ["//x/!'()*~\\", '/x/%21%27%28%29%2A~%5C'],
+  ['//x/;,=&+$:@\\', '/x/;,=&+$:@%5C'],
+  ['//x/%25\\', '/x/%25%5C'],
+  ['//x/%3F\\', '/x/%3F%5C'],
+  ['//x/%23\\', '/x/%23%5C'],
+  ['//x/%20\\', '/x/%20%5C'],
+  ['//x/%7e\\', '/x/~%5C'],
+  ['//x/a[b]\\', '/x/a%5Bb%5D%5C'],
+  ['//x/a|b', '/x/a%7Cb'],
+  ['//x/a^b', '/x/a%5Eb'],
+  ['//x/a`b', '/x/a%60b'],
+  ['//x/a"b', '/x/a%22b'],
+  ['//x/a<b>', '/x/a%3Cb%3E'],
+  ['//x\\?a=1', '/x%5C?a=1'],
+  ['//X/Y?A=B', '/X/Y?A=B'],
+  ['//x?next=//evil.example', '/x?next=%2F%2Fevil.example'],
+  ['//x?next=/a', '/x?next=%2Fa'],
+  ['//x?next=%2F%2Fe', '/x?next=%2F%2Fe'],
+  ['/a//b?x=\\y', '/a/b?x=%5Cy'],
+  ['//x?q=a+b', '/x?q=a%20b'],
+  ['//x?a=%41&b=%2f', '/x?a=A&b=%2F'],
+  ['//x?a=b:c@d', '/x?a=b%3Ac%40d'],
+  ["//x?a=!'()*~", "/x?a=!'()*~"],
+  ['//x?a', '/x?a'],
+  ['//x?a=&b', '/x?a=&b'],
+  ['//x?a=b=c', '/x?a=b%3Dc'],
+  ['//x?a=%E2%80%94', '/x?a=%E2%80%94'],
+  ['//x?a=b;c,d$e', '/x?a=b%3Bc%2Cd%24e'],
+  ['//x?a=b%3Dc%26d', '/x?a=b%3Dc%26d'],
+  ['//x?a=%25', '/x?a=%25'],
+  ['//x?=1', '/x?1'],
+  ['//x?&&a=1', '/x?a=1'],
+  ['//x?', '/x'],
+  ['//x?&', '/x'],
+  ['/\\evil.example', null],
+  ['/%2F%2Fevil.example', null],
+  ['/a%2F/b', null],
+  ['/a/%2F/b', null],
+  ['/%5C%5Cevil.example', null],
+  ['/%5C/evil.example', null],
 ];
 
 const PACKAGE_FILES = ['.vercelignore', 'README.md', 'index.html', 'redirects.test.mjs', 'verify.sh', 'vercel.json'];
@@ -301,12 +392,58 @@ function safeDecode(s) {
   try { return decodeURIComponent(s); } catch { return s; }
 }
 
+// The path as the edge escapes it (Go net/url EscapedPath): kept as sent when
+// every character is an RFC 3986 path character, "%", "[" or "]"; otherwise
+// decoded and re-encoded, keeping only unreserved characters and
+// "$&+,/:;=@" ("!'()*" and "[]" are encoded too, as observed).
+const EDGE_PATH_AS_SENT = /^[A-Za-z0-9\-._~!$&'()*+,;=:@/%[\]]*$/;
+const EDGE_PATH_KEEP = /^[A-Za-z0-9\-._~$&+,/:;=@]$/;
+function edgeEscapePath(pathname) {
+  if (EDGE_PATH_AS_SENT.test(pathname)) return pathname;
+  let out = '';
+  for (const ch of safeDecode(pathname)) {
+    out += EDGE_PATH_KEEP.test(ch) ? ch : [...Buffer.from(ch)].map((b) => `%${b.toString(16).toUpperCase().padStart(2, '0')}`).join('');
+  }
+  return out;
+}
+
+// The query as the slash merge re-encodes it.
+function edgeQuery(query) {
+  const enc = (s) => encodeURIComponent(safeDecode(s.replace(/\+/g, ' ')));
+  return query.split('&').filter(Boolean).map((part) => {
+    const eq = part.indexOf('=');
+    if (eq === -1) return enc(part);
+    const key = part.slice(0, eq);
+    return key === '' ? enc(part.slice(eq + 1)) : `${enc(key)}=${enc(part.slice(eq + 1))}`;
+  }).join('&');
+}
+
+// Vercel's slash merge: the relative Location it answers with, or null when
+// it lets the request through. `mode` 'live' is the observed behaviour; 'raw'
+// (counterfactual only) merges the raw path and keeps the query byte for byte.
+function slashMerge(pathname, query, mode) {
+  if (mode === 'raw') {
+    if (!pathname.includes('//')) return null;
+    return pathname.replace(/\/{2,}/g, '/') + (query === null ? '' : `?${query}`);
+  }
+  const escaped = edgeEscapePath(pathname);
+  if (!escaped.includes('//')) return null;
+  const q = query === null ? '' : edgeQuery(query);
+  return escaped.replace(/\/{2,}/g, '/') + (q === '' ? '' : `?${q}`);
+}
+
 // What the client does with a Location: resolve it against the URL it asked
 // for. Every Location here is absolute or starts with "/", so the legacy
 // origin is the whole base; a relative-path Location would fail the
-// absolute-Location tests before it mattered.
+// absolute-Location tests before it mattered. A Location a browser cannot
+// parse ("/\\" is "https:" with an empty host) resolves to null, which every
+// host check counts as off the app host.
 function resolveLocation(location) {
-  return new URL(location, LEGACY);
+  try {
+    return new URL(location, LEGACY);
+  } catch {
+    return null;
+  }
 }
 
 function answer(status, location, route) {
@@ -319,10 +456,12 @@ function answer(status, location, route) {
 function respond(routes, target, opts) {
   const { pathname, query } = splitUrl(target);
   const qs = query === null ? '' : `?${query}`;
-  if (opts.mergeSlashes && pathname.includes('//')) {
-    return answer(308, pathname.replace(/\/{2,}/g, '/') + qs, 'merge');
+  if (opts.merge) {
+    const merged = slashMerge(pathname, query, opts.merge);
+    if (merged !== null) return answer(308, merged, 'merge');
   }
-  const subject = opts.decodePath ? safeDecode(pathname) : pathname;
+  const seen = opts.rawBackslash ? pathname : edgeEscapePath(pathname);
+  const subject = opts.decodePath ? safeDecode(seen) : seen;
   for (let i = 0; i < routes.length; i++) {
     const r = routes[i];
     const re = new RegExp(r.src, opts.insensitive ? 'i' : '');
@@ -357,11 +496,13 @@ function follow(routes, target, opts) {
 }
 
 const EDGE_VARIANTS = [];
-for (const mergeSlashes of [true, false]) {
-  for (const insensitive of [true, false]) {
-    for (const decodePath of [false, true]) {
-      for (const slashFallback of [false, true]) {
-        EDGE_VARIANTS.push({ insensitive, slashFallback, mergeSlashes, decodePath });
+for (const merge of ['live', false]) {
+  for (const rawBackslash of [true, false]) {
+    for (const insensitive of [true, false]) {
+      for (const decodePath of [false, true]) {
+        for (const slashFallback of [false, true]) {
+          EDGE_VARIANTS.push({ insensitive, slashFallback, merge, rawBackslash, decodePath });
+        }
       }
     }
   }
@@ -586,10 +727,30 @@ test('no rule is shadowed by an earlier rule', () => {
   });
 });
 
-test('hostile paths: the final URL is on app.snatchitapp.com, never another host', () => {
+function hostileSamples() {
   const listed = readHeredoc('HOSTILE');
   for (const s of HOSTILE_REQUIRED) assert.ok(listed.includes(s), `verify.sh HOSTILE lists ${JSON.stringify(s)}`);
-  const samples = [...new Set([...HOSTILE_REQUIRED, ...HOSTILE_EXTRA, ...listed])];
+  return [...new Set([...HOSTILE_REQUIRED, ...HOSTILE_EXTRA, ...listed])];
+}
+
+test('slash merge model reproduces every live observation (LIVE_MERGE)', () => {
+  const wrong = LIVE_MERGE
+    .map(([target, want]) => {
+      const { pathname, query } = splitUrl(target);
+      return { target, want, got: slashMerge(pathname, query, 'live') };
+    })
+    .filter(({ want, got }) => want !== got)
+    .map(({ target, want, got }) => `${JSON.stringify(target)}: live ${JSON.stringify(want)}, model ${JSON.stringify(got)}`);
+  assert.deepEqual(wrong, []);
+  for (const s of HOSTILE_REQUIRED) {
+    if (s.includes('\\') && splitUrl(s).pathname.includes('//')) {
+      assert.ok(LIVE_MERGE.some(([t]) => t === s), `${JSON.stringify(s)} has a live observation`);
+    }
+  }
+});
+
+test('hostile paths: the final URL is on app.snatchitapp.com, never another host', () => {
+  const samples = hostileSamples();
   const runs = [];
   for (const s of samples) {
     for (const opts of EDGE_VARIANTS) runs.push({ s, opts, res: follow(routes, s, opts) });
@@ -612,6 +773,55 @@ test('hostile paths: the final URL is on app.snatchitapp.com, never another host
       }
     }
   }
+});
+
+test('counterfactual: a slash merge that kept "\\" raw would send the backslash samples to evil.example, before any rule', () => {
+  // Not a variant of the edge (the live merge writes "%5C"); this pins why
+  // verify.sh resolves every hop with the WHATWG parser, and proves the
+  // backslash samples are not vacuous.
+  const samples = hostileSamples();
+  const expected = samples.filter((s) => /^\/[\\/]*\\/.test(slashMerge(splitUrl(s).pathname, null, 'raw') ?? '')).sort();
+  assert.ok(expected.includes('//\\evil.example') && expected.includes('/\\//evil.example/'), `both review samples are sensitive: ${expected}`);
+  for (const live of EDGE_VARIANTS.filter((o) => o.merge === 'live')) {
+    const opts = { ...live, merge: 'raw' };
+    const runs = samples.map((s) => ({ s, res: follow(routes, s, opts) }));
+    const off = runs.filter(({ res }) => !res.url || res.url.host !== APP_HOST);
+    assert.deepEqual(off.map(({ s }) => s).sort(), expected, `off-host under a raw merge ${JSON.stringify(opts)}`);
+    for (const { s, res } of off) {
+      assert.equal(res.hops.length, 1, `left at the first hop: ${s}: ${res.trace}`);
+      assert.equal(res.hops[0].route, 'merge', `the merge, not a rule, sent it off-host: ${s}: ${res.trace}`);
+      assert.equal(res.url.host, 'evil.example', `${s}: ${res.trace}`);
+    }
+  }
+});
+
+test('slash merge re-encodes the query; every well-formed parameter arrives unchanged', () => {
+  const queries = ['next=//evil.example', 'q=a+b&c=d:e@f', 'x=\\y', 'a=1&a=2', 'a&b=', "a=!'()*~;,$", 'q=a%20b&next=%2Faccount',
+    'a=%E2%80%94', 'a=b%3Dc%26d', 'client=app'];
+  const paths = ['//', '//login', '/login//', '//settings/legal', '//my-listings/', '/bid//abc-123', '//zz/unknown'];
+  for (const p of paths) {
+    for (const q of queries) {
+      const want = [...new URLSearchParams(q)];
+      for (const opts of EDGE_VARIANTS) {
+        const res = follow(routes, `${p}?${q}`, opts);
+        const where = `${p}?${q} ${JSON.stringify(opts)}: ${res.trace}`;
+        assert.equal(res.url.host, APP_HOST, where);
+        assert.deepEqual([...res.url.searchParams], want, `parameters: ${where}`);
+      }
+    }
+  }
+});
+
+test('verify.sh resolves every Location with the WHATWG parser and has a minimum-row guard', () => {
+  const sh = fs.readFileSync(path.join(HERE, 'verify.sh'), 'utf8');
+  assert.match(sh, /new URL\(process\.argv\[1\], process\.argv\[2\]\)/, 'resolve() uses new URL(location, base)');
+  assert.doesNotMatch(sh, /urljoin|python3/, 'no RFC 3986 resolver (it reads "\\" as a path character)');
+  assert.doesNotMatch(sh, /sed -e 's#\/\/\*#\/#g'/, 'no textual slash-merge exemption');
+  const min = (name) => Number((new RegExp(`^${name}=(\\d+)$`, 'm').exec(sh) || [])[1]);
+  assert.equal(min('MIN_MATRIX_ROWS'), 30);
+  assert.equal(min('MIN_HOSTILE_ROWS'), 4);
+  assert.ok(readMatrix().length >= min('MIN_MATRIX_ROWS'), 'the matrix clears the guard');
+  assert.ok(readHeredoc('HOSTILE').length >= min('MIN_HOSTILE_ROWS'), 'the hostile list clears the guard');
 });
 
 test('verify.sh matrix: every row lands where the matrix says, one absolute 308', () => {
@@ -681,7 +891,7 @@ test('query string is passed through byte for byte and nothing is added', () => 
 test('every path on the legacy host leaves for the app host (whole-host)', () => {
   const samples = ['/', '/a', '/a/b/c', '/a/', '/a//b', '//', '/index.html', '/vercel.json', '/_expo/static/js/web/x.js',
     '/favicon.ico', '/robots.txt', '/sitemap.xml', '/SETTINGS/legal', '/Login', '/settings/legal/extra', '/listing/a/b',
-    '/settings//legal', '/my-listings//', '/%E2%80%94', '/a%2Fb', '/..', '/a/../b'];
+    '/settings//legal', '/my-listings//', '/%E2%80%94', '/a%2Fb', '/..', '/a/../b', '/\\', '//\\', '/a|b', '//a|b'];
   for (const s of samples) {
     for (const opts of EDGE_VARIANTS) {
       const res = follow(routes, s, opts);

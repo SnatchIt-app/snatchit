@@ -46,7 +46,7 @@ and is withdrawn.
 | `index.html` | `noindex` fallback with a plain link to https://app.snatchitapp.com/. Never served while the rules match (redirects run before the filesystem); it keeps the static output non-empty | yes |
 | `.vercelignore` | keeps everything else out of the upload | no |
 | `README.md` | this runbook | no |
-| `verify.sh` | live curl matrix, GET only, exit 1 on any mismatch | no |
+| `verify.sh` | live curl matrix, GET only, exit 1 on any mismatch (needs `curl` and `node`) | no |
 | `redirects.test.mjs` | offline proof with Vercel's own rule compiler | no |
 
 No `package.json` on purpose: with framework Other and no package.json,
@@ -56,11 +56,18 @@ the same shape as the current deployment.
 ## Rules
 
 Evaluated in order; the first match answers. Every rule is `permanent: true`
-(308), and **every Location is absolute on `https://app.snatchitapp.com/`**:
-one hop and the visitor is off the legacy host. No destination carries a query
-or fragment, so the visitor's query string passes through unchanged (Vercel:
-"Query parameters pass through unless you explicitly replace them in the
-destination") and nothing such as `client=` is ever added.
+(308), and **every Location our rules emit is absolute on
+`https://app.snatchitapp.com/`**: one rule hop and the visitor is off the
+legacy host. Vercel's own slash merge may add one relative hop on the legacy
+host first (see the notes). No destination carries a query or fragment, so the
+visitor's query string passes through (Vercel: "Query parameters pass through
+unless you explicitly replace them in the destination") and nothing such as
+`client=` is ever added, except that Vercel's slash merge and the app host's
+trailing-slash 308 may re-encode it (semantically equivalent). Observed for
+both on 2026-10-21: `+` becomes `%20`; `/`, `:`, `@`, `;`, `,`, `$` and `\`
+are percent-encoded; `%41` comes back as `A`; `!'()*~` are left alone. Two
+changes are not equivalent, both for degenerate queries only: empty pairs
+(`&&`) are dropped, and an empty-key pair `=1` comes back as `1`.
 
 | # | Legacy path | App-host destination | Kind |
 |---|---|---|---|
@@ -91,16 +98,25 @@ Notes:
   empty segments and anything else; nothing on the host falls through to the
   filesystem.
 - **No `trailingSlash`, on purpose.** `trailingSlash: false` compiles to a
-  route `^/(.*)/$` with the *relative* Location `/$1`. A request for
-  `//evil.example/` then answers `Location: //evil.example`, which a browser
-  reads as a scheme-relative URL and follows to https://evil.example/ (an open
-  redirect; `/\evil.example/` does the same, and so do `%2F`, `%5C` and `%09`
-  forms if the edge matches the decoded path). Without it no
-  rule emits a relative Location, so no path can steer the first hop off
-  `app.snatchitapp.com`. The test resolves every Location with
+  route `^/(.*)/$` with the *relative* Location `/$1`. That is a risk under
+  edge behaviour that is not pinned down, not a demonstrated live open
+  redirect. If that route saw `//evil.example/` unmerged, it would answer
+  `Location: //evil.example`, which a browser reads as a scheme-relative URL
+  and follows to https://evil.example/; if it saw `/\evil.example/` with a raw
+  `\`, it would answer `Location: /\evil.example`, which a browser reads the
+  same way (so would `%2F`, `%5C` and `%09` forms if the edge matched the
+  decoded path). This was shown on a local emulator and in the offline model
+  only. The live edge (today's deployment, which has no rules) merges `//` and
+  percent-encodes `\` in the merged Location (`//\evil.example` answers
+  `/%5Cevil.example`); what a route sees for a raw `\` without `//`
+  (`/\evil.example`) was not observed.
+  Without `trailingSlash`, every Location our rules emit is absolute on
+  `app.snatchitapp.com`; Vercel's own slash merge may add one relative hop on
+  the legacy host first. The test resolves every Location with
   `new URL(location, legacy origin)` and fails on any sample path whose final
   host is not the app host; `verify.sh` fails any matrix row whose first
-  Location is not absolute on `https://app.snatchitapp.com/`.
+  Location is not absolute on `https://app.snatchitapp.com/`, and any
+  hostile-path hop that resolves off both hosts.
 - **Trailing slashes now.** A legacy-only URL with one trailing slash is
   mapped directly by its rule (`/my-listings/?x=1` to
   `https://app.snatchitapp.com/account/listings?x=1`, one hop). Every other
@@ -112,11 +128,21 @@ Notes:
   *legacy* path: `/my-listings/` would end on `/my-listings`, a 404 there
   (observed 2026-10-21, as is `/settings/legal`).
 - **The one relative Location left is Vercel's, not ours.** Before any rule,
-  Vercel merges repeated slashes with its own 308 and a relative Location
-  (observed on the live legacy host 2026-10-21: `//evil.example/` to
-  `/evil.example/`, `/a//b` to `/a/b`). That hop stays on the legacy host and
-  the next request is answered by the rules above with an absolute Location.
-  The test models the edge with and without that step.
+  Vercel merges repeated slashes with its own 308 and a relative Location.
+  Observed on the live legacy host 2026-10-21: `//evil.example/` to
+  `/evil.example/`, `/a//b` to `/a/b`, `//\evil.example` to
+  `/%5Cevil.example`, `/\//evil.example/` to `/%5C/evil.example/`,
+  `//x?next=//evil.example` to `/x?next=%2F%2Fevil.example`. A path holding a
+  character outside the RFC 3986 path set (`\`, `|`, `"`, ...) is decoded
+  whole, `%2F` included, and percent-encoded again before the merge. That hop
+  stays on the legacy host and the next request is answered by the rules above
+  with an absolute Location. The test models the edge with and without that
+  step, and pins every observation (`LIVE_MERGE`). It stays on the legacy host
+  only because the merge writes `\` as `%5C`: a merge that kept it raw would
+  answer `//\evil.example` with `/\evil.example`, which a browser follows to
+  https://evil.example/ before any rule runs, and no `vercel.json` could change
+  that. The test pins this as a counterfactual; `verify.sh` checks the live
+  encoding on every run (the `//\evil.example` and `/\//evil.example/` rows).
 - Legacy "Your Scene" (`/settings/preferences`) has no web equivalent; it goes
   to `/account/settings`.
 
@@ -223,11 +249,13 @@ What `verify.sh` checks:
   byte-identical to the expected URL. A first Location that is relative,
   scheme-relative or on any other host fails the row.
 - **Hostile paths** (`//evil.example/`, `/%2F%2Fevil.example`,
-  `/\evil.example` and variants): no hop may name a host other than the
-  legacy host or the app host, and the chain must end in a 308 to the app
-  host. The only relative Location accepted is Vercel's own slash merge of
-  that exact request path. With `--expect current` the chain must end in a
-  200 on the legacy host instead.
+  `/\evil.example`, `//\evil.example`, `/\//evil.example/` and variants): every
+  hop's Location is resolved with the WHATWG URL parser, as a browser does it
+  (`\` read as `/`). A hop that resolves anywhere other than the legacy host or
+  the app host fails, whatever its raw text; a relative hop is followed only
+  while it resolves on the legacy host (Vercel's slash merge). The chain must
+  end in a 308 whose Location is written absolute on the app host. With
+  `--expect current` the chain must end in a 200 on the legacy host instead.
 - **App-host destinations:** each distinct destination answers 200, or a 30x
   to `https://app.snatchitapp.com/login` (sign-in gate). A destination with a
   trailing slash must first get the app host's 308 to the same URL without
@@ -235,8 +263,14 @@ What `verify.sh` checks:
   reported. The gate answers for any `/account/*` path, page or not, so page
   existence is proven by the test against the web route tree, not by this
   check.
-- Relative Locations are resolved with `python3` (`urllib.parse.urljoin`)
-  only to follow and report them; every pass or fail compares the raw header.
+- Every Location, relative or absolute, is resolved with `node`
+  (`new URL(location, request URL)`). Matrix rows still compare the raw
+  header byte for byte; hostile rows are judged by the resolved origin. The
+  earlier `python3` `urljoin` resolver is gone: it reads `\` as a path
+  character, so a Location `/\evil.example` stayed on the legacy host for it
+  while a browser goes to evil.example.
+- **Row guard:** fewer than 30 matrix rows or 4 hostile rows is a failure
+  (exit 1), so an emptied or truncated list cannot pass.
 - **Deployment protection:** the two team aliases and the three old immutable
   deployment URLs still answer 302 to `vercel.com/sso-api`, so the old app and
   its Terms stay private.
@@ -292,10 +326,13 @@ has no cache) or a fresh private window, not a browser that already visited.
 - `vercel dev` sends a redirect's Location verbatim without the query, so it is
   not a valid check of query pass-through.
 - Whether the edge matches rules against the raw or the percent-decoded path,
-  and whether its slash merge always runs before the rules, is not pinned
-  down. The test runs the hostile samples under every combination; all end on
-  the app host. The slash merge itself was observed only on today's
-  deployment.
+  whether rules see a raw `\` or the edge's `%5C`, and whether its slash merge
+  always runs before the rules, is not pinned down. The test runs every sample
+  under every combination; all end on the app host. The slash merge, its `\`
+  encoding and its query re-encoding were observed only on today's deployment,
+  which has no rules; `verify.sh` re-checks them after the deploy. The model
+  differs from it in one observed case: a malformed query escape (`%zz`) came
+  back as `zz`, where the model keeps `%25zz`.
 - Whether the edge matches case-insensitively is not pinned down; the matrix
   uses lowercase paths and the test checks both ways.
 - The legacy route list comes from the old bundle; the app-host page list is
