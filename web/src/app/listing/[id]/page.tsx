@@ -1,13 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { allInFromDollars } from "@snatchit/core";
 import {
-  allInFromDollars,
-  buyerTotalCents,
-  dollarsToCents,
-} from "@snatchit/core";
-import {
-  coverImageUrl,
   getListing,
   getRelatedListings,
   getSellerSummary,
@@ -22,23 +17,21 @@ import { BidPanel } from "@/components/listing/BidPanel";
 import { ProofWaiverNotice } from "@/components/listing/ProofWaiverNotice";
 import {
   categoryLabel,
-  fmtEventDate,
   listingCardStatus,
   neighborhoodLabel,
   platformLabel,
   deliveryLabel,
 } from "@/lib/format";
 import {
+  effectiveBase,
   eventAtVenue,
-  eventStartIso,
   eventWhen,
-  listingTitle,
   proofWaiverNote,
   quantityLine,
   sellerVerifiedLabel,
   showsFanBadge,
 } from "@/lib/listing-display";
-import { SITE_URL } from "@/lib/env";
+import { buildEventJsonLd, listingMetadata } from "@/lib/listing-seo";
 import { Container } from "@/components/ui/Container";
 import { Badge, LiveDot } from "@/components/ui/Badge";
 import { ArrowLink, Button, ButtonLabel, LinkButton } from "@/components/ui/Button";
@@ -54,10 +47,6 @@ import { PAYOUT_SHORT, REFUND_SHORT, REPORT_FREEZES_PAYOUT } from "@/lib/policy-
 
 type Params = { id: string };
 
-function effectiveBase(l: WebListing): number {
-  return l.buy_now_enabled && l.buy_now_price ? l.buy_now_price : l.current_bid;
-}
-
 export async function generateMetadata({
   params,
 }: {
@@ -69,28 +58,7 @@ export async function generateMetadata({
   // status; the page body's notFound() alone would stream inside a 200.
   if (!listing) notFound();
 
-  const status = listingCardStatus(listing);
-  const active = status === "LIVE" || status === "ENDING SOON";
-  const title = listingTitle(listing.event_name, listing.venue, fmtEventDate(listing.event_date));
-  const description = `${listing.ticket_type} ticket · ${neighborhoodLabel(listing.neighborhood)} · ${
-    listing.buy_now_enabled && listing.buy_now_price
-      ? `Buy Now ${allInFromDollars(listing.buy_now_price)} all-in`
-      : `bidding from ${allInFromDollars(listing.current_bid)} all-in`
-  } on Snatch It, Miami's peer-to-peer ticket marketplace.`;
-
-  return {
-    title,
-    description,
-    alternates: { canonical: `/listing/${listing.id}` },
-    robots: active ? undefined : { index: false, follow: true },
-    openGraph: {
-      title,
-      description,
-      // No declared size: covers are posters of any shape, and a fixed 1200×900 made social
-      // cards crop portrait posters.
-      images: [{ url: coverImageUrl(listing.cover_image_path) }],
-    },
-  };
+  return listingMetadata(listing);
 }
 
 export default async function ListingPage({ params }: { params: Promise<Params> }) {
@@ -127,35 +95,11 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
   const heldByMe =
     onHold && currentUser ? (await getReservationState(listing.id).catch(() => null))?.reservedBy === currentUser.id : false;
 
-  const eventJsonLd = {
-    "@context": "https://schema.org",
-    "@type": "Event",
-    name: listing.event_name,
-    startDate: eventStartIso(listing.event_date, listing.event_time),
-    eventStatus: "https://schema.org/EventScheduled",
-    eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode",
-    location: {
-      "@type": "Place",
-      name: listing.venue,
-      address: { "@type": "PostalAddress", addressLocality: "Miami", addressRegion: "FL" },
-    },
-    image: [coverImageUrl(listing.cover_image_path)],
-    // A proof-waived listing is the platform owner's own inventory (156), not a peer resale.
-    description: `${proofNote ? "Listed by Snatch It." : "Peer-to-peer resale listing on Snatch It."} ${listing.ticket_type} ticket delivered by ${delivery.charAt(0).toLowerCase()}${delivery.slice(1)} after purchase. Price includes all fees.`,
-    offers: {
-      "@type": "Offer",
-      price: (buyerTotalCents(dollarsToCents(base)) / 100).toFixed(2),
-      priceCurrency: "USD",
-      availability: isActive ? "https://schema.org/InStock" : "https://schema.org/SoldOut",
-      url: `${SITE_URL}/listing/${listing.id}`,
-      validThrough: listing.ends_at,
-      ...(proofNote
-        ? { offeredBy: { "@type": "Organization", name: "Snatch It" } }
-        : seller?.display_name
-          ? { offeredBy: { "@type": "Person", name: seller.display_name } }
-          : {}),
-    },
-  };
+  const eventJsonLd = buildEventJsonLd(listing, {
+    proofWaived: proofNote !== null,
+    sellerDisplayName: seller?.display_name,
+    available: isActive,
+  });
 
   const headline = iWon
     ? { label: "Your winning bid", dollars: priceBase }

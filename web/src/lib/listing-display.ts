@@ -166,6 +166,11 @@ export function eventStartIso(eventDate: string, eventTime: string): string {
   return `${eventDate}T${time}${m[1]}${m[2].padStart(2, "0")}:${m[3] ?? "00"}`;
 }
 
+/** The base price a listing is offered at: Buy Now when it has one, otherwise the current bid. */
+export function effectiveBase(l: { buy_now_enabled: boolean; buy_now_price: number | null; current_bid: number }): number {
+  return l.buy_now_enabled && l.buy_now_price ? l.buy_now_price : l.current_bid;
+}
+
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
 }
