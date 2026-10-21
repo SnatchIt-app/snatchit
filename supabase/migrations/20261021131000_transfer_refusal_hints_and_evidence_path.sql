@@ -146,6 +146,18 @@ BEGIN
 END
 $pre171$;
 
+-- Capture each routine's grants, definer flag and search_path BEFORE the replacement, so the post-check proves
+-- this file changed none of them in WHATEVER environment it runs in. (On production these equal the values in the
+-- post-check comment below; CI's fresh chain carries different, pre-existing ACLs - BE-37 - which 171 must not touch.)
+CREATE TEMP TABLE m171_pre ON COMMIT DROP AS
+SELECT v.sig, array_to_string(p.proacl, ',') AS acl, p.prosecdef AS secdef, array_to_string(p.proconfig, ',') AS config
+  FROM (VALUES ('public.guard_transfer_state_columns()'),
+               ('public.confirm_transfer_received(uuid,uuid)'),
+               ('public.attach_transfer_evidence(uuid,text)'),
+               ('public.mark_transfer_sent(uuid,uuid,text)'),
+               ('public.mark_transfer_sent(uuid,uuid)')) v(sig)
+  JOIN pg_catalog.pg_proc p ON p.oid = pg_catalog.to_regprocedure(v.sig);
+
 -- ── 1. guard_transfer_state_columns: PRF-1 hint ─────────────────────────────
 CREATE OR REPLACE FUNCTION public.guard_transfer_state_columns()
  RETURNS trigger
@@ -370,27 +382,32 @@ DO $post171$
 DECLARE
   v_bad text;
 BEGIN
-  SELECT string_agg(v.sig || ' acl=' || coalesce(array_to_string(p.proacl, ','), '<null>') || ' secdef=' || coalesce(p.prosecdef::text, '<missing>')
-                    || ' config=' || coalesce(array_to_string(p.proconfig, ','), '<null>'), '; ')
+  -- Production values (verified on the production replay; informational): guard_transfer_state_columns()
+  --   postgres=X,service_role=X / secdef false / search_path=public; confirm_transfer_received(uuid,uuid)
+  --   postgres,authenticated,service_role / true / search_path=public; attach_transfer_evidence(uuid,text)
+  --   postgres,authenticated / true / search_path=""; mark_transfer_sent (both) postgres,authenticated,service_role /
+  --   true / search_path="". The check below compares with the captured pre-apply state, not these literals.
+  SELECT string_agg(v.sig || ' acl ' || coalesce(v.acl, '<null>') || ' -> ' || coalesce(array_to_string(p.proacl, ','), '<null>')
+                    || ' secdef ' || coalesce(v.secdef::text, '<null>') || ' -> ' || coalesce(p.prosecdef::text, '<missing>')
+                    || ' config ' || coalesce(v.config, '<null>') || ' -> ' || coalesce(array_to_string(p.proconfig, ','), '<null>'), '; ')
     INTO v_bad
-    FROM (VALUES ('public.guard_transfer_state_columns()',       'postgres=X/postgres,service_role=X/postgres',                       false, 'search_path=public'),
-                 ('public.confirm_transfer_received(uuid,uuid)', 'postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres', true, 'search_path=public'),
-                 ('public.attach_transfer_evidence(uuid,text)',  'postgres=X/postgres,authenticated=X/postgres',                       true, 'search_path=""'),
-                 ('public.mark_transfer_sent(uuid,uuid,text)',   'postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres', true, 'search_path=""'),
-                 ('public.mark_transfer_sent(uuid,uuid)',        'postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres', true, 'search_path=""')) v(sig, acl, secdef, config)
+    FROM m171_pre v
     LEFT JOIN pg_catalog.pg_proc p ON p.oid = pg_catalog.to_regprocedure(v.sig)
    WHERE array_to_string(p.proacl, ',') IS DISTINCT FROM v.acl
       OR p.prosecdef IS DISTINCT FROM v.secdef
       OR array_to_string(p.proconfig, ',') IS DISTINCT FROM v.config;
+  IF (SELECT count(*) FROM m171_pre) <> 5 THEN
+    RAISE EXCEPTION '171 post-check failed (nothing changed): expected 5 captured routines' USING ERRCODE = 'P0001';
+  END IF;
   IF v_bad IS NOT NULL THEN
-    RAISE EXCEPTION '171 post-check failed (nothing changed): grant, definer or search_path differs from production: %', v_bad
+    RAISE EXCEPTION '171 post-check failed (nothing changed): grant, definer or search_path changed by this file: %', v_bad
       USING ERRCODE = 'P0001';
   END IF;
   IF (SELECT md5(p.prosrc) FROM pg_catalog.pg_proc p WHERE p.oid = 'public.mark_transfer_sent(uuid,uuid)'::regprocedure)
        IS DISTINCT FROM 'd816c53e9e1e77e7de8d432d7ecf9680' THEN
     RAISE EXCEPTION '171 post-check failed (nothing changed): the 2-arg mark_transfer_sent wrapper changed' USING ERRCODE = 'P0001';
   END IF;
-  RAISE NOTICE '171 applied: 4 bodies replaced; grants, definer and search_path = production; 2-arg wrapper untouched';
+  RAISE NOTICE '171 applied: 4 bodies replaced; grants, definer and search_path unchanged from the pre-apply state; 2-arg wrapper untouched';
 END
 $post171$;
 
