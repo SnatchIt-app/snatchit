@@ -228,6 +228,7 @@ function RootLayout() {
         <Stack.Screen name="settings/legal" />
         <Stack.Screen name="settings/privacy" />
         <Stack.Screen name="my-listings" />
+        <Stack.Screen name="saved" />
         <Stack.Screen name="transfer/receive/[id]" />
         <Stack.Screen name="transfer/send/[id]" />
         <Stack.Screen name="payout-return" />

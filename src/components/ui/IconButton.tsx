@@ -1,5 +1,5 @@
 /**
- * src/components/ui/IconButton.tsx — back, close, overflow, search, filters.
+ * src/components/ui/IconButton.tsx — back, close, overflow, search, filters, save.
  *
  * There are sixteen hand-rolled back buttons in this app. Every one is a Pressable
  * wrapping a bare `←` character, and not one of them has an accessibility role or
@@ -37,7 +37,7 @@ import * as v2 from '@/src/theme/v2';
 
 import { usePressScale } from './press';
 
-export type IconGlyph = 'back' | 'close' | 'more' | 'search' | 'filter';
+export type IconGlyph = 'back' | 'close' | 'more' | 'search' | 'filter' | 'bookmark';
 
 /**
  * The SF Symbol for each mark, with its Material counterpart mapped in `icon-symbol.tsx`.
@@ -45,12 +45,21 @@ export type IconGlyph = 'back' | 'close' | 'more' | 'search' | 'filter';
  * `back` is a chevron rather than an arrow because the approved V3 boards draw it that way, in a
  * circular chip — the V2 left arrow on bare canvas is gone.
  */
-const SYMBOL: Record<IconGlyph, 'chevron.left' | 'xmark' | 'ellipsis' | 'magnifyingglass' | 'line.3.horizontal.decrease'> = {
+const SYMBOL: Record<IconGlyph, 'chevron.left' | 'xmark' | 'ellipsis' | 'magnifyingglass' | 'line.3.horizontal.decrease' | 'bookmark'> = {
   back: 'chevron.left',
   close: 'xmark',
   more: 'ellipsis',
   search: 'magnifyingglass',
   filter: 'line.3.horizontal.decrease',
+  bookmark: 'bookmark',
+};
+
+/**
+ * The ON form of a mark that is a toggle, drawn while `selected` is true. Only Save is a toggle today:
+ * an outline bookmark when the listing is not saved, a filled one when it is — web draws the same pair.
+ */
+const SELECTED_SYMBOL: Partial<Record<IconGlyph, 'bookmark.fill'>> = {
+  bookmark: 'bookmark.fill',
 };
 
 /** The mark's drawn size inside the 44pt target. Matches the optical size of the old 28pt glyphs. */
@@ -76,6 +85,12 @@ export interface IconButtonProps {
    * point to what it opens. The spoken name is the caller's job; it must include the number.
    */
   count?: number;
+  /**
+   * For a control that is a TOGGLE (Save): its on/off state. Draws the mark's filled form and is
+   * reported to assistive technology as `selected`, the pattern Chip uses. Leave it undefined on a
+   * control that is not a toggle — back, close, overflow, search and filters report no selection.
+   */
+  selected?: boolean;
   style?: ViewStyle;
   testID?: string;
 }
@@ -88,6 +103,7 @@ export function IconButton({
   onArt = false,
   chip = false,
   count,
+  selected,
   style,
   testID,
 }: IconButtonProps) {
@@ -104,11 +120,11 @@ export function IconButton({
         style={[styles.base, chip && styles.chip, onArt && styles.onArt, disabled && styles.disabled, style]}
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel}
-        accessibilityState={{ disabled }}
+        accessibilityState={selected === undefined ? { disabled } : { disabled, selected }}
         testID={testID}
       >
         <IconSymbol
-          name={SYMBOL[glyph]}
+          name={(selected && SELECTED_SYMBOL[glyph]) || SYMBOL[glyph]}
           size={MARK}
           // Over artwork the mark takes the invariant over-art ink on its own dark plate; elsewhere
           // it follows the appearance. Same two inks the typed glyphs used, so only the RENDERING
