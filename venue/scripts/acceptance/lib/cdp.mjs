@@ -3,13 +3,24 @@
 import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { createServer } from "node:net";
 import { join } from "node:path";
+import { pickFreePort } from "./checks.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-export async function launchBrowser(chromePath) {
+/** true when nothing listens on 127.0.0.1:port, where Chrome binds its DevTools endpoint. */
+const portFree = (port) =>
+  new Promise((res) => {
+    const srv = createServer();
+    srv.once("error", () => res(false));
+    srv.listen(port, "127.0.0.1", () => srv.close(() => res(true)));
+  });
+
+// portRange: [lo, hi] for --remote-debugging-port (accept.mjs --cdp-ports); a port already in use is skipped.
+export async function launchBrowser(chromePath, { portRange = [9400, 9799] } = {}) {
+  const port = await pickFreePort(portRange, portFree);
   const profile = mkdtempSync(join(tmpdir(), "venue-accept-chrome-"));
-  const port = 9400 + Math.floor(Math.random() * 400);
   const proc = spawn(chromePath, ["--headless=new", "--disable-gpu", "--hide-scrollbars", "--no-first-run", `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, "about:blank"], { stdio: "ignore" });
   let wsUrl;
   for (let i = 0; i < 75 && !wsUrl; i++) {

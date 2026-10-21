@@ -2,7 +2,7 @@
 // Venue dashboard slice 1 — automated acceptance runner (local rehearsal or the shared sandbox).
 //
 //   node venue/scripts/acceptance/accept.mjs --target local   --phase all
-//   node venue/scripts/acceptance/accept.mjs --target local   --db x_rehears --url http://localhost:3402 --app http://localhost:3403 --phase all
+//   node venue/scripts/acceptance/accept.mjs --target local   --db x_rehears --url http://localhost:3402 --app http://localhost:3403 --cdp-ports 9800-9899 --phase all
 //   node venue/scripts/acceptance/accept.mjs --target sandbox --project-ref ofaidukbieeekqaboscm --phase preflight
 //   VENUE_ACCEPT_WINDOW=W1 node venue/scripts/acceptance/accept.mjs --target sandbox --project-ref ofaidukbieeekqaboscm --window W1 --phase fixtures
 //
@@ -20,7 +20,7 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { makeTarget, REPO, ROLES, assertUuid } from "./lib/target.mjs";
 import { launchBrowser } from "./lib/cdp.mjs";
-import { authCookie, preflightLedgerChecks, roleLabelClaimed, sessionCookieHolds, verifyApplyLedgerChecks, waitSettled } from "./lib/checks.mjs";
+import { authCookie, parsePortRange, preflightLedgerChecks, roleLabelClaimed, sessionCookieHolds, verifyApplyLedgerChecks, waitSettled } from "./lib/checks.mjs";
 
 // ---------------------------------------------------------------- args
 const argv = process.argv.slice(2);
@@ -38,6 +38,8 @@ const opts = {
   app: arg("app", "http://localhost:3300"),
   window: arg("window"),
   chrome: arg("chrome", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+  // Chrome's DevTools port range, "<lo>-<hi>" (default 9400-9799 in lib/cdp.mjs); a port in use is skipped.
+  cdpPorts: parsePortRange(arg("cdp-ports")),
   out: arg("out"),
 };
 const OUT = opts.out ?? join(REPO, "venue/scripts/acceptance/.runs", opts.target);
@@ -362,6 +364,7 @@ async function signIn(page, user, next) {
   return left && !(await page.text()).includes("Sign-in failed");
 }
 const settled = (page) => waitSettled(page, ROUTE_LOADING, 20000);
+const openBrowser = () => launchBrowser(opts.chrome, opts.cdpPorts ? { portRange: opts.cdpPorts } : {});
 async function visit(page, path) {
   await page.goto(`${opts.app}${path}`);
   await settled(page);
@@ -371,7 +374,7 @@ async function visit(page, path) {
 async function browser() {
   const { users } = loadState();
   const P = "browser";
-  const br = await launchBrowser(opts.chrome);
+  const br = await openBrowser();
   try {
     // Signed out, and the app must be in database mode against this target.
     const anon = await br.newPage();
@@ -526,7 +529,7 @@ async function precedence() {
   check("precedence", "owner now also holds venue_scanner @ A", JSON.stringify(r.json) === JSON.stringify([{ venue_id: ID.venA, role: "venue_scanner" }]), r.text);
   r = await rest("my_staff_roles?order=role", { token: Tf });
   check("precedence", "finance holds venue_finance + venue_scanner @ B", JSON.stringify(r.json) === JSON.stringify([{ venue_id: ID.venB, role: "venue_finance" }, { venue_id: ID.venB, role: "venue_scanner" }]), r.text);
-  const br = await launchBrowser(opts.chrome);
+  const br = await openBrowser();
   try {
     const o = await br.newPage();
     await signIn(o, users.owner, `${A}/events`);
@@ -543,7 +546,7 @@ async function precedence() {
 
 async function revocation() {
   const { users } = loadState();
-  const br = await launchBrowser(opts.chrome);
+  const br = await openBrowser();
   try {
     const m = await br.newPage();
     await signIn(m, users.manager, `${A}/events`);

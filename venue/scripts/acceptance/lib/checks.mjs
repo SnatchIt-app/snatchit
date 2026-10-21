@@ -78,3 +78,27 @@ export function verifyApplyLedgerChecks(v) {
     [`retired ${RETIRED} still absent from the ledger`, v.ledger_retired_row === 0, { retired_rows: v.ledger_retired_row }],
   ];
 }
+
+// ---------------------------------------------------------------- Chrome DevTools port (lib/cdp.mjs)
+/** `--cdp-ports <lo>-<hi>` as [lo, hi]; null when the flag is not given. Throws on anything else. */
+export function parsePortRange(raw) {
+  if (raw === undefined || raw === null) return null;
+  const m = /^(\d{4,5})-(\d{4,5})$/.exec(String(raw).trim());
+  const [lo, hi] = m ? [Number(m[1]), Number(m[2])] : [NaN, NaN];
+  if (!m || lo < 1024 || hi > 65535 || lo > hi) throw new Error(`--cdp-ports must be <lo>-<hi> within 1024-65535, got '${raw}'`);
+  return [lo, hi];
+}
+/**
+ * A port in [lo, hi] that `isFree(port)` (async) accepts, each port tried once in random order; throws when none is.
+ * cdp.mjs reads Chrome's DevTools endpoint from that port, so a port something already listens on (another
+ * session's Chrome would answer /json/version) must never be used.
+ */
+export async function pickFreePort([lo, hi], isFree) {
+  const ports = Array.from({ length: hi - lo + 1 }, (_, i) => lo + i);
+  for (let i = ports.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [ports[i], ports[j]] = [ports[j], ports[i]];
+  }
+  for (const p of ports) if (await isFree(p)) return p;
+  throw new Error(`no free port in ${lo}-${hi} for Chrome's DevTools endpoint`);
+}
