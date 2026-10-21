@@ -272,7 +272,7 @@ verified here).
 | "Refund still pending at Stripe" (`refund_pending`, P1, keyed by `re_…`) | Still *pending*/*requires_action* after `refund_state_pending_hours` (120). Same switch [150:377-398] | Same as above [150:384-386] |
 | "Reconciliation mismatch" (`reconciliation_mismatch`, P1) | A refunded payment whose transfer has a Stripe transfer id and is not reversed [117:706-749] | When the transfer shows *Reversed* (§9) |
 | "Stripe webhook not processed" (`webhook_stuck`, P2) | A received event is still unprocessed after 15 minutes, or failed [117:535-574], [115:150] | When the event is processed |
-| Refund resolution (`refund_resolution`, P2) | When its detector is on (seeded off [144:155], [144:349]): every **expired + refunded** order [144:44-48] | Only by a person, after classifying it. This console has no classify control (none in `admin/src` @ `07100a35`; close is refused without a classification [MSE:386-408]), so escalate to A |
+| Refund resolution (`refund_resolution`, P2) | When its detector is on (seeded off [144:155], [144:349]): every **expired + refunded** order [144:44-48] | Only by a person, after classifying it: close is refused without a classification [MSE:386-408]. It depends on the console build. **If the case page shows *Classify* and *Obligation* controls** (console v2 with the #89 port [CW2:241-331], not merged when this was written), classify there. For each obligation, pick *State* yourself: *Settled* only once the money has moved. **Otherwise** escalate to A. The console @ `07100a35` has no classify control (none in `admin/src`) |
 
 The two cases keyed by `re_…` have no payment id, so they appear in the
 **Cases** queue but not under "Cases on this order" [150:346-349],
@@ -433,7 +433,7 @@ personal data.
 | Stripe shows the refund *Failed* or *Canceled* | A + owner | Stripe asks the platform to arrange another way to refund [150:366-367]. Record it on the case |
 | *Pending* for more than 5 days (120 h, the detector's threshold [150:260]) | A | Note it on the case |
 | A refund already listed in Stripe before you acted (§2 row 10), or the expiry job missed an expired order | A | Do not refund |
-| A refund-resolution case you cannot close (§5.4) | A | Leave it open |
+| A refund-resolution case when the case page has no *Classify* control, or one you cannot close after classifying (§5.4) | A | Leave it open |
 | `native_primary` order, a test-mode order, a payment whose live mode A has not confirmed (§2 row 3), or a PaymentIntent the live-mode Dashboard cannot find (§2 row 10) | A | Nothing in Stripe |
 | Any check in §2 is unclear | A | Do not refund |
 
@@ -517,6 +517,7 @@ Gate = `origin/release/production-gate-20260918` @ `6f982f36`. Console =
 | SYS | `admin/src/app/(console)/system/page.tsx` | console |
 | NCF | `admin/src/components/cases/NewCaseForm.tsx` | console |
 | FMT | `admin/src/lib/format.ts` | console |
+| CW2 | `admin/src/components/cases/CaseWork.tsx` | `admin/console-v2-integration` @ `d614b0d0` (the #89 port; local, not merged) |
 
 Latest definitions were checked by `git grep` over the gate's migrations:
 `ops.execute_action` = 144:455, `ops.action_precheck` = 118:229,
