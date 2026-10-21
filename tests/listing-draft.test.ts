@@ -9,11 +9,15 @@
  *  - the proof-of-ownership image is never part of a draft (the seller picks it again);
  *  - the cover is kept only as a reference to the picker's app-private cache file;
  *  - the ownership attestation is never part of a draft (confirmed again at publish);
- *  - a draft whose event date has passed is refused.
+ *  - a draft whose event date has passed is refused — but only a date the seller picked: the date row
+ *    starts at today, and that default is not the seller's choice (review LD-R2).
+ *
+ * The event's day and clock time are written as the device shows them, not as instants, so a draft
+ * saved in one time zone and opened in another keeps the seller's day (review LD-R7, LD7).
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   draftBannerBody,
@@ -45,6 +49,7 @@ function filled(over: Partial<ListingDraftFields> = {}): ListingDraftFields {
     category: 'concerts',
     eventDate: new Date(2026, 9, 25, 0, 0, 0),
     eventTime: new Date(2026, 9, 21, 22, 0, 0),
+    dateChosen: true,
     ticketType: 'VIP',
     quantity: 2,
     transferMethod: 'mobile_transfer',
@@ -69,7 +74,7 @@ const rewrite = (mut: (w: { v: unknown; savedAt: unknown; fields: Record<string,
 describe('LD1 · only listing form fields are ever written', () => {
   it('LD1a: the field allowlist is exactly the sell form’s own inputs (plus the cover reference)', () => {
     expect([...LISTING_DRAFT_FIELD_KEYS].sort()).toEqual([
-      'buyNowEnabled', 'buyNowPrice', 'category', 'coverUri', 'durationHours', 'eventDate', 'eventName',
+      'buyNowEnabled', 'buyNowPrice', 'category', 'coverUri', 'dateChosen', 'durationHours', 'eventDate', 'eventName',
       'eventTime', 'neighborhood', 'quantity', 'restrictions', 'startingBid', 'ticketPlatform', 'ticketType',
       'transferMethod', 'venue',
     ]);
@@ -98,13 +103,15 @@ describe('LD1 · only listing form fields are ever written', () => {
     }
   });
 
-  it('LD1c: the wire format is versioned v1 with ISO dates', () => {
-    const w = wire(serializeListingDraft(filled(), NOW));
+  it('LD1c: the wire format is versioned v1; the event is a calendar day and a clock time as the device shows them, not instants', () => {
+    const w = wire(serializeListingDraft(filled({ eventTime: new Date(2026, 9, 21, 22, 30, 15) }), NOW));
     expect(LISTING_DRAFT_VERSION).toBe(1);
     expect(w.v).toBe(1);
     expect(w.savedAt).toBe(NOW.toISOString());
-    expect(w.fields.eventDate).toBe(new Date(2026, 9, 25).toISOString());
-    expect(w.fields.eventTime).toBe(new Date(2026, 9, 21, 22).toISOString());
+    expect(w.fields.eventDate).toBe('2026-10-25');
+    expect(w.fields.eventTime).toBe('22:30');
+    expect(w.fields.dateChosen).toBe(true);
+    expect(wire(serializeListingDraft(filled({ dateChosen: false }), NOW)).fields.dateChosen).toBe(false);
   });
 
   it('LD1d: a cover that is not an app-private picker cache file is not written', () => {
@@ -143,16 +150,20 @@ describe('LD2 · the cover is a reference to the picker’s app-private cache, n
 });
 
 describe('LD3 · reading a stored draft back', () => {
-  it('LD3a: a written draft reads back field for field, Dates included', () => {
-    const f = filled();
+  it('LD3a: a written draft reads back field for field — the date as local midnight of its day, the time on that day', () => {
+    const f = filled({ eventTime: new Date(2026, 9, 21, 22, 30) });
     const d = parseListingDraft(serializeListingDraft(f, NOW));
     expect(d).not.toBeNull();
     expect(d!.version).toBe(1);
     expect(d!.savedAt.getTime()).toBe(NOW.getTime());
     expect(d!.fields.eventDate).toBeInstanceOf(Date);
-    expect(d!.fields.eventDate.getTime()).toBe(f.eventDate.getTime());
-    expect(d!.fields.eventTime.getTime()).toBe(f.eventTime.getTime());
+    expect(d!.fields.eventDate.getTime()).toBe(new Date(2026, 9, 25).getTime());
+    expect(d!.fields.eventTime).toBeInstanceOf(Date);
+    expect(d!.fields.eventTime.getTime()).toBe(new Date(2026, 9, 25, 22, 30).getTime());
     expect({ ...d!.fields, eventDate: 0, eventTime: 0 }).toEqual({ ...f, eventDate: 0, eventTime: 0 });
+    // a date picked at some other hour still names the same day
+    expect(parseListingDraft(serializeListingDraft(filled({ eventDate: new Date(2026, 9, 25, 23, 59) }), NOW))!.fields.eventDate.getTime())
+      .toBe(new Date(2026, 9, 25).getTime());
   });
 
   it('LD3b: nothing, or anything that is not a JSON object, is no draft', () => {
@@ -176,6 +187,9 @@ describe('LD3 · reading a stored draft back', () => {
       ['quantity', 0], ['quantity', 1.5], ['quantity', '2'], ['quantity', -1],
       ['startingBid', 'abc'], ['startingBid', 40], ['buyNowPrice', '9.99'], ['buyNowEnabled', 'yes'],
       ['eventDate', 'not a date'], ['eventTime', 123], ['coverUri', 5],
+      ['eventDate', '2026-10-25T04:00:00.000Z'], ['eventDate', '2026-02-30'], ['eventDate', '2026-13-01'], ['eventDate', '25/10/2026'],
+      ['eventTime', '2026-10-22T02:00:00.000Z'], ['eventTime', '24:00'], ['eventTime', '22:60'], ['eventTime', '7:05'],
+      ['dateChosen', 'yes'], ['dateChosen', undefined], ['dateChosen', 1],
       ['coverUri', 'file:///var/mobile/Containers/Data/Application/0A/Documents/x.jpg'],
     ];
     for (const [k, v] of corruptions) {
@@ -207,6 +221,9 @@ describe('LD4 · an untouched form is not a draft', () => {
     expect(isListingDraftEmpty(emptyListingDraftFields(NOW))).toBe(true);
     expect(isListingDraftEmpty({ ...emptyListingDraftFields(NOW), eventDate: new Date(2027, 0, 1), eventTime: new Date(2027, 0, 1, 3) })).toBe(true);
     expect(isListingDraftEmpty({ ...emptyListingDraftFields(NOW), eventName: '   ', venue: '\n' })).toBe(true);
+    // nor does a picked date on its own
+    expect(emptyListingDraftFields(NOW).dateChosen).toBe(false);
+    expect(isListingDraftEmpty({ ...emptyListingDraftFields(NOW), eventDate: new Date(2026, 11, 1), dateChosen: true })).toBe(true);
     // a cover that could never be written does not make a draft either
     expect(isListingDraftEmpty({ ...emptyListingDraftFields(NOW), coverUri: 'blob:http://x/1' })).toBe(true);
   });
@@ -244,8 +261,8 @@ describe('LD4 · an untouched form is not a draft', () => {
   });
 });
 
-describe('LD5 · a draft for an event that has passed is refused', () => {
-  const at = (eventDate: Date) => ({ version: 1 as const, savedAt: NOW, fields: filled({ eventDate }) });
+describe('LD5 · a draft for an event that has passed is refused — when the seller picked that date', () => {
+  const at = (eventDate: Date, dateChosen = true) => ({ version: 1 as const, savedAt: NOW, fields: filled({ eventDate, dateChosen }) });
 
   it('LD5a: yesterday’s event is expired', () => {
     expect(isListingDraftExpired(at(new Date(2026, 9, 20, 0, 0)), NOW)).toBe(true);
@@ -258,6 +275,14 @@ describe('LD5 · a draft for an event that has passed is refused', () => {
     expect(isListingDraftExpired(at(new Date(2026, 9, 21, 23, 59)), new Date(2026, 9, 21, 23, 59, 59))).toBe(false);
     expect(isListingDraftExpired(at(new Date(2026, 9, 22)), NOW)).toBe(false);
     expect(isListingDraftExpired(at(new Date(2027, 5, 1)), NOW)).toBe(false);
+  });
+
+  it('LD5c (LD-R2): the screen’s default date — today, never picked — does not expire a draft, however old', () => {
+    // The seller typed a name, a venue and a price and left the date row at its default (the day
+    // they typed). Reopened the next day, or next week, it is still their work.
+    expect(isListingDraftExpired(at(new Date(2026, 9, 20), false), NOW)).toBe(false);
+    expect(isListingDraftExpired(at(new Date(2025, 11, 31), false), NOW)).toBe(false);
+    expect(isListingDraftExpired(at(new Date(2026, 9, 20), true), NOW)).toBe(true);   // the same day, picked: expired
   });
 });
 
@@ -272,6 +297,16 @@ describe('LD6 · the offer', () => {
     expect(gone.coverKept).toBe(false);
     expect(gone.fields.coverUri).toBeNull();
     expect(listingDraftOffer(draft({ coverUri: null }), true).coverKept).toBe(false);
+  });
+
+  it('LD6a2 (LD-R2): a date the seller never picked comes back as the day of the offer; a picked one comes back as picked', () => {
+    const later = new Date(2026, 9, 28, 9, 15);
+    const unpicked = listingDraftOffer(draft({ eventDate: new Date(2026, 9, 21), dateChosen: false }), true, later);
+    expect(unpicked.fields.eventDate.getTime()).toBe(new Date(2026, 9, 28).getTime());
+    expect(unpicked.fields.dateChosen).toBe(false);
+    const picked = listingDraftOffer(draft({ eventDate: new Date(2026, 10, 2), dateChosen: true }), true, later);
+    expect(picked.fields.eventDate.getTime()).toBe(new Date(2026, 10, 2).getTime());
+    expect(picked.fields.dateChosen).toBe(true);
   });
 
   it('LD6b: the probe decides, is asked only when there is a cover, and a probe failure means "gone"', async () => {
@@ -299,5 +334,32 @@ describe('LD6 · the offer', () => {
     // Nothing here has reached a server, so nothing may sound as if it had.
     const all = [draftBannerBody(named), draftPhotosNote(named), ...Object.values(LISTING_DRAFT_COPY).filter((v) => typeof v === 'string')].join(' ');
     expect(all).not.toMatch(/\b(published|listed|uploaded|live|account|synced|cloud)\b/i);
+  });
+});
+
+describe('LD7 · a draft keeps the seller’s day and time when the device changes time zone (LD-R7)', () => {
+  const tz = process.env.TZ;
+  afterEach(() => { if (tz === undefined) delete process.env.TZ; else process.env.TZ = tz; });
+
+  it('LD7a: saved in Miami (UTC−4), opened in Los Angeles (UTC−7) — the same calendar day and clock time', () => {
+    process.env.TZ = 'America/New_York';
+    const raw = serializeListingDraft(filled({ eventDate: new Date(2026, 9, 25), eventTime: new Date(2026, 9, 21, 22, 30) }), NOW);
+    process.env.TZ = 'America/Los_Angeles';
+    const d = parseListingDraft(raw)!;
+    expect(d).not.toBeNull();
+    expect([d.fields.eventDate.getFullYear(), d.fields.eventDate.getMonth(), d.fields.eventDate.getDate()]).toEqual([2026, 9, 25]);
+    expect([d.fields.eventDate.getHours(), d.fields.eventDate.getMinutes()]).toEqual([0, 0]);
+    expect([d.fields.eventTime.getHours(), d.fields.eventTime.getMinutes()]).toEqual([22, 30]);
+    // and it is not "yesterday's event" on the morning of the 25th in Los Angeles
+    expect(isListingDraftExpired(d, new Date(2026, 9, 25, 8, 0))).toBe(false);
+  });
+
+  it('LD7b: saved in Los Angeles, opened in Madrid (UTC+2) — the day does not move forward either', () => {
+    process.env.TZ = 'America/Los_Angeles';
+    const raw = serializeListingDraft(filled({ eventDate: new Date(2026, 9, 25), eventTime: new Date(2026, 9, 21, 23, 45) }), NOW);
+    process.env.TZ = 'Europe/Madrid';
+    const d = parseListingDraft(raw)!;
+    expect([d.fields.eventDate.getFullYear(), d.fields.eventDate.getMonth(), d.fields.eventDate.getDate()]).toEqual([2026, 9, 25]);
+    expect([d.fields.eventTime.getHours(), d.fields.eventTime.getMinutes()]).toEqual([23, 45]);
   });
 });

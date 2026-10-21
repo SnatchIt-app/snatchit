@@ -2,8 +2,8 @@
  * src/lib/sell/listingDraftStore.ts — where the sell-form draft lives, and when it goes (CFT-608).
  *
  * ONE DRAFT PER ACCOUNT, under `snatchit.sell.draft.v1:<uid>` in AsyncStorage. A read returns only
- * the asking account's draft; what fails to parse, is another version, or is for an event that has
- * passed is removed on read. Every call is wrapped: a storage failure is "no draft", never a crash.
+ * the asking account's draft; what fails to parse, is another version, or is for an event date the
+ * seller picked that has passed is removed on read. Every call is wrapped: a storage failure is "no draft", never a crash.
  * Plain AsyncStorage (not the encrypted session store) because a draft holds only listing text that
  * becomes public when listed, plus a reference to a cached artwork file — no PII (default put to the
  * owner; see src/lib/sell/listingDraft.ts for what is never written).

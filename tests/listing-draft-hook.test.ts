@@ -89,12 +89,12 @@ const KEY = listingDraftKey('u-1');
 function empty(): ListingDraftFields {
   return {
     eventName: '', venue: '', neighborhood: null, category: 'nightlife', eventDate: new Date(2026, 9, 21), eventTime: new Date(2026, 9, 21, 13),
-    ticketType: null, quantity: 1, transferMethod: null, restrictions: '', startingBid: '', buyNowEnabled: false, buyNowPrice: '',
+    dateChosen: false, ticketType: null, quantity: 1, transferMethod: null, restrictions: '', startingBid: '', buyNowEnabled: false, buyNowPrice: '',
     durationHours: null, ticketPlatform: 'other', coverUri: null,
   };
 }
 const draft = (over: Partial<ListingDraftFields> = {}): ListingDraftFields => ({
-  ...empty(), eventName: 'Weekend pool party', venue: 'LIV Miami', neighborhood: 'wynwood', eventDate: new Date(2026, 9, 25),
+  ...empty(), eventName: 'Weekend pool party', venue: 'LIV Miami', neighborhood: 'wynwood', eventDate: new Date(2026, 9, 25), dateChosen: true,
   ticketType: 'VIP', quantity: 2, startingBid: '40', durationHours: 24, coverUri: COVER, ...over,
 });
 
@@ -182,6 +182,17 @@ describe('UH1 · a stored draft is offered, and nothing overwrites it until the 
     const { state } = await mountHook();
     expect(state.ret!.offer).toBeNull();
     expect(h.mem.has(KEY)).toBe(false);
+  });
+
+  it('UH1f (LD-R2): a draft whose date row was left at its default is offered the next day, and comes back dated today', async () => {
+    h.mem.set(KEY, serializeListingDraft(draft({ eventDate: new Date(2026, 9, 20), dateChosen: false }), new Date(2026, 9, 20, 23)));
+    const { state, restored, step } = await mountHook();
+    expect(state.ret!.offer?.eventName).toBe('Weekend pool party');
+    expect(h.mem.has(KEY)).toBe(true);
+    state.ret!.accept();
+    await step();
+    expect(restored[0].eventDate.getTime()).toBe(new Date(2026, 9, 21).getTime());
+    expect(restored[0].dateChosen).toBe(false);
   });
 });
 

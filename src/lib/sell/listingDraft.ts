@@ -18,7 +18,16 @@
  *
  * READING ONE BACK — a draft is versioned (`v: 1`). Another version, or anything that does not
  * match the schema field for field, is discarded whole rather than half-restored or migrated.
- * A draft whose event date has passed is refused (default put to the owner).
+ *
+ * THE EVENT DATE AND TIME are written as the form uses them — a device-local calendar day
+ * ('2026-10-25') and clock time ('22:30') — never as instants. The screen publishes the date row's
+ * day and the time row's clock time, so an instant saved in Miami and read in Los Angeles would move
+ * the date back a day; a day and a clock time read back as the same day and time anywhere.
+ *
+ * EXPIRY — a draft whose event date has passed is refused (default put to the owner), but only a date
+ * the seller picked (`dateChosen`). The date row starts at today, so an unpicked date is only the
+ * screen's default for the day the seller typed: it never expires a draft, and it comes back as the
+ * day the draft is offered, as a new form's would.
  */
 
 import { CATEGORIES } from '@/src/constants/categories';
@@ -44,6 +53,8 @@ export interface ListingDraftFields {
   category: EventCategory;
   eventDate: Date;
   eventTime: Date;
+  /** The seller picked the date. False while the date row still shows the screen's default (today). */
+  dateChosen: boolean;
   ticketType: TicketType | null;
   quantity: number;
   transferMethod: TransferMethod | null;
@@ -65,7 +76,7 @@ export interface ListingDraft {
 
 /** The allowlist. Serialize and parse both copy exactly these keys and nothing else. */
 export const LISTING_DRAFT_FIELD_KEYS = [
-  'eventName', 'venue', 'neighborhood', 'category', 'eventDate', 'eventTime',
+  'eventName', 'venue', 'neighborhood', 'category', 'eventDate', 'eventTime', 'dateChosen',
   'ticketType', 'quantity', 'transferMethod', 'restrictions',
   'startingBid', 'buyNowEnabled', 'buyNowPrice', 'durationHours',
   'ticketPlatform', 'coverUri',
@@ -86,7 +97,7 @@ export function emptyListingDraftFields(now: Date = new Date()): ListingDraftFie
   const time = new Date(now); time.setHours(time.getHours() + 1, 0, 0, 0);
   return {
     eventName: '', venue: '', neighborhood: null, category: DEFAULT_CATEGORY,
-    eventDate: date, eventTime: time,
+    eventDate: date, eventTime: time, dateChosen: false,
     ticketType: null, quantity: DEFAULT_QUANTITY, transferMethod: null, restrictions: '',
     startingBid: '', buyNowEnabled: false, buyNowPrice: '', durationHours: null,
     ticketPlatform: DEFAULT_PLATFORM, coverUri: null,
@@ -114,14 +125,27 @@ export function isPickerCacheUri(uri: unknown): uri is string {
 
 type WireFields = Record<(typeof LISTING_DRAFT_FIELD_KEYS)[number], unknown>;
 
+const pad2 = (n: number) => String(n).padStart(2, '0');
+
+/** The device-local calendar day, as the date row shows it: '2026-10-25'. */
+function toLocalDay(d: Date): string {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+/** The device-local clock time, as the time row shows it: '22:30'. */
+function toLocalClock(d: Date): string {
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
 function toWire(f: ListingDraftFields): WireFields {
   return {
     eventName: f.eventName,
     venue: f.venue,
     neighborhood: f.neighborhood,
     category: f.category,
-    eventDate: f.eventDate.toISOString(),
-    eventTime: f.eventTime.toISOString(),
+    eventDate: toLocalDay(f.eventDate),
+    eventTime: toLocalClock(f.eventTime),
+    dateChosen: f.dateChosen === true,
     ticketType: f.ticketType,
     quantity: f.quantity,
     transferMethod: f.transferMethod,
@@ -157,6 +181,26 @@ function isoDate(v: unknown): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+/** '2026-10-25' → local midnight of that day. Anything else, or a day that does not exist, is null. */
+function fromLocalDay(v: unknown): Date | null {
+  if (typeof v !== 'string') return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+  if (!m) return null;
+  const y = Number(m[1]); const mo = Number(m[2]) - 1; const day = Number(m[3]);
+  const d = new Date(y, mo, day);
+  return d.getFullYear() === y && d.getMonth() === mo && d.getDate() === day ? d : null;
+}
+
+/** '22:30' → that local clock time on `day`. Anything else is null. */
+function fromLocalClock(v: unknown, day: Date): Date | null {
+  if (typeof v !== 'string') return null;
+  const m = /^(\d{2}):(\d{2})$/.exec(v);
+  if (!m) return null;
+  const hh = Number(m[1]); const mm = Number(m[2]);
+  if (hh > 23 || mm > 59) return null;
+  return new Date(day.getFullYear(), day.getMonth(), day.getDate(), hh, mm);
+}
+
 /** Never throws. Anything that is not a v1 draft matching the schema field for field is null. */
 export function parseListingDraft(raw: string | null | undefined): ListingDraft | null {
   if (!raw) return null;
@@ -165,9 +209,9 @@ export function parseListingDraft(raw: string | null | undefined): ListingDraft 
   if (!isObject(doc) || doc.v !== LISTING_DRAFT_VERSION || !isObject(doc.fields)) return null;
   const savedAt = isoDate(doc.savedAt);
   const f = doc.fields;
-  const eventDate = isoDate(f.eventDate);
-  const eventTime = isoDate(f.eventTime);
-  if (!savedAt || !eventDate || !eventTime) return null;
+  const eventDate = fromLocalDay(f.eventDate);
+  const eventTime = eventDate ? fromLocalClock(f.eventTime, eventDate) : null;
+  if (!savedAt || !eventDate || !eventTime || typeof f.dateChosen !== 'boolean') return null;
   if (typeof f.eventName !== 'string' || typeof f.venue !== 'string' || typeof f.restrictions !== 'string') return null;
   if (!orNull(NEIGHBORHOODS, f.neighborhood) || !oneOf(CATEGORIES, f.category)) return null;
   if (!orNull(TICKET_TYPES, f.ticketType) || !orNull(TRANSFER_METHODS, f.transferMethod)) return null;
@@ -185,6 +229,7 @@ export function parseListingDraft(raw: string | null | undefined): ListingDraft 
       category: f.category,
       eventDate,
       eventTime,
+      dateChosen: f.dateChosen,
       ticketType: f.ticketType,
       quantity: f.quantity,
       transferMethod: f.transferMethod,
@@ -203,7 +248,7 @@ export function parseListingDraft(raw: string | null | undefined): ListingDraft 
 
 /**
  * True when the seller has typed or chosen nothing. Date and time are not counted: they always
- * hold a value. Nor is the category: the screen keeps it chosen after a publish (its success reset
+ * hold a value (nor, on its own, is a picked date). Nor is the category: the screen keeps it chosen after a publish (its success reset
  * clears every other field), so counting it would re-save a one-field draft straight after a
  * publish the server confirmed. On their own these are not work to lose; with anything else they
  * are saved as part of the draft.
@@ -224,11 +269,16 @@ export function isListingDraftEmpty(f: ListingDraftFields): boolean {
     && !isPickerCacheUri(f.coverUri);
 }
 
-const localDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+const startOfLocalDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 
-/** The event's calendar day (device-local, as the date row shows it) is before today. Today is not expired. */
+/**
+ * The seller picked the event date and its calendar day (device-local, as the date row shows it) is
+ * before today. Today is not expired. An unpicked date is the screen's default, not the seller's
+ * choice, so it never expires a draft.
+ */
 export function isListingDraftExpired(draft: ListingDraft, now: Date): boolean {
-  return localDay(draft.fields.eventDate) < localDay(now);
+  return draft.fields.dateChosen
+    && startOfLocalDay(draft.fields.eventDate).getTime() < startOfLocalDay(now).getTime();
 }
 
 // ─── The offer ─────────────────────────────────────────────────────────────────
@@ -242,10 +292,16 @@ export interface ListingDraftOffer {
   coverKept: boolean;
 }
 
-export function listingDraftOffer(draft: ListingDraft, coverStillThere: boolean): ListingDraftOffer {
+export function listingDraftOffer(draft: ListingDraft, coverStillThere: boolean, now: Date = new Date()): ListingDraftOffer {
   const coverKept = draft.fields.coverUri !== null && coverStillThere;
   return {
-    fields: { ...draft.fields, coverUri: coverKept ? draft.fields.coverUri : null },
+    fields: {
+      ...draft.fields,
+      // An unpicked date was only the screen's default on the day the seller typed: it comes back as
+      // today, as a new form's would, never as a day that may have passed.
+      eventDate: draft.fields.dateChosen ? draft.fields.eventDate : startOfLocalDay(now),
+      coverUri: coverKept ? draft.fields.coverUri : null,
+    },
     eventName: draft.fields.eventName.trim(),
     coverKept,
   };
@@ -255,12 +311,13 @@ export function listingDraftOffer(draft: ListingDraft, coverStillThere: boolean)
 export async function prepareListingDraftOffer(
   draft: ListingDraft,
   probe: (uri: string) => Promise<boolean>,
+  now: () => Date = () => new Date(),
 ): Promise<ListingDraftOffer> {
   const uri = draft.fields.coverUri;
-  if (!uri) return listingDraftOffer(draft, false);
+  if (!uri) return listingDraftOffer(draft, false, now());
   let there = false;
   try { there = await probe(uri); } catch { there = false; }
-  return listingDraftOffer(draft, there);
+  return listingDraftOffer(draft, there, now());
 }
 
 // ─── Copy ──────────────────────────────────────────────────────────────────────

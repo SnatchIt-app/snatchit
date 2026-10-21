@@ -39,7 +39,7 @@ vi.mock('@/src/lib/supabase', () => ({ supabase: { auth: { onAuthStateChange: ()
 const NOW = new Date(2026, 9, 21, 12, 0, 0);
 const fields = (over: Partial<ListingDraftFields> = {}): ListingDraftFields => ({
   eventName: 'Weekend pool party', venue: 'LIV Miami', neighborhood: 'south beach', category: 'nightlife',
-  eventDate: new Date(2026, 9, 25), eventTime: new Date(2026, 9, 21, 22), ticketType: 'GA', quantity: 1,
+  eventDate: new Date(2026, 9, 25), eventTime: new Date(2026, 9, 21, 22), dateChosen: true, ticketType: 'GA', quantity: 1,
   transferMethod: 'email', restrictions: '', startingBid: '40', buyNowEnabled: false, buyNowPrice: '',
   durationHours: 24, ticketPlatform: 'other', coverUri: null, ...over,
 });
@@ -120,6 +120,24 @@ describe('DS2 · what is refused on read is also removed', () => {
   it('DS2d: a draft whose event date has passed is discarded on load', async () => {
     const { mem, storage } = memStorage({ [KEY_A]: serializeListingDraft(fields({ eventDate: new Date(2026, 9, 20) }), NOW) });
     const store = createListingDraftStore(storage, { now: () => NOW });
+    expect(await store.load('user-a')).toBeNull();
+    expect(mem.has(KEY_A)).toBe(false);
+  });
+
+  it('DS2d2 (LD-R2): a draft saved with the screen’s default date is still offered the next day — and kept', async () => {
+    // The seller typed a name, a venue and a price on the 21st and never touched the date row, which
+    // starts at today. After midnight that default is "yesterday", but it was never their choice.
+    const { mem, storage } = memStorage();
+    let clock = NOW;
+    const store = createListingDraftStore(storage, { now: () => clock });
+    store.handleAuthChange('INITIAL_SESSION', session('user-a'));
+    expect(await store.save('user-a', fields({ eventName: 'Rolling Loud Saturday', eventDate: new Date(2026, 9, 21), dateChosen: false }))).toBe(true);
+    clock = new Date(2026, 9, 22, 9, 0);
+    const d = await store.load('user-a');
+    expect(d?.fields.eventName).toBe('Rolling Loud Saturday');
+    expect(mem.has(KEY_A)).toBe(true);
+    // the same draft with the date picked is a past event, and goes
+    expect(await store.save('user-a', fields({ eventDate: new Date(2026, 9, 21), dateChosen: true }))).toBe(true);
     expect(await store.load('user-a')).toBeNull();
     expect(mem.has(KEY_A)).toBe(false);
   });
