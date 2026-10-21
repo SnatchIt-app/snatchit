@@ -48,7 +48,7 @@ Prepared 2026-10-21 (read-only evidence; nothing executed). Each row lists what 
 - Vercel holds an **expired** `*.snatchitapp.com` cert (Let's Encrypt, expired 2026-10-07 13:48Z). It is not in `/v8/certs`, and Vercel serves it for any un-certified subdomain. Hence the order **issue the cert → verify with `--resolve 76.76.21.21` → only then DNS only**.
 - `snatchitapp.com` is registered **at Vercel** (bought 2026-05-08, auto-renew, expires 2027-05-08) with Cloudflare nameservers. Never use account-level `vercel domains rm` on anything under it.
 - The Vercel team also hosts non-Snatch It projects (4), which is relevant to H-08 billing.
-- PRs: #116 (console Next patch), #120 (this package), #121 (admin v2), #122 (venue readiness), #123 (venue_api 159), #124 (manual refund SOP). All drafts.
+- PRs: #116 (console Next patch), #120 (this package), #121 (admin v2), #122 (venue readiness), #123 (venue_api 159; A's review PASS), #124 (manual refund SOP; A signed off the money wording), #134 (live-console relist contract; must deploy before A's 158). All drafts.
 
 
 ## E. Venue product scope — owner decisions (recorded with D; F and D build none of these)
@@ -74,3 +74,11 @@ D checked D's approved feature list against the owner's records on 2026-10-21. T
 | O-7 | Hosted admin preview | The sandbox has no `ops` schema and admin has no fixture mode | (c) local previews only for now; (a) a separate non-production Supabase project later if wanted | — |
 | O-8 | Production payment count (analytics) | v2's money charts call `money_overview` up to 55 times per page; the production payment count has never been read, and AN-1 (`ops.money_timeseries`) is unwritten | Authorise one read-only count; A numbers AN-1 if the count is large | — |
 | O-9 | Legacy evidence in the public `auction-media` bucket | Old proof images live in a public bucket | Owner decides whether to move them; the console already fails closed on them | — |
+| O-10 | Refund after a released payout | The manual refund SOP (#124) must not be used for these orders until there is a ruling. No console action can hold a payout | Owner rules on whether and how, with A's analysis | — |
+| O-11 | Approve the manual refund SOP for use (#124) | A signed off the money wording. The SOP is still DRAFT and not usable until the owner approves it | Approve once #124 is read | revert the doc |
+| O-12 | Deploy order for the relist protection | A's 158 makes relist require the listing version. A console without #134 (or #121) then fails every relist with "out of date" | **#134 (or #121) deployed first, then 157 (#118), then 158 (#125)** | Instant Rollback; do not roll back the console after 158 unless 158 is rolled back first |
+
+## G. Venue exposure (from A's review of #123)
+| ID | Decision | Why | Default recommendation | Reversible how |
+|---|---|---|---|---|
+| V-13 | Draft-event ticket visibility, before exposing `venue_api` | Base policy 081 `venue_ticket_type_sel_public` lets any signed-in user read a public ticket type, and its batch's remaining count, on a DRAFT event. The views don't widen this, but exposing `venue_api` makes it readable over REST | **Fix it before exposure**: a separate migration that requires a non-draft parent event on the public arms of `venue.ticket_type` and `venue.inventory_batch` (A numbers it). Alternatively, accept it while the catalog is empty (production has 0 venues) | the migration's rollback; remove the exposure |

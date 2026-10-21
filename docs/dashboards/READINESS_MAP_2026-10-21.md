@@ -30,6 +30,7 @@ This map comes from read-only evidence: git refs, Vercel API GETs, public `curl`
 | #122 | `venue/production-readiness` → `venue/dashboard-v2` | Acceptance kit merged and re-pinned to 159, secret-key refusal, loading state, mode-aware copy, fail-closed entry, resale scope, Secure/HttpOnly own-name cookies, HSTS, `.vercelignore`, Next 16.3.8 |
 | #123 | `venue/api-read-views-provisional` → `fix/154-listing-visibility-20261015` | `venue_api` views as registry 159 / pgTAP 226 (A allocated them in PR #115), four-file rule, local replay evidence. Comes to A before it leaves draft |
 | #124 | `admin/manual-refund-sop` → `admin/operating-console` | A current manual refund procedure (DRAFT until A reviews the money wording) |
+| #134 | `admin/console-relist-expected` → `admin/operating-console` | The live console sends the listing version for relist (A's 158 contract). Must deploy **before** 158 |
 | #120 | `docs/dashboards-hosting-package` → `admin/operating-console` | This map, both hosting runbooks and the owner decision list |
 
 Never merge a venue branch, or the old admin v2 branch, wholesale: they inherit non-dashboard `supabase/`, `app/` and `src/` content. Each ships its own app folder only, and never through `main`.
@@ -39,7 +40,7 @@ Never merge a venue branch, or the old admin v2 branch, wholesale: they inherit 
 **Admin**
 1. Owner merges #116, moves the pin, redeploys. Operators reload their tabs.
 2. Cut over the domain on the current commit, `ADMIN_HOSTING` A0–A6: domain add, wait for the cert, DNS-only CNAME, env, founder check, legacy redirect.
-3. A finishes 157/158. The console relist change (send `expected.updated_at` plus state) ships **before** 158 is applied.
+3. Deploy #134 (or #121, if v2 ships first), then the owner authorises 157 (#118) and then 158 (#125).
 4. Owner decides O-1 (v2 replaces the live UI). Merge the v2 integration PR, pin, deploy, founder signed-in check (also closes the suspension-render gap).
 5. Alert delivery (O-2), then the detector (O-3), then money-switch governance (O-4).
 
