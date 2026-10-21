@@ -72,14 +72,37 @@ export function classifyReturnPath(raw: unknown): ReturnTarget | null {
   // An empty segment means '//' or a trailing '/': rejected with everything else that is not plain.
   const segments = pathOnly.slice(1).split('/');
   if (!segments.every((s) => SEGMENT.test(s))) return null;
-  for (const { route, scope } of RETURN_TO_ROUTES) {
-    const pattern = route.split('/');
+  const match = matchReturnRoute(segments);
+  return match ? { path: pathOnly as ReturnToPath, scope: match.entry.scope } : null;
+}
+
+type ReturnToRoute = (typeof RETURN_TO_ROUTES)[number];
+/** The root Stack screen names the allowlist can open (each is a Stack.Screen in app/_layout.tsx). */
+export type ReturnToRouteName = ReturnToRoute['route'];
+
+function matchReturnRoute(segments: string[]): { entry: ReturnToRoute; id: string | null } | null {
+  for (const entry of RETURN_TO_ROUTES) {
+    const pattern = entry.route.split('/');
     if (pattern.length !== segments.length) continue;
     if (pattern.every((p, i) => p === '[id]' || p === segments[i])) {
-      return { path: pathOnly as ReturnToPath, scope };
+      const at = pattern.indexOf('[id]');
+      return { entry, id: at === -1 ? null : segments[at] };
     }
   }
   return null;
+}
+
+/**
+ * The root Stack route an allowlisted screen opens as — its route name and, for a dynamic screen, its id — or
+ * null for anything classifyReturnPath rejects. Used to open a remembered screen on top of the tabs
+ * (returnToNav.ts); the name is always one of RETURN_TO_ROUTES, never built from the path.
+ */
+export function returnToStackRoute(raw: unknown): { name: ReturnToRouteName; params?: { id: string } } | null {
+  const target = classifyReturnPath(raw);
+  if (!target) return null;
+  const match = matchReturnRoute(target.path.slice(1).split('/'));
+  if (!match) return null;
+  return match.id === null ? { name: match.entry.route } : { name: match.entry.route, params: { id: match.id } };
 }
 
 /** The user id a phase carries, or null when signed out. */

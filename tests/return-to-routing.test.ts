@@ -123,27 +123,32 @@ describe('root layout wiring', () => {
     expect(layout).toMatch(/rootRouteDecision\(\{[\s\S]{0,400}navigatorReady: fontsReady,\s*returnTo: peekReturnTo\(userIdOfPhase\(phase\)\),\s*\}\);/);
   });
 
-  it('RL2: the destination is settled only when the decision navigates, before the one replace', () => {
+  it('RL2: the destination is settled only when the decision navigates, before the one navigation', () => {
     const effect = body.slice(body.indexOf('rootRouteDecision({'));
     const gate = effect.indexOf('if (!decision.navigate) return;');
     const settle = effect.indexOf('settleReturnToOnRoute({ phase, lastRoutedPhase: routedPhaseRef.current, pathname: pathnameRef.current, sessionEnd: peekSessionEnd() });');
     const record = effect.indexOf('routedPhaseRef.current = phase;');
-    const nav = effect.indexOf('router.replace(decision.to);');
+    const nav = effect.indexOf('if (!restoreOnTabs(decision.to, navigationRef.current)) router.replace(decision.to);');
     expect(gate).toBeGreaterThan(-1);
     expect(settle).toBeGreaterThan(gate);
     expect(record).toBeGreaterThan(settle);
     expect(nav).toBeGreaterThan(record);
   });
 
-  it('RL3: the pathname reaches the effect through a ref from the capture hook, never as a dependency', () => {
-    expect(body).toMatch(/const pathnameRef = useRef<string \| null>\(null\);\s*useReturnToCapture\(\{ phase: authPhase\(session\), held: isRecovery \|\| onboarding, routedPhaseRef, pathnameRef \}\);/);
+  it('RL3: the pathname and the navigation container reach the effect through refs from the capture hook, never as dependencies', () => {
+    expect(body).toMatch(/const pathnameRef = useRef<string \| null>\(null\);\s*const navigationRef = useRef<RootNavigation \| null>\(null\);\s*useReturnToCapture\(\{ phase: authPhase\(session\), held: isRecovery \|\| onboarding, routedPhaseRef, pathnameRef, navigationRef \}\);/);
     expect(layout).toMatch(/import \{ useReturnToCapture \} from '@\/src\/hooks\/useReturnToCapture';/);
+    expect(layout).toMatch(/import \{ restoreOnTabs, type RootNavigation \} from '@\/src\/lib\/auth\/returnToNav';/);
     // the pinned expo-router import is unchanged (unsaved-guard-native-dismiss)
     expect(read('app/_layout.tsx')).toContain("import { router, Stack, useSegments } from 'expo-router';");
   });
 
-  it('RL4: the layout lands on the screen only — one replace, no bid, checkout or payment code', () => {
-    expect((body.match(/router\.(replace|push|navigate|dismissTo)\(/g) ?? [])).toEqual(['router.replace(']);
+  it('RL4: the layout lands on the screen only — one replace or one restore, no bid, checkout or payment code', () => {
+    // RAS-1: a remembered screen opens through restoreOnTabs (a reset to [tabs, screen]); everything else is the
+    // one replace, as before. Neither call can run unless the decision navigated (RL2).
+    expect((body.match(/router\.(replace|push|navigate|dismissTo|dismissAll)\(/g) ?? [])).toEqual(['router.replace(']);
+    expect((body.match(/restoreOnTabs\(/g) ?? [])).toEqual(['restoreOnTabs(']);
+    expect(body).not.toMatch(/\.reset\(|resetRoot\(/);
     const imports = layout.match(/^import [\s\S]*?from '[^']+';$/gm) ?? [];
     expect(imports.length).toBeGreaterThan(10);
     for (const line of imports) expect(line).not.toMatch(/payments|bid|checkout|reserv|transfer/i);
@@ -152,8 +157,9 @@ describe('root layout wiring', () => {
 
   it('RL5: the capture hook fires on a change of pathname only, and stores a signed-out public screen with no owner', () => {
     const hook = strip(read('src/hooks/useReturnToCapture.ts'));
-    expect(hook).toMatch(/import \{ usePathname \} from 'expo-router';/);
+    expect(hook).toMatch(/import \{ useNavigationContainerRef, usePathname \} from 'expo-router';/);
     expect(hook).toMatch(/input\.pathnameRef\.current = pathname;/);
+    expect(hook).toMatch(/input\.navigationRef\.current = useNavigationContainerRef\(\);/);
     expect(hook).toMatch(/if \(shouldCaptureOnEntry\(\{ phase, held, routedPhase: routedPhaseRef\.current \}\)\) captureReturnTo\(pathname, null\);\s*\}, \[pathname\]\);/);
     expect(hook).not.toMatch(/router\./);
   });

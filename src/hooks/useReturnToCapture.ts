@@ -9,13 +9,17 @@
  *    bid" from a listing — it remembers that screen with no owner. It runs on a change of pathname only, so the
  *    render in which a session expires (same screen, new phase) can never overwrite the expiry capture the
  *    routing effect makes for that user.
+ * 3. It writes expo-router's navigation container into the root's own ref (review RAS-1), so a sign-in that
+ *    returns to a remembered screen can open it with the tabs under it (returnToNav.ts) — again without adding
+ *    to the pinned dependency list.
  *
  * Kept out of app/_layout.tsx so the root's pinned expo-router import line stays as it is.
  */
-import { usePathname } from 'expo-router';
+import { useNavigationContainerRef, usePathname } from 'expo-router';
 import { useEffect, useRef } from 'react';
 
 import { captureReturnTo, shouldCaptureOnEntry } from '@/src/lib/auth/returnTo';
+import type { RootNavigation } from '@/src/lib/auth/returnToNav';
 import type { AuthPhase } from '@/src/lib/auth/rootRoute';
 
 export interface ReturnToCaptureInput {
@@ -27,11 +31,14 @@ export interface ReturnToCaptureInput {
   routedPhaseRef: { readonly current: AuthPhase | null };
   /** RootLayout's ref for the current pathname, written on every render. */
   pathnameRef: { current: string | null };
+  /** RootLayout's ref for expo-router's navigation container, written on every render. */
+  navigationRef: { current: RootNavigation | null };
 }
 
 export function useReturnToCapture(input: ReturnToCaptureInput): void {
   const pathname = usePathname();
   input.pathnameRef.current = pathname;
+  input.navigationRef.current = useNavigationContainerRef();
   // The latest phase and hold, read by the entry effect without making them reasons to re-run it.
   const inputRef = useRef(input);
   inputRef.current = input;

@@ -36,6 +36,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { clearRecoveryPending, markRecoveryPending, recoveryPendingFor } from '@/src/lib/auth/recoveryMarker';
 import { useRecoveryHold } from '@/src/lib/auth/recoveryHold';
 import { clearReturnTo, peekReturnTo, settleReturnToOnRoute, userIdOfPhase } from '@/src/lib/auth/returnTo';
+import { restoreOnTabs, type RootNavigation } from '@/src/lib/auth/returnToNav';
 import { peekSessionEnd } from '@/src/lib/auth/sessionEnd';
 import { useReturnToCapture } from '@/src/hooks/useReturnToCapture';
 import ErrorBoundary from '@/src/components/ErrorBoundary';
@@ -187,10 +188,12 @@ function RootLayout() {
   // K-2: whether the current route is inside the signed-in area (the tabs).
   const inSignedInArea = (segments as string[])[0] === '(tabs)';
 
-  // CFT-603: where the person is, for return after sign-in. The routing effect reads it through this ref, so its
-  // dependency list stays as pinned (K6); the hook also remembers a public screen a signed-out person enters.
+  // CFT-603: where the person is, for return after sign-in, and the navigation container a return opens it on.
+  // The routing effect reads both through these refs, so its dependency list stays as pinned (K6); the hook also
+  // remembers a public screen a signed-out person enters.
   const pathnameRef = useRef<string | null>(null);
-  useReturnToCapture({ phase: authPhase(session), held: isRecovery || onboarding, routedPhaseRef, pathnameRef });
+  const navigationRef = useRef<RootNavigation | null>(null);
+  useReturnToCapture({ phase: authPhase(session), held: isRecovery || onboarding, routedPhaseRef, pathnameRef, navigationRef });
 
   // Navigation is a separate concern and runs only on a real phase boundary — and, while signed out,
   // whenever a deep link has put the person inside the signed-in area.
@@ -214,7 +217,9 @@ function RootLayout() {
     // consumed; a first signed-out route remembers the screen login replaces; an expiry remembers it for its user.
     settleReturnToOnRoute({ phase, lastRoutedPhase: routedPhaseRef.current, pathname: pathnameRef.current, sessionEnd: peekSessionEnd() });
     routedPhaseRef.current = phase;
-    router.replace(decision.to);
+    // CFT-603 (RAS-1): a remembered screen opens with the tabs under it and no Sign in below it (returnToNav.ts);
+    // Home and login are replaced exactly as before.
+    if (!restoreOnTabs(decision.to, navigationRef.current)) router.replace(decision.to);
   }, [session, routingLoading, isRecovery, onboarding, inDevHarness, inSignedInArea, fontsReady]);
 
   // Reduce Motion: every push and pop still happens, as a cross-fade (CFT-206).
