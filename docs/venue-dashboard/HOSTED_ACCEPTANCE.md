@@ -174,8 +174,8 @@ tester; never share tokens in chat.
 1. From §0.5: if `keys` is non-empty the project signs with an asymmetric key and `getClaims()`
    verifies locally against JWKS; if empty (HS256), supabase-js falls back to `GET /auth/v1/user`.
    Record which.
-2. Decode the session cookie's access token header (`sb-<REF>-auth-token`, base64url JSON; read
-   only the `alg`/`kid`, never share the token): record `alg`.
+2. Decode the session cookie's access token header (`sb-venue-auth-token` or its `.0`/`.1`
+   chunks, base64url JSON; read only the `alg`/`kid`, never share the token): record `alg`.
 3. Negative: edit one character of the cookie value in DevTools → reload `A/events` → must render
    **"Sign in to continue"** (tampered token rejected), never data.
 
@@ -212,7 +212,7 @@ q "my_staff_roles" ; q "my_org_roles"                                           
 
 ### 5.6 Logout (H6)
 Signed in as any user: click **Sign out** → lands on `/login`; back-navigate to `A/events` →
-**"Sign in to continue"**; the `sb-<REF>-auth-token` cookie is gone; Authentication → Users shows
+**"Sign in to continue"**; the `sb-venue-auth-token` cookie is gone; Authentication → Users shows
 the session ended (last sign-in unchanged, no active session).
 
 ### 5.7 No cross-user caching (H7)

@@ -5,6 +5,10 @@
  *     never sent to admin.snatchitapp.com, snatchitapp.com or any other sibling host;
  *   - they are Secure (never sent over plain http) and HttpOnly (no script can read the refresh
  *     token): every Supabase call is server-side, so no browser code needs the session;
+ *   - they have the venue's own name (sb-venue-auth-token), not @supabase/ssr's default
+ *     sb-<first host label>-auth-token, which admin also uses: on localhost both apps share the host
+ *     (browsers do not separate cookies by port) and the same Supabase URL, so the default name made the
+ *     venue's HttpOnly cookie take the place of admin's;
  *   - production responses carry HSTS (max-age only: no includeSubDomains, no preload);
  *   - sign-out redirects with a relative Location;
  *   - no absolute URL is hard-coded in src/, and the security headers carry no host.
@@ -29,12 +33,14 @@ vi.mock("next/headers", () => ({
 }));
 
 const URL_LOCAL = "http://localhost:3202"; // never reached: fetch is stubbed
-const COOKIE = "sb-localhost-auth-token"; // @supabase/ssr: sb-<first host label>-auth-token
+const COOKIE = "sb-venue-auth-token"; // lib/supabase/cookies.ts (cookieOptions.name)
+const ADMIN_LOCAL = "sb-localhost-auth-token"; // @supabase/ssr default for URL_LOCAL: admin's cookie on localhost
 const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");
 // Built at runtime (unsigned, HS256 header) so no token-shaped literal is committed.
 const token = (exp: number) => [b64({ alg: "HS256", typ: "JWT" }), b64({ sub: "u1", role: "authenticated", aud: "authenticated", exp, iat: exp - 3600, email: "m@example.test", aal: "aal1", session_id: "s1" }), "unsigned"].join(".");
 const user = { id: "u1", aud: "authenticated", role: "authenticated", email: "m@example.test", app_metadata: {}, user_metadata: {}, created_at: "2026-10-21T00:00:00Z" };
-const session = (exp: number, refresh = "refresh-new") => ({ access_token: token(exp), refresh_token: refresh, token_type: "bearer", expires_in: exp - Math.floor(Date.now() / 1000), expires_at: exp, user });
+let bigSession = false; // a session too large for one cookie (@supabase/ssr chunks above 3180 characters)
+const session = (exp: number, refresh = "refresh-new") => ({ access_token: token(exp), refresh_token: refresh, token_type: "bearer", expires_in: exp - Math.floor(Date.now() / 1000), expires_at: exp, user: bigSession ? { ...user, user_metadata: { pad: "x".repeat(5000) } } : user });
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 const gotrue = vi.fn(async (input: RequestInfo | URL) => {
   const url = String(input instanceof Request ? input.url : input);
@@ -47,6 +53,7 @@ const gotrue = vi.fn(async (input: RequestInfo | URL) => {
 
 beforeEach(() => {
   vi.resetModules();
+  bigSession = false;
   jar.cookies = [];
   jar.set = [];
   gotrue.mockClear();
@@ -72,6 +79,7 @@ const hostOnly = (options: Record<string, unknown>) => {
   expect(options.sameSite).toBe("lax");
   expect(options.secure).toBe(true);
   expect(options.httpOnly).toBe(true);
+  expect(options.name).toBeUndefined(); // cookieOptions.name never leaks into a cookie's own options
 };
 
 describe("session cookies are host-only (no Domain attribute), Secure and HttpOnly", () => {
@@ -112,6 +120,55 @@ describe("session cookies are host-only (no Domain attribute), Secure and HttpOn
       hostOnly(c.options);
       expect(c.value).toBe("");
     });
+  });
+});
+
+describe("the venue cookie has its own name and never touches admin's on localhost", () => {
+  it("sign-in writes only sb-venue-auth-token[.N] (and its PKCE verifier), never the default sb-<host>-auth-token", async () => {
+    const { createSupabaseServerClient } = await import("@/lib/supabase/server");
+    const sb = await createSupabaseServerClient();
+    await sb.auth.signInWithPassword({ email: "m@example.test", password: "placeholder" });
+    expect(jar.set.length).toBeGreaterThan(0);
+    for (const c of jar.set) expect(c.name).toMatch(/^sb-venue-auth-token(\.\d+|-code-verifier)?$/);
+    expect(jar.set.some((c) => c.name.startsWith(ADMIN_LOCAL))).toBe(false);
+  });
+  it("the proxy does not read admin's cookie as a venue session: no refresh, no Set-Cookie for it", async () => {
+    const { refreshSession } = await import("@/lib/supabase/proxy");
+    const adminExpired = `base64-${b64(session(Math.floor(Date.now() / 1000) - 120, "admin-refresh"))}`;
+    const res = await refreshSession(new NextRequest("http://localhost:3300/o/x/v/y/events", { headers: { cookie: `${ADMIN_LOCAL}=${adminExpired}` } }));
+    expect(gotrue.mock.calls.some(([u]) => String(u).includes("grant_type=refresh_token"))).toBe(false);
+    expect(res.headers.getSetCookie().filter((c) => c.startsWith(ADMIN_LOCAL))).toEqual([]);
+  });
+  it("sign-out clears the venue cookie and leaves admin's alone", async () => {
+    const live = `base64-${b64(session(Math.floor(Date.now() / 1000) + 3600))}`;
+    jar.cookies = [
+      { name: ADMIN_LOCAL, value: live },
+      { name: COOKIE, value: live },
+    ];
+    const { POST } = await import("@/app/logout/route");
+    const logout: RouteHandler = POST;
+    await logout(logoutRequest());
+    expect(jar.set.filter((c) => c.name.startsWith(COOKIE)).length).toBeGreaterThan(0);
+    expect(jar.set.filter((c) => c.name.startsWith(ADMIN_LOCAL))).toEqual([]);
+  });
+  it("a session too large for one cookie is chunked under the venue name in the proxy's Set-Cookie", async () => {
+    bigSession = true;
+    const { refreshSession } = await import("@/lib/supabase/proxy");
+    const expired = `base64-${b64(session(Math.floor(Date.now() / 1000) - 120, "refresh-old"))}`;
+    const res = await refreshSession(new NextRequest("http://localhost:3300/o/x/v/y/events", { headers: { cookie: `${COOKIE}.0=${expired.slice(0, 3000)}; ${COOKIE}.1=${expired.slice(3000)}` } }));
+    expect(gotrue.mock.calls.some(([u]) => String(u).includes("grant_type=refresh_token"))).toBe(true);
+    const names = res.headers.getSetCookie().map((c) => c.split("=")[0]);
+    expect(names).toContain(`${COOKIE}.0`);
+    expect(names).toContain(`${COOKIE}.1`);
+    expect(names.some((n) => n.startsWith(ADMIN_LOCAL))).toBe(false);
+  });
+  it("the acceptance kit still finds the cookie under this name, whole or chunked", async () => {
+    const { authCookie } = await import("../scripts/acceptance/lib/checks.mjs");
+    const { sessionCookieOptions } = await import("@/lib/supabase/cookies");
+    const name = sessionCookieOptions().name!;
+    const v = `base64-${b64(session(2000000000))}`;
+    expect(authCookie([{ name, value: v }])?.base).toBe(name);
+    expect(authCookie([{ name: `${name}.1`, value: v.slice(9) }, { name: `${name}.0`, value: v.slice(0, 9) }])?.session.expires_at).toBe(2000000000);
   });
 });
 
