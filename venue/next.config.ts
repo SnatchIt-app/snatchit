@@ -4,10 +4,14 @@ import type { NextConfig } from "next";
 const isDev = process.env.NODE_ENV === "development";
 
 /**
- * Preview build: self-only CSP. There is deliberately no connect-src entry for
- * Supabase or Stripe — this app has no backend client at all (see
- * src/lib/data.ts). If a future wiring adds one, the origin must be added here
- * on purpose, not inherited.
+ * Self-only CSP in both modes. There is deliberately no connect-src entry for
+ * Supabase or Stripe: the browser never calls a backend. Fixture mode has no
+ * backend client at all; database mode runs every Supabase call (sign-in,
+ * session refresh, venue_api reads) on the server (src/lib/supabase/server.ts,
+ * src/lib/supabase/proxy.ts), so the page only ever talks to 'self'. If a
+ * future change adds a browser-side call, its origin must be added here on
+ * purpose, not inherited. No value here is host-specific, so the same policy
+ * serves the preview host and venue.snatchitapp.com.
  */
 const csp = [
   "default-src 'self'",

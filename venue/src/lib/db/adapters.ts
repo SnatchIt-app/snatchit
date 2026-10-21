@@ -10,7 +10,7 @@ import type { Event, InventoryBatch, TicketType } from "@/lib/types";
 /**
  * Authenticated read adapters — slice 1 (events list + event setup, read side).
  *
- * Every read goes through the `venue_api` schema (six security_invoker views;
+ * Every read goes through the `venue_api` schema (eight security_invoker views;
  * migration 20260910120000). Authorization is the base tables' RLS and column
  * grants evaluated as the signed-in user; this file adds nothing and hides
  * nothing. The UI role switch never reaches this layer.
@@ -39,13 +39,14 @@ async function select<T>(read: string, q: PromiseLike<{ data: T | null; error: {
 }
 
 /**
- * The route venue's own org, read as the caller (venue_api.venues: approved venues, the org plane, and the
- * venue's own staff can read the row). null = not readable, which the entry policy treats as no access.
+ * The route venue's own org (and its display name), read as the caller (venue_api.venues: approved venues,
+ * the org plane, and the venue's own staff can read the row). null = not readable, which the entry policy
+ * treats as no access.
  */
 export async function dbVenueScope(venueId: string): Promise<ReadResult<VenueScopeRow | null>> {
   const cl = await client("venue_api.venues");
   if (!cl.ok) return cl;
-  const rows = await select<VenueScopeRow[]>("venue_api.venues", cl.c.from("venues").select("venue_id,org_id").eq("venue_id", venueId).limit(1));
+  const rows = await select<VenueScopeRow[]>("venue_api.venues", cl.c.from("venues").select("venue_id,org_id,name").eq("venue_id", venueId).limit(1));
   if (!rows.ok) return rows;
   return { ok: true, data: rows.data[0] ?? null };
 }

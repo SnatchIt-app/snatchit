@@ -2,7 +2,7 @@
   "name": "venue",
   "version": "0.1.0",
   "private": true,
-  "description": "Snatch It venue dashboard — owner-reviewable PREVIEW over sample fixtures. No backend, no writes.",
+  "description": "Snatch It venue dashboard. Sample fixtures by default (the demo); database mode reads venue_api server-side as the signed-in user. Read-only: no write path is wired.",
   "scripts": {
     "dev": "next dev --port 3300",
     "build": "next build",

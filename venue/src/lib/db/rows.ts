@@ -68,7 +68,8 @@ export function mapBatches(rows: BatchRow[]): InventoryBatch[] {
   }));
 }
 
-export type VenueScopeRow = { venue_id: string; org_id: string };
+/** `name` is display-only (the events eyebrow); entry is decided by venue_id/org_id alone. */
+export type VenueScopeRow = { venue_id: string; org_id: string; name?: string | null };
 export type StaffRoleRow = { venue_id: string; role: string };
 export type OrgRoleRow = { org_id: string; role: string };
 
