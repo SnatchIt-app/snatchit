@@ -15,7 +15,7 @@ import VenueLoading from "@/app/o/[org]/v/[venue]/loading";
 import { EventsTable } from "@/components/events/EventsTable";
 import { mapBatches } from "@/lib/db/rows";
 import type { Event, TicketType } from "@/lib/types";
-import { roleLabelClaimed } from "../scripts/acceptance/lib/checks.mjs";
+import { roleLabelClaimed, waitSettled } from "../scripts/acceptance/lib/checks.mjs";
 
 const kit = readFileSync(new URL("../scripts/acceptance/accept.mjs", import.meta.url), "utf8");
 function marker(name: string): string {
@@ -80,6 +80,24 @@ describe("the kit waits out the route loading state before reading a page", () =
     const attr = selector.match(/^\[([a-z-]+)\]$/)?.[1];
     expect(attr).toBeTruthy();
     expect(renderToStaticMarkup(<VenueLoading />)).toMatch(new RegExp(`<[^>]+ ${attr}=`));
+  });
+  // lib/cdp.mjs waitFor resolves false on timeout. If settled() ignored that, a page stuck on the skeleton
+  // would be read as rendered, and a negative-only check (`!t.includes(TITLE.e1)`) would pass vacuously.
+  it("settled() fails when the loading state never clears, instead of reading the skeleton", async () => {
+    const selector = marker("ROUTE_LOADING");
+    expect(kit).toMatch(/^const settled = \(page\) => waitSettled\(page, ROUTE_LOADING, \d+\);$/m);
+    const stuck = { waitFor: async () => false, url: async () => "http://localhost:3300/o/a/v/b/events" };
+    await expect(waitSettled(stuck, selector, 20)).rejects.toThrow(/still showing after 20 ms at http:\/\/localhost:3300\/o\/a\/v\/b\/events/);
+    let waitedOn = "";
+    const rendered = {
+      waitFor: async (js: string) => {
+        waitedOn = js;
+        return true;
+      },
+      url: async () => "",
+    };
+    await expect(waitSettled(rendered, selector, 20)).resolves.toBe(true);
+    expect(waitedOn).toBe(`!document.querySelector(${JSON.stringify(selector)})`);
   });
   it("the kit's P1 grant-less check does not trip on the denial's own 'a venue manager … can give you access' line", () => {
     const t = text(<EntryGate entry={{ kind: "denied" }} loginHref="/login" retryHref="/" />);

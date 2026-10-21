@@ -96,7 +96,8 @@ const DENIED = "isn't open to you.";
 const NO_GRANT = "holds no staff or organization role at this venue";
 // Role labels the app shows only once it has verified a grant: roleLabelClaimed() in lib/checks.mjs (unit-tested).
 // v2 streams every venue screen behind src/app/o/[org]/v/[venue]/loading.tsx. A client-side navigation (the redirect
-// after sign-in) commits the new URL while that fallback is still showing, so a page is read only once it is gone.
+// after sign-in) commits the new URL while that fallback is still showing, so a page is read only once it is gone;
+// settled() throws if it never goes (20 s), which records a FAIL for the phase rather than checking the skeleton.
 const ROUTE_LOADING = "[data-route-loading]";
 // v2 events list: remaining-only figure for the next session ("<n> still available"; the pre-v2 app said "<n> available").
 const REMAINING_A = "174 still available";

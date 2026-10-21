@@ -7,9 +7,16 @@
  * v2 streams every venue screen behind src/app/o/[org]/v/[venue]/loading.tsx. A client-side navigation (the
  * redirect after sign-in) commits the new URL while that fallback is still showing, so a page is read only
  * once the element matching `selector` is gone. `page` is a lib/cdp.mjs page (waitFor resolves false on timeout).
+ * A timeout throws: the phase then records a FAIL ("phase completed without error") and stops, instead of reading
+ * the skeleton as if the page had rendered, where a negative-only check would pass vacuously.
  */
 export async function waitSettled(page, selector, timeoutMs) {
-  return page.waitFor(`!document.querySelector(${JSON.stringify(selector)})`, timeoutMs);
+  if (await page.waitFor(`!document.querySelector(${JSON.stringify(selector)})`, timeoutMs)) return true;
+  let at = "an unknown page";
+  try {
+    at = await page.url();
+  } catch {}
+  throw new Error(`route loading state (${selector}) still showing after ${timeoutMs} ms at ${at}: the page never rendered, so nothing on it can be checked`);
 }
 
 // ---------------------------------------------------------------- P1: no role claimed without a grant
