@@ -2,7 +2,12 @@
 -- 20261021120000_venue_api_read_views.sql — a narrow, read-only API surface for
 -- the venue dashboard (slice 1: events list + event setup, read side).
 --
--- PROVISIONAL version and pgTAP number — A assigns the final ones in docs/release/MIGRATION_NUMBER_REGISTRY.md on origin/release/candidate-20260918
+-- Registry 159 / pgTAP 226, allocated by A in PR #115 (origin/a/registry-20261021).
+-- A reviews before this leaves draft. The version 20261021120000 is the one
+-- the provisional copy carried, unchanged. Only the pgTAP number moved
+-- (224 -> 226, because 224 and 225 belong to registry rows 157 and 158 of A).
+-- ORDER: 159 merges and applies only AFTER 157 (20261021100000) and 158
+-- (20261021110000), the registry order. Otherwise A must re-timestamp.
 --
 -- PROVENANCE. Re-timestamped copy of origin/venue/dashboard-v2
 -- supabase/migrations/20260910120000_venue_api_read_views.sql (blob 80cf2762,
@@ -44,7 +49,7 @@
 -- only. `anon` gets nothing (the dashboard has no anonymous surface, spec §5),
 -- even though catalog.* is anon-readable at the table level.
 -- Four-file rule: the grant-decision manifest and expected_grants.txt read
--- `public` only, so neither carries a venue_api row. pgTAP 224 asserts the
+-- `public` only, so neither carries a venue_api row. pgTAP 226 asserts the
 -- exact venue_api privilege matrix instead. No function is created.
 --
 -- Rollback: supabase/rollbacks/20261021120000_venue_api_read_views_rollback.sql

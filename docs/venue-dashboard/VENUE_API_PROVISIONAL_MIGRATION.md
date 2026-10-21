@@ -1,8 +1,16 @@
-# venue_api read views: provisional migration 20261021120000 (pgTAP 224)
+# venue_api read views: migration 20261021120000 (registry 159, pgTAP 226)
 
-> **PROVISIONAL version and pgTAP number.** A assigns the final ones in
-> `docs/release/MIGRATION_NUMBER_REGISTRY.md` on `origin/release/candidate-20260918`.
-> Until then `20261021120000` and `224` are placeholders.
+> **Registry 159 / pgTAP 226, allocated by A in PR #115 (`origin/a/registry-20261021`); A
+> reviews before this leaves draft.** The registry draft is `origin/a/registry-20261021` @
+> `b4b3df69`. Row 159 keeps the file `20261021120000_venue_api_read_views.sql` with the
+> version unchanged. Only the pgTAP number moved, from the provisional 224 to 226, because 224
+> and 225 belong to A's 157 and 158. D's old `20260910120000` / pgTAP 188 is retired.
+>
+> **Order:** 159 merges and applies only after 157 (`20261021100000`) and 158
+> (`20261021110000`), the registry order. Otherwise A must re-timestamp (§2).
+>
+> The doc's file name still says "provisional". It is kept so the migration header's references
+> to it stay valid.
 >
 > **Applied nowhere.** It is not on production, the sandbox or any hosted project. Nothing in
 > this branch applies it, exposes it or writes production data. A reviews it first because it
@@ -16,10 +24,10 @@ are frozen and were not touched.
 |---|---|---|
 | `supabase/migrations/20261021120000_venue_api_read_views.sql` | `20260910120000_venue_api_read_views.sql` (blob `80cf2762`) | Header only. The SQL from `BEGIN;` to `COMMIT;` is byte-identical (sha256 `fb3cf536…1199e70` on both). |
 | `supabase/rollbacks/20261021120000_venue_api_read_views_rollback.sql` | `20260910120000_…_rollback.sql` (blob `114b94ed`) | Header only. The statements are byte-identical (sha256 `d191b761…27b7340`). |
-| `supabase/tests/224_venue_api_read_views.sql` | `188_venue_api_read_views.sql` (blob `7ed77132`, plan 47) | The 47 assertions are carried verbatim, fixture included. Nine assertions are new (plan 56), see §4.4. |
+| `supabase/tests/226_venue_api_read_views.sql` (provisionally `224`, renamed with `git mv`) | `188_venue_api_read_views.sql` (blob `7ed77132`, plan 47) | The 47 assertions are carried verbatim, fixture included. Nine assertions are new (plan 56), see §4.4. |
 
 Header fixes in the migration:
-- the provisional banner and a provenance paragraph
+- the registry banner (159 / 226, allocated by A, merge order) and a provenance paragraph
 - "SELECT on the six views" now reads "eight"
 - the rollback path
 - the exposure note now points at this file, because `SLICE1_HANDOFF.md` is not on this branch
@@ -90,10 +98,25 @@ only columns that are in this projection.
   Nothing numbered 082 or later is needed.
 - **Version:** `20261021120000` sorts after `20261015000200` (`LC_ALL=C`) and is prefix-free. On
   this branch it is the last of 172 files.
-- **pgTAP 224:** free on every local and `origin/*` ref (checked 2026-10-21). 220 is on
-  `fix/153-detect-refunds-state-on` and 221–223 are on this base.
-- **Possible collision:** A's duplicate refund/payout rule was told to use "pgTAP ≥ 224"
-  (STATUS.md:1112). A should allocate both numbers together.
+- **Numbers (registry 159, pgTAP 226):** A allocated both in PR #115
+  (`origin/a/registry-20261021` @ `b4b3df69`).
+  - 157 = `20261021100000_ops_money_action_unsettled_guard.sql` with pgTAP 224.
+  - 158 = `20261021110000_ops_listing_relist_expected.sql` with pgTAP 225.
+  - 159 = this file with pgTAP 226.
+  - The earlier line here said pgTAP 224 was "free on every local and `origin/*` ref". That was
+    wrong when it was committed: A's registry, pushed about five minutes earlier, already gave
+    224 to 157. The file is now `226_venue_api_read_views.sql`.
+  - 220 is on `fix/153-detect-refunds-state-on`, and 221–223 are on this base.
+- **Merge and apply order (registry order): 157 → 158 → 159.** Both of A's versions sort below
+  this one (`20261021100000` < `20261021110000` < `20261021120000`). So 159 merges into any
+  integration base and applies to any project (sandbox or production) only after 157 and 158.
+  The two ways the order can break:
+  - **159 merges first.** `migrations-guard.yml` rule 4 then fails 157 and 158, because neither
+    is greater than the latest existing ts migration (`20261021120000`).
+  - **159 is applied first.** 157 and 158 would then enter the ledger below its tip. That is the
+    ordering hazard the registry records for 125–128.
+
+  If that order cannot hold, A must re-timestamp before anything merges.
 
 ## 3. Base objects re-checked on this chain (step 3)
 
@@ -157,7 +180,7 @@ read-irrelevant items above. View semantics were not changed.
 | `supabase/ci/expected_grants.txt` | **Unchanged.** The CI query is `information_schema.role_table_grants WHERE table_schema='public'` and the file format `grantee\|table\|privs` has no schema column. | Negative control: adding the 8 `authenticated\|<view>\|SELECT` lines makes the CI diff FAIL (8 expected-only lines). Without them it is IDENTICAL (72 rows) before and after apply. | none |
 | rollback | Drops the 8 views, then the schema (not CASCADE). Restores the pre-apply catalog exactly and opens nothing. | §5.3: full-catalog fingerprint after rollback = pre-apply (3745 lines, md5 `65c5064b…`). | header only (statements byte-identical) |
 
-**Compensating control.** `venue_api` sits outside all three CI manifests, so pgTAP 224 is its CI
+**Compensating control.** `venue_api` sits outside all three CI manifests, so pgTAP 226 is its CI
 gate:
 - A10 (no grantee other than authenticated or the owner)
 - F1: the exact relation and column ACL, 8 × `authenticated:SELECT`
@@ -170,11 +193,12 @@ gate:
 Probe 1 shows that a function added to `venue_api` would not be caught by the manifest. A3
 catches it, and so does mutant m14 below.
 
-### 4.4 Why pgTAP 224 has nine more assertions than 188
+### 4.4 Why the suite has nine more assertions than 188 (first round)
 
-The 47 assertions of 188 were run against 14 planted migration mutants. Six survived:
+The 47 assertions of 188 were run against 14 planted migration mutants. Six survived. The suite
+was numbered 224 at the time and is now 226:
 
-| Mutant | 188 (47) | 224 (56) |
+| Mutant | 188 (47) | 224 (56), now 226 |
 |---|---|---|
 | m01 GRANT USAGE + SELECT on events to anon | killed (A6, A8, A10, C21) | killed (+F1, F2) |
 | m02 events without security_invoker | killed (A4, C15, C17, D1, D4) | killed |
@@ -202,6 +226,10 @@ E8 and E10 are controls: they show that the base table does return the other per
 and E11 assert that the view does not.
 
 ## 5. Local rehearsal evidence (2026-10-21, Homebrew PostgreSQL 17.11, localhost:5432)
+
+**This evidence is from commit `460d85f9`.** At that commit the suite was numbered 224, with
+plan 56. Every "224" below means that file, which is now `226_venue_api_read_views.sql`. The
+rename itself changes no SQL. The renamed file has not been re-run.
 
 **Environment and scope**
 - The local CI-equivalent replay is `scripts/local/replay.sh`:
@@ -305,32 +333,44 @@ On-disk totals for CI (`ls supabase/tests/*.sql`): 103 files and 5944 planned as
 Run these in order. Each step is owner-authorised on any hosted project.
 1. Remove `venue_api` from the Data API exposed schemas. That alone stops all API access. It is
    the fast reversal.
-2. Run `supabase/rollbacks/<FINAL>_venue_api_read_views_rollback.sql`. It is one transaction:
+2. Run `supabase/rollbacks/20261021120000_venue_api_read_views_rollback.sql`. It is one transaction:
    all or nothing.
-3. Delete the ledger row: `delete from supabase_migrations.schema_migrations where version = '<FINAL>';`.
+3. Delete the ledger row: `delete from supabase_migrations.schema_migrations where version = '20261021120000';`.
    This is a production write and is authorised separately.
 4. Run read-only checks R1–R3 (§7.6). Expected: `venue_api_absent = t`; views, grants,
    default_acl_rows and same_named_views_anywhere all 0; base_policies 19.
 
 ## 7. Owner and A steps (nothing here is authorised by this branch)
 
-1. **A assigns the final version and pgTAP number** in the authoritative registry
-   (`origin/release/candidate-20260918`). A also renames the three files and their header lines,
-   and records the row. The 188 row for `20260910120000` should then be marked superseded.
-   Every reference on `venue/dashboard-v2` and the kit must follow the final version. There are
-   17 files; these break if they are not updated:
+1. **Numbers: done by A, renamed here.** In PR #115 (`origin/a/registry-20261021` @
+   `b4b3df69`), A allocated registry 159 to `20261021120000_venue_api_read_views.sql`, with the
+   version unchanged, and pgTAP 226. This branch then did the rename (`git mv` of
+   `supabase/tests/224_…` to `226_…`) and updated the three header banners. Nothing else was
+   renamed: the migration and rollback keep their names.
+   - Still open for A: when PR #115 lands, mark the `20260910120000` / 188 row superseded. Row
+     159 already says "pgTAP 188 retired".
+   - Every reference on `venue/dashboard-v2` and in the kit still names `20260910120000` and
+     must follow `20261021120000`. That work is outside this branch's paths. There are 17 files,
+     and these break if they are not updated:
    - `venue/scripts/acceptance/sql/preflight.sql` (`ledger_has_venue_api`)
    - `verify-apply.sql` (ledger row name and statement count)
    - `accept.mjs:150-169`, which reads the migration path and expects 24 statements
    - `venue/src/lib/db/read-result.ts:25` (error text)
    - `adapters.ts:14` (comment)
    - `venue/tests/db-adapters.test.ts`
-2. **A reviews this branch.** Then a draft PR goes against the integration base A names. A
-   migration-bearing PR needs `AUTODEPLOY-VERIFIED-OFF: YYYY-MM-DD` in its description, and only
-   the owner can attest to that.
-3. **The owner authorises the apply.** It is a targeted single-file apply of the final file plus
-   its ledger row, never `db push`. The sandbox window (D's kit) comes first, then production.
-   Re-run D's order probe if the final version sorts below anything already applied.
+2. **A reviews this branch before it leaves draft.** Then a draft PR goes against the
+   integration base A names. A migration-bearing PR needs `AUTODEPLOY-VERIFIED-OFF: YYYY-MM-DD`
+   in its description, and only the owner can attest to that.
+   - **Merge order:** 157 → 158 → 159. This PR merges only after A's 157 and 158 PRs are in the
+     same base. Otherwise migrations-guard rule 4 fails 157 and 158 (§2), and A must
+     re-timestamp.
+3. **The owner authorises the apply.** It is a targeted single-file apply of
+   `20261021120000_venue_api_read_views.sql` plus its ledger row, never `db push`. The sandbox
+   window (D's kit) comes first, then production.
+   - **Apply order on every project:** 157 → 158 → 159. 159 applies only after
+     `20261021100000` and `20261021110000` are in that project's ledger. If 159 were applied
+     first, 157 and 158 would land below the ledger tip. Otherwise A must re-timestamp.
+   - Re-run D's order probe against the target ledger before the apply.
 4. **The owner adds `venue_api` to the Data API exposed schemas** (Dashboard → Settings → API →
    Exposed schemas), as a separate step after the apply. Reversal: remove it. The last recorded
    production list is `public, graphql_public, kernel, ops` (2026-09-08). It has not been re-read
@@ -392,7 +432,7 @@ select (select count(*) from venue_api.my_staff_roles) as my_staff_roles, (selec
 rollback;
 
 -- V11 (hosted only) ledger row present under the FINAL version: 1 row
-select version, name from supabase_migrations.schema_migrations where version = '<FINAL>';
+select version, name from supabase_migrations.schema_migrations where version = '20261021120000';
 ```
 
 After a rollback (§6), these checks must return `t`, then `0 | 0 | 0 | 0`, then `19`:

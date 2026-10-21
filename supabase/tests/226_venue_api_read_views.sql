@@ -1,7 +1,9 @@
 -- ============================================================================
--- 224_venue_api_read_views.sql — migration 20261021120000 (venue_api read views).
+-- 226_venue_api_read_views.sql — migration 20261021120000 (venue_api read views).
 --
--- PROVISIONAL version and pgTAP number — A assigns the final ones in docs/release/MIGRATION_NUMBER_REGISTRY.md on origin/release/candidate-20260918
+-- Registry 159 / pgTAP 226, allocated by A in PR #115 (origin/a/registry-20261021).
+-- A reviews before this leaves draft. Renamed from the provisional 224 (224 and
+-- 225 belong to registry rows 157 and 158 of A). The version is unchanged.
 --
 --   Port of origin/venue/dashboard-v2 supabase/tests/188_venue_api_read_views.sql
 --   (blob 7ed77132, plan 47, written for the same views under 20260910120000).

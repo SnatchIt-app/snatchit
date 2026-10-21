@@ -1,7 +1,8 @@
 -- ============================================================================
 -- 20261021120000_venue_api_read_views_rollback.sql — mechanical reversal.
 --
--- PROVISIONAL version and pgTAP number — A assigns the final ones in docs/release/MIGRATION_NUMBER_REGISTRY.md on origin/release/candidate-20260918
+-- Registry 159 / pgTAP 226, allocated by A in PR #115 (origin/a/registry-20261021).
+-- A reviews before this leaves draft. Version 20261021120000 unchanged.
 --
 -- Re-timestamped copy of origin/venue/dashboard-v2
 -- supabase/rollbacks/20260910120000_venue_api_read_views_rollback.sql (blob
