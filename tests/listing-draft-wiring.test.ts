@@ -11,6 +11,10 @@
  *  W3  edits autosave; the attestation and the proof never reach storage.
  *  W4  a publish the server confirmed clears the draft; W5 a refused insert keeps it.
  *  W6  Discard clears the draft and leaves the form as it was.
+ *  W8  only a date the seller picked expires a draft: the date row's default (today) is not their
+ *      choice, so a draft saved with it is still offered the next day (review LD-R2).
+ *  W9  typing under an undecided offer asks which listing to keep, and Continue over typed input asks
+ *      before replacing it, so autosave never sits paused while the seller types (review LD-R3).
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -27,6 +31,7 @@ const h = vi.hoisted(() => ({
   subscriptions: 0,
   pushes: [] as string[],
   alerts: [] as string[],
+  alertCalls: [] as { title: string; body?: string; buttons?: { text: string; style?: string; onPress?: () => void }[] }[],
   inserts: [] as Record<string, unknown>[],
   insertResult: { data: { id: 'L1' } as { id: string } | null, error: null as null | { message: string; code?: string } },
   uploads: {
@@ -90,7 +95,11 @@ vi.mock('@/src/hooks/useImageUpload', () => ({
 }));
 vi.mock('react-native', () => ({
   AccessibilityInfo: { announceForAccessibility: () => {} },
-  Alert: { alert: (t: string) => { h.alerts.push(t); } },
+  Alert: {
+    alert: (t: string, body?: string, buttons?: { text: string; style?: string; onPress?: () => void }[]) => {
+      h.alerts.push(t); h.alertCalls.push({ title: t, body, buttons });
+    },
+  },
   AppState: { addEventListener: () => ({ remove: () => {} }) },
   Image: { getSize: (_u: string, ok: (w: number, hh: number) => void) => { ok(800, 1000); } },
   KeyboardAvoidingView: 'KeyboardAvoidingView',
@@ -121,7 +130,7 @@ const KEY = listingDraftKey('u-1');
 
 const stored = (over: Partial<ListingDraftFields> = {}): ListingDraftFields => ({
   eventName: 'Weekend pool party', venue: 'LIV Miami', neighborhood: 'wynwood', category: 'concerts',
-  eventDate: new Date(2026, 9, 25), eventTime: new Date(2026, 9, 21, 22), ticketType: 'VIP', quantity: 2,
+  eventDate: new Date(2026, 9, 25), eventTime: new Date(2026, 9, 21, 22), dateChosen: true, ticketType: 'VIP', quantity: 2,
   transferMethod: 'email', restrictions: '21+', startingBid: '40', buyNowEnabled: true, buyNowPrice: '90',
   durationHours: 24, ticketPlatform: 'dice', coverUri: COVER, ...over,
 });
@@ -146,13 +155,41 @@ const checkbox = (host: HookHost) => find(host, (el) => el.type === 'Pressable' 
 const chip = (host: HookHost, label: string) => find(host, (el) => el.type === 'Chip' && el.props.label === label);
 const publishButton = (host: HookHost) => find(host, (el) => el.type === 'Button' && el.props.size === 'lg')!;
 const storedJson = () => JSON.parse(h.mem.get(KEY) ?? 'null') as { fields: Record<string, unknown> } | null;
+const type = (host: HookHost, label: string, text: string) => {
+  const field = byLabel(host, label)!;
+  ((field.props.onChangeText ?? field.props.onChange) as (t: string) => void)(text);    // Input, or the screen's MoneyField
+};
+const dateRow = (d: Date) => d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+
+/**
+ * The quantity the stepper shows — its rendered number, and the number in its accessible name or value,
+ * whichever wording the control uses: 'Quantity 2' (this branch) or 'Quantity' with accessibilityValue
+ * { text: '2' } (C's adjustable control). The draft's restore is under test here, not that wording (LD-R4).
+ */
+function quantityShown(host: HookHost): { shown: unknown; spoken: string | undefined } {
+  const el = find(host, (e) => typeof e.props.accessibilityLabel === 'string' && /^Quantity(?: \d+)?$/.test(e.props.accessibilityLabel));
+  if (!el) return { shown: undefined, spoken: undefined };
+  const label = el.props.accessibilityLabel as string;
+  const value = (el.props.accessibilityValue as { text?: string } | undefined)?.text;
+  return { shown: el.props.children, spoken: value ?? label.replace(/^Quantity ?/, '') };
+}
+
+/** Runs the REAL banner the screen rendered, with the props the screen gave it (the harness renders one level). */
+function runBanner(host: HookHost): HookHost {
+  const el = banner(host)!;
+  const component = el.type as (p: Record<string, unknown>) => unknown;
+  const props = el.props;
+  const bh = new HookHost(() => component(props), new Map());
+  bh.mount();
+  return bh;
+}
 
 let AUTOSAVE = 1000;
 beforeEach(async () => {
   vi.resetModules();
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
   vi.setSystemTime(NOW);
-  h.mem.clear(); h.ops.length = 0; h.subscriptions = 0; h.pushes.length = 0; h.alerts.length = 0; h.inserts.length = 0;
+  h.mem.clear(); h.ops.length = 0; h.subscriptions = 0; h.pushes.length = 0; h.alerts.length = 0; h.alertCalls.length = 0; h.inserts.length = 0;
   h.insertResult = { data: { id: 'L1' }, error: null };
   for (const u of Object.values(h.uploads)) { u.localUri = null; u.restored.length = 0; u.resets = 0; }
   AUTOSAVE = (await import('@/src/hooks/useListingDraft')).AUTOSAVE_DELAY_MS;
@@ -183,7 +220,7 @@ describe('W1 · a stored draft is offered, and Continue restores it', () => {
     expect(byLabel(host, 'Neighborhood')!.props.value).toBe(NEIGHBORHOOD_LABELS.wynwood);
     expect(chip(host, 'Concerts')!.props.selected).toBe(true);
     expect(chip(host, 'VIP')!.props.selected).toBe(true);
-    expect(find(host, (el) => el.props.accessibilityLabel === 'Quantity 2')).toBeDefined();
+    expect(quantityShown(host)).toEqual({ shown: 2, spoken: '2' });
     expect(byLabel(host, 'Transfer method')!.props.value).toBe('Email');
     expect(byLabel(host, 'Ticket platform')!.props.value).toBe('DICE');
     expect(byLabel(host, 'Restrictions (optional)')!.props.value).toBe('21+');
@@ -277,6 +314,131 @@ describe('W6 · Discard', () => {
     expect(h.mem.has(KEY)).toBe(false);
     expect(byLabel(host, 'Event name')!.props.value).toBe('');
     expect(h.uploads.covers.restored).toEqual([]);
+  });
+});
+
+describe('W8 · only a date the seller picked expires a draft (LD-R2)', () => {
+  it('W8a: typed on the 21st with the date row left at its default — offered on the 22nd, and it comes back dated the 22nd', async () => {
+    const first = await mountScreen();
+    type(first.host, 'Event name', 'Rolling Loud Saturday');
+    type(first.host, 'Venue', 'Hard Rock Stadium');
+    type(first.host, 'Starting bid', '120');
+    await first.step(AUTOSAVE);
+    expect(storedJson()!.fields).toMatchObject({ eventName: 'Rolling Loud Saturday', eventDate: '2026-10-21', dateChosen: false });
+    first.host.unmount();
+
+    vi.setSystemTime(new Date(2026, 9, 22, 9, 0));            // the next morning: a relaunch
+    vi.resetModules();
+    const { host, step } = await mountScreen();
+    expect(banner(host)).toBeDefined();
+    expect(h.mem.has(KEY)).toBe(true);
+    (banner(host)!.props.onContinue as () => void)();
+    await step();
+    expect(byLabel(host, 'Event name')!.props.value).toBe('Rolling Loud Saturday');
+    expect(byLabel(host, 'Starting bid')!.props.value).toBe('120');
+    expect(byLabel(host, 'Date')!.props.value).toBe(dateRow(new Date(2026, 9, 22)));
+  });
+
+  it('W8b: a date the seller picked is recorded as picked, and once it has passed the draft is not offered and is removed', async () => {
+    const first = await mountScreen();
+    type(first.host, 'Event name', 'Tonight only');
+    const picker = find(first.host, (el) => el.type === 'DateTimePicker')!;
+    (picker.props.onChange as (e: unknown, d?: Date) => void)({ type: 'set' }, new Date(2026, 9, 21));
+    await first.step(AUTOSAVE);
+    expect(storedJson()!.fields).toMatchObject({ eventName: 'Tonight only', eventDate: '2026-10-21', dateChosen: true });
+    first.host.unmount();
+
+    vi.setSystemTime(new Date(2026, 9, 22, 9, 0));
+    vi.resetModules();
+    const { host } = await mountScreen();
+    expect(banner(host)).toBeUndefined();
+    expect(h.mem.has(KEY)).toBe(false);
+  });
+
+  it('W8c: Continue keeps a picked date picked, and a confirmed publish resets it to unpicked', async () => {
+    h.mem.set(KEY, serializeListingDraft(stored(), NOW));
+    const { host, step } = await mountScreen();
+    (banner(host)!.props.onContinue as () => void)();
+    await step();
+    type(host, 'Venue', 'E11EVEN');
+    await step(AUTOSAVE);
+    expect(storedJson()!.fields).toMatchObject({ venue: 'E11EVEN', eventDate: '2026-10-25', dateChosen: true });
+    h.uploads.proofs.localUri = PROOF;
+    (checkbox(host).props.onPress as () => void)();
+    (publishButton(host).props.onPress as () => void)();
+    await step();
+    expect(h.pushes).toEqual(['/listing/L1']);
+    type(host, 'Event name', 'Next one');
+    await step(AUTOSAVE);
+    expect(storedJson()!.fields).toMatchObject({ eventName: 'Next one', dateChosen: false });
+  });
+});
+
+describe('W9 · typing under an undecided offer asks which listing to keep (LD-R3)', () => {
+  it('W9a: the first keystroke asks; "Start new listing" discards the saved draft and the typed listing autosaves', async () => {
+    h.mem.set(KEY, serializeListingDraft(stored(), NOW));
+    const { host, step } = await mountScreen();
+    expect(banner(host)!.props.formHasInput).toBe(false);
+    type(host, 'Event name', 'A');
+    await step();
+    expect(banner(host)!.props.formHasInput).toBe(true);
+    runBanner(host);
+    const ask = h.alertCalls.at(-1)!;
+    expect(ask.title).toBe('Start a new listing?');
+    ask.buttons!.find((b) => b.text === 'Start new listing')!.onPress!();
+    await step();
+    expect(banner(host)).toBeUndefined();
+    type(host, 'Event name', 'A different show I just typed');
+    await step(AUTOSAVE);
+    expect(byLabel(host, 'Event name')!.props.value).toBe('A different show I just typed');
+    expect(storedJson()!.fields.eventName).toBe('A different show I just typed');   // saved, not paused
+    expect(h.uploads.covers.restored).toEqual([]);
+  });
+
+  it('W9b: "Continue saved listing" puts the saved one back in place of the keystroke', async () => {
+    h.mem.set(KEY, serializeListingDraft(stored(), NOW));
+    const { host, step } = await mountScreen();
+    type(host, 'Event name', 'A');
+    await step();
+    runBanner(host);
+    h.alertCalls.at(-1)!.buttons!.find((b) => b.text === 'Continue saved listing')!.onPress!();
+    await step();
+    expect(banner(host)).toBeUndefined();
+    expect(byLabel(host, 'Event name')!.props.value).toBe('Weekend pool party');
+    expect(h.uploads.covers.restored).toEqual([COVER]);
+  });
+
+  it('W9c: Continue over typed input — and over a newly picked cover — asks first; Cancel keeps them, Replace restores', async () => {
+    h.mem.set(KEY, serializeListingDraft(stored(), NOW));
+    const { host, step } = await mountScreen();
+    const NEW_COVER = COVER.replace('5E6F', 'NEW1');
+    h.uploads.covers.localUri = NEW_COVER;                  // picked while the offer was up
+    type(host, 'Event name', 'Mine');
+    await step();
+    const bh = runBanner(host);
+    h.alertCalls.length = 0;                                // the start-new question (W9a) is set aside here
+    (findElement(bh.output, (el) => el.type === 'Button' && el.props.label === 'Continue your listing')!.props.onPress as () => void)();
+    const ask = h.alertCalls.at(-1)!;
+    expect(ask.title).toBe("Replace what you've typed?");
+    ask.buttons!.find((b) => b.text === 'Cancel')!.onPress?.();
+    await step();
+    expect(byLabel(host, 'Event name')!.props.value).toBe('Mine');
+    expect(h.uploads.covers.localUri).toBe(NEW_COVER);
+    expect(h.uploads.covers.restored).toEqual([]);
+    ask.buttons!.find((b) => b.text === 'Replace')!.onPress!();
+    await step();
+    expect(byLabel(host, 'Event name')!.props.value).toBe('Weekend pool party');
+    expect(h.uploads.covers.restored).toEqual([COVER]);
+  });
+
+  it('W9d: with nothing typed, Continue restores at once — no question', async () => {
+    h.mem.set(KEY, serializeListingDraft(stored(), NOW));
+    const { host, step } = await mountScreen();
+    const bh = runBanner(host);
+    (findElement(bh.output, (el) => el.type === 'Button' && el.props.label === 'Continue your listing')!.props.onPress as () => void)();
+    await step();
+    expect(h.alertCalls).toEqual([]);
+    expect(byLabel(host, 'Event name')!.props.value).toBe('Weekend pool party');
   });
 });
 
