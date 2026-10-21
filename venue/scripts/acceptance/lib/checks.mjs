@@ -32,6 +32,30 @@ export function roleLabelClaimed(text) {
   return ROLE_LABEL_CLAIMED.test(String(text).replace(DENIAL_ROLE_SENTENCE_RE, " "));
 }
 
+// ---------------------------------------------------------------- session cookie (H2, H3, H6)
+/**
+ * The @supabase/ssr session cookie (sb-<name>-auth-token, or its .0/.1 chunks) from a CDP cookie list, decoded.
+ * null when there is none. The PKCE verifier (sb-<name>-auth-token-code-verifier) is not part of the session.
+ */
+export function authCookie(cookies) {
+  const parts = cookies.filter((c) => /^sb-.+-auth-token(\.\d+)?$/.test(c.name));
+  if (!parts.length) return null;
+  const base = parts[0].name.replace(/\.\d+$/, "");
+  const ordered = parts.filter((c) => c.name === base).concat(parts.filter((c) => c.name.startsWith(`${base}.`)).sort((a, b) => Number(a.name.split(".").pop()) - Number(b.name.split(".").pop())));
+  const raw = ordered.map((c) => c.value).join("");
+  const json = raw.startsWith("base64-") ? Buffer.from(raw.slice(7), "base64url").toString("utf8") : decodeURIComponent(raw);
+  return { base, parts: ordered, session: JSON.parse(json), template: ordered[0] };
+}
+/**
+ * writeAuthCookie replaces the session cookie through CDP, and Chrome can refuse the new one (a Secure cookie for a
+ * plain-http host other than localhost). H2 would then see no cookie and pass on "Sign in to continue" without the
+ * tampered token ever being presented, and H3 could render the old, unexpired session. true only when the cookie
+ * read back (`readBack` = authCookie(...) after the write) holds exactly the session that was written.
+ */
+export function sessionCookieHolds(readBack, written) {
+  return !!readBack && JSON.stringify(readBack.session) === JSON.stringify(written);
+}
+
 // ---------------------------------------------------------------- migration ledger
 // venue_api read views = registry 159: 20261021120000_venue_api_read_views (pgTAP 226), a re-timestamp of the
 // pre-registry 20260910120000 with the same SQL body. That old version is retired: it was applied nowhere, and a

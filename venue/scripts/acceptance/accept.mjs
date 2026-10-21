@@ -19,7 +19,7 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { makeTarget, REPO, ROLES, assertUuid } from "./lib/target.mjs";
 import { launchBrowser } from "./lib/cdp.mjs";
-import { preflightLedgerChecks, roleLabelClaimed, verifyApplyLedgerChecks, waitSettled } from "./lib/checks.mjs";
+import { authCookie, preflightLedgerChecks, roleLabelClaimed, sessionCookieHolds, verifyApplyLedgerChecks, waitSettled } from "./lib/checks.mjs";
 
 // ---------------------------------------------------------------- args
 const argv = process.argv.slice(2);
@@ -337,16 +337,7 @@ async function api() {
   check(P, "C6 Venue A manager cannot read Venue B draft", Array.isArray(r.json) && r.json.length === 0, r.text);
 }
 
-// ---- browser helpers
-function authCookie(cookies) {
-  const parts = cookies.filter((c) => /^sb-.+-auth-token(\.\d+)?$/.test(c.name));
-  if (!parts.length) return null;
-  const base = parts[0].name.replace(/\.\d+$/, "");
-  const ordered = parts.filter((c) => c.name === base).concat(parts.filter((c) => c.name.startsWith(`${base}.`)).sort((a, b) => Number(a.name.split(".").pop()) - Number(b.name.split(".").pop())));
-  const raw = ordered.map((c) => c.value).join("");
-  const json = raw.startsWith("base64-") ? Buffer.from(raw.slice(7), "base64url").toString("utf8") : decodeURIComponent(raw);
-  return { base, parts: ordered, session: JSON.parse(json), template: ordered[0] };
-}
+// ---- browser helpers (authCookie and sessionCookieHolds: lib/checks.mjs, unit-tested)
 async function writeAuthCookie(page, ck, session) {
   const value = `base64-${Buffer.from(JSON.stringify(session)).toString("base64url")}`;
   for (const p of ck.parts) await page.deleteCookie(p.name, opts.app);
@@ -354,6 +345,8 @@ async function writeAuthCookie(page, ck, session) {
   for (let i = 0; i < chunks.length; i++) {
     await page.setCookie({ name: chunks.length === 1 ? ck.base : `${ck.base}.${i}`, value: chunks[i], url: opts.app, path: "/", httpOnly: ck.template.httpOnly, secure: ck.template.secure, sameSite: ck.template.sameSite ?? "Lax", expires: ck.template.expires > 0 ? ck.template.expires : undefined });
   }
+  // Read it back: a refused write must not let H2/H3 pass on whatever cookie (or none) the browser has instead.
+  return sessionCookieHolds(authCookie(await page.cookies(opts.app)), session);
 }
 async function signIn(page, user, next) {
   await page.goto(`${opts.app}/login?next=${encodeURIComponent(next)}`);
@@ -433,9 +426,10 @@ async function browser() {
     check(P, "H2 session cookie present after login", !!ck, "");
     const good = ck.session;
     const bad = { ...good, access_token: good.access_token.slice(0, -4) + (good.access_token.endsWith("AAAA") ? "BBBB" : "AAAA"), expires_at: Math.floor(Date.now() / 1000) + 3000 };
-    await writeAuthCookie(m, ck, bad);
+    const heldBad = await writeAuthCookie(m, ck, bad);
+    check(P, "H2 the browser holds the tampered session cookie (read back)", heldBad, "the rewritten cookie was refused or not stored");
     t = await visit(m, `${A}/events`);
-    check(P, "H2 tampered token -> Sign in to continue, no data", t.includes(SIGN_IN) && !t.includes(TITLE.e1), t.slice(0, 200));
+    check(P, "H2 tampered token -> Sign in to continue, no data", heldBad && t.includes(SIGN_IN) && !t.includes(TITLE.e1), t.slice(0, 200));
 
     // H3 refresh: force the session past expiry; the refreshed session must be persisted to the cookie.
     await m.close();
@@ -444,9 +438,10 @@ async function browser() {
     await new Promise((r) => setTimeout(r, 1100)); // a refresh in the same second as sign-in can re-mint an identical access JWT
     ck = authCookie(await m2.cookies(opts.app));
     const before = ck.session;
-    await writeAuthCookie(m2, ck, { ...before, expires_at: Math.floor(Date.now() / 1000) - 120 });
+    const heldExpired = await writeAuthCookie(m2, ck, { ...before, expires_at: Math.floor(Date.now() / 1000) - 120 });
+    check(P, "H3 the browser holds the expired session cookie (read back)", heldExpired, "the rewritten cookie was refused or not stored");
     t = await visit(m2, `${A}/events`);
-    check(P, "H3 expired session still renders data (refreshed)", t.includes(TITLE.e1), t.slice(0, 200));
+    check(P, "H3 expired session still renders data (refreshed)", heldExpired && t.includes(TITLE.e1), t.slice(0, 200));
     const afterCk = authCookie(await m2.cookies(opts.app));
     check(P, "H3 refreshed session persisted to the cookie (rotated refresh token, future expiry)", !!afterCk && afterCk.session.refresh_token !== before.refresh_token && afterCk.session.expires_at > Math.floor(Date.now() / 1000), afterCk ? { expires_at: afterCk.session.expires_at, access_changed: afterCk.session.access_token !== before.access_token, refresh_changed: afterCk.session.refresh_token !== before.refresh_token } : "cookie gone");
     // Hosted GoTrue revokes a reused refresh token once its reuse interval (10 s default) has passed, so on the

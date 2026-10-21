@@ -15,7 +15,7 @@ import VenueLoading from "@/app/o/[org]/v/[venue]/loading";
 import { EventsTable } from "@/components/events/EventsTable";
 import { mapBatches } from "@/lib/db/rows";
 import type { Event, TicketType } from "@/lib/types";
-import { roleLabelClaimed, waitSettled } from "../scripts/acceptance/lib/checks.mjs";
+import { authCookie, roleLabelClaimed, sessionCookieHolds, waitSettled } from "../scripts/acceptance/lib/checks.mjs";
 
 const kit = readFileSync(new URL("../scripts/acceptance/accept.mjs", import.meta.url), "utf8");
 function marker(name: string): string {
@@ -152,6 +152,44 @@ describe("the kit waits out the route loading state before reading a page", () =
     expect(roleLabelClaimed(page(true))).toBe(true);
     expect(roleLabelClaimed(page(true).toUpperCase())).toBe(true);
     expect(/Capabilities come from your grants/.test(page(true).toUpperCase())).toBe(false); // what the old C6 test missed
+  });
+});
+
+// H2/H3 rewrite the session cookie through CDP (writeAuthCookie). Chrome can refuse the write, e.g. a Secure cookie
+// for a plain-http host other than localhost; H2 would then see no cookie at all and pass on "Sign in to continue"
+// without ever presenting the tampered token. The kit reads the cookie back and records whether it holds the write.
+describe("the kit proves the browser holds the session it wrote before H2/H3 rely on it", () => {
+  const enc = (o: unknown) => `base64-${Buffer.from(JSON.stringify(o)).toString("base64url")}`;
+  const good = { access_token: "a.b.good", refresh_token: "r1", expires_at: 2000000000, user: { id: "u1" } };
+  const bad = { ...good, access_token: "a.b.bAAA", expires_at: 2000000100 };
+  const jar = (name: string, value: string) => [{ name, value, httpOnly: true, secure: true, sameSite: "Lax", expires: -1 }];
+  it("authCookie parses one cookie, joins chunks in order, and ignores the PKCE verifier", () => {
+    expect(authCookie([])).toBeNull();
+    expect(authCookie(jar("sb-x-auth-token", enc(good)))?.session).toEqual(good);
+    const v = enc(good);
+    const chunked = [
+      { name: "sb-x-auth-token.1", value: v.slice(20) },
+      { name: "sb-x-auth-token-code-verifier", value: "pkce" },
+      { name: "sb-x-auth-token.0", value: v.slice(0, 20) },
+    ];
+    const ck = authCookie(chunked);
+    expect(ck?.base).toBe("sb-x-auth-token");
+    expect(ck?.parts.map((c: { name: string }) => c.name)).toEqual(["sb-x-auth-token.0", "sb-x-auth-token.1"]);
+    expect(ck?.session).toEqual(good);
+  });
+  it("sessionCookieHolds is true only when the cookie read back is exactly the session written", () => {
+    expect(sessionCookieHolds(null, bad)).toBe(false); // write refused, cookie gone
+    expect(sessionCookieHolds(authCookie(jar("sb-x-auth-token", enc(good))), bad)).toBe(false); // old cookie kept
+    expect(sessionCookieHolds(authCookie(jar("sb-x-auth-token", enc({ ...good, expires_at: 1 }))), { ...good, expires_at: 2 })).toBe(false);
+    expect(sessionCookieHolds(authCookie(jar("sb-x-auth-token", enc(bad))), bad)).toBe(true);
+  });
+  it("writeAuthCookie returns the read-back result, and H2 and H3 check it before their visit and gate on it", () => {
+    expect(kit).toMatch(/^ {2}return sessionCookieHolds\(authCookie\(await page\.cookies\(opts\.app\)\), session\);\n\}$/m);
+    expect(kit).not.toMatch(/^function authCookie\(/m); // one parser, the tested one
+    const h2 = kit.slice(kit.indexOf("// H2 tampered access token is rejected."), kit.indexOf("// H3 refresh:"));
+    expect(h2).toMatch(/const heldBad = await writeAuthCookie\(m, ck, bad\);\s*check\(P, "H2 [^"]+\(read back\)", heldBad,[^\n]*\n\s*t = await visit\(m, `\$\{A\}\/events`\);\s*check\(P, "H2 tampered token -> Sign in to continue, no data", heldBad && /);
+    const h3 = kit.slice(kit.indexOf("// H3 refresh:"), kit.indexOf("// H6 logout."));
+    expect(h3).toMatch(/const heldExpired = await writeAuthCookie\(m2, ck, [^;]+\);\s*check\(P, "H3 [^"]+\(read back\)", heldExpired,[^\n]*\n\s*t = await visit\(m2, `\$\{A\}\/events`\);\s*check\(P, "H3 expired session still renders data \(refreshed\)", heldExpired && /);
   });
 });
 
