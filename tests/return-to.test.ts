@@ -22,9 +22,9 @@ import {
   RETURN_TO_TTL_MS,
   captureReturnTo,
   classifyReturnPath,
-  clearReturnTo,
   consumeReturnTo,
   peekReturnTo,
+  resetReturnToForTests,
   settleReturnToOnRoute,
   shouldCaptureOnEntry,
   userIdOfPhase,
@@ -35,7 +35,7 @@ const T0 = Date.parse('2026-10-21T12:00:00Z');
 const LISTING = '/listing/4a1d2c3b-0000-4000-8000-00000000abcd';
 const TRANSFER = '/transfer/send/9f8e7d6c-0000-4000-8000-000000001234';
 
-beforeEach(() => { clearReturnTo(); consumeSessionEnd(); });
+beforeEach(() => { resetReturnToForTests(); consumeSessionEnd(); });
 
 describe('the allowlist — only internal, named screens', () => {
   it('RT1: exactly six screens can be restored; three public, three for the same user only', () => {
@@ -274,5 +274,15 @@ describe('privacy and purity (source pins)', () => {
     // its only imports are types
     const imports = code.match(/^import .*$/gm) ?? [];
     for (const line of imports) expect(line).toMatch(/^import type /);
+  });
+});
+
+describe('reserved ids (C-nit)', () => {
+  it('RT32: "/listing/edit" is the edit route\'s folder, not a listing whose id is "edit" — never remembered', () => {
+    expect(classifyReturnPath('/listing/edit')).toBeNull();
+    expect(captureReturnTo('/listing/edit', null)).toBe(false);
+    // An ordinary listing id still qualifies, and "edit" is only reserved where a static sibling exists.
+    expect(classifyReturnPath('/listing/4a1d2c3b-0000-4000-8000-00000000abcd')?.scope).toBe('public');
+    expect(classifyReturnPath('/profile/edit')?.scope).toBe('public');
   });
 });

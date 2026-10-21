@@ -18,6 +18,9 @@ export default defineConfig({
       // Metro picks NativeAppShell.native.tsx / .web.tsx by platform; vitest has no platform suffixes, so this one
       // specifier resolves to the web passthrough (react only). It resolved to nothing before, so no suite that
       // ran then is affected; it lets tests/return-to-root-layout.test.ts run the real app/_layout.tsx.
+      // WARNING: any future test importing '@/src/providers/NativeAppShell' gets this WEB no-op shell, not the
+      // native funnel (deep links, forgetReturnToForAuthLink → dispatch). Test native shell behaviour by
+      // importing NativeAppShell.native.tsx directly.
       { find: /^@\/src\/providers\/NativeAppShell$/, replacement: path.resolve(__dirname, 'src/providers/NativeAppShell.web.tsx') },
       { find: /^@\/(.*)$/, replacement: path.resolve(__dirname, '$1') },
     ],
