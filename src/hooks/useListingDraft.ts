@@ -3,7 +3,9 @@
  *
  * On mount (signed in, enabled) it reads the account's draft. A draft becomes an OFFER — the
  * Sell tab shows ContinueListingBanner — and while the offer is undecided autosave waits, so
- * nothing the seller has not yet seen is overwritten. Continue hands the stored fields to
+ * nothing the seller has not yet seen is overwritten. It does not wait on a seller who is typing:
+ * `formHasInput` turns true with their first input, and the banner then asks at once whether to start
+ * a new listing (Discard, after which this form autosaves) or continue the saved one (review LD-R3). Continue hands the stored fields to
  * `onRestore`; Discard removes the draft; `clear()` removes it after a publish the server confirmed —
  * but only the draft this form has been writing: an older one still on offer is a different listing
  * that nobody chose to discard, so it stays, with its banner.
@@ -30,6 +32,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, Image } from 'react-native';
 
 import {
+  isListingDraftEmpty,
   listingDraftSignature,
   prepareListingDraftOffer,
   type ListingDraftFields,
@@ -114,6 +117,11 @@ export interface UseListingDraftOptions {
 export interface UseListingDraftReturn {
   /** A stored draft waiting for Continue or Discard, or null. */
   offer: ListingDraftOffer | null;
+  /**
+   * The offer is up and the form already holds the seller's input (anything isListingDraftEmpty
+   * counts). The banner asks which listing to keep rather than letting autosave sit paused.
+   */
+  formHasInput: boolean;
   accept: () => void;
   discard: () => void;
   /** Remove the draft this form wrote — only after the server confirmed the publish. An undecided offer stays. */
@@ -128,6 +136,7 @@ export function useListingDraft({ userId, enabled, fields, onRestore }: UseListi
   const mine = held !== null && held.uid === uid ? held : null;
   const phase: Phase = mine ? mine.phase : 'off';
   const offer = mine ? mine.offer : null;
+  const formHasInput = offer !== null && !isListingDraftEmpty(fields);
   const [saver] = useState(() => createDraftAutosaver((u, f) => listingDraftStore.save(u, f)));
   const live = useRef(0);
 
@@ -213,5 +222,5 @@ export function useListingDraft({ userId, enabled, fields, onRestore }: UseListi
     void listingDraftStore.clear(uid);
   }, [uid, phase, saver]);
 
-  return { offer, accept, discard, clear };
+  return { offer, formHasInput, accept, discard, clear };
 }

@@ -326,6 +326,10 @@ export async function prepareListingDraftOffer(
  * Calm and exact: the draft lives on this device only, nothing has reached a server, and the
  * photos the seller still has to add are named. The attestation is not mentioned — its unticked
  * box and the form's own validation already say so at publish.
+ *
+ * Two questions keep the seller's typing from being lost while the banner is undecided (review
+ * LD-R3): the first input asks whether to start a new listing (deleting the saved one) or continue
+ * the saved one; Continue over input already in the form asks before replacing it.
  */
 export const LISTING_DRAFT_COPY = {
   title: 'Unfinished listing',
@@ -338,6 +342,15 @@ export const LISTING_DRAFT_COPY = {
   confirmBody: 'The details saved on this device will be deleted.',
   confirmKeep: 'Keep',
   confirmDiscard: 'Discard',
+  startNewTitle: 'Start a new listing?',
+  startNewBody: 'The details saved on this device will be deleted.',
+  startNewWebHint: 'Cancel to continue the saved listing instead.',
+  startNew: 'Start new listing',
+  continueSaved: 'Continue saved listing',
+  replaceTitle: "Replace what you've typed?",
+  replaceBody: 'The saved listing will replace the details in the form now.',
+  replaceCancel: 'Cancel',
+  replace: 'Replace',
 } as const;
 
 export function draftBannerBody(offer: ListingDraftOffer): string {

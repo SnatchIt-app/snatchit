@@ -68,7 +68,11 @@ vi.mock('react-native', () => ({
       else if (h.getSize === 'fail') fail(new Error('ENOENT'));
     },
   },
-  Alert: { alert: (title: string, body?: string, buttons?: { text: string; style?: string; onPress?: () => void }[]) => { h.alerts.push({ title, body, buttons }); } },
+  Alert: {
+    alert: (title: string, body?: string, buttons?: { text: string; style?: string; onPress?: () => void }[], options?: { cancelable?: boolean }) => {
+      h.alerts.push(options ? { title, body, buttons, options } as never : { title, body, buttons });
+    },
+  },
   AccessibilityInfo: { announceForAccessibility: (m: string) => { h.announced.push(m); } },
   Platform: { get OS() { return h.platform; }, select: (o: Record<string, unknown>) => o.ios },
   StyleSheet: { create: <T,>(s: T) => s },
@@ -99,7 +103,7 @@ const draft = (over: Partial<ListingDraftFields> = {}): ListingDraftFields => ({
 });
 
 interface Opts { userId: string | null; enabled: boolean; fields: ListingDraftFields; onRestore: (f: ListingDraftFields) => void }
-type Ret = { offer: ListingDraftOffer | null; accept(): void; discard(): void; clear(): void };
+type Ret = { offer: ListingDraftOffer | null; formHasInput: boolean; accept(): void; discard(): void; clear(): void };
 
 const settle = async () => { for (let i = 0; i < 12; i++) await new Promise((r) => setImmediate(r)); };
 
@@ -149,6 +153,21 @@ describe('UH1 · a stored draft is offered, and nothing overwrites it until the 
     await step(AUTOSAVE_DELAY_MS * 5);
     expect(writes()).toEqual([]);
     expect(h.mem.get(KEY)).toBe(stored);
+  });
+
+  it('UH1b2 (LD-R3): formHasInput says when the form holds the seller’s input while the offer is up — so the banner can ask', async () => {
+    h.mem.set(KEY, serializeListingDraft(draft(), NOW));
+    const { state, setFields, step } = await mountHook();
+    expect(state.ret!.offer).not.toBeNull();
+    expect(state.ret!.formHasInput).toBe(false);                       // untouched form
+    await setFields({ ...empty(), category: 'concerts', eventDate: new Date(2026, 9, 30), dateChosen: true });
+    expect(state.ret!.formHasInput).toBe(false);                       // a category or a date alone is not work to lose
+    await setFields({ ...empty(), eventName: 'A different show' });
+    expect(state.ret!.formHasInput).toBe(true);
+    state.ret!.discard();
+    await step();
+    expect(state.ret!.offer).toBeNull();
+    expect(state.ret!.formHasInput).toBe(false);                       // no offer, nothing to ask
   });
 
   it('UH1c: Continue hands back the stored fields, closes the offer, and autosave resumes', async () => {
@@ -408,15 +427,18 @@ describe('UH6 · a read the store refuses is not "no draft" (LD-R6)', () => {
 });
 
 describe('UB · the banner', () => {
-  async function renderBanner(offer: Partial<ListingDraftOffer> = {}) {
+  async function renderBanner(offer: Partial<ListingDraftOffer> = {}, start: { formHasInput?: boolean } = {}) {
     const { ContinueListingBanner } = await import('@/src/components/sell/ContinueListingBanner');
     const calls = { continue: 0, discard: 0 };
     const full: ListingDraftOffer = { fields: draft(), eventName: 'Weekend pool party', coverKept: true, ...offer };
+    const props = { formHasInput: start.formHasInput };
     const host = new HookHost(() => ContinueListingBanner({
-      offer: full, onContinue: () => { calls.continue += 1; }, onDiscard: () => { calls.discard += 1; },
+      offer: full, formHasInput: props.formHasInput,
+      onContinue: () => { calls.continue += 1; }, onDiscard: () => { calls.discard += 1; },
     }), new Map());
     host.mount();
-    return { host, calls };
+    const setFormHasInput = (v: boolean) => { props.formHasInput = v; host.flush(); };
+    return { host, calls, setFormHasInput };
   }
 
   it('UB1: says what is kept, where, and what still has to be added — with a header and two named actions', async () => {
@@ -474,6 +496,72 @@ describe('UB · the banner', () => {
       (buttonByLabel(host.output, 'Discard')!.props.onPress as () => void)();
       expect(calls.discard).toBe(1);
       expect(h.confirms[0]).toBe('Discard this listing?\n\nThe details saved on this device will be deleted.');
+      expect(h.alerts).toEqual([]);
+    } finally {
+      g.window = prev;
+    }
+  });
+
+  it('UB7 (LD-R3): the first input while the offer is undecided asks at once which listing to keep — and only once', async () => {
+    const { host, calls, setFormHasInput } = await renderBanner();
+    expect(h.alerts).toEqual([]);
+    setFormHasInput(true);
+    expect(h.alerts).toHaveLength(1);
+    const a = h.alerts[0] as { title: string; body?: string; buttons?: { text: string; style?: string; onPress?: () => void }[]; options?: { cancelable?: boolean } };
+    expect(a.title).toBe('Start a new listing?');
+    expect(a.body).toBe('The details saved on this device will be deleted.');
+    expect(a.buttons!.map((b) => [b.text, b.style])).toEqual([['Continue saved listing', undefined], ['Start new listing', 'destructive']]);
+    expect(a.options).toEqual({ cancelable: false });                 // a choice, not a dismissal: autosave must not stay paused
+    host.flush();
+    setFormHasInput(true);
+    expect(h.alerts).toHaveLength(1);                                   // asked once
+    a.buttons![1].onPress!();
+    expect(calls).toEqual({ continue: 0, discard: 1 });
+    a.buttons![0].onPress!();
+    expect(calls).toEqual({ continue: 1, discard: 1 });
+  });
+
+  it('UB7b (LD-R3): input already in the form when the offer arrives is asked about as the banner appears', async () => {
+    await renderBanner({}, { formHasInput: true });
+    expect(h.alerts.map((a) => a.title)).toEqual(['Start a new listing?']);
+  });
+
+  it('UB8 (LD-R3): Continue over the seller’s input asks before replacing it; Cancel keeps it', async () => {
+    const { host, calls } = await renderBanner({}, { formHasInput: true });
+    h.alerts.length = 0;                                                // the start-new question, already covered by UB7b
+    (buttonByLabel(host.output, 'Continue your listing')!.props.onPress as () => void)();
+    expect(calls.continue).toBe(0);
+    expect(h.alerts).toHaveLength(1);
+    const a = h.alerts[0];
+    expect(a.title).toBe("Replace what you've typed?");
+    expect(a.body).toBe('The saved listing will replace the details in the form now.');
+    const cancel = a.buttons!.find((b) => b.text === 'Cancel')!;
+    expect(cancel.style).toBe('cancel');
+    cancel.onPress?.();
+    expect(calls.continue).toBe(0);
+    const replace = a.buttons!.find((b) => b.text === 'Replace')!;
+    expect(replace.style).toBe('destructive');
+    replace.onPress!();
+    expect(calls.continue).toBe(1);
+  });
+
+  it('UB9 (LD-R3): on web both questions go through window.confirm', async () => {
+    h.platform = 'web';
+    const g = globalThis as { window?: { confirm(m: string): boolean } };
+    const prev = g.window;
+    g.window = { confirm: (m: string) => { h.confirms.push(m); return h.confirmAnswer; } };
+    try {
+      h.confirmAnswer = true;                                           // OK: start a new listing
+      const first = await renderBanner({}, { formHasInput: true });
+      expect(first.calls).toEqual({ continue: 0, discard: 1 });
+      expect(h.confirms[0]).toBe('Start a new listing?\n\nThe details saved on this device will be deleted.\n\nCancel to continue the saved listing instead.');
+      h.confirmAnswer = false;                                          // Cancel: continue the saved one
+      const second = await renderBanner({}, { formHasInput: true });
+      expect(second.calls).toEqual({ continue: 1, discard: 0 });
+      h.confirmAnswer = false;
+      (buttonByLabel(second.host.output, 'Continue your listing')!.props.onPress as () => void)();
+      expect(second.calls.continue).toBe(1);                            // the replace question, refused
+      expect(h.confirms.at(-1)).toBe("Replace what you've typed?\n\nThe saved listing will replace the details in the form now.");
       expect(h.alerts).toEqual([]);
     } finally {
       g.window = prev;
