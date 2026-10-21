@@ -19,6 +19,7 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { makeTarget, REPO, ROLES, assertUuid } from "./lib/target.mjs";
 import { launchBrowser } from "./lib/cdp.mjs";
+import { preflightLedgerChecks, roleLabelClaimed, verifyApplyLedgerChecks, waitSettled } from "./lib/checks.mjs";
 
 // ---------------------------------------------------------------- args
 const argv = process.argv.slice(2);
@@ -93,9 +94,7 @@ const TITLE = { e1: "Hosted Acceptance Night A (synthetic, on sale)", e2: "Hoste
 // The pre-v2 app said "You don't have access to this." — that sentence is now only the database 42501 screen.
 const DENIED = "isn't open to you.";
 const NO_GRANT = "holds no staff or organization role at this venue";
-// Role labels the app shows only once it has verified a grant (capabilities strip, account card). Case-sensitive on
-// purpose: v2's denial itself says "A venue manager or an organization owner can give you access", which claims nothing.
-const ROLE_LABEL_CLAIMED = /Capabilities come from your grants: (Venue|Org)|\bVenue manager\b|\bOrg owner\b/;
+// Role labels the app shows only once it has verified a grant: roleLabelClaimed() in lib/checks.mjs (unit-tested).
 // v2 streams every venue screen behind src/app/o/[org]/v/[venue]/loading.tsx. A client-side navigation (the redirect
 // after sign-in) commits the new URL while that fallback is still showing, so a page is read only once it is gone.
 const ROUTE_LOADING = "[data-route-loading]";
@@ -140,8 +139,7 @@ const denied = (r) => [401, 403].includes(r.status) && r.json?.code === "42501";
 // ---------------------------------------------------------------- phases
 async function preflight() {
   const snap = target.sqlFile(SQL("preflight.sql"));
-  if (snap.ledger_count === null) check("preflight", "local replay: no migration ledger to inspect (expected)", target.name === "local", "");
-  else check("preflight", "076-092 recorded in the ledger, no duplicate versions", snap.ledger_076_092 === 17 && snap.ledger_dupes === 0, { ledger_count: snap.ledger_count, tip: snap.ledger_tip_timestamp, dupes: snap.ledger_dupes });
+  for (const [id, ok, detail] of preflightLedgerChecks(snap, target.name)) check("preflight", id, ok, detail);
   check("preflight", "catalog/venue/kernel schemas present", ["catalog", "venue", "kernel"].every((s) => snap.schemas_present.includes(s)), snap.schemas_present);
   check("preflight", "no fixture-id collisions (5a4d0b0e-)", snap.fixture_id_collisions === 0, snap.fixture_id_collisions);
   check("preflight", "no leftover acceptance users", snap.acceptance_users === 0, snap.acceptance_users);
@@ -178,7 +176,7 @@ function verifyApply() {
   check("verify-apply", "anon has no USAGE; authenticated has USAGE", v.anon_usage === false && v.authenticated_usage === true, v);
   check("verify-apply", "authenticated SELECT on all 8, no other client grants", v.authenticated_select_grants === 8 && v.non_select_grants_to_clients === 0 && v.anon_or_public_grants === 0, v);
   check("verify-apply", "no SECURITY DEFINER functions in venue_api", v.definer_functions_in_schema === 0, v);
-  if (target.name === "sandbox") check("verify-apply", "ledger row 20260910120000 = venue_api_read_views with 24 statements", v.ledger_row_statements === 24 && v.ledger_row_name === "venue_api_read_views", { name: v.ledger_row_name, statements: v.ledger_row_statements });
+  if (target.name === "sandbox") for (const [id, ok, detail] of verifyApplyLedgerChecks(v)) check("verify-apply", id, ok, detail);
 }
 
 async function verifyExposure() {
@@ -364,7 +362,7 @@ async function signIn(page, user, next) {
   await settled(page);
   return left && !(await page.text()).includes("Sign-in failed");
 }
-const settled = (page) => page.waitFor(`!document.querySelector(${JSON.stringify(ROUTE_LOADING)})`, 20000);
+const settled = (page) => waitSettled(page, ROUTE_LOADING, 20000);
 async function visit(page, path) {
   await page.goto(`${opts.app}${path}`);
   await settled(page);
@@ -502,7 +500,7 @@ async function browser() {
     check(P, "H7 concurrent: manager sees A events", tm.includes(TITLE.e1), tm.slice(0, 200));
     check(P, "H7 concurrent: outsider sees denial, never A's rows", to.includes(DENIED) && to.includes(NO_GRANT) && !to.includes(TITLE.e1) && !to.includes(TITLE.e2), to.slice(0, 200));
     await out.screenshot(join(OUT, "evidence-outsider-denied.png"));
-    check(P, "P1 grant-less caller: no role label claimed, no sample names, no empty menu", !ROLE_LABEL_CLAIMED.test(to) && !/\(sample\)|role switch/i.test(to) && !(await out.evaluate("[...document.querySelectorAll('details')].some(d => /Menu ·/.test(d.innerText) && d.querySelectorAll('a').length === 0)")), to.slice(0, 300));
+    check(P, "P1 grant-less caller: no role label claimed, no sample names, no empty menu", !roleLabelClaimed(to) && !/\(sample\)|role switch/i.test(to) && !(await out.evaluate("[...document.querySelectorAll('details')].some(d => /Menu ·/.test(d.innerText) && d.querySelectorAll('a').length === 0)")), to.slice(0, 300));
     check(P, "P1 manager header shows no sample fixture names in database mode", !/\(sample\)/.test(tm), tm.slice(0, 300));
     for (const path of [`${A}/events/${ID.e1}`, `${A}/events/${ID.e1}/door`, `${B}/events`, `${A}/events?role=venue_manager&state=live`, `/o/${ID.orgA}/v/${ID.venC}/events`]) {
       t = await visit(out, path);

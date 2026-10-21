@@ -15,6 +15,7 @@ import VenueLoading from "@/app/o/[org]/v/[venue]/loading";
 import { EventsTable } from "@/components/events/EventsTable";
 import { mapBatches } from "@/lib/db/rows";
 import type { Event, TicketType } from "@/lib/types";
+import { roleLabelClaimed } from "../scripts/acceptance/lib/checks.mjs";
 
 const kit = readFileSync(new URL("../scripts/acceptance/accept.mjs", import.meta.url), "utf8");
 function marker(name: string): string {
@@ -83,12 +84,10 @@ describe("the kit waits out the route loading state before reading a page", () =
   it("the kit's P1 grant-less check does not trip on the denial's own 'a venue manager … can give you access' line", () => {
     const t = text(<EntryGate entry={{ kind: "denied" }} loginHref="/login" retryHref="/" />);
     expect(t).toMatch(/a venue manager or an organization owner/i);
-    const literal = kit.match(/^const ROLE_LABEL_CLAIMED = \/(.+)\/([a-z]*);$/m);
-    expect(literal).toBeTruthy();
-    const re = new RegExp(literal![1], literal![2]);
-    expect(re.test(t)).toBe(false);
-    expect(re.test("Capabilities come from your grants: Venue manager")).toBe(true);
-    expect(re.test("Signed in as x · Venue manager")).toBe(true);
+    expect(kit).toMatch(/!roleLabelClaimed\(to\)/);
+    expect(roleLabelClaimed(t)).toBe(false);
+    expect(roleLabelClaimed("Capabilities come from your grants: Venue manager")).toBe(true);
+    expect(roleLabelClaimed("Signed in as x · Venue manager")).toBe(true);
   });
 });
 
