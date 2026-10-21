@@ -32,6 +32,7 @@ import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/dat
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
 import {
+  AccessibilityInfo,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -59,6 +60,7 @@ import { useCtaDockOffset, useTopInset } from '@/src/lib/nav/navInsets';
 import {
   digitsOnly,
   findBannedContent,
+  invalidSellSummary,
   isSellValid,
   parseAmount,
   parseRiskCheckResponse,
@@ -500,6 +502,10 @@ export default function CreateListingScreen({ fixture }: { fixture?: CreateFixtu
      */
     const block = publishBlock({ valid: isValid, signedIn: user != null });
     if (block || !user) {
+      // a11y finding 2: the fields show their errors, but on iOS nothing said so. Every press speaks.
+      if (block?.kind === 'invalid' && Platform.OS === 'ios') {
+        AccessibilityInfo.announceForAccessibility(invalidSellSummary(errors));
+      }
       if (block?.kind === 'signed-out') {
         if (Platform.OS === 'web') {
           window.alert(`${block.title}\n\n${block.body}`);
