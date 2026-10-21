@@ -15,7 +15,7 @@ function code(rel: string): string {
 
 function pinned(src: string, pattern: RegExp, what: string) {
   expect(pattern.test(src), `${what}: missing`).toBe(true);
-  const removed = src.replace(/useAnnounceOnce\([\s\S]*?\);\n|<Announce [^>]*\/>/g, '');
+  const removed = src.replace(/useAnnounceOnce\([\s\S]*?\);\n|<Announce(WhenFocused)? [^>]*\/>/g, '');
   expect(pattern.test(removed), `${what}: WITNESS — still passes with the announcement removed`).toBe(false);
 }
 
@@ -29,7 +29,7 @@ const SITES: Array<[string, string, RegExp]> = [
   ['home filter refresh failed', 'app/(tabs)/home.tsx', /useAnnounceOnce\(datasetFailure === 'inline'[\s\S]{0,60}HOME_FILTER_REFRESH_FAILED_COPY/],
   ['settings deletion banners', 'app/settings/index.tsx', /useAnnounceOnce\(\s*deletionPending \? 'Account deletion requested\.[\s\S]{0,160}deletionProbeFailed \? 'We could not check your account status\.'/],
   ['outbid toast', 'src/components/listing/OutbidToast.tsx', /useAnnounceOnce\(visible \? message : null\)/],
-  ['listing connection notice', 'src/screens/ListingDetailScreen.tsx', /<Announce text=\{liveNotice\} \/>/],
+  ['listing connection notice (only while focused: review m5)', 'src/screens/ListingDetailScreen.tsx', /<AnnounceWhenFocused text=\{liveNotice\} \/>/],
   ['checkout error line', 'src/screens/checkout/CheckoutView.tsx', /useAnnounceOnce\(!preparing && !paymentMethodLine && !notice \? errorLine : null\)/],
   ['checkout notice', 'src/screens/checkout/CheckoutView.tsx', /useAnnounceOnce\(`\$\{notice\.title\}\. \$\{notice\.body\}`\)/],
   ['checkout outcome face', 'src/screens/checkout/CheckoutView.tsx', /useAnnounceOnce\(`\$\{kicker\}\. \$\{title\}`\)/],
@@ -57,5 +57,11 @@ describe('VoiceOver announcements at the sites iOS left silent', () => {
     const call = src.slice(src.indexOf('useAnnounceOnce(\n'), src.indexOf(');', src.indexOf('useAnnounceOnce(\n')));
     expect(call).not.toContain('query');
     expect(src).toMatch(/setResults\(\(data \?\? \[\]\) as Listing\[\]\);\s*setSettledTerm\(term\.trim\(\)\);/);
+  });
+
+  it('AS-focus: the element form speaks only while its screen is focused', () => {
+    const el = code('src/components/a11y/AnnounceWhenFocused.tsx');
+    expect(el).toContain('const focused = useIsFocused();');
+    expect(el).toContain('useAnnounceOnce(focused ? text : null);');
   });
 });
