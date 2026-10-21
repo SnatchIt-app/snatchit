@@ -302,7 +302,9 @@ export default function MyListingsScreen({ fixture }: { fixture?: MyListingsFixt
               title={
                 filter === 'all' ? 'No listings yet'
                   : filter === 'active' ? 'No active auctions'
-                  : filter === 'needs_action' ? 'All caught up'
+                  // Scoped to sending: this filter keeps pending sends only, so a row can still be
+                  // showing "Add proof" (sellerNextAction) when it is empty — never "All caught up".
+                  : filter === 'needs_action' ? 'Nothing to send'
                   : filter === 'ended' ? 'No ended auctions'
                   : 'Nothing sold yet'
               }

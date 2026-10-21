@@ -254,6 +254,28 @@ describe('each row gets exactly the helper\'s one action', () => {
     host.flush();
     expect([...rows(host).keys()].sort()).toEqual(['l-late', 'l-nodate', 'l-send']);
   });
+
+  it('SA5b: an empty "Send tickets" filter says only that nothing is waiting to be sent — not "All caught up" while an Add proof row is open', async () => {
+    // Only the proof rows: the filter keeps pending rows, so it is empty, yet one row still shows an action.
+    h.listings = [listing('l-proof'), listing('l-proofed')];
+    h.transfers = [
+      transfer('t-proof', 'l-proof', 'seller_sent'),
+      transfer('t-proofed', 'l-proofed', 'seller_sent', { transfer_evidence_path: 'seller-1/t-proofed/proof.jpg' }),
+    ];
+    const host = await mountMyListings();
+    // Witness: the open action really is on the All list before the filter is chosen.
+    expect((rows(host).get('l-proof')!.nextAction as { kind: string }).kind).toBe('add_proof');
+    const chip = findElement(host.output, (el) => el.type === 'Chip' && el.props.label === 'Send tickets') as Element;
+    (chip.props.onPress as () => void)();
+    host.flush();
+    expect(rows(host).size).toBe(0);
+    const empty = list(host).props.ListEmptyComponent as Element;
+    expect(empty.type).toBe('EmptyState');
+    expect(empty.props.title).toBe('Nothing to send');
+    expect(empty.props.body).toBe('No tickets waiting to be sent.');
+    // Nothing in the empty state claims the seller has no open task at all.
+    expect(`${empty.props.title} ${empty.props.body}`).not.toMatch(/caught up|nothing to do|all done/i);
+  });
 });
 
 describe('SellerListingCard renders the one line', () => {
@@ -299,14 +321,39 @@ describe('SellerListingCard renders the one line', () => {
     expect(row.props.accessibilityLabel).not.toContain('order..');
   });
 
-  it('SA9: no action → no line; and the line is only ever on a sold row', async () => {
+  it('SA9: no action → no line', async () => {
     const none = await renderCard({ nextAction: null });
     expect(texts(none.output).some((t) => /^Send |Add proof|Action needed/.test(t))).toBe(false);
-    const live = await renderCard({
-      listing: listing('l-2', { status: 'active', auction_status: 'active', ends_at: FUTURE, sold_at: null, winner_user_id: null }),
-      nextAction: { kind: 'send', line: 'Send the tickets', tone: 'warning' },
-    });
-    expect(texts(live.output)).not.toContain('Send the tickets');
+  });
+
+  it('SA9b: the line is only ever on a sold row — rows that reach the action slot without a sold badge show and say nothing', async () => {
+    const action = { kind: 'send', line: 'Send the tickets', tone: 'warning' };
+    const rowLabel = (host: HookHost, id: string) =>
+      (findElement(host.output, (el) => typeof el.props.accessibilityLabel === 'string'
+        && (el.props.accessibilityLabel as string).startsWith(`Event ${id}.`)) as Element).props.accessibilityLabel as string;
+
+    // Witness: the same action on a sold row IS shown and spoken, so an absence below is the gate, not the harness.
+    const sold = await renderCard({ nextAction: action });
+    expect(texts(sold.output)).toContain(action.line);
+    expect(rowLabel(sold, 'l-1')).toContain(`${action.line}.`);
+
+    // Each of these falls past the countdown and "Winner selected" branches to the action slot itself
+    // (or, for an ended row with a winner, would add the line to VoiceOver only).
+    const notSold: [string, Record<string, unknown>, string][] = [
+      ['ended, no winner', { status: 'ended', auction_status: 'ended', winner_user_id: null, sold_at: null }, 'Ended'],
+      ['reserved', { status: 'reserved', auction_status: 'ended', reserved_until: FUTURE, winner_user_id: null, sold_at: null }, 'Reserved'],
+      ['cancelled after sale', { status: 'sold', auction_status: 'cancelled' }, 'Cancelled'],
+      ['ended, winner selected', { status: 'ended', auction_status: 'ended', sold_at: null }, 'Ended'],
+      ['active', { status: 'active', auction_status: 'active', ends_at: FUTURE, sold_at: null, winner_user_id: null }, 'Active'],
+    ];
+    for (const [why, extra, badgeWord] of notSold) {
+      const host = await renderCard({ listing: listing('l-2', extra), nextAction: action });
+      const label = rowLabel(host, 'l-2');
+      // The fixture really lands on the intended badge (else the case proves nothing).
+      expect(label, why).toContain(`. ${badgeWord}.`);
+      expect(texts(host.output), why).not.toContain(action.line);
+      expect(label, why).not.toContain(action.line);
+    }
   });
 });
 

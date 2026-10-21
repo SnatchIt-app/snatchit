@@ -34,7 +34,10 @@ function inZone<T>(tz: string, body: () => T): T {
   try {
     return body();
   } finally {
-    process.env.TZ = previous;
+    // An unset TZ must come back unset: assigning undefined stores the string "undefined", an
+    // invalid zone that quietly behaves like UTC for every later test in the file.
+    if (previous === undefined) delete process.env.TZ;
+    else process.env.TZ = previous;
   }
 }
 
@@ -193,5 +196,23 @@ describe('exactly one action, and where the row goes', () => {
       expect(open({ status: 'disputed' })).toBe(false);
       expect(sellerActionOpensOrder(null)).toBe(false);
     });
+  });
+});
+
+describe('the zone pin itself', () => {
+  it('SN17: inZone puts an unset TZ back unset (not the string "undefined", which reads as UTC)', () => {
+    const saved = process.env.TZ;
+    delete process.env.TZ;
+    try {
+      inZone('Europe/London', () => {});
+      expect('TZ' in process.env).toBe(false);
+      // ...and a zone that was set comes back as that zone.
+      process.env.TZ = 'Asia/Tokyo';
+      inZone('Europe/London', () => {});
+      expect(process.env.TZ).toBe('Asia/Tokyo');
+    } finally {
+      if (saved === undefined) delete process.env.TZ;
+      else process.env.TZ = saved;
+    }
   });
 });
