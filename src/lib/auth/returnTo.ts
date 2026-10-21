@@ -157,6 +157,30 @@ export function clearReturnTo(): void {
   entry = null;
 }
 
+/**
+ * Review RAS-2: an incoming link that carries a `code` or a `token_hash` is about to mint a session (a recovery
+ * link, or any email link), so the remembered screen is dropped before the link is dispatched. No session a link
+ * mints can then consume it — including the warm recovery whose hold deepLinkDispatch only raises after the
+ * exchange has already notified SIGNED_IN (its late fallback, exchangeWasRecovery). Called by the native shell's
+ * deep-link funnel; deepLinkDispatch itself (the H-5 contract) is unchanged. Returns whether it dropped anything.
+ */
+export function forgetReturnToForAuthLink(url: string | null | undefined): boolean {
+  if (!url || !carriesAuthCredential(url)) return false;
+  const had = entry !== null;
+  entry = null;
+  return had;
+}
+
+/** A `code` or `token_hash` in the query or the fragment, read the way deepLinkDispatch's parseDeepLink reads them. */
+function carriesAuthCredential(url: string): boolean {
+  const query = url.includes('?') ? url.split('?')[1].split('#')[0] : '';
+  const fragment = url.includes('#') ? url.split('#')[1] : '';
+  return [query, fragment].some((part) => {
+    const params = new URLSearchParams(part);
+    return !!params.get('code') || !!params.get('token_hash');
+  });
+}
+
 export type ReturnToStep = 'consumed' | 'captured' | 'cleared' | 'kept';
 
 /**
