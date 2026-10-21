@@ -161,7 +161,7 @@ export default function CheckoutScreen() {
   const holdRecheckedRef = useRef(false);
 
   const confirmedRef = useRef(false);
-  const setupPaymentRef = useRef<(() => void) | null>(null);
+  const setupPaymentRef = useRef<(() => Promise<void> | void) | null>(null);
   // Synchronous in-flight latch for the payment-sheet presentation. React state
   // (`confirming`) does not update before a second tap's handler runs, so a rapid
   // double-tap could call presentPaymentSheet() twice and the native module then
@@ -169,6 +169,7 @@ export default function CheckoutScreen() {
   // within the same frame; it is released in each handler's finally (so a cancel
   // or error cleanly allows a retry). See src/lib/checkout/paymentGuard.ts.
   const payLatchRef = useRef(createSingleFlight());
+  const setupLatchRef = useRef(createSingleFlight());
 
   // -- Listing display: what the buyer is paying for ------------------------
   // A read-only fetch of the event's display fields, independent of the payment
@@ -692,28 +693,42 @@ export default function CheckoutScreen() {
   async function recheckPayment() {
     // F4: an intent exists only for a parsed mode; never finalize under a defaulted one.
     if (!user || !paymentIntentId || !checkoutMode) return;
-    const verdict = await reconcileAfterSheetError();
-    if (verdict === 'verified') {
-      setFinalizing(true);
-      try {
-        const result = await finalizePurchase({ listingId, userId: user.id, paymentIntentId, mode: checkoutMode });
-        if (result.transferId) setPostPurchaseTransferId(result.transferId);
-        confirmedRef.current = result.outcome === 'completed';
-        setSettlement(result.outcome);
-      } finally {
-        setFinalizing(false);
+    // B-D2: Pay's own latch. Two taps in one frame both ran (two finalizePurchase calls), and a
+    // check could overlap a payment; now one at a time across both.
+    if (!payLatchRef.current.begin()) return;
+    try {
+      const verdict = await reconcileAfterSheetError();
+      if (verdict === 'verified') {
+        setFinalizing(true);
+        try {
+          const result = await finalizePurchase({ listingId, userId: user.id, paymentIntentId, mode: checkoutMode });
+          if (result.transferId) setPostPurchaseTransferId(result.transferId);
+          confirmedRef.current = result.outcome === 'completed';
+          setSettlement(result.outcome);
+        } finally {
+          setFinalizing(false);
+        }
+        return;
       }
-      return;
-    }
-    if (verdict === 'not_verified') {
-      setChecking(true);
-      try {
-        const state = await revalidateAgainstServer();
-        if (state === 'held') setPaymentReady(true);
-      } finally {
-        setChecking(false);
+      if (verdict === 'not_verified') {
+        setChecking(true);
+        try {
+          const state = await revalidateAgainstServer();
+          if (state === 'held') setPaymentReady(true);
+        } finally {
+          setChecking(false);
+        }
       }
+    } finally {
+      payLatchRef.current.end();
     }
+  }
+
+  // B-D2: the setup Retry, one run at a time (a double tap made two intents). Its own latch, so
+  // the mount-time setup and Pay are never blocked by it.
+  function retrySetup() {
+    if (!setupLatchRef.current.begin()) return;
+    void Promise.resolve(setupPaymentRef.current?.()).finally(() => setupLatchRef.current.end());
   }
 
   // ── A-04: re-check the hold when the countdown enters the margin ──────────
@@ -824,7 +839,7 @@ export default function CheckoutScreen() {
   });
   const payOnPress =
     pay.action === 'pay' ? payHandler
-    : pay.action === 'retry' ? () => setupPaymentRef.current?.()
+    : pay.action === 'retry' ? retrySetup
     : pay.action === 'reload_details' ? reloadDetails
     // A plain back navigation, so the listing screen's own exit path runs.
     : pay.action === 'back' ? () => router.back()
