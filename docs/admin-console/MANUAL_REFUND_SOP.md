@@ -72,14 +72,14 @@ subject link.
 |---|---|---|---|
 | 1 | Console refund execution is off **on the server** | **System → Settings** → `refund_execute_enabled` reads **`Current: false (boolean)`**, and the Settings panel shows no failure alert [SYS:231-240], [SYS:428], [116:1593-1601]. The order page's "Disabled…" warning does **not** prove this. The page shows it whenever its own settings read fails, and it treats every value except the boolean `true` as off [ORDER:73-79]. The server also treats the text `"true"` as on [118:252]. | Settings shows an error, the key is missing, or the value is anything other than `false`: stop and escalate to A. It reads `true`: use the console refund (`OPERATING_GUIDE.md` → Taking a safe action → Execute refund) instead of this SOP. Never use both on one order. |
 | 2 | The order is a resale order | **Payment** panel → `mode` is `buy_now` or `auction`. | `native_primary`: stop and escalate to A. |
-| 3 | Live mode | The header has **no** "stripe test mode" badge [ORDER:122]. | Test mode: stop and escalate to A. |
+| 3 | Live mode: the payment's `stripe_livemode` is `true` | The console does **not** show this. The header's "stripe test mode" badge appears only when the value is `false` [ORDER:122], so no badge means `true` **or** unclassified (`NULL`) [045:17]. Every automated money path refuses `NULL` [PL:144-152], [ETE:615-625], [ETE:780-799], [148:125-134]. | Unless A has written on the case that this payment's `stripe_livemode` is `true`, stop and escalate to A. A "stripe test mode" badge: stop and escalate to A. |
 | 4 | The decision to refund is on record | **Buyer win:** Disputes panel → In-app dispute → `dispute_resolution` reads "Resolved — buyer (refund required)" [FMT:207-211]. If the dispute is still open, record it first: **Resolve dispute** → outcome **Buyer win** (founder or risk role [115:521]). That records the decision, moves no money, and leads to the "Refund owed to buyer" case [MSE:528-546], [065:130-142]. **Expired:** Transfer status reads "Expired (seller did not send)". **Anything else:** the owner's decision, written on a case (§3). | No recorded decision means no refund. |
 | 5 | The payment is captured | The header badge reads **"payment: Captured"** (`succeeded`) [FMT:65-73]. The Execute refund panel only renders in this state [ORDER:83]. | "Refund recorded (not confirmed settled)": a refund already exists, so do not refund. Go to §7. Pending, Processing or Failed: the payment is not captured. Stop and escalate to A. |
 | 6 | No Stripe chargeback | Disputes panel → **Stripe disputes (chargebacks)** shows no open row. | Do not refund. Stripe refuses a refund on a disputed charge (Stripe behaviour, not verified; the console executor treats it as a definite error [ORE:110]). A chargeback has its own process (`OPERATING_GUIDE.md`, "Evidence due"). |
 | 7 | No console refund attempt in flight | Refund panel → **Refund execution attempts** has no row in *Processing*, *Outcome unknown* or *Succeeded at provider*. *Rejected* rows are harmless. | Stop. `RUNBOOK.md` §5.3 forbids a hand refund while a console attempt is in flight. Escalate to A with the action id. |
 | 8 | The seller has not been paid | **Seller funds state** panel [ORDER:216-243]: "Release recorded at" is empty, **and** "Stripe Transfer (connected account)" reads "none — funds not released", **and** the funds state is not "Release scheduled". | Either field set: this is a refund after payout (§9), an owner decision. "Release scheduled": stop and escalate, because the payout worker may be about to create the transfer. |
 | 9 | Full amount | You will refund exactly the Payment panel's **"Total charged to buyer"**. | Anything less is a partial refund (§8), an owner decision. |
-| 10 | *(In Stripe, read-only)* Nothing refunded yet | Stripe Dashboard → the PaymentIntent (`pi_…`, copied from the Payment panel): the amount equals the console's total and **no refund is listed**. | A refund is already listed, in any status: do not refund again. Escalate to A, because the console has not recorded it yet. The amount differs: stop and escalate. |
+| 10 | *(In Stripe, read-only)* Nothing refunded yet | Stripe Dashboard in **live mode** → the PaymentIntent (`pi_…`, copied from the Payment panel): it is found, the amount equals the console's total and **no refund is listed**. | The PaymentIntent is not found in live mode: stop and escalate to A. Never switch the Dashboard to test mode to look for it or refund it there. A refund is already listed, in any status: do not refund again. Escalate to A, because the console has not recorded it yet. The amount differs: stop and escalate. |
 
 **Expired orders only.** The expiry job refunds expired orders on its own and
 skips any payment already fully refunded [ETE:627-639], [ETE:653-675]. Its
@@ -112,7 +112,7 @@ Manual refund per MANUAL_REFUND_SOP §4 (console refunds are off).
 PaymentIntent: pi_…
 Amount: $… = Total charged to buyer (full refund)
 Why: buyer-win resolution <UTC date> | transfer expired <UTC date> | owner decision <case/note ref>
-§2 checks 1–10: pass. Second founder: <confirmed in note …>
+§2 checks 1–10: pass. Live mode confirmed by A: <note …>. Second founder: <confirmed in note …>
 ```
 
 Every console action, these notes included, is stored as an `ops.action` and
@@ -127,7 +127,8 @@ These Dashboard labels come from the April playbook [DAY5:37-44]. They have
 **not been re-verified** against the current Dashboard.
 
 1. Open the Stripe Dashboard in **live mode** → **Payments** → search for the
-   `pi_…` id → open the payment.
+   `pi_…` id → open the payment. If live mode does not find it, stop (§2
+   row 10).
 2. **Refund** → keep the **full** amount, which must equal the console's
    "Total charged to buyer" → reason **Requested by customer** → confirm.
 3. Copy the refund id (`re_…`) and the status Stripe shows (for example
@@ -374,7 +375,7 @@ personal data.
 | *Pending* for more than 5 days (120 h, the detector's threshold [150:260]) | A | Note it on the case |
 | A refund already listed in Stripe before you acted (§2 row 10), or the expiry job missed an expired order | A | Do not refund |
 | A refund-resolution case you cannot close (§5.4) | A | Leave it open |
-| `native_primary` or test-mode order | A | Nothing |
+| `native_primary` order, a test-mode order, a payment whose live mode A has not confirmed (§2 row 3), or a PaymentIntent the live-mode Dashboard cannot find (§2 row 10) | A | Nothing in Stripe |
 | Any check in §2 is unclear | A | Do not refund |
 
 ## 11. Why this SOP contains no SQL
@@ -433,6 +434,7 @@ Gate = `origin/release/production-gate-20260918` @ `6f982f36`. Console =
 |---|---|---|
 | 065 | `supabase/migrations/065_dispute_resolution.sql` | gate |
 | 0561 | `supabase/migrations/0561_transfer_writer_rpcs.sql` | gate |
+| 045 | `supabase/migrations/045_payments_stripe_livemode.sql` | gate |
 | 093 | `supabase/migrations/093_primary_ticketing.sql` | gate |
 | 115 | `supabase/migrations/115_ops_console_foundation.sql` | gate |
 | 116 | `supabase/migrations/116_ops_console_read_api.sql` | gate |
@@ -446,6 +448,7 @@ Gate = `origin/release/production-gate-20260918` @ `6f982f36`. Console =
 | MSE | `supabase/migrations/20261013000000_marketplace_safety_enforcement.sql` (latest `ops.action_dispatch`) | gate |
 | WH | `supabase/functions/stripe-webhook/index.ts` | gate; `WH@037092f0` = the same file before 150 (parent of `98ccf6da`) |
 | ETE | `supabase/functions/enforce-transfer-expiry/index.ts` | gate |
+| PL | `supabase/functions/_shared/payout-logic.ts` | gate |
 | ORE | `supabase/functions/ops-refund-execute/README.md` | gate |
 | DAY5 | `docs/operations/DAY5_MANUAL_REFUND_PLAYBOOK.md` | gate |
 | ORDER | `admin/src/app/(console)/orders/[paymentId]/page.tsx` | console |
