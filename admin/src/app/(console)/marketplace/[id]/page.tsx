@@ -8,6 +8,7 @@ import { isUuid } from "@/lib/routes";
 import { canRequest } from "@/lib/permissions";
 import { labelFor, shortId } from "@/lib/format";
 import { SUPABASE_URL } from "@/lib/env";
+import { relistExpected } from "@/lib/relist";
 import { evidenceItems, str, toListingDetail, type Bid, type JsonRecord, type Report } from "@/lib/types";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Panel } from "@/components/ui/Panel";
@@ -59,7 +60,11 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
   }
   const l = d.listing;
   const raw = l.raw;
-  const canRelist = l.status === "active" && l.auction_status === "cancelled";
+  // The relist version (migration 158): the five fields exactly as ops.listing_detail returned them,
+  // from the untouched record. null = nothing to submit (not active + cancelled, or no version to state):
+  // the relist ConfirmForm is rendered closed, keeping only its last answer.
+  const relist = relistExpected(raw);
+  const relistState = l.status === "active" && l.auction_status === "cancelled";
   const transacted = d.payments.some((p) => p.payment_status === "succeeded" || p.payment_status === "refunded");
   const openReports = d.reports.filter((r) => r.status !== "actioned" && r.status !== "dismissed");
 
@@ -174,10 +179,27 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
         </div>
 
         <div className="space-y-6">
-          {canRelist ? (
-            <Panel eyebrow="Domain rule" title="Relist">
+          {/*
+            One Relist panel in every state, with the founder's ConfirmForm always in its first slot (same key).
+            The relist's own revalidatePath re-renders this page in the same response; after a relist (auction
+            active) or a lost race the listing is no longer relistable, and the form stays mounted but closed, so
+            its answer (Recorded / stale_state + result.current) is not thrown away with the inputs.
+          */}
+          <Panel eyebrow={relist ? "Domain rule" : "Actions"} title="Relist">
+            <div className="space-y-3">
               {canRequest(me.role, "listing_relist") ? (
-                <ConfirmForm idempotencyKey={newIdempotencyKey()} actionType="listing_relist" subjectKind="listing" subjectId={id} expected={{ status: l.status, auction_status: l.auction_status }} revalidate={path} label="Relist" danger>
+                <ConfirmForm
+                  key="listing_relist"
+                  idempotencyKey={newIdempotencyKey()}
+                  actionType="listing_relist"
+                  subjectKind="listing"
+                  subjectId={id}
+                  expected={relist ?? undefined}
+                  closed={!relist}
+                  revalidate={path}
+                  label="Relist"
+                  danger
+                >
                   <p className="text-[12px] text-muted">
                     admin_relist_listing only accepts admin-owned inventory that has never transacted; anything else is rejected by the domain guard. Price and fees are not editable.
                     {transacted ? " This listing has a captured payment — expect a rejection." : ""}
@@ -186,21 +208,24 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
                     <label htmlFor="relist-ends" className="eyebrow block text-dim">
                       New end (UTC) <span aria-hidden="true">*</span>
                     </label>
-                    <input id="relist-ends" type="datetime-local" name="param.new_ends_at" required className="field mt-1" />
-                    <p className="text-[11px] text-dim">Enter the new auction end as a UTC wall-clock time; it is stored as timestamptz.</p>
+                    <input id="relist-ends" type="datetime-local" name="param.new_ends_at:utc" required className="field mt-1" />
+                    <p className="text-[11px] text-dim">Enter the new auction end as a UTC wall-clock time; it is sent with a Z (UTC) suffix and stored as timestamptz.</p>
                   </div>
                 </ConfirmForm>
-              ) : (
+              ) : relist ? (
                 <Alert state="info" title="Only a founder can relist." compact />
+              ) : null}
+              {relist ? null : relistState ? (
+                <Alert state="failed" title="Relist is unavailable: ops.listing_detail did not return this listing's version." compact>
+                  The relist form states updated_at, ends_at and ended_at exactly as loaded. Reload; if this persists, the read contract changed.
+                </Alert>
+              ) : (
+                <Alert state="info" title="Relist applies only to active listings whose auction is cancelled." compact>
+                  Current: status {l.status ?? "—"}, auction {l.auction_status ?? "—"}.
+                </Alert>
               )}
-            </Panel>
-          ) : (
-            <Panel eyebrow="Actions" title="Relist">
-              <Alert state="info" title="Relist applies only to active listings whose auction is cancelled." compact>
-                Current: status {l.status ?? "—"}, auction {l.auction_status ?? "—"}.
-              </Alert>
-            </Panel>
-          )}
+            </div>
+          </Panel>
 
           {openReports.length ? (
             <Panel eyebrow={`${openReports.length}`} title="Resolve reports">

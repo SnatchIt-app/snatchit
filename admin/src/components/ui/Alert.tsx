@@ -83,6 +83,16 @@ export function OpsFailureAlert({ failure, retryHref, fn }: { failure: OpsFailur
       </Alert>
     );
   }
+  if (failure.outdated) {
+    return (
+      <Alert state="stale" title="This console is out of date — reload the page, then try again.">
+        Nothing was changed. The server needs data this build of the console does not send.
+        <span className="mt-1 block font-mono text-[11px] text-dim">
+          {failure.code} {failure.message}
+        </span>
+      </Alert>
+    );
+  }
   return (
     <Alert state="failed" title={failure.unavailable ? "RPC not available yet" : "Request failed"} retryHref={retryHref}>
       {failure.message}

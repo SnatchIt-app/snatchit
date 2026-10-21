@@ -8,10 +8,17 @@ export type OpsFailure =
   | { ok: false; kind: "mfa" }
   /** ops.setting actions_enabled = false: every mutation is refused until a founder re-enables it. */
   | { ok: false; kind: "paused"; message: string }
-  | { ok: false; kind: "error"; message: string; code?: string; unavailable?: boolean };
+  /** outdated: the server needs a field this console build does not send — reload for the current build. */
+  | { ok: false; kind: "error"; message: string; code?: string; unavailable?: boolean; outdated?: boolean };
 
 /** Marker raised by ops.assert_actions_enabled() (migration 118). */
 export const CONSOLE_PAUSED_MARKER = "console_actions_paused";
+
+/**
+ * P0001 raised by ops.execute_action (migration 158) when a listing_relist carries no
+ * valid expected.updated_at: the console build predates the relist version contract.
+ */
+export const RELIST_OUTDATED_PREFIX = "invalid_input: listing_relist requires expected.updated_at";
 
 export type OpsResult<T> = { ok: true; data: T } | OpsFailure;
 
@@ -45,6 +52,9 @@ export function mapOpsError(fn: string, err: PostgrestLikeError | null | undefin
   }
   if (lower.includes(CONSOLE_PAUSED_MARKER)) {
     return { ok: false, kind: "paused", message: message || "Console actions are paused" };
+  }
+  if (code === "P0001" && message.startsWith(RELIST_OUTDATED_PREFIX)) {
+    return { ok: false, kind: "error", code, message, outdated: true };
   }
   if (UNAVAILABLE_CODES.has(code) || (code === "" && lower.includes("could not find the function"))) {
     return {
