@@ -132,6 +132,9 @@ export default function SearchScreen({ fixture }: { fixture?: SearchFixture } = 
   const [loadError, setLoadError] = useState<'offline' | 'error' | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [searched, setSearched] = useState(fixture != null);
+  // The term the results on screen answer: the query box runs ahead of the 300 ms debounce, so the
+  // announcement quotes this, not `query` (which changed on every keystroke).
+  const [settledTerm, setSettledTerm] = useState<string>('');
 
   // One shared clock for every countdown on screen, as on Home.
   useEffect(() => {
@@ -147,6 +150,7 @@ export default function SearchScreen({ fixture }: { fixture?: SearchFixture } = 
       setSearched(true);
       setLoadError(null);
       setResults(fixture.rows);
+      setSettledTerm(term.trim());
       return;
     }
     const clean = sanitize(term);
@@ -185,6 +189,7 @@ export default function SearchScreen({ fixture }: { fixture?: SearchFixture } = 
       return;
     }
     setResults((data ?? []) as Listing[]);
+    setSettledTerm(term.trim());
   }, [blockedIds, fixture]);
 
   // A failure takes over the screen only when there is nothing to keep on it. Keyed on the RAW
@@ -197,7 +202,7 @@ export default function SearchScreen({ fixture }: { fixture?: SearchFixture } = 
   useAnnounceOnce(
     !searched || searching ? null
       : shown.length > 0 ? searchResultsHeader(shown.length)
-      : searchEmptyState(query.trim(), filters)?.title ?? null,
+      : searchEmptyState(settledTerm, filters)?.title ?? null,
   );
 
   // Debounced so a four-letter word is one query, not four.

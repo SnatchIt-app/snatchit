@@ -24,7 +24,7 @@ const SITES: Array<[string, string, RegExp]> = [
   ['sign-in session notice', 'app/(auth)/login.tsx', /useAnnounceOnce\(sessionNotice\)/],
   ['sign-up message', 'app/(auth)/signup.tsx', /useAnnounceOnce\(message\?\.text\)/],
   ['search failure notice', 'app/(tabs)/explore.tsx', /useAnnounceOnce\(text\)/],
-  ['search results settled', 'app/(tabs)/explore.tsx', /useAnnounceOnce\([\s\S]{0,80}searchResultsHeader\(shown\.length\)[\s\S]{0,80}searchEmptyState\(/],
+  ['search results settled', 'app/(tabs)/explore.tsx', /useAnnounceOnce\([\s\S]{0,80}searchResultsHeader\(shown\.length\)[\s\S]{0,80}searchEmptyState\(settledTerm, filters\)/],
   ['bids refresh failed', 'app/(tabs)/bids.tsx', /useAnnounceOnce\(loadError && bids\.length > 0 \? BIDS_REFRESH_FAILED_COPY\[loadError\]/],
   ['home filter refresh failed', 'app/(tabs)/home.tsx', /useAnnounceOnce\(datasetFailure === 'inline'[\s\S]{0,60}HOME_FILTER_REFRESH_FAILED_COPY/],
   ['settings deletion banners', 'app/settings/index.tsx', /useAnnounceOnce\(\s*deletionPending \? 'Account deletion requested\.[\s\S]{0,160}deletionProbeFailed \? 'We could not check your account status\.'/],
@@ -50,5 +50,12 @@ describe('VoiceOver announcements at the sites iOS left silent', () => {
   it('AS-hook: ListingDetailScreen calls no announce HOOK after its early returns', () => {
     const src = code('src/screens/ListingDetailScreen.tsx');
     expect(src).not.toMatch(/useAnnounceOnce\(/);
+  });
+
+  it('AS-search: the empty announcement quotes the searched term, never the live query (review M1)', () => {
+    const src = code('app/(tabs)/explore.tsx');
+    const call = src.slice(src.indexOf('useAnnounceOnce(\n'), src.indexOf(');', src.indexOf('useAnnounceOnce(\n')));
+    expect(call).not.toContain('query');
+    expect(src).toMatch(/setResults\(\(data \?\? \[\]\) as Listing\[\]\);\s*setSettledTerm\(term\.trim\(\)\);/);
   });
 });
