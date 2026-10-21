@@ -86,8 +86,12 @@ export function useListingRealtime(
   const [bids, setBids]       = useState<Bid[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
-  // Bumped by refetch() to re-run the subscription effect's full read.
-  const [readNonce, setReadNonce] = useState(0);
+  // Each full read takes a generation; only the newest may land (review m2: a double Retry, or the
+  // first read finishing after a Retry, wrote whichever came back last).
+  const readGenRef = useRef(0);
+  // The current subscription's list read, so Retry re-reads the list and leaves a healthy channel alone
+  // (review m1: re-running the effect tore the channel down, flashed "reconnecting" and emptied the list).
+  const readAllRef = useRef<() => void>(() => {});
   const [connection, setConnection] = useState<RealtimeConnection>('connecting');
 
   // Always-current list — prevents stale-closure reads in async callbacks.
@@ -151,15 +155,30 @@ export function useListingRealtime(
 
     // ── 1. Initial full fetch ───────────────────────────────────────────────
     // onNewBid is NOT called here — only realtime INSERTs fire that callback.
+    let alive = true;
+    function readAll() {
+      const gen = ++readGenRef.current;
+      setLoading(true);
+      fetchBids().then((rows) => {
+        if (!alive || gen !== readGenRef.current) return;
+        if (rows === null) {
+          // Unknown, not empty: keep whatever the list already holds and say the read failed.
+          setLoadError(true);
+        } else {
+          // Keep any live INSERT that landed while this read was in flight.
+          const extra = bidsRef.current.filter((b) => !rows.some((r) => r.id === b.id));
+          const list = [...extra, ...rows].sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
+          bidsRef.current      = list;
+          lastBidAtRef.current = list[0]?.created_at ?? '';
+          setBids(list);
+          setLoadError(false);
+        }
+        setLoading(false);
+      });
+    }
+    readAllRef.current = readAll;
     setLoadError(false);
-    fetchBids().then((rows) => {
-      setLoadError(rows === null);
-      const list = rows ?? [];
-      bidsRef.current      = list;
-      lastBidAtRef.current = list[0]?.created_at ?? '';
-      setBids(list);
-      setLoading(false);
-    });
+    readAll();
 
     // ── 2. Realtime subscription ────────────────────────────────────────────
     const channel = supabase
@@ -249,14 +268,15 @@ export function useListingRealtime(
     channelRef.current = channel;
 
     return () => {
+      alive = false;
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current);
         channelRef.current = null;
       }
     };
-  }, [listingId, readNonce]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [listingId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function refetch() { setReadNonce((n) => n + 1); }
+  function refetch() { readAllRef.current(); }
 
   // ── Derived values ──────────────────────────────────────────────────────────
   // List order: newest first (never re-sorted by amount).

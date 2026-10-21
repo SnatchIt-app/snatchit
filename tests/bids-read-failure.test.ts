@@ -28,6 +28,8 @@ vi.mock('@/src/theme/appearance', async () => {
   return { useTheme: () => ({ scheme: 'dark', palette: dark }) };
 });
 vi.mock('react-native', () => ({
+  AccessibilityInfo: { announceForAccessibility: () => {} },
+  Platform: { OS: 'ios', select: (o: Record<string, unknown>) => o.ios ?? o.default },
   useWindowDimensions: () => ({ width: 393, height: 852, scale: 3, fontScale: 1 }),
   Pressable: 'Pressable', Text: 'Text', View: 'View', StyleSheet: { create: <T,>(s: T) => s },
 }));
@@ -79,7 +81,7 @@ describe('B-D1: a failed bids read', () => {
   it('BF4: the hook reports a failed read instead of returning []', () => {
     const hook = code('src/hooks/useListingRealtime.ts');
     expect(hook).toMatch(/if \(error\) \{[\s\S]{0,120}return null;/);
-    expect(hook).toMatch(/setLoadError\(rows === null\)/);
+    expect(hook).toMatch(/if \(rows === null\) \{[\s\S]{0,140}setLoadError\(true\);/);
     expect(hook).toMatch(/loadError,\s*\n\s*refetch,/);
   });
 
@@ -93,5 +95,32 @@ describe('B-D1: a failed bids read', () => {
     expect(screen).toContain('myMaxBid < currentHighest;');
     expect(screen).toContain('const currentHighest = rt.currentBid;');
     expect(screen).toMatch(/loadFailed=\{!fixture && rt\.loadError\}/);
+  });
+});
+
+describe('B-D1 review follow-up (m1, m2): Retry and in-flight reads', () => {
+  it('BF6: an in-flight read paints neither "No bids yet" nor the failure', async () => {
+    const host = await renderActivity({ loading: true, loadFailed: false });
+    expect(findElement(host.output, (el) => el.type === 'EmptyState')).toBeUndefined();
+    expect(screenText(host.output)).not.toContain("Couldn't load bids");
+  });
+
+  it('BF7: a Retry that is still in flight keeps the failure notice, never "No bids yet"', async () => {
+    const host = await renderActivity({ loading: true, loadFailed: true, onRetry: () => {} });
+    expect(screenText(host.output)).toContain("Couldn't load bids");
+    expect(findElement(host.output, (el) => el.type === 'EmptyState')).toBeUndefined();
+  });
+
+  it('BF8: refetch re-reads the list only; reads are generation-guarded and dropped after cleanup', () => {
+    const hook = code('src/hooks/useListingRealtime.ts');
+    expect(hook).toContain('function refetch() { readAllRef.current(); }');
+    expect(hook).not.toMatch(/readNonce/);
+    expect(hook).toMatch(/\}, \[listingId\]\);/);
+    expect(hook).toMatch(/if \(!alive \|\| gen !== readGenRef\.current\) return;/);
+    expect(hook).toMatch(/return \(\) => \{\s*alive = false;/);
+    // A failed retry keeps the list it had; it does not clear it.
+    const failed = hook.slice(hook.indexOf('if (rows === null) {'), hook.indexOf('} else {', hook.indexOf('if (rows === null) {')));
+    expect(failed).toContain('setLoadError(true);');
+    expect(failed).not.toContain('setBids(');
   });
 });

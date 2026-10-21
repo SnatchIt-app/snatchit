@@ -1493,6 +1493,7 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
           <BidActivity
             bids={bids}
             loadFailed={!fixture && rt.loadError}
+            loading={!fixture && rt.loading}
             onRetry={rt.refetch}
             amountFor={(b) => listingAllInV3(b.amount)}
             timeFor={(b) => timeAgo(b.created_at)}

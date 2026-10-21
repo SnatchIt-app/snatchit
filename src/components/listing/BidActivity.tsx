@@ -14,6 +14,7 @@ import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { EmptyState } from '@/src/components/ui';
+import { useAnnounceOnce } from '@/src/hooks/useAnnounceOnce';
 import { identityStacks } from '@/src/lib/design/featureMetrics';
 import { AMOUNT_MIN_FONT_SCALE, MAX_DISPLAY_FONT_SCALE, textStyle } from '@/src/theme/typography';
 import { useTheme } from '@/src/theme/appearance';
@@ -36,9 +37,13 @@ export interface BidActivityProps {
   /** The bids read failed: the list is unknown, so it is never painted as "No bids yet" (B-D1). */
   loadFailed?: boolean;
   onRetry?: () => void;
+  /** A read is in flight: an empty list is not yet a fact, so "No bids yet" waits (A's B-D1 rule). */
+  loading?: boolean;
 }
 
-export function BidActivity({ bids, amountFor, timeFor, viewerId, highlightTop, loadFailed, onRetry }: BidActivityProps) {
+export function BidActivity({ bids, amountFor, timeFor, viewerId, highlightTop, loadFailed, onRetry, loading }: BidActivityProps) {
+  // Spoken on iOS like the other failure notices (useAnnounceOnce).
+  useAnnounceOnce(loadFailed && bids.length === 0 ? BIDS_LOAD_FAILED_COPY : null);
   const { palette } = useTheme();
   const styles = useMemo(() => makeStyles(palette), [palette]);
   /*
@@ -74,6 +79,9 @@ export function BidActivity({ bids, amountFor, timeFor, viewerId, highlightTop, 
             </Pressable>
           ) : null}
         </View>
+      ) : bids.length === 0 && loading ? (
+        // In flight: nothing is claimed yet, neither empty nor failed.
+        null
       ) : bids.length === 0 ? (
         <EmptyState title="No bids yet" body="Be the first to bid on this one." />
       ) : (
