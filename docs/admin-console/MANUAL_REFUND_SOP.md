@@ -212,10 +212,16 @@ verified here).
 
 ### 4.4 Metadata: leave it empty
 
+Leave every metadata field empty. These are the keys our code reads:
+
 - The webhook records a refund as source `dashboard` unless
-  `metadata.source` starts with `enforce-transfer-expiry` [WH:24-28]. Never
-  add a `source` or `reason` metadata key. The refund would be recorded as an
-  expiry refund, which misleads the refund-resolution triage text [144:178-192].
+  `metadata.source` starts with `enforce-transfer-expiry` [WH:24-28]. Only
+  that key changes the classification. `reason` is read only after `source`
+  matches, to tell an expiry refund from an unfulfillable one [WH:27]. Such
+  a `source` would record your refund as the expiry job's, which misleads the
+  refund-resolution triage text [144:178-192].
+- The expiry job's Phase 1b counts a refund whose `metadata.transfer_id` is
+  the order's transfer id as one of its own [ETE:841].
 - Never add `metadata.ops_action_id`. The console refund executor adopts any
   Stripe refund whose `ops_action_id` matches one of its actions
   [ORE:128-142].
