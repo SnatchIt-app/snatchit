@@ -35,6 +35,7 @@
 
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import { Alert, AppState, KeyboardAvoidingView, Linking, Platform, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
@@ -229,6 +230,7 @@ export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixt
     return () => { active = false; };
   }, [transfer?.transfer_evidence_path, transfer?.status, fixture]);
 
+  const confirmedHereRef = useRef(false);
   const fetchTransfer = useCallback(async (opts?: { quiet?: boolean }): Promise<TransferData | null> => {
     // Harness: the fixture replaces this one read and nothing else — no query leaves the app.
     if (fixture) { setTransfer(fixture.transfer); setError(''); setLoading(false); return fixture.transfer; }
@@ -264,13 +266,27 @@ export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixt
     } else {
       setError('');
       fresh = data as unknown as TransferData;
-      setTransfer(fresh);
+      // Once confirm-and-release has succeeded here, a row that still reads pending/seller_sent is a
+      // stale read, never a step back: the status doesn't return from buyer_confirmed. Keep the
+      // confirmed state rather than offer "I have my tickets" again.
+      const stale = confirmedHereRef.current && (fresh.status === 'pending' || fresh.status === 'seller_sent');
+      if (!stale) setTransfer(fresh);
     }
     setLoading(false);
     return fresh;
   }, [id, userId, fixture]);
 
   useEffect(() => { fetchTransfer(); }, [fetchTransfer]);
+
+  // And on every return to the order (the first focus is the mount read above). Quiet, so a failure
+  // keeps the order on screen.
+  const focusedOnce = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      if (!focusedOnce.current) { focusedOnce.current = true; return; }
+      void fetchTransfer({ quiet: true });
+    }, [fetchTransfer]),
+  );
 
   // Back from the provider: re-read the order, then decide whether to ask.
   // Returning from another app never implies receipt or payment.
@@ -378,8 +394,13 @@ export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixt
       // confirmed: a `buyer_confirmed` row with a NULL timestamp means an operator decided a
       // dispute. Only its PRESENCE is read — the authority here is the edge function's success,
       // not this clock.
+      confirmedHereRef.current = true;
       setTransfer((prev) => (prev ? { ...prev, status: 'buyer_confirmed', buyer_confirmed_at: new Date().toISOString() } : prev));
       Alert.alert('Receipt confirmed', 'You confirmed you received the tickets. Enjoy the event.');
+      // Capture 2: the payout is released moments after the confirmation, and the screen kept saying
+      // "not released" until it was reopened. Re-read quietly: a failure keeps this state, a success
+      // shows what the server now holds.
+      void fetchTransfer({ quiet: true });
     } catch {
       Alert.alert('Error', 'Something went wrong. Please try again.');
     } finally {
