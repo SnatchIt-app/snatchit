@@ -25,7 +25,7 @@ demo. Listed so the dependency is visible rather than discovered later.
 
 | # | Need | State today |
 |---|---|---|
-| B1 | `venue_api` read views — the whole read side | Migration `20261021120000` (registry 159, pgTAP 226; re-timestamp of the retired `20260910120000`, same SQL) written, pgTAP 47/47 locally, **applied nowhere**. The app's database mode is already wired to it (`lib/db/adapters.ts`), so this is an apply, not a build. |
+| B1 | `venue_api` read views — the whole read side | Migration `20261021120000` (registry 159, pgTAP 226; re-timestamp of the retired `20260910120000`, same SQL) written. pgTAP 188 47/47 locally (the retired suite); pgTAP 226 (plan 72 on `venue/api-read-views-provisional` @ `ad728964`) run owed by F/A. **Applied nowhere**. The app's database mode is already wired to it (`lib/db/adapters.ts`), so this is an apply, not a build. |
 | B2 | A **signals read** behind the Tonight page | **Does not exist in any spec.** This is the one new dependency the demo creates. `lib/signals.ts` is the executable specification for it — the shape it needs is already written down and tested. |
 | B3 | `venue.list_attendees` — holder-keyed, column-scoped, audited | Contracted (CRM §11.4), not implemented. `lib/roles.ts` `rosterClasses()` is the column policy it has to enforce server-side. |
 | B4 | `venue.get_dashboard_summary` — counters in one round trip | An ask (Δ3). `lib/inventory.ts` `sessionTotals()`/`doorHoldback()` define the arithmetic. |
