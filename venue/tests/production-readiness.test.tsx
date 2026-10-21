@@ -119,3 +119,38 @@ describe("database mode offers no Create event control, even on an empty venue",
     expect(out).toContain("/events/new");
   });
 });
+
+describe("database-mode entry never defaults to fixtures", () => {
+  const routes: [string, { org: string; venue: string; event?: string }][] = [
+    ["non-UUID org and venue", { org: "not-a-uuid", venue: "also-not-a-uuid" }],
+    ["non-UUID venue", { org: "5a4d0b0e-0000-4000-8000-00000000000a", venue: "smp_ven_room" }],
+    ["the sample fixture ids", { org: "smp_org_wynwood", venue: "smp_ven_room" }],
+    ["injection string", { org: "' OR 1=1--", venue: "x" }],
+  ];
+  it.each(routes)("signed in, %s: entry is denied", async (_label, params) => {
+    await inMode("database");
+    const { readPage } = await import("@/lib/page");
+    const p = await readPage(Promise.resolve(params), Promise.resolve({}));
+    expect(p.scope.ok).toBe(false);
+    expect(p.entry).toEqual({ kind: "denied" });
+  });
+  it("signed out with a malformed route: still the sign-in failure, never fixtures", async () => {
+    await inMode("database");
+    db.state.session = { ok: true, user: null };
+    const { readPage } = await import("@/lib/page");
+    const p = await readPage(Promise.resolve({ org: "not-a-uuid", venue: "x" }), Promise.resolve({}));
+    expect(p.entry.kind).toBe("failure");
+  });
+  it("a valid route with a grant still enters", async () => {
+    await inMode("database");
+    const { readPage } = await import("@/lib/page");
+    const p = await readPage(Promise.resolve({ org: db.ORG, venue: db.VEN }), Promise.resolve({}));
+    expect(p.entry.kind).toBe("ok");
+  });
+  it("fixture mode is unchanged: the sample route is a fixtures entry", async () => {
+    await inMode("fixtures");
+    const { readPage } = await import("@/lib/page");
+    const p = await readPage(Promise.resolve({ org: "smp_org_wynwood", venue: "smp_ven_room" }), Promise.resolve({}));
+    expect(p.entry).toEqual({ kind: "fixtures" });
+  });
+});

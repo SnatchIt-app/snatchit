@@ -71,7 +71,9 @@ export async function readPage(paramsP: Promise<PageParams>, spP: Promise<Search
   };
 
   let session: SessionProbe | null = null;
-  let entry: Entry = { kind: "fixtures" };
+  // Fail closed: in database mode nothing below may leave the entry open by default. A route whose ids
+  // are not UUIDs (scope not ok) is a denial, never the fixture entry.
+  let entry: Entry = ctx.source === "database" ? { kind: "denied" } : { kind: "fixtures" };
   let event: Event | null = null;
   let eventFailure: ReadFailure | null = null;
   /** Database mode, after entry: the route venue's own name (venue_api.venues.name), for headings only. */
