@@ -28,13 +28,15 @@ SELECT throws_ok(
   $$ INSERT INTO public.bids (listing_id, bidder_id, amount)
      VALUES (tap.listing_a(), tap.buyer(), 150) $$,
   '42501', NULL, 'anon INSERT on bids denied');
-SELECT is_empty(
+-- 174: anon holds no UPDATE/DELETE on listings any more, so these are refused at
+-- the grant (42501) instead of matching zero rows under RLS.
+SELECT throws_ok(
   $$ WITH u AS (UPDATE public.listings SET event_name = 'pwn' RETURNING id)
      SELECT * FROM u $$,
-  'anon UPDATE on listings matches zero rows');
-SELECT is_empty(
+  '42501', 'permission denied for table listings', 'anon UPDATE on listings denied outright (174)');
+SELECT throws_ok(
   $$ WITH d AS (DELETE FROM public.listings RETURNING id) SELECT * FROM d $$,
-  'anon DELETE on listings matches zero rows');
+  '42501', 'permission denied for table listings', 'anon DELETE on listings denied outright (174)');
 
 -- ── Money tables ────────────────────────────────────────────────────────────
 SELECT is_empty($$ SELECT id FROM public.payments $$,

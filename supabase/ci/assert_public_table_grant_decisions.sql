@@ -121,7 +121,9 @@
 --   no-client-access  deny-all. RLS on, service_role only. ASSERTED: anon and
 --                     authenticated must hold zero table privileges.
 --   client-dml        anon and/or authenticated hold DML; covered by the
---                     expected_grants.txt diff.
+--                     expected_grants.txt diff. Since 174, anon may hold a
+--                     write privilege only on a table in the A4 allowlist
+--                     (the signed-out website forms); A4 fails on any other.
 --   client-read       client roles hold SELECT only; covered by that diff.
 --   column-grants     no table-level client grant at all; access is column-
 --                     scoped. Only public.profiles. A table-level grant here
@@ -323,6 +325,85 @@ BEGIN
   END IF;
 
   RAISE NOTICE 'all no-client-access tables are clean.';
+END $$;
+
+-- ---------------------------------------------------------------------------
+-- A4. anon may WRITE only the signed-out website forms (174).
+--
+-- Migration 20261021134000_revoke_anon_dml.sql revoked anon's INSERT/UPDATE/
+-- DELETE on 14 public tables that only RLS used to refuse (no signed-out client
+-- writes them; evidence private-evidence/A-sprint-20261021/a174/). The only
+-- tables a signed-out caller legitimately writes are the website forms, which
+-- POST with the publishable key under an INSERT TO anon policy; they keep their
+-- anon grants exactly as they were. The client-dml decision above cannot express
+-- that (authenticated still holds DML on the 14), so it is asserted here:
+--   A4  a public relation outside _anon_write_allowlist on which anon holds
+--       INSERT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER, table level or (for
+--       INSERT/UPDATE/REFERENCES) on any column, FAILS — e.g. a parity_grants.sql
+--       line that re-grants what 174 revoked, or a migration GRANT to anon;
+--   A4b an allowlist row whose table is gone or on which anon holds no INSERT
+--       FAILS, so the list cannot rot into a standing allowance. On this replay
+--       parity_grants.sql grants anon INSERT on all three forms, so A4b is also
+--       the positive control that the detector sees grants at all;
+--   A4c self-test of the column-level branch: anon holds column-level SELECT on
+--       public.profiles and no table-level SELECT, so the same expression with
+--       'SELECT' must see the column grant, or a column-only write grant could
+--       hide from A4.
+-- Extension members (pgTAP, if installed into public) are not application
+-- tables and are skipped. This file still grants and revokes nothing.
+-- ---------------------------------------------------------------------------
+CREATE TEMP TABLE _anon_write_allowlist (table_name text PRIMARY KEY, reason text NOT NULL);
+
+INSERT INTO _anon_write_allowlist (table_name, reason) VALUES
+  ('ambassador_applications',     'snatchitapp.com ambassador form: POST as anon, policy "anon insert only"'),
+  ('investor_leads',              'snatchitapp.com investor form: POST as anon, policy "anon insert only"'),
+  ('venue_partnership_inquiries', 'snatchitapp.com venue inquiry form: POST as anon, policy "anon insert only"');
+
+DO $$
+DECLARE
+  leaked text;
+  stale  text;
+  col_ok boolean;
+BEGIN
+  SELECT has_any_column_privilege('anon', 'public.profiles'::regclass, 'SELECT')
+         AND NOT has_table_privilege('anon', 'public.profiles'::regclass, 'SELECT')
+    INTO col_ok;
+  IF col_ok IS NOT TRUE THEN
+    RAISE EXCEPTION 'GUARD SELF-TEST FAILED (A4c): the column-level privilege probe did not see anon''s column SELECT on public.profiles (or anon gained table-level SELECT there); do not trust A4.';
+  END IF;
+
+  SELECT string_agg(format('%s -> anon: %s', w.relname, w.privs), '; ' ORDER BY w.relname)
+    INTO leaked
+    FROM (SELECT c.relname,
+                 (SELECT string_agg(p, ',' ORDER BY p)
+                    FROM unnest(ARRAY['DELETE','INSERT','REFERENCES','TRIGGER','TRUNCATE','UPDATE']) p
+                   WHERE has_table_privilege('anon', c.oid, p)
+                      OR (p IN ('INSERT','UPDATE','REFERENCES') AND has_any_column_privilege('anon', c.oid, p))) AS privs
+            FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+           WHERE n.nspname = 'public' AND c.relkind IN ('r','p','v','m','f')
+             AND NOT EXISTS (SELECT 1 FROM pg_depend d
+                              WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid AND d.deptype = 'e')) w
+   WHERE w.privs IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM _anon_write_allowlist a WHERE a.table_name = w.relname);
+  IF leaked IS NOT NULL THEN
+    RAISE EXCEPTION
+      E'anon holds a write privilege outside the signed-out website forms: %.\n'
+      'Migration 174 (20261021134000_revoke_anon_dml.sql) revoked these because no signed-out client writes them and RLS was the only control. If parity_grants.sql re-granted it, make the line SELECT-only; if a migration granted it, revoke it. Add a table to _anon_write_allowlist only with a signed-out write path you have enumerated (who posts as anon, under which INSERT TO anon policy).',
+      leaked;
+  END IF;
+
+  SELECT string_agg(a.table_name, ', ' ORDER BY a.table_name)
+    INTO stale
+    FROM _anon_write_allowlist a
+   WHERE to_regclass('public.' || quote_ident(a.table_name)) IS NULL
+      OR NOT has_table_privilege('anon', to_regclass('public.' || quote_ident(a.table_name)), 'INSERT');
+  IF stale IS NOT NULL THEN
+    RAISE EXCEPTION
+      'A4b: _anon_write_allowlist names table(s) that are gone or on which anon holds no INSERT: %. Remove the row (an allowance for nothing becomes an allowance for the next table of that name), or restore the grant parity_grants.sql states for the website form.',
+      stale;
+  END IF;
+
+  RAISE NOTICE 'anon writes only the % allowlisted signed-out website-form tables.', (SELECT count(*) FROM _anon_write_allowlist);
 END $$;
 
 -- ===========================================================================
