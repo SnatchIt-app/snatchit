@@ -216,7 +216,7 @@ database-mode guest list/door and writes stay with D). Not pushed, not deployed;
 | Secret key guard | `keyLooksPrivileged` also refuses `sb_secret_…` keys (trimmed, any case), not only legacy `service_role` JWTs. |
 | Loading state | `src/app/o/[org]/v/[venue]/loading.tsx`: Shell-shaped skeleton (sidebar, top line, content), mode-neutral, `data-route-loading` for the kit. |
 | Mode-aware copy | Root metadata says DEMO / sample data only in the fixture build ("Venue dashboard · Snatch It" in database mode). Events eyebrow shows the venue's own name (`venue_api.venues.name`). Stale comments fixed (CSP note, package description, "eight views"). The empty events list no longer offers Create event in database mode. |
-| Entry default | Database mode starts from `{kind: "denied"}`; a non-UUID route can never come back as the fixture entry. |
+| Entry default | Database mode starts from `{kind: "denied"}`; a non-UUID route can never come back as the fixture entry. **Defense in depth, not a closed leak:** every routed page already returned the denial on `!scope.ok` before reading the entry, so no route rendered fixture data in database mode before this change either. The RED is unit-level only (4 tests in `production-readiness.test.tsx`). |
 | Resale policy | Venue-scope policies are read for the route venue; in-force policy = event scope first, then highest version (the rule in 088 `create_native_listing` / `buy_now`). RLS hides a draft event's own policy from every client, so a draft without a visible own row shows "Resale not readable until published" instead of its venue's policy, which could be more permissive than the one the server applies. Unapproved venues' venue-wide policies are still hidden by RLS and read as absent. |
 | `.vercelignore` | A CLI deploy from `venue/` never uploads `.env*`, key files, `.vercel`, `.next`, `node_modules`, `*.tsbuildinfo`, `next-env.d.ts`, kit `.runs/`, harness state, logs or `.f-handoff`. |
 | Domain readiness | `POST /logout` answers 303 with a relative `Location: /login`. Confirmed host-agnostic: no absolute URL in `src/`, CSP and headers carry no host (`connect-src 'self'`, every Supabase call is server-side), sign-in `next=` is relative-only, and the `@supabase/ssr` cookies are host-only (no Domain), `Path=/`, `SameSite=Lax`, and now `Secure` + `HttpOnly` (`lib/supabase/cookies.ts`, both SSR clients; no browser code reads the session, pinned by a test). Production responses add `Strict-Transport-Security: max-age=63072000` (no `includeSubDomains`, no preload) and admin's `Permissions-Policy`. |
@@ -227,6 +227,24 @@ in fixture mode and in database mode with the CI placeholder env. Each fix has a
 on the unfixed code and a planted regression the test catches. Acceptance kit `--phase all` on a
 local replay of this branch (136/136 migrations, PostgREST exposing `venue_api`, auth stub):
 **138/138**; with `venueInRouteOrg` planted to always pass, the three C6 checks fail (135/138).
+That run is at `40e8831d` (run 3) and on the tree committed as `e42f6e7d` (run 4). The review
+fixes below change the kit and the app, so it has to be repeated at the head that gets pinned.
+
+### Review fixes (second pass, 2026-10-21)
+
+| Fix | What changed |
+|---|---|
+| Migration pin | `venue_api` = registry 159, `20261021120000_venue_api_read_views.sql`, pgTAP 226 (A's PR #115). Kit SQL, `apply`, the app's "not applied?" hint and the venue docs name it. Preflight and verify-apply fail if the ledger holds the retired `20260910120000`. This branch still carries the retired `supabase/migrations/20260910120000_*` files from `venue/dashboard-v2`, so ship `venue/` only, never this branch wholesale. |
+| Draft resale | A draft event without a visible own policy shows "Resale not readable until published" (RLS hides a draft's event-scope row; 088 would still apply it first). |
+| Cookies, HSTS | Session cookies `Secure` + `HttpOnly` (plus host-only, `Lax`, `/`) in both SSR clients; HSTS `max-age=63072000` and `Permissions-Policy` outside `next dev`. |
+| Logout test | Calls the route with a real `POST` Request, so a reverted absolute-URL redirect fails on `Location`. |
+| Kit `settled()` | Throws (phase FAIL) when the loading state never clears, instead of reading the skeleton. |
+| Kit P1 | Role labels matched in any case after removing the denial's own sentence; a planted `verifiedRole` leak is caught in the contract test. |
+
+Verification for this pass: targeted vitest runs of the touched test files only (each fix RED on
+the unfixed code, GREEN after, plus planted mutants) and eslint on the changed files. Still owed:
+full `npm test`, `npm run typecheck`, `next build` in both modes, and the kit `--phase all` rerun
+(H2/H3/H6 with the Secure/HttpOnly cookies included).
 
 Hosting notes for `venue.snatchitapp.com` (code side; nothing configured):
 
