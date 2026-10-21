@@ -44,6 +44,7 @@ import {
 } from '@/src/lib/transfer/transferState';
 import { SellerClosedBlock, SellerReversedBlock, SellerSentBlock, StateBlock } from '@/src/components/transfer/TransferStateBlocks';
 import { disputeDecision, disputedStateCopy, disputedStateMeta } from '@/src/lib/transfer/disputeOutcome';
+import { OrderSupportAction } from '@/src/components/transfer/OrderSupportAction';
 import { textStyle } from '@/src/theme/typography';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
@@ -639,6 +640,9 @@ export default function TransferSendScreen({ fixture }: { fixture?: SendFixture 
             </StateBlock>
           );
         })() : null}
+
+        {/* CFT-406: support, prefilled with this order's ID and status (no PII), in every state. */}
+        <OrderSupportAction role="seller" transfer={transfer} />
 
         <View style={{ height: v2.space.xxl }} />
       </ScrollView>
