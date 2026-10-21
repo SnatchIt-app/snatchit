@@ -44,6 +44,7 @@ import { readServerRefusal } from '@/src/lib/moderation/serverRefusal';
 import { blockConfirmMessage } from '@/src/lib/moderation/blockCopy';
 import { PriceDisplay } from '@/src/components/PriceDisplay';
 import { useAuth } from '@/src/hooks/useAuth';
+import { useSavedListing } from '@/src/hooks/useSavedListing';
 import { useSingleFlight } from '@/src/hooks/useSingleFlight';
 import { connectionNotice, resultPollDelayMs, shouldPollForResult } from '@/src/lib/listing/liveState';
 import { useListingRealtime } from '@/src/hooks/useListingRealtime';
@@ -229,6 +230,11 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
 
   // ── State ──────────────────────────────────────────────────────────────────
   const [listing,    setListing]    = useState<Listing | null>(null);
+
+  // Save listing: no control until auth has resolved and the row is loaded (none on an unreadable
+  // listing or when signed out — the hook returns null). Only the loaded hero below receives it. The
+  // dev harness (fixture) makes no reads, so it gets no control.
+  const save = useSavedListing({ userId: user?.id, listingId: id, enabled: authReady && !!listing && !fixture });
 
   // ── Card handoff (display only) ────────────────────────────────────────────
   // What the tapped card already showed, read once so the first frame is
@@ -1393,6 +1399,7 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
           showsFanBadge={showsFanBadge(listing)}
           onBack={() => router.back()}
           onOverflow={openListingActions}
+          save={save ?? undefined}
         />
 
         <AnnounceWhenFocused text={liveNotice} />

@@ -47,6 +47,9 @@ const MAPPING = {
   'chevron.left': 'chevron-left',
   'ellipsis': 'more-horiz',
   'line.3.horizontal.decrease': 'filter-list',
+  // Save listing (IconButton `bookmark`): the outline when not saved, the filled mark when saved.
+  'bookmark': 'bookmark-border',
+  'bookmark.fill': 'bookmark',
 } as IconMapping;
 
 /**

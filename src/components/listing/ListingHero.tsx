@@ -38,6 +38,7 @@ import { useTopInset } from '@/src/lib/nav/navInsets';
 import { EventMedia } from '@/src/components/media/EventMedia';
 import { NameText } from '@/src/components/NameText';
 import { FromAFanBadge, IconButton } from '@/src/components/ui';
+import { SaveControl, SaveNote, type SaveControlProps } from '@/src/components/listing/SaveControl';
 import { FEATURE_GUTTER, HERO_NAME_GAP } from '@/src/lib/design/featureMetrics';
 import { rowWhenLabel } from '@/src/lib/listing/feedRowState';
 import type { MediaAsset } from '@/src/lib/media/url';
@@ -62,6 +63,11 @@ export interface ListingHeroProps {
   onBack: () => void;
   /** Omitted for the seller's own listing: there is no point reporting yourself. */
   onOverflow?: () => void;
+  /**
+   * The Save toggle, from the screen's `useSavedListing`. Omitted while auth or the row is loading,
+   * when signed out, and on a listing this viewer cannot read; this file only draws it.
+   */
+  save?: SaveControlProps & { note: string | null };
 }
 
 /*
@@ -79,6 +85,7 @@ export function ListingHero({
   showsFanBadge,
   onBack,
   onOverflow,
+  save,
 }: ListingHeroProps) {
   const { palette } = useTheme();
   const styles = useMemo(() => makeStyles(palette), [palette]);
@@ -103,10 +110,14 @@ export function ListingHero({
       {/* Navigation, in its own area above the poster, in the chips' canvas form. */}
       <View style={[styles.nav, { paddingTop: topPad + v2.space.sm }]}>
         <IconButton glyph="back" accessibilityLabel="Go back" onPress={onBack} />
-        {onOverflow ? (
-          <IconButton glyph="more" accessibilityLabel="More actions" onPress={onOverflow} />
-        ) : null}
+        <View style={styles.navEnd}>
+          {save ? <SaveControl saved={save.saved} onToggle={save.onToggle} /> : null}
+          {onOverflow ? (
+            <IconButton glyph="more" accessibilityLabel="More actions" onPress={onOverflow} />
+          ) : null}
+        </View>
       </View>
+      {save?.note ? <SaveNote text={save.note} /> : null}
 
       {/* The poster, complete and uncovered: no children, because a child of EventMedia draws
           INSIDE the frame — which is how the chips came to sit on printed lines. */}
@@ -162,6 +173,8 @@ function makeStyles(p: Palette) {
     paddingHorizontal: v2.space.sm,
     paddingBottom: v2.space.sm,
   },
+  /* The right-hand chips: Save, then overflow, at the same 44pt size and gap. */
+  navEnd: { flexDirection: 'row', gap: v2.space.sm },
   /*
    * Beneath the poster now, so it is a normal block rather than an absolutely positioned overlay.
    * It keeps the poster's gutter so the type still lines up with the artwork's edges.
