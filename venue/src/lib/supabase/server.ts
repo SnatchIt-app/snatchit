@@ -14,15 +14,15 @@ export class SupabaseConfigError extends Error {
 /**
  * Server-side Supabase client using the official @supabase/ssr cookie pattern.
  * Anon key + the signed-in staff member's session cookie. There is no
- * privileged client anywhere in this app, and a service-role key in the
- * public slot is refused rather than used.
+ * privileged client anywhere in this app, and a secret (sb_secret_…) or
+ * service-role key in the public slot is refused rather than used.
  */
 export async function createSupabaseServerClient() {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
     throw new SupabaseConfigError("NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY are not set");
   }
   if (keyLooksPrivileged(SUPABASE_ANON_KEY)) {
-    throw new SupabaseConfigError("NEXT_PUBLIC_SUPABASE_ANON_KEY carries role=service_role — refusing to start a browser-class client with it");
+    throw new SupabaseConfigError("NEXT_PUBLIC_SUPABASE_ANON_KEY is a secret or service-role key — refusing to start a browser-class client with it");
   }
   const cookieStore = await cookies();
   return createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {

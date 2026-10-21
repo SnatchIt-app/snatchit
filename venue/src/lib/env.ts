@@ -25,9 +25,14 @@ export function supabaseHost(): string | null {
   }
 }
 
-/** Database mode with a service-role-looking key is refused outright. */
+/**
+ * Database mode with a privileged key in the public slot is refused outright. Two shapes:
+ *   - a new-format secret API key (`sb_secret_…`; the public one is `sb_publishable_…`), and
+ *   - a legacy JWT key whose payload says `role: service_role`.
+ */
 export function keyLooksPrivileged(key: string | null): boolean {
   if (!key) return false;
+  if (key.trim().toLowerCase().startsWith("sb_secret_")) return true;
   const part = key.split(".")[1];
   if (!part) return false;
   try {
