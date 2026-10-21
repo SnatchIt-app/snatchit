@@ -324,6 +324,11 @@ export default function ProfileScreen({ fixture }: { fixture?: ProfileFixture } 
           </View>
         ) : null}
 
+        {/* ── Buyer — saved listings are a buying feature, so they are not read out under "Seller" ── */}
+        <AccountSection title="Buyer">
+          <SettingsRow label="Saved" onPress={() => router.push('/saved')} />
+        </AccountSection>
+
         {/* ── Seller — the board's stacked label/value rows, not the V2 stat strip ── */}
         <AccountSection title="Seller">
           <StatRow s={s} label="Active" value={String(stats.active)} onPress={() => router.push({ pathname: '/my-listings', params: { filter: 'active' } })} />
@@ -337,7 +342,6 @@ export default function ProfileScreen({ fixture }: { fixture?: ProfileFixture } 
             value={`${totalListings} total`}
             onPress={() => router.push('/my-listings')}
           />
-          <SettingsRow label="Saved" onPress={() => router.push('/saved')} />
         </AccountSection>
 
         {/* ── Payouts ───────────────────────────────────────── */}
