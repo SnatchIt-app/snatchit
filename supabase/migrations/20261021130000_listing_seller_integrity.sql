@@ -18,10 +18,12 @@
 --       listings checks ownership only (listings_update_own, listings_update_own_meta, "listings: seller update
 --       own": seller_id = auth.uid()), authenticated holds table-level UPDATE on every column (relacl
 --       authenticated=arwdm, no column ACLs), and guard_listing_state_columns covers only the 11 state columns.
---       The app's "edit until the first bid" rule is client-only (app/listing/edit/[id].tsx at e46fc203:
---       editRefusal gate; the save at :157-167 PATCHes event_name, venue, restrictions, ticket_platform;
---       web/src/lib/seller-listings.ts:166-201 the same four after a client-side bid count). A stale form saved
---       after the first bid, or any direct PATCH, succeeded (01_red.out, pgTAP 240 B1-B18).
+--       The app's "edit until the first bid" rule is client-only (app/listing/edit/[id].tsx at e46fc203: the
+--       editRefusal gate, src/lib/listing/editAccess.ts:69-70, refuses bid_count > 0 or auction_status <> 'active'
+--       only — NOT a Buy Now hold; the save at :157-167 PATCHes event_name, venue, restrictions, ticket_platform;
+--       web/src/lib/seller-listings.ts:166-201 the same four after its badge gate and a real bid count). A stale
+--       form saved after the first bid, the app's own edit screen during a live hold, or any direct PATCH,
+--       succeeded (01_red.out, pgTAP 240 B1-B18, B27).
 --
 -- WHAT.
 --   1. Pre-flight (read-only DO block): cancel_listing must be the PRODUCTION body (md5
@@ -112,8 +114,11 @@
 --       (listing_relist calls admin_relist_listing only); no edge function; the admin console has no cancel.
 --     - Internal UPDATEs that cancel without this RPC (kernel.sweep_deletion_pending, delete_account_cleanup)
 --       are unchanged.
---   listings content UPDATEs: only the two edit paths above (both already gated client-side, so the lock is
---     reached only through a stale form or a direct request). No definer RPC, edge function, cron job or ops
+--   listings content UPDATEs: only the two edit paths above. The lock is reached through a stale form, a direct
+--     request, the APP's edit screen on a held listing (its gate ignores status 'reserved'), and either client on
+--     a lapsed hold not yet swept (status still 'reserved' until cleanup_expired_reservations runs; the web badge
+--     reads that as ACTIVE). Both show error.message raw today: the new sentence is user-presentable, and C can
+--     key on HINT LISTING_LOCKED_FOR_EDIT (CFT-703). No definer RPC, edge function, cron job or ops
 --     action writes a locked column (every UPDATE public.listings in the replay catalog was read: state,
 --     end-time and seller_id columns only); service_role and the claims-less path stay trusted.
 --
