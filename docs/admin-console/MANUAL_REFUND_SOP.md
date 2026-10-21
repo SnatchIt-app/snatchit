@@ -489,6 +489,10 @@ guards that keep the money records consistent.
   connected-account transfer untouched. This SOP assumes it does, because
   payouts are separate Stripe Transfers (`DAY5_MANUAL_REFUND_PLAYBOOK.md` Part
   2 at `6f982f36`).
+- Each payment's `stripe_livemode`. The console shows only `false`, so A
+  confirms `true` per order (§2 row 3).
+- Which console build is deployed: `07100a35`, or console v2 with the
+  *Classify* and *Obligation* controls (§5.4).
 - The current values of `refund_execute_enabled`,
   `refund_state_detection_enabled`, `refund_resolution_detector_enabled` and
   `detectors_enabled` in production. Founders can read them under System →
