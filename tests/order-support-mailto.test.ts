@@ -224,6 +224,24 @@ describe('OS4 · every transfer status gets the badge\'s word', () => {
   });
 });
 
+describe('OS4b · a status word from the server can never break the email\'s lines (E, D-2.5)', () => {
+  it('OS4b: control characters in an unknown status are flattened in the subject and the Status line', () => {
+    // An unknown status falls through to the badge's own fallback word; whatever the server sends,
+    // it must not start a new line, inject a header-looking line or carry a control character.
+    const nasty = 'odd\r\nBcc: x@example.test\u0085\u2028\u0000\u001b';
+    for (const role of ['buyer', 'seller'] as const) {
+      const d = orderSupportDraft(row({ status: nasty }), role)!;
+      const { subject, body } = parse(d.url);
+      expect(subject).not.toMatch(/[\u0000-\u001F\u007F-\u009F\u2028\u2029]/);
+      const statusLines = body.split('\r\n').filter((l) => l.startsWith('Status: '));
+      expect(statusLines).toHaveLength(1);
+      expect(statusLines[0]).not.toMatch(/[\u0000-\u001F\u007F-\u009F\u2028\u2029]/);
+      // No line of the body may begin with an injected header word.
+      expect(body.split('\r\n').some((l) => /^bcc:/i.test(l))).toBe(false);
+    }
+  });
+});
+
 describe('OS5 · no PII leaves in the email', () => {
   it('delivery email/phone, names, payment and Stripe ids on the row never reach the URL', () => {
     // The screens' joined listing carries more than the name; only the name may be read.
