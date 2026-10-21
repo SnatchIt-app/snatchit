@@ -1,4 +1,4 @@
-import { createElement } from "react";
+import { createElement, isValidElement, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -39,6 +39,7 @@ vi.mock("@/lib/supabase/server", () => ({
 import { acknowledgeAlert, submitAlertAck } from "@/lib/actions";
 import { OpsFailureAlert } from "@/components/ui/Alert";
 import { AlertDelivery, AlertList } from "@/components/system/AlertList";
+import { AlertAckForm, AlertAckResult, alertAckView } from "@/components/system/AlertAckForm";
 import type { OpsAlert } from "@/lib/types";
 
 const KEY = "job_failure:ops:refunds";
@@ -66,14 +67,14 @@ describe("acknowledgeAlert calls 146's ops.alert_ack exactly", () => {
   });
 
   it("an empty note goes as null (the function's default), and success revalidates the page", async () => {
-    const s = await submitAlertAck({}, ackForm({ alert_key: KEY, note: "   ", revalidate: "/system" }));
+    const s = await submitAlertAck({}, ackForm({ alert_key: KEY, incident_seq: "2", note: "   ", revalidate: "/system" }));
     expect(h.calls[0].args).toEqual({ p_alert_key: KEY, p_note: null });
     expect(s.acknowledgedAt).toBe("2026-10-21T10:00:00Z");
     expect(h.revalidated).toEqual(["/system"]);
   });
 
   it("a revalidate value that is not a path is ignored", async () => {
-    await submitAlertAck({}, ackForm({ alert_key: KEY, note: "", revalidate: "https://example.test/system" }));
+    await submitAlertAck({}, ackForm({ alert_key: KEY, incident_seq: "2", note: "", revalidate: "https://example.test/system" }));
     expect(h.revalidated).toEqual([]);
   });
 
@@ -84,7 +85,7 @@ describe("acknowledgeAlert calls 146's ops.alert_ack exactly", () => {
     ]) {
       h.reply = { data: null, error };
       h.revalidated.length = 0;
-      const s = await submitAlertAck({}, ackForm({ alert_key: KEY, note: "", revalidate: "/system" }));
+      const s = await submitAlertAck({}, ackForm({ alert_key: KEY, incident_seq: "2", note: "", revalidate: "/system" }));
       expect(s).toEqual({ submitted: true, refused: error.message });
       expect(h.revalidated).toEqual([]);
     }
@@ -116,9 +117,40 @@ describe("acknowledgeAlert calls 146's ops.alert_ack exactly", () => {
     expect(h.calls).toEqual([]);
   });
 
+  it("the form's rendered incident goes with the call; the same incident back is a plain acknowledgement", async () => {
+    const s = await submitAlertAck({}, ackForm({ alert_key: KEY, incident_seq: "2", note: "", revalidate: "/system" }));
+    expect(h.calls).toEqual([{ fn: "alert_ack", args: { p_alert_key: KEY, p_note: null } }]);
+    expect(s).toEqual({ submitted: true, acknowledgedAt: "2026-10-21T10:00:00Z", incidentSeq: 2, shownIncidentSeq: 2 });
+  });
+
+  it("a different incident acknowledged than the one shown comes back as a warning that names both, and still refreshes the page", async () => {
+    // 146's alert_ack acknowledges whatever incident the row holds when the call arrives: if the condition cleared
+    // and re-fired after the page loaded, the operator has just acknowledged an incident they never saw.
+    h.reply = { data: { ...ACKED, incident_seq: 3 }, error: null };
+    const s = await submitAlertAck({}, ackForm({ alert_key: KEY, incident_seq: "2", note: "looking at it", revalidate: "/system" }));
+    expect(s.acknowledgedAt).toBe("2026-10-21T10:00:00Z");
+    expect(s.incidentSeq).toBe(3);
+    expect(s.shownIncidentSeq).toBe(2);
+    expect(s.warning).toContain("A new incident #3 opened since you loaded this page, which showed incident #2; it is now acknowledged.");
+    expect(h.revalidated).toEqual(["/system"]);
+    // an answer that does not say which incident it acknowledged is not passed off as the one shown
+    h.reply = { data: { ...ACKED, incident_seq: undefined }, error: null };
+    expect((await acknowledgeAlert(KEY, "", 2)).warning).toContain("did not report which incident it acknowledged");
+    expect((await acknowledgeAlert(KEY, "", 2)).acknowledgedAt).toBe("2026-10-21T10:00:00Z");
+  });
+
+  it("refuses locally, without calling the database, when the form does not say which incident it showed", async () => {
+    for (const seq of [undefined, "", "0", "-1", "2.5", "two"]) {
+      const fields: Record<string, string> = { alert_key: KEY, note: "", revalidate: "/system" };
+      if (seq !== undefined) fields.incident_seq = seq;
+      expect(await submitAlertAck({}, ackForm(fields)), String(seq)).toMatchObject({ invalid: expect.stringMatching(/which incident/) });
+    }
+    expect(h.calls).toEqual([]);
+  });
+
   it("an answer without acknowledged_at is not reported as acknowledged", async () => {
     h.reply = { data: { alert_key: KEY, state: "firing" }, error: null };
-    const s = await submitAlertAck({}, ackForm({ alert_key: KEY, note: "", revalidate: "/system" }));
+    const s = await submitAlertAck({}, ackForm({ alert_key: KEY, incident_seq: "2", note: "", revalidate: "/system" }));
     expect(s.acknowledgedAt).toBeUndefined();
     expect(s.failure).toMatchObject({ kind: "error", message: "Unrecognised response from alert_ack" });
     expect(h.revalidated).toEqual([]);
@@ -180,12 +212,75 @@ describe("the alerts panel states only what the alert row records", () => {
     expect(list([{ ...base, incident_seq: 1 }])).not.toContain("Incident #");
   });
 
+  it("the form posts the incident it shows", () => {
+    expect(list([{ ...base, incident_seq: 2 }])).toContain('name="incident_seq" value="2"');
+    expect(list([{ ...base, incident_seq: 1 }])).toContain('name="incident_seq" value="1"');
+    // 146's column is not null default 1; a row without it is read as incident 1, as the badge already does
+    expect(list([base])).toContain('name="incident_seq" value="1"');
+  });
+
   it("the standing note leaves delivery to the owner and tells nobody to switch it on", () => {
     for (const html of [list([]), list([base])]) {
       expect(html).toContain("both owner decisions");
       expect(html).toContain("alert_delivery_enabled");
       expect(html).not.toMatch(/\b(flip|set it to true|turn it on|switch it on)\b/i);
     }
+  });
+});
+
+describe("an acknowledgement's result outlives the refresh that hides the form", () => {
+  const base: OpsAlert = { alert_key: KEY, kind: "job_failure", state: "firing", first_fired_at: "2026-10-21T09:00:00Z", last_fired_at: "2026-10-21T09:30:00Z", fire_count: 3, incident_seq: 2 };
+  /** The children of each alert's <li>, as AlertList returns them (no render: the element tree React reconciles). */
+  const slots = (alerts: OpsAlert[]): ReactNode[][] => {
+    const found: ReactNode[][] = [];
+    const walk = (n: ReactNode) => {
+      if (Array.isArray(n)) return n.forEach(walk);
+      if (!isValidElement(n)) return;
+      const el = n as ReactElement<{ children?: ReactNode }>;
+      if (el.type === "li") found.push(([] as ReactNode[]).concat(el.props.children));
+      else walk(el.props.children);
+    };
+    walk(AlertList({ alerts, meId: ME }));
+    return found;
+  };
+  const ackSlot = (children: ReactNode[]) => children.findIndex((c) => isValidElement(c) && c.type === AlertAckForm);
+
+  it("AlertList keeps the acknowledgement control mounted, in the same place, once the row is acknowledged", () => {
+    // The action's response carries the refreshed page (revalidatePath). React keeps a client component's state only
+    // if the same component stays at the same place in the tree, so the slot must not disappear when acknowledged_at
+    // is set — otherwise the warning below is unmounted the moment it arrives.
+    const [before] = slots([base]);
+    const [after] = slots([{ ...base, incident_seq: 3, acknowledged_at: "2026-10-21T10:00:00Z", acknowledged_by: ME }]);
+    const i = ackSlot(before);
+    expect(i).toBeGreaterThanOrEqual(0);
+    expect(ackSlot(after)).toBe(i);
+    expect(before.length).toBe(after.length);
+    expect((before[i] as ReactElement<{ acknowledged: boolean; incidentSeq: number }>).props).toMatchObject({ acknowledged: false, incidentSeq: 2 });
+    expect((after[i] as ReactElement<{ acknowledged: boolean; incidentSeq: number }>).props).toMatchObject({ acknowledged: true, incidentSeq: 3 });
+  });
+
+  it("the result stays on screen after the refresh, until the row moves on to a newer incident", () => {
+    const warned = { submitted: true, acknowledgedAt: "2026-10-21T10:00:00Z", incidentSeq: 3, shownIncidentSeq: 2, warning: "A new incident #3 opened…" };
+    expect(alertAckView(warned, { incidentSeq: 2, acknowledged: false })).toBe("result"); // the answer, before the refreshed rows
+    expect(alertAckView(warned, { incidentSeq: 3, acknowledged: true })).toBe("result"); // after the refresh hides the form
+    expect(alertAckView(warned, { incidentSeq: 4, acknowledged: false })).toBe("form"); // a newer incident needs its own acknowledgement
+    expect(alertAckView(warned, { incidentSeq: 4, acknowledged: true })).toBe("none");
+    expect(alertAckView({}, { incidentSeq: 2, acknowledged: false })).toBe("form");
+    expect(alertAckView({}, { incidentSeq: 2, acknowledged: true })).toBe("none");
+    expect(alertAckView({ submitted: true, refused: "precondition_failed: …" }, { incidentSeq: 2, acknowledged: false })).toBe("form");
+  });
+
+  it("the warning reads as a warning, in the action's words; a plain acknowledgement as a success", () => {
+    const warn = renderToStaticMarkup(
+      createElement(AlertAckResult, { state: { acknowledgedAt: "2026-10-21T10:00:00Z", incidentSeq: 3, shownIncidentSeq: 2, warning: "A new incident #3 opened since you loaded this page, which showed incident #2; it is now acknowledged." } }),
+    );
+    expect(warn).toContain("not the incident this page showed");
+    expect(warn).toContain("A new incident #3 opened since you loaded this page, which showed incident #2; it is now acknowledged.");
+    expect(warn).toContain("stays firing until the condition clears");
+    const ok = renderToStaticMarkup(createElement(AlertAckResult, { state: { acknowledgedAt: "2026-10-21T10:00:00Z", incidentSeq: 2, shownIncidentSeq: 2 } }));
+    expect(ok).toContain("Acknowledged.");
+    expect(ok).toContain("Incident #2.");
+    expect(ok).not.toContain("not the incident");
   });
 });
 

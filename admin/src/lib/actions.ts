@@ -254,13 +254,40 @@ export type AlertAckState = {
   acknowledgedAt?: string;
   /** The incident that was acknowledged, when the database reports one. */
   incidentSeq?: number;
+  /** The incident the page showed when the operator pressed Acknowledge (the form's hidden incident_seq). */
+  shownIncidentSeq?: number;
+  /**
+   * Set when the database acknowledged a different incident from the one shown
+   * (or did not say which): `ops.alert_ack` acknowledges whatever incident the
+   * row holds when the call arrives, so a re-fire after the page loaded is
+   * acknowledged unseen. The acknowledgement stands; this says so.
+   */
+  warning?: string;
   failure?: OpsFailure;
   invalid?: string;
   /** ops.alert_ack's own refusal (unknown key, already recovered), in its words. */
   refused?: string;
 };
 
-export async function acknowledgeAlert(alertKey: string, note: string): Promise<AlertAckState> {
+function otherIncidentWarning(shown: number, acknowledged: number | undefined): string | undefined {
+  const check = "Read the alert as it stands now before relying on that acknowledgement.";
+  if (acknowledged === undefined) return `The database did not report which incident it acknowledged; this page showed incident #${shown}. ${check}`;
+  if (acknowledged === shown) return undefined;
+  if (acknowledged > shown) return `A new incident #${acknowledged} opened since you loaded this page, which showed incident #${shown}; it is now acknowledged. ${check}`;
+  return `The database acknowledged incident #${acknowledged}, not incident #${shown} that this page showed. ${check}`;
+}
+
+/** The form's hidden incident_seq: a positive whole number, or null. */
+function incidentSeqField(raw: FormDataEntryValue | null): number | null {
+  return typeof raw === "string" && /^[1-9]\d{0,9}$/.test(raw.trim()) ? Number(raw.trim()) : null;
+}
+
+/**
+ * `shownIncidentSeq` is the incident the page showed. 146's alert_ack takes no
+ * expected incident, so the comparison happens on its answer: a mismatch is
+ * reported as a warning (the acknowledgement has already been recorded).
+ */
+export async function acknowledgeAlert(alertKey: string, note: string, shownIncidentSeq?: number): Promise<AlertAckState> {
   if (!alertKey) return { submitted: true, invalid: "This form is missing its alert key. Reload and try again." };
   if (note.length > 2000) return { submitted: true, invalid: "Note is too long (2000 characters max)." };
   const res = await callOps<unknown>("alert_ack", { p_alert_key: alertKey, p_note: note || null });
@@ -280,17 +307,23 @@ export async function acknowledgeAlert(alertKey: string, note: string): Promise<
   if (!acknowledgedAt) {
     return { submitted: true, failure: { ok: false, kind: "error", message: "Unrecognised response from alert_ack" } };
   }
+  const incidentSeq = typeof row.incident_seq === "number" ? row.incident_seq : undefined;
+  const warning = shownIncidentSeq === undefined ? undefined : otherIncidentWarning(shownIncidentSeq, incidentSeq);
   return {
     submitted: true,
     acknowledgedAt,
-    incidentSeq: typeof row.incident_seq === "number" ? row.incident_seq : undefined,
+    incidentSeq,
+    ...(shownIncidentSeq !== undefined ? { shownIncidentSeq } : {}),
+    ...(warning ? { warning } : {}),
   };
 }
 
 export async function submitAlertAck(_prev: AlertAckState, formData: FormData): Promise<AlertAckState> {
   const alertKey = String(formData.get("alert_key") ?? "");
   const note = String(formData.get("note") ?? "").trim();
-  const state = await acknowledgeAlert(alertKey, note);
+  const shown = incidentSeqField(formData.get("incident_seq"));
+  if (shown === null) return { submitted: true, invalid: "This form does not say which incident it acknowledges. Reload and try again." };
+  const state = await acknowledgeAlert(alertKey, note, shown);
   const revalidate = formData.get("revalidate");
   if (state.acknowledgedAt && typeof revalidate === "string" && revalidate.startsWith("/")) {
     revalidatePath(revalidate);

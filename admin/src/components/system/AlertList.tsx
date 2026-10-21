@@ -43,11 +43,8 @@ export function AlertList({ alerts, meId, revalidate = "/system" }: { alerts: Op
                   </span>
                 </div>
                 <AlertDelivery alert={a} meId={meId} />
-                {a.alert_key && !a.acknowledged_at ? (
-                  <div className="mt-2">
-                    <AlertAckForm alertKey={a.alert_key} incidentSeq={seq} revalidate={revalidate} />
-                  </div>
-                ) : null}
+                {/* Rendered for acknowledged rows too, so the action's result survives the refresh that marks the row acknowledged. */}
+                {a.alert_key ? <AlertAckForm alertKey={a.alert_key} incidentSeq={seq} acknowledged={Boolean(a.acknowledged_at)} revalidate={revalidate} /> : null}
               </li>
             );
           })}
