@@ -138,3 +138,65 @@ export function sellerVerifiedLabel(
   if (!isVerifiedSeller) return null;
   return proofWaived ? "Verified seller" : "Verified";
 }
+
+/**
+ * "From a fan" describes a peer listing. A proof-waived listing is the platform owner's own
+ * inventory by construction (156 only lets an admin waive proof on their own listing), so it
+ * doesn't get the pill.
+ */
+export function showsFanBadge(l: { proof_waived_at?: string | null }): boolean {
+  return !l.proof_waived_at;
+}
+
+/**
+ * ISO start for structured data, with Miami's offset for that date (EDT −04:00 / EST −05:00).
+ * Without it, crawlers read the wall-clock time as UTC or guess.
+ */
+export function eventStartIso(eventDate: string, eventTime: string): string {
+  const time = /^\d{2}:\d{2}$/.test(eventTime) ? `${eventTime}:00` : eventTime;
+  // The offset at ~that wall-clock moment (events are never in the 1–3 AM switch-over window
+  // that would make this ambiguous by an hour).
+  const probe = new Date(`${eventDate}T${time}Z`);
+  if (Number.isNaN(probe.getTime())) return `${eventDate}T${time}`;
+  const name = new Intl.DateTimeFormat("en-US", { timeZone: MARKET_TIME_ZONE, timeZoneName: "shortOffset" })
+    .formatToParts(new Date(probe.getTime() + 5 * 3_600_000))
+    .find((p) => p.type === "timeZoneName")?.value; // "GMT-4" / "GMT-5"
+  const m = name?.match(/^GMT([+-])(\d{1,2})(?::(\d{2}))?$/);
+  if (!m) return `${eventDate}T${time}`;
+  return `${eventDate}T${time}${m[1]}${m[2].padStart(2, "0")}:${m[3] ?? "00"}`;
+}
+
+/** The base price a listing is offered at: Buy Now when it has one, otherwise the current bid. */
+export function effectiveBase(l: { buy_now_enabled: boolean; buy_now_price: number | null; current_bid: number }): number {
+  return l.buy_now_enabled && l.buy_now_price ? l.buy_now_price : l.current_bid;
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+}
+
+/**
+ * Whether the event name already names the venue: the venue's name before any "(…)" detail,
+ * matched as whole words (a letter, digit or underscore may not touch either end), ignoring
+ * case. A plain substring test read venue "LIV" into "Olivia Rodrigo Night" and "Delivery Boys
+ * Live".
+ */
+function namesVenue(eventName: string, venue: string): boolean {
+  const venueBase = venue.split(" (")[0].trim();
+  if (venueBase.length === 0) return false;
+  return new RegExp(`(?<![\\p{L}\\p{N}_])${escapeRegExp(venueBase)}(?![\\p{L}\\p{N}_])`, "iu").test(eventName);
+}
+
+/**
+ * "ANOTR at Watson Island Park": the event and where it is, without repeating a venue the event
+ * name already carries ("… at Jolene Sound Room at Jolene Sound Room (…)"). The one source for
+ * the page title, the social title, poster alt text and card link labels.
+ */
+export function eventAtVenue(eventName: string, venue: string): string {
+  return namesVenue(eventName, venue) ? eventName : `${eventName} at ${venue}`;
+}
+
+/** Page/social title: the event and venue, then the date. */
+export function listingTitle(eventName: string, venue: string, dateLabel: string): string {
+  return `${eventAtVenue(eventName, venue)} — ${dateLabel}`;
+}
