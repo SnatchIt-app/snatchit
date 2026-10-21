@@ -13,7 +13,7 @@ import { TimeAgo } from "@/components/ui/DateTime";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { NewCaseForm } from "@/components/cases/NewCaseForm";
 import { CaseSplit } from "@/components/cases/CaseSplit";
-import { CaseControls, CaseFacts, CaseNotes, assigneeName, caseEnvelope } from "@/components/cases/CaseWork";
+import { CaseControls, CaseFacts, CaseNotes, CaseRefundResolution, assigneeName, caseEnvelope, caseRefundState } from "@/components/cases/CaseWork";
 
 export const metadata: Metadata = { title: "Cases" };
 export const dynamic = "force-dynamic";
@@ -391,6 +391,7 @@ function CasePane({
   const c = detail.case;
   const envelope = caseEnvelope(c, id, "/cases");
   const closed = c.status === "resolved" || c.status === "dismissed";
+  const refund = caseRefundState(c, detail);
   return (
     <>
       {nav}
@@ -411,6 +412,15 @@ function CasePane({
         </div>
 
         <CaseFacts c={c} meId={me.id} notes={detail.notes.length} />
+
+        {refund ? (
+          <section aria-labelledby="pane-refund-h">
+            <h3 id="pane-refund-h" className="mb-2 text-[0.8125rem] font-semibold">
+              Refund resolution
+            </h3>
+            <CaseRefundResolution c={c} refund={refund} />
+          </section>
+        ) : null}
 
         <section aria-labelledby="pane-work-h">
           <h3 id="pane-work-h" className="mb-1 text-[0.8125rem] font-semibold">

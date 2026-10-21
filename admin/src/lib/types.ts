@@ -307,7 +307,10 @@ export type ActionType =
   | "job_retry"
   | "setting_set"
   | "approval_decide"
-  | "case_create";
+  | "case_create"
+  // migration 144 — classifying a refund-resolution case is not closing it
+  | "case_refund_classify"
+  | "case_refund_obligation";
 
 export type RejectionReason = "stale_state" | "precondition" | "not_allowed" | "disabled" | "not_supported" | (string & {});
 

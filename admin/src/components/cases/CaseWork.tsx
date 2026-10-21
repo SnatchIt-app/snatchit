@@ -3,9 +3,11 @@ import type { ReactNode } from "react";
 import { newIdempotencyKey } from "@/lib/idempotency";
 import { CASE_PRIORITIES, CASE_STATUSES, type OpsCase, type CaseDetail } from "@/lib/types";
 import { humanize } from "@/lib/format";
+import { OBLIGATION_LABELS, REFUND_CLASSIFICATIONS, refundResolutionState, type RefundResolutionState } from "@/lib/refund-resolution";
 import { ConfirmForm, OutcomeHost } from "@/components/ui/ConfirmForm";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { DateTime, TimeAgo } from "@/components/ui/DateTime";
+import { Alert } from "@/components/ui/Alert";
 import { Icon } from "@/components/ui/Icon";
 import { hrefFor } from "@/components/generic/GenericRpc";
 
@@ -26,6 +28,89 @@ export function caseEnvelope(c: OpsCase, id: string, revalidate: string): CaseEn
 
 export const assigneeName = (c: OpsCase, meId: string) =>
   c.assignee ? (c.assignee === meId ? "me" : (c.assignee_label ?? c.assignee_email_masked ?? c.assignee.slice(0, 8))) : null;
+
+const isClosed = (c: OpsCase) => c.status === "resolved" || c.status === "dismissed";
+
+/**
+ * Migration 144: a refund-resolution case is classified before it can be
+ * closed, and every obligation the classification raised is recorded settled
+ * first. The database enforces that; this only reads the event log the same
+ * way so the console can show it (src/lib/refund-resolution.ts). Null for
+ * every other case type.
+ */
+export function caseRefundState(c: OpsCase, detail: CaseDetail): RefundResolutionState | null {
+  return c.case_type === "refund_resolution" ? refundResolutionState(detail.events) : null;
+}
+
+const classificationLabel = (v: string) => REFUND_CLASSIFICATIONS.find((r) => r.value === v)?.label ?? v;
+const obligationLabel = (kind: string) => OBLIGATION_LABELS[kind] ?? humanize(kind);
+
+/**
+ * What the case's event log records about the refund: the classification an
+ * operator recorded, each obligation it raised and whether one was recorded
+ * settled, and — while the case is open — why a close would be refused, in
+ * the database's own words. Rendered by the full case page and the split
+ * view's pane alike. Port of PR #89's Refund resolution panel.
+ */
+export function CaseRefundResolution({ c, refund }: { c: OpsCase; refund: RefundResolutionState }) {
+  return (
+    <div className="flex flex-col gap-4 text-[0.875rem]">
+      {refund.classification ? (
+        <div>
+          <dl className="divide-y divide-[rgba(70,50,30,0.1)] border-y border-line">
+            {(
+              [
+                ["Recorded as", classificationLabel(refund.classification)],
+                ["Recorded", <DateTime key="at" value={refund.classifiedAt} />],
+                ["What Stripe showed", refund.classifiedReason ? <span className="whitespace-pre-wrap">{refund.classifiedReason}</span> : <span className="text-muted">—</span>],
+              ] as [string, ReactNode][]
+            ).map(([k, v]) => (
+              <div key={k} className="grid grid-cols-[8rem_minmax(0,1fr)] gap-x-4 py-2.5">
+                <dt className="text-muted">{k}</dt>
+                <dd className="min-w-0 break-words">{v}</dd>
+              </div>
+            ))}
+          </dl>
+          <p className="mt-2 text-[0.75rem] text-muted">Classifying records an operator&apos;s reading of Stripe. It never changes the status and never moves money.</p>
+        </div>
+      ) : (
+        <Alert state="warning" title="No classification is recorded for this case." compact>
+          The case record does not establish whether the refund was full or partial. Read the refund in the Stripe Dashboard, then record A, B or C. Until then this case
+          cannot be resolved <em>or</em> dismissed.
+        </Alert>
+      )}
+
+      <div>
+        <h4 className="eyebrow text-dim">Obligations</h4>
+        {refund.obligations.length === 0 ? (
+          <p className="mt-1 text-[0.8125rem] text-muted">{refund.classification ? "The recorded classification raised none." : "None raised yet."}</p>
+        ) : (
+          <ul className="mt-2 flex flex-col gap-2">
+            {refund.obligations.map((o) => (
+              <li key={o.kind} className="flex flex-wrap items-baseline gap-2 text-[0.8125rem]">
+                <StatusBadge status={o.settled ? "settled" : "unsettled"} label={o.settled ? "Recorded settled" : "Unsettled"} variant={o.settled ? "ok" : "warn"} />
+                <span>{obligationLabel(o.kind)}</span>
+                {o.note ? <span className="text-muted">— {o.note}</span> : null}
+                <span className="text-[0.75rem] text-dim">
+                  <DateTime value={o.at} />
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {refund.obligations.some((o) => o.settled) ? (
+          <p className="mt-2 text-[0.75rem] text-muted">Recorded settled is an operator&apos;s record, not a transfer: nothing in the console moves this money.</p>
+        ) : null}
+      </div>
+
+      {!isClosed(c) && refund.blockedReason ? (
+        <Alert state="info" title="This case cannot be closed yet." compact>
+          {refund.blockedReason}
+        </Alert>
+      ) : null}
+    </div>
+  );
+}
 
 /** The subject the case is about, as a link when the console has a page for it. */
 export function CaseSubject({ c }: { c: OpsCase }) {
@@ -77,8 +162,11 @@ export function CaseFacts({ c, meId, notes }: { c: OpsCase; meId: string; notes?
  */
 export function CaseControls({ c, detail, me, envelope, idPrefix }: { c: OpsCase; detail: CaseDetail; me: Me; envelope: CaseEnvelope; idPrefix: string }) {
   const id = (s: string) => `${idPrefix}-${s}`;
+  const refund = caseRefundState(c, detail);
   return (
     <div className="divide-y divide-[rgba(70,50,30,0.1)] border-y border-line">
+      {refund && !isClosed(c) ? <RefundControls c={c} detail={detail} me={me} envelope={envelope} refund={refund} id={id} /> : null}
+
       <Control title="Assign" current={assigneeName(c, me.id) ?? "Unassigned"}>
         <OutcomeHost actionType="case_assign">
           <ConfirmForm key={`assign-${c.version}`} idempotencyKey={newIdempotencyKey()} actionType="case_assign" {...envelope} label="Assign">
@@ -113,6 +201,7 @@ export function CaseControls({ c, detail, me, envelope, idPrefix }: { c: OpsCase
                 </option>
               ))}
             </select>
+            {refund?.blockedReason ? <p className="mt-1 text-[0.75rem] text-warning">Resolving or dismissing will be refused: {refund.blockedReason}</p> : null}
           </ConfirmForm>
         </OutcomeHost>
       </Control>
@@ -146,6 +235,98 @@ export function CaseControls({ c, detail, me, envelope, idPrefix }: { c: OpsCase
         </OutcomeHost>
       </Control>
     </div>
+  );
+}
+
+/**
+ * Migration 144's two case actions, open refund-resolution cases only (port of
+ * PR #89's Classify and Record-an-obligation controls). Both go through
+ * `execute_action` with the same envelope as every other case control.
+ * Record an obligation is offered only once one has been raised, because the
+ * dispatcher refuses a kind that was never raised for the case.
+ */
+function RefundControls({ c, detail, me, envelope, refund, id }: { c: OpsCase; detail: CaseDetail; me: Me; envelope: CaseEnvelope; refund: RefundResolutionState; id: (s: string) => string }) {
+  const unsettled = refund.unsettled.length;
+  return (
+    <>
+      <Control title="Classify" current={refund.classification ? `Recorded ${refund.classification}` : <span className="text-warning">Not classified</span>}>
+        <OutcomeHost actionType="case_refund_classify">
+          <ConfirmForm key={`classify-${c.version}`} idempotencyKey={newIdempotencyKey()} actionType="case_refund_classify" {...envelope} label="Record classification" reasonLabel="What the Stripe Dashboard shows">
+            <label htmlFor={id("classification")} className="eyebrow block text-dim">
+              Classification <span aria-hidden="true">*</span>
+            </label>
+            <select id={id("classification")} name="param.classification" defaultValue={refund.classification ?? ""} required className="field mt-1">
+              <option value="" disabled>
+                Choose A, B or C
+              </option>
+              {REFUND_CLASSIFICATIONS.map((r) => (
+                <option key={r.value} value={r.value}>
+                  {r.label}
+                </option>
+              ))}
+            </select>
+            <ul className="mt-2 flex flex-col gap-1 text-[0.6875rem] text-dim">
+              {REFUND_CLASSIFICATIONS.map((r) => (
+                <li key={r.value}>
+                  <span className="font-mono">{r.value}</span> — {r.hint}
+                </li>
+              ))}
+            </ul>
+            <label htmlFor={id("classify-assignee")} className="eyebrow block text-dim">
+              Owner, if this leaves money owed
+            </label>
+            <select id={id("classify-assignee")} name="param.assignee" defaultValue={c.assignee ?? me.id} className="field mt-1">
+              <option value="">Leave as is</option>
+              <option value={me.id}>Me ({me.label})</option>
+              {detail.operators
+                .filter((o) => o.user_id && o.user_id !== me.id)
+                .map((o) => (
+                  <option key={o.user_id} value={o.user_id}>
+                    {o.display ?? o.email_masked ?? o.user_id}
+                  </option>
+                ))}
+            </select>
+            <p className="mt-1 text-[0.6875rem] text-dim">
+              B and C always raise an obligation, and A does when the payout was already released. The database refuses a classification that would leave an obligation
+              with nobody named.
+            </p>
+          </ConfirmForm>
+        </OutcomeHost>
+      </Control>
+
+      {refund.obligations.length ? (
+        <Control title="Obligation" current={unsettled ? <span className="text-warning">{unsettled} unsettled</span> : "All recorded settled"}>
+          <OutcomeHost actionType="case_refund_obligation">
+            <ConfirmForm key={`obligation-${c.version}`} idempotencyKey={newIdempotencyKey()} actionType="case_refund_obligation" {...envelope} label="Record" reasonRequired={false}>
+              <label htmlFor={id("obligation-kind")} className="eyebrow block text-dim">
+                Obligation <span aria-hidden="true">*</span>
+              </label>
+              <select id={id("obligation-kind")} name="param.kind" required className="field mt-1" defaultValue={(refund.unsettled[0] ?? refund.obligations[0]).kind}>
+                {refund.obligations.map((o) => (
+                  <option key={o.kind} value={o.kind}>
+                    {obligationLabel(o.kind)} {o.settled ? "(recorded settled)" : "(unsettled)"}
+                  </option>
+                ))}
+              </select>
+              <label htmlFor={id("obligation-settled")} className="eyebrow block text-dim">
+                State
+              </label>
+              <select id={id("obligation-settled")} name="param.settled:boolean" defaultValue="true" className="field mt-1">
+                <option value="true">Settled — the money has moved</option>
+                <option value="false">Still outstanding</option>
+              </select>
+              <label htmlFor={id("obligation-note")} className="eyebrow block text-dim">
+                What was done, and where it can be seen <span aria-hidden="true">*</span>
+              </label>
+              <textarea id={id("obligation-note")} name="param.note" required rows={3} maxLength={2000} className="field mt-1" placeholder="e.g. paid out manually on 2026-09-21, Stripe payout po_1234." />
+              <p className="mt-1 text-[0.6875rem] text-dim">
+                Recording one settled is a human record, not a transfer: nothing here moves money. Only an obligation that was raised for this case can be recorded.
+              </p>
+            </ConfirmForm>
+          </OutcomeHost>
+        </Control>
+      ) : null}
+    </>
   );
 }
 

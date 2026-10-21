@@ -12,7 +12,7 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { DateTime } from "@/components/ui/DateTime";
 import { Alert, OpsFailureAlert } from "@/components/ui/Alert";
 import { Icon } from "@/components/ui/Icon";
-import { CaseControls, CaseFacts, CaseNotes, caseEnvelope } from "@/components/cases/CaseWork";
+import { CaseControls, CaseFacts, CaseNotes, CaseRefundResolution, caseEnvelope, caseRefundState } from "@/components/cases/CaseWork";
 import { GenericTable, hrefFor, renderValue } from "@/components/generic/GenericRpc";
 
 export const metadata: Metadata = { title: "Case" };
@@ -52,6 +52,8 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
   const envelope = caseEnvelope(c, id, path);
   const subjectHref = hrefFor(c.subject_kind, c.subject_id);
   const closed = c.status === "resolved" || c.status === "dismissed";
+  // Migration 144 (port of PR #89): what the event log records about a refund-resolution case.
+  const refund = caseRefundState(c, detail);
 
   return (
     <>
@@ -113,6 +115,12 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
           {detail.subject ? (
             <Panel eyebrow="What this case is about" title={humanize(c.subject_kind ?? "subject")}>
               <KeyValue columns={3} items={Object.entries(detail.subject).map(([k, v]) => ({ key: k, value: renderValue(k, v, 1) }))} />
+            </Panel>
+          ) : null}
+
+          {refund ? (
+            <Panel eyebrow={refund.classification ? `Recorded ${refund.classification}` : "Not classified"} title="Refund resolution">
+              <CaseRefundResolution c={c} refund={refund} />
             </Panel>
           ) : null}
 

@@ -75,9 +75,10 @@ describe("A10 — the server's answer survives the keyed remount", () => {
   it("every version-keyed form sits inside an OutcomeHost", () => {
     const s = src("components/cases/CaseWork.tsx");
     const keyed = s.match(/<ConfirmForm key=\{`[a-z]+-\$\{c\.version\}`\}/g) ?? [];
-    expect(keyed.length).toBe(5);
+    // assign, status, priority, due, note + migration 144's classify and obligation (PR #89 port)
+    expect(keyed.length).toBe(7);
     for (const m of s.matchAll(/<OutcomeHost actionType="([a-z_]+)">\s*<ConfirmForm key=\{`[a-z]+-\$\{c\.version\}`\}[\s\S]*?actionType="([a-z_]+)"/g)) expect(m[1]).toBe(m[2]);
-    expect([...s.matchAll(/<OutcomeHost actionType=/g)].length).toBe(5);
+    expect([...s.matchAll(/<OutcomeHost actionType=/g)].length).toBe(7);
     expect(src("components/reports/ReportResolveForms.tsx")).toContain('<OutcomeHost actionType="report_resolve">');
   });
   it("inside a host the form posts the same fields and does not render its own copy of the answer", () => {
