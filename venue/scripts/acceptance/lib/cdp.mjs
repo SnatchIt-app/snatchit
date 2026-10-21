@@ -122,6 +122,8 @@ export async function launchBrowser(chromePath) {
       const exited = new Promise((r) => (proc.exitCode !== null ? r() : proc.once("exit", r)));
       proc.kill();
       await Promise.race([exited, sleep(3000)]);
+      if (proc.exitCode === null) proc.kill("SIGKILL");
+      proc.unref();
       try {
         rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
       } catch {
