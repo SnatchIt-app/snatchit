@@ -81,13 +81,24 @@ subject link.
 | 9 | Full amount | You will refund exactly the Payment panel's **"Total charged to buyer"**. | Anything less is a partial refund (§8), an owner decision. |
 | 10 | *(In Stripe, read-only)* Nothing refunded yet | Stripe Dashboard in **live mode** → the PaymentIntent (`pi_…`, copied from the Payment panel): it is found, the amount equals the console's total and **no refund is listed**. | The PaymentIntent is not found in live mode: stop and escalate to A. Never switch the Dashboard to test mode to look for it or refund it there. A refund is already listed, in any status: do not refund again. Escalate to A, because the console has not recorded it yet. The amount differs: stop and escalate. |
 
-**Expired orders only.** The expiry job refunds expired orders on its own and
-skips any payment already fully refunded [ETE:627-639], [ETE:653-675]. Its
-refunds carry metadata `source = enforce-transfer-expiry` and
-`reason = transfer_expired` [ETE:666-675]. If Stripe lists **any** refund for
-the PaymentIntent, the refund is not missing, only unrecorded: escalate to A
-and do not refund. If Stripe lists none, tell A before you refund by hand,
-because it means the expiry job failed for this order.
+**Expired orders only.** The expiry job refunds expired orders on its own.
+Phase 1 refunds each newly expired order once and skips any payment already
+fully refunded [ETE:627-639], [ETE:653-675]. Phase 1b runs on **every** run.
+It selects each expired transfer whose payment is still `succeeded`, live, and
+has no failed refund [ETE:767-801]. It lists that PaymentIntent's refunds at
+Stripe and records them. If none of them is its own, none failed, and
+together they cover less than the payment's total, it refunds **the
+remaining balance** [ETE:811-866]. The job's refunds carry a metadata
+`source` that starts with `enforce-transfer-expiry` and
+`reason = transfer_expired` [ETE:669-674], [ETE:860-865].
+
+- If Stripe lists **any** refund for the PaymentIntent, the refund is not
+  missing, only unrecorded: escalate to A and do not refund.
+- If Stripe lists none, tell A before you refund by hand. The job should have
+  refunded the order itself, so it is failing or skipping this payment (for
+  example because `stripe_livemode` is not `true`, row 3).
+- **Never make a partial refund on an expired order** without A: the next
+  run refunds the rest (§8).
 
 **Second founder (proposal; owner to confirm).** In the console, a refund
 needs the other founder's approval [115:532-536]. Until the owner rules
@@ -153,7 +164,9 @@ verified here).
 - Three things stand between an order and a second refund:
   - your checks (§2 row 10, and this step);
   - the expiry job's "already fully refunded" check, which only works once
-    the webhook has recorded your refund [ETE:627-639];
+    the webhook has recorded your refund [ETE:627-639]. Its Phase 1b also
+    lists Stripe's refunds first and creates none when they cover the total
+    [ETE:811-851];
   - Stripe, which will not refund more than is left on the charge. The code
     relies on this [ORE:91-95], [ETE:653-656], but the two comments describe
     Stripe's answer differently. **Not verified.**
@@ -312,6 +325,14 @@ The console cannot do a partial refund even when refunds are on. The server
 rejects it as `not_supported` [118:267-271], [MSE:682-685]. A partial
 refund done in the Stripe Dashboard has these consequences:
 
+- **On an expired order, the expiry job refunds the rest.** For an expired,
+  live transfer, the next expiry run finds a `succeeded` payment whose
+  refunds cover less than the total. It then refunds the remaining balance
+  by itself [ETE:767-801], [ETE:841-866]. The code comment says so
+  [ETE:817-819]. The money then moves beyond the owner's decision, so a
+  partial refund on an expired order is not possible without A's
+  intervention. The rest of this section applies only to orders that are
+  **not** expired.
 - The payment stays *Captured*, because `status` changes only when the
   refunded total reaches the payment's total [P3:521].
 - For a buyer-win or partial-refund dispute, the "Refund owed to buyer" case
@@ -325,11 +346,15 @@ refund done in the Stripe Dashboard has these consequences:
 
 If the owner decides on a partial refund:
 
-1. Before any money step, the owner writes the decision on the case: the
+1. If the transfer reads "Expired (seller did not send)", stop. Send the
+   decision to A before any money step: A says on the case how the expiry
+   job will be kept from refunding the rest, or the refund becomes a full
+   one.
+2. Before any money step, the owner writes the decision on the case: the
    amount, who bears it, and what happens to the seller's payout.
-2. Run §2 (except row 9), refund **that amount** in Stripe, then record it
+3. Run §2 (except row 9), refund **that amount** in Stripe, then record it
    (§6, steps 1–2).
-3. Leave the case *Waiting* with the note "partial refund per owner
+4. Leave the case *Waiting* with the note "partial refund per owner
    decision". Do not close it, and tell A: the case will not clear by itself.
 
 ## 9. Refund after the seller was paid (owner decision)
@@ -370,6 +395,7 @@ personal data.
 | Situation | To | Do meanwhile |
 |---|---|---|
 | A refund-after-payout, a partial refund, a reversal, a goodwill refund, or any refund not covered by §1 | Owner | Nothing in Stripe until the decision is on the case |
+| A partial refund on an **expired** order (§8) | A + owner | Nothing in Stripe: the expiry job would refund the rest |
 | Stripe shows the refund *Succeeded*, but after 30 minutes the console still shows *Captured* | A | Check **System → Webhook backlog** and any "Stripe webhook not processed" case. Do not refund again, and do not edit the database. Webhooks are re-sent from the Stripe Dashboard, never replayed from the console (`OPERATING_GUIDE.md`) |
 | Stripe shows the refund *Failed* or *Canceled* | A + owner | Stripe asks the platform to arrange another way to refund [150:366-367]. Record it on the case |
 | *Pending* for more than 5 days (120 h, the detector's threshold [150:260]) | A | Note it on the case |
