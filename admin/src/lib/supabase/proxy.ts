@@ -5,6 +5,22 @@ import { decideProxyRedirect } from "@/lib/auth/proxy-logic";
 import { hostOnlyCookie } from "@/lib/supabase/cookie-options";
 
 /**
+ * Moves the session cookies a refresh wrote on the pass-through response onto
+ * a redirect, host-only, plus the no-store cache headers @supabase/ssr asked
+ * for. Only those: the pass-through's x-middleware-* headers must not reach a
+ * redirect. Without this the browser never receives the rotated tokens, keeps
+ * the old refresh token, and is signed out once the server refuses it.
+ * Each cookie goes through hostOnlyCookie again, whatever wrote it.
+ */
+export function withSessionCookies(redirect: NextResponse, from: NextResponse, cacheHeaders: Record<string, string>): NextResponse {
+  for (const { name, value, ...options } of from.cookies.getAll()) {
+    redirect.cookies.set(name, value, hostOnlyCookie(options));
+  }
+  Object.entries(cacheHeaders).forEach(([key, value]) => redirect.headers.set(key, value));
+  return redirect;
+}
+
+/**
  * Refreshes the Supabase session cookie on every matched request and gates
  * every console route on a verified session at `aal2`.
  *
@@ -15,6 +31,9 @@ import { hostOnlyCookie } from "@/lib/supabase/cookie-options";
  */
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
+  // @supabase/ssr sends the cache headers with the first cookie write only;
+  // keep them so a second setAll, or a redirect, still carries them.
+  const cacheHeaders: Record<string, string> = {};
 
   if (!hasSupabaseEnv) {
     // No env at all: fail closed rather than render an unauthenticated shell.
@@ -43,7 +62,8 @@ export async function updateSession(request: NextRequest) {
           // Host-only: never a Domain attribute (lib/supabase/cookie-options.ts).
           supabaseResponse.cookies.set(name, value, hostOnlyCookie(options)),
         );
-        Object.entries(headers).forEach(([key, value]) => supabaseResponse.headers.set(key, value));
+        Object.assign(cacheHeaders, headers);
+        Object.entries(cacheHeaders).forEach(([key, value]) => supabaseResponse.headers.set(key, value));
       },
     },
   });
@@ -62,7 +82,8 @@ export async function updateSession(request: NextRequest) {
   });
 
   if (decision.type === "redirect") {
-    return NextResponse.redirect(new URL(decision.path, request.url));
+    // getClaims() may have just refreshed the session: the redirect must carry it.
+    return withSessionCookies(NextResponse.redirect(new URL(decision.path, request.url)), supabaseResponse, cacheHeaders);
   }
 
   return supabaseResponse;
