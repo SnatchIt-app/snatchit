@@ -6,11 +6,20 @@
 -- A reviews before this leaves draft. The version 20261021120000 is the one
 -- the provisional copy carried, unchanged. Only the pgTAP number moved
 -- (224 -> 226, because 224 and 225 belong to registry rows 157 and 158 of A).
--- ORDER (registry origin/a/registry-20261021 @ eef30015): 159 merges and
+-- ORDER (registry origin/a/registry-20261021 @ 32987a1e): 159 merges and
 -- applies only AFTER 157 (20261021100000) and 158 (20261021110000), and only
--- BEFORE 170-172 (20261021130000, 20261021131000, 20261021132000) and any
--- 160-169 file (reserved with timestamps above 20261021120000). Otherwise A
--- must re-timestamp.
+-- BEFORE 170-173 (20261021130000, 20261021131000, 20261021132000,
+-- 20261021133000) and any 160-169 file (reserved with timestamps above
+-- 20261021120000). Otherwise A must re-timestamp.
+--
+-- BEFORE EXPOSURE (owner decision, from A's review on 2026-10-21): base policy
+-- 081 venue_ticket_type_sel_public (visibility = 'public') lets any
+-- authenticated user read a public ticket type, and its inventory batch's
+-- remaining count, even on a DRAFT event. These views do not widen that
+-- (view = base under RLS for all eight), but exposing venue_api makes it
+-- readable over REST. Accept it, or ship a separate migration that requires a
+-- non-draft parent on those public arms, before the exposure step.
+-- PRE-APPLY: the P1 global default-ACL read is mandatory (doc section 7).
 --
 -- PROVENANCE. Re-timestamped copy of origin/venue/dashboard-v2
 -- supabase/migrations/20260910120000_venue_api_read_views.sql (blob 80cf2762,

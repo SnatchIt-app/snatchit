@@ -7,10 +7,15 @@
 > version unchanged. Only the pgTAP number moved, from the provisional 224 to 226, because 224
 > and 225 belong to A's 157 and 158. D's old `20260910120000` / pgTAP 188 is retired.
 >
-> **Order, both directions:** 159 merges and applies only AFTER 157 (`20261021100000`) and 158
-> (`20261021110000`), and only BEFORE 170–172 (`20261021130000`, `20261021131000`,
-> `20261021132000`) and any 160–169 file (the registry reserves those with timestamps above
-> `20261021120000`). Otherwise A must re-timestamp (§2).
+> **Order, both directions (registry tip `32987a1e`, which adds 173 = `20261021133000`):** 159
+> merges and applies only AFTER 157 (`20261021100000`) and 158 (`20261021110000`), and only
+> BEFORE 170–173 (`20261021130000`, `20261021131000`, `20261021132000`, `20261021133000`) and any
+> 160–169 file (the registry reserves those with timestamps above `20261021120000`). Otherwise A
+> must re-timestamp (§2). In §2 below, read every "170–172" as "170–173".
+>
+> **A's independent review (2026-10-21): PASS** (A's evidence `private-evidence/A-sprint-20261021/r159/`). Two
+> conditions carry forward: the exposure finding in §7 step 4 is an owner decision before
+> exposure, and the P1 pre-apply read in §7 step 3 stays mandatory.
 >
 > The doc's file name still says "provisional". It is kept so the migration header's references
 > to it stay valid.
@@ -590,17 +595,17 @@ Run these in order. Each step is owner-authorised on any hosted project.
 2. **A reviews this branch before it leaves draft.** Then a draft PR goes against the
    integration base A names. A migration-bearing PR needs `AUTODEPLOY-VERIFIED-OFF: YYYY-MM-DD`
    in its description, and only the owner can attest to that.
-   - **Merge order for 159** (from the registry `eef30015` timestamps, §2): after 157 and 158,
-     before 170–172 and any 160–169 file. This PR merges only after A's 157 and 158 PRs are in
+   - **Merge order for 159** (from the registry `32987a1e` timestamps, §2): after 157 and 158,
+     before 170–173 and any 160–169 file. This PR merges only after A's 157 and 158 PRs are in
      the same base, and before any 160–172 PR is. Otherwise
      migrations-guard rule 4 fails 157 and 158, or 159 (§2), and A must re-timestamp.
 3. **The owner authorises the apply.** It is a targeted single-file apply of
    `20261021120000_venue_api_read_views.sql` plus its ledger row, never `db push`. The sandbox
    window (D's kit) comes first, then production.
-   - **Apply order for 159 on every project:** after 157 and 158, before 170–172 and any
+   - **Apply order for 159 on every project:** after 157 and 158, before 170–173 and any
      160–169 file. 159 applies only after
      `20261021100000` and `20261021110000` are in that project's ledger, and only while none of
-     `20261021130000`, `20261021131000`, `20261021132000` or a 160–169 version is. If 159 were
+     `20261021130000`, `20261021131000`, `20261021132000`, `20261021133000` or a 160–169 version is. If 159 were
      applied first, 157 and 158 would land below the ledger tip. If a 160–172 row were applied
      first, 159 would. In either case A must re-timestamp.
    - Re-run D's order probe against the target ledger before the apply.
@@ -608,6 +613,9 @@ Run these in order. Each step is owner-authorised on any hosted project.
      the apply, as the role that will run the apply. Expected: `t | postgres | 0 | 0`. Any other
      result means **do not apply**: report it to A and the owner. If `applying_role` is not the
      role that will run the apply, re-run P1 as that role.
+   - **P1 is mandatory (A's review).** No local template can prove production's global default
+     ACLs, because the dump omits them. A global anon default would give all eight views an inert
+     anon SELECT.
    - Why it must be read before, not after: a GLOBAL table default-ACL row
      (`defaclnamespace = 0`, type `r`) of the creating role is applied when each view is created.
      The eight views are created by that role in this migration, so they would inherit the row,
@@ -642,7 +650,14 @@ select to_regnamespace('venue_api') is null as venue_api_absent,
    (the role that becomes the owner, `postgres` in V1). Its old comment said a non-zero count
    "does not change the eight views". That was wrong, for the reason above.
 4. **The owner adds `venue_api` to the Data API exposed schemas** (Dashboard → Settings → API →
-   Exposed schemas), as a separate step after the apply. Reversal: remove it. The last recorded
+   Exposed schemas), as a separate step after the apply.
+   - **EXPOSURE FINDING (A's review, 2026-10-21): an owner decision BEFORE this step.** Base
+     policy 081 `venue_ticket_type_sel_public` (`using (visibility = 'public')`) lets ANY
+     authenticated user read a public ticket type, and its inventory batch's `remaining`, on a
+     DRAFT event. The views do not widen this: view = base under RLS for all eight. But exposing
+     `venue_api` makes draft ticket names, prices and remaining counts readable over REST.
+     Options: (a) accept it, or (b) ship a separate migration that requires a non-draft parent
+     event on the public arms of `venue.ticket_type` and `venue.inventory_batch`, then expose. Reversal: remove it. The last recorded
    production list is `public, graphql_public, kernel, ops` (2026-09-08). It has not been re-read
    since.
 5. **Data is out of scope.** Production has no venue, org or staff rows (2026-09-12 record), and
