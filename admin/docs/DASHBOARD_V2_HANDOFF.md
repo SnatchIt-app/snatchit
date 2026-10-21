@@ -50,6 +50,16 @@ no PR, no CI run, not deployed.**
 | F7 | `128caa74` | Pre-existing (also on `07100a35`): after `getClaims()` refreshed the session, a proxy redirect (aal1 → `/mfa`, aal2 on `/login` or `/mfa`, no session → `/login`) dropped the rotated cookies, so the operator was signed out later. Redirects now carry every cookie through `hostOnlyCookie` plus the no-store cache headers, and nothing else. | 5 failed / 3 passed → 8/8 | 7/7 |
 | F8 | `0495d524` | A's request, ahead of its refusal code. A raised error with an unseen code and a `rejected` outcome with an unseen `reject_reason` already rendered generically with the database's message; tests with the invented code `duplicate_unsettled` now pin both, for `execute_action` and `approve_action`. Changed: an answer with an unknown `status` no longer drops the database's message and code. | 2 failed / 10 passed → 12/12 | 9/9 |
 
+- **Port of PR #89** (A said yes, 2026-10-21; `origin/admin/refund-classification-console` @ `3dab1614`). It is
+  stacked as local commits, and #89 stays unmerged as the review surface. The panels are integrated into v2's
+  components rather than #89's page layout. Record: `docs/OPS_CONSOLE_OPERATOR_GAPS.md`. Nothing is enabled, and
+  the refund detector and alert delivery stay owner decisions.
+
+| | Commit | What | RED → GREEN | Mutants caught |
+|---|---|---|---|---|
+| P1 | `cc713640` | Refund resolution on a case (migration 144): Classify, Obligation and the Status warning in `CaseWork` (the split pane and the full page), plus the `CaseRefundResolution` panel. Includes #89's `refund-resolution.ts` and its tests. | 14 failed / 40 passed, and #89's suite fails to load → 65/65 | 17/17, including #89's 4 negative controls at #89's counts (3, 3, 2, 1) |
+| P2 | `dd91280f` | Alerts on /system (migration 146): the delivery and acknowledgement fields parsed, `AlertList` and `AlertAckForm`, `ops.alert_ack(p_alert_key, p_note)`, and owner-decision help for both switches. | 2 failed / 7 passed, and alert-ack fails to load → 27/27 | 18/18 |
+
 - **Gates at `cd54a3dc`** (npm ci, local Node v24.13.1):
   - typecheck 0, lint 0;
   - vitest **33 files / 262 tests**, against 26 / 211 after the import;
@@ -65,7 +75,8 @@ no PR, no CI run, not deployed.**
 - **Deploy note (server actions):** every console form posts to a Next.js server action, and server-action ids are build artifacts. They change on any Next version change (F6 is one), on a build without the build cache, and on a rollback to another build; Next also rotates them at most every 14 days, even when the source is unchanged. A console tab loaded before a promote or rollback then posts an id the serving deployment does not have ("Failed to find Server Action"), and the submit fails without reaching the database. Operators reload every open console tab after any promote or rollback (a reload also mints a fresh idempotency key), or the owner enables Vercel Skew Protection on the project so an old tab keeps reaching the deployment it was loaded from.
 - **Not done here:**
   - push, draft PR and CI on Node 22;
-  - the full gates after F2b–F8 (npm ci, full vitest, typecheck, `next build`): the shared machine slot was held, so only the touched test files and eslint on the touched files ran. The gate figures above are for `cd54a3dc`;
+  - the full gates after F2b–F8 and P1–P2 (npm ci, full vitest, typecheck, `next build`): the shared machine slot was held, so only the touched test files and eslint on the touched files ran. The gate figures above are for `cd54a3dc`;
+  - P1–P2 against a local replay with 144 and 146 applied. The flows are listed in `OPS_CONSOLE_OPERATOR_GAPS.md` §3.2: classify, record obligation, resolve refused then allowed, and `alert_ack`;
   - any browser, signed-in or aal2 render;
   - Vercel domain, DNS, TLS and env changes (owner);
   - the server-side duplicate refund/payout rule and relist expected-version (A's migrations; F1 stays a UI guard);
