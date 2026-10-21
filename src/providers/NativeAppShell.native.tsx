@@ -20,6 +20,7 @@ import { supabase } from '@/src/lib/supabase';
 import { startSessionAutoRefresh } from '@/src/lib/auth/sessionAutoRefresh';
 import { attachDeepLinkFunnel, claimAuthParamOnce, dispatchDeepLink } from '@/src/lib/auth/deepLinkDispatch';
 import { pendingCodeIsRecovery } from '@/src/lib/auth/recoveryClaim';
+import { forgetReturnToForAuthLink } from '@/src/lib/auth/returnTo';
 import { AUTH_LINK_EXPIRED_COPY } from '@/src/lib/auth/linkErrorCopy';
 import { assertDeviceRandomness } from '@/src/lib/randomness';
 import { Alert, NativeModules } from 'react-native';
@@ -205,6 +206,10 @@ export function useNativeEffects({ userId, isRecovery, setIsRecovery }: NativeEf
     // One funnel: getInitialURL (cold start after iOS killed the app behind the
     // browser) and the 'url' event (warm return) both land here.
     return attachDeepLinkFunnel(Linking, (url) => {
+      // CFT-603 (review RAS-2): a link carrying a code or token_hash is about to mint a session, so the screen
+      // remembered for return after sign-in is dropped first. No session a link mints — a recovery detected only
+      // after the exchange included — can then consume it. The dispatch below is unchanged.
+      forgetReturnToForAuthLink(url);
       void dispatchDeepLink(url, {
         stripeCallback: handleURLCallback,
         verifyOtp: ({ type, token_hash }) => supabase.auth.verifyOtp({ type, token_hash }),
