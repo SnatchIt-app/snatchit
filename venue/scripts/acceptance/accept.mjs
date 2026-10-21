@@ -93,6 +93,16 @@ const TITLE = { e1: "Hosted Acceptance Night A (synthetic, on sale)", e2: "Hoste
 // The pre-v2 app said "You don't have access to this." — that sentence is now only the database 42501 screen.
 const DENIED = "isn't open to you.";
 const NO_GRANT = "holds no staff or organization role at this venue";
+// Role labels the app shows only once it has verified a grant (capabilities strip, account card). Case-sensitive on
+// purpose: v2's denial itself says "A venue manager or an organization owner can give you access", which claims nothing.
+const ROLE_LABEL_CLAIMED = /Capabilities come from your grants: (Venue|Org)|\bVenue manager\b|\bOrg owner\b/;
+// v2 streams every venue screen behind src/app/o/[org]/v/[venue]/loading.tsx. A client-side navigation (the redirect
+// after sign-in) commits the new URL while that fallback is still showing, so a page is read only once it is gone.
+const ROUTE_LOADING = "[data-route-loading]";
+// v2 events list: remaining-only figure for the next session ("<n> still available"; the pre-v2 app said "<n> available").
+const REMAINING_A = "174 still available";
+// v2 keeps Sign out in the account popover (a closed <details>), so it is in the DOM but not in innerText.
+const SIGN_OUT = 'form[action="/logout"] button';
 const SIGN_IN = "Sign in to continue";
 
 // ---------------------------------------------------------------- http helpers
@@ -351,10 +361,13 @@ async function signIn(page, user, next) {
   await page.click('button[type="submit"]');
   const left = await page.waitFor(`location.pathname !== '/login' || document.body.innerText.includes('Sign-in failed')`, 20000);
   await page.waitFor("document.readyState === 'complete'", 5000);
+  await settled(page);
   return left && !(await page.text()).includes("Sign-in failed");
 }
+const settled = (page) => page.waitFor(`!document.querySelector(${JSON.stringify(ROUTE_LOADING)})`, 20000);
 async function visit(page, path) {
   await page.goto(`${opts.app}${path}`);
+  await settled(page);
   return page.text();
 }
 
@@ -375,10 +388,10 @@ async function browser() {
     check(P, "H1 manager signs in through /login", await signIn(m, users.manager, `${A}/events`), await m.url());
     t = await m.text();
     check(P, "H1 events list shows both Venue A events", t.includes(TITLE.e1) && t.includes(TITLE.e2), t.slice(0, 400));
-    check(P, "H1 remaining-only figure (174 available)", t.includes("174 available"), t.slice(0, 400));
+    check(P, `H1 remaining-only figure (${REMAINING_A})`, t.includes(REMAINING_A), t.slice(0, 400));
     check(P, "C5 strip derives Venue manager from grants", t.includes("Capabilities come from your grants") && t.includes("Venue manager"), t.slice(0, 300));
     check(P, "H1 header shows the signed-in email", t.includes(users.manager.email), t.slice(0, 300));
-    check(P, "H1 Sign out offered", t.toLowerCase().includes("sign out"), "");
+    check(P, "H1 Sign out offered", await m.evaluate(`!!document.querySelector(${JSON.stringify(SIGN_OUT)})`), "");
     check(P, "H1 no Create event control in database mode", !t.toLowerCase().includes("create event"), "");
     await m.screenshot(join(OUT, "evidence-manager-events.png"));
     t = await visit(m, `${A}/events/${ID.e1}`);
@@ -442,7 +455,7 @@ async function browser() {
     check(P, `H3 next request ${target.name === "sandbox" ? "12 s later (past the refresh-token reuse interval)" : "after refresh"} still signed in`, t.includes(TITLE.e1), t.slice(0, 200));
 
     // H6 logout.
-    await m2.click('form[action="/logout"] button');
+    await m2.click(SIGN_OUT);
     await m2.waitFor("location.pathname === '/login'", 15000);
     check(P, "H6 Sign out lands on /login", (await m2.url()).includes("/login"), await m2.url());
     check(P, "H6 auth cookie removed", !authCookie(await m2.cookies(opts.app)), "");
@@ -489,7 +502,7 @@ async function browser() {
     check(P, "H7 concurrent: manager sees A events", tm.includes(TITLE.e1), tm.slice(0, 200));
     check(P, "H7 concurrent: outsider sees denial, never A's rows", to.includes(DENIED) && to.includes(NO_GRANT) && !to.includes(TITLE.e1) && !to.includes(TITLE.e2), to.slice(0, 200));
     await out.screenshot(join(OUT, "evidence-outsider-denied.png"));
-    check(P, "P1 grant-less caller: no role label claimed, no sample names, no empty menu", !/Capabilities come from your grants: (Venue|Org)|Venue manager|\(sample\)|role switch/i.test(to) && !(await out.evaluate("[...document.querySelectorAll('details')].some(d => /Menu ·/.test(d.innerText) && d.querySelectorAll('a').length === 0)")), to.slice(0, 300));
+    check(P, "P1 grant-less caller: no role label claimed, no sample names, no empty menu", !ROLE_LABEL_CLAIMED.test(to) && !/\(sample\)|role switch/i.test(to) && !(await out.evaluate("[...document.querySelectorAll('details')].some(d => /Menu ·/.test(d.innerText) && d.querySelectorAll('a').length === 0)")), to.slice(0, 300));
     check(P, "P1 manager header shows no sample fixture names in database mode", !/\(sample\)/.test(tm), tm.slice(0, 300));
     for (const path of [`${A}/events/${ID.e1}`, `${A}/events/${ID.e1}/door`, `${B}/events`, `${A}/events?role=venue_manager&state=live`, `/o/${ID.orgA}/v/${ID.venC}/events`]) {
       t = await visit(out, path);

@@ -12,7 +12,8 @@ import { Skeleton } from "@/components/ui/State";
  */
 export default function VenueLoading() {
   return (
-    <main id="main" className="flex min-h-dvh items-center justify-center px-4 py-10">
+    // data-route-loading: the acceptance kit waits for this to disappear before it reads a page.
+    <main id="main" data-route-loading="" className="flex min-h-dvh items-center justify-center px-4 py-10">
       <div className="panel enter w-full max-w-xl px-6 py-10 md:px-10">
         <p className="eyebrow-caps">Venue dashboard</p>
         <p className="title-section mt-3 text-[1.25rem]">Loading this screen</p>
