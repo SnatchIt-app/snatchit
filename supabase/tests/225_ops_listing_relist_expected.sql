@@ -5,7 +5,9 @@
 --   R1  happy path: expected = the five keys of ops.listing_detail(id)->'listing' (updated_at is the raw
 --       to_jsonb string, microseconds included) => succeeded; the listing is active with the new ends_at and
 --       ended_at NULL; the ops.action row is succeeded; result.before = the locked row (the compared fields).
---   R2  expected.updated_at is required: expected NULL, {} and today's console payload {status, auction_status}
+--       R1.8: with expected = {updated_at} alone, result.before is still the locked row's five fields: the
+--       server's verified record, never an echo of the client's expected (ops.action.expected keeps that).
+--   R2 expected.updated_at is required: expected NULL, {} and today's console payload {status, auction_status}
 --       raise invalid_input (P0001) before any row or audit is written.
 --   R3  ...and must be a concrete ISO-8601 instant with its UTC offset that casts to timestamptz: JSON null, a
 --       number, '', 'yesterday', no offset, 2026-02-30 => invalid_input. No ops.action row, no audit row, the
@@ -20,6 +22,9 @@
 --   R6  precision contract: updated_at truncated to milliseconds (the JS Date shape) => stale_state; the same
 --       instant written with another offset ('Z') succeeds (compared as an instant, exact to the microsecond); a
 --       value read under another session TimeZone (+05:45, not a whole hour) is accepted under the default one.
+--       R6.6/R6.7: a live updated_at EARLIER than the expected one => stale_state, listing unchanged. updated_at =
+--       now() is the writing transaction's start, so a writer that began before the version the operator loaded
+--       and committed after it stamps an earlier value: the compare is equality, not "the client's copy is older".
 --   R7  domain guards with a FRESH expected keep surfacing as today (rejected / precondition, the domain message,
 --       listing unchanged): bid, payment, transfer history; non-admin seller; hidden listing (154); new_ends_at
 --       in the past or missing. Listing not found: the pre-158 answer byte for byte (rejected / precondition
@@ -49,7 +54,7 @@
 -- Founder A = tap.admin_user() (platform_admin via admin_users), founder B = tap.other_user().
 -- ============================================================================
 BEGIN;
-SELECT plan(78);
+SELECT plan(81);
 SELECT tap.seed_core();
 
 INSERT INTO public.admin_users (user_id, label) VALUES (tap.other_user(), 'FOUNDER B') ON CONFLICT (user_id) DO NOTHING;
@@ -211,6 +216,8 @@ SELECT tap._mk225(7);    -- R6 precision
 SELECT tap._mk225(8);    -- R6 another session TimeZone
 SELECT tap._mk225(9);    -- R9 / R10
 SELECT tap._mk225(23);   -- R11 direct call
+SELECT tap._mk225(41);   -- R6.6 earlier-started writer
+SELECT tap._mk225(42);   -- R1.8 result.before with expected {updated_at} alone
 -- R7: history (bid while active, then cancelled), payment, payment + transfer, a real seller, hidden, end time
 SELECT tap._new225(11, tap.admin_user());
 SELECT tap.login(tap.buyer());
@@ -255,6 +262,13 @@ SELECT is((tap._g225('r1') #>> '{result,result,listing_id}', (tap._g225('r1') #>
   'R1.6: result.result is admin_relist_listing''s own answer (listing_id, previous_ends_at)');
 SELECT is((SELECT count(*)::int FROM ops.audit WHERE subject_id = tap._l225(1) AND action = 'action.listing_relist' AND outcome = 'succeeded'), 1,
   'R1.7: audited action.listing_relist / succeeded');
+-- R1.8 (listing 42): in R1 the expected IS the locked row (same jsonb), so R1.5 cannot tell them apart. Here the
+-- client sends {updated_at} alone (R5.8's shape): result.before must still be the five fields of the locked row.
+SELECT tap._s225('row42', tap._row225(tap._l225(42)));
+SELECT tap._s225('r42', tap._rl225(tap.admin_user(), 'k225-r1-before-a02', tap._l225(42), tap._in3d(),
+                                   jsonb_build_object('updated_at', tap._exp225(tap._l225(42)) -> 'updated_at')));
+SELECT is((tap._g225('r42') ->> 'status', tap._g225('r42') #> '{result,before}'), ('succeeded'::text, tap._g225('row42')),
+  'R1.8: expected {updated_at} alone => succeeded and result.before = the locked row''s five fields (the server''s record, not the client''s expected)');
 
 -- ── R2 / R3 — expected.updated_at is required (listing 2) ───────────────────
 SELECT tap._s225('md2', to_jsonb(tap._md225(tap._l225(2))));
@@ -372,6 +386,20 @@ SELECT is(((tap._g225('e8') ->> 'updated_at') ~ '\+05:45$', current_setting('Tim
            tap._rl225(tap.admin_user(), 'k225-r6-tz-a03', tap._l225(8), tap._in3d(), tap._g225('e8')) ->> 'status'),
           (true, true, 'succeeded'::text),
   'R6.5: expected read under another session TimeZone (+05:45) and submitted under the default one => succeeded');
+-- listing 41: the live updated_at moves BACK. A writer whose transaction began before the version the operator
+-- loaded, and committed after it, stamps an earlier updated_at (now() = its transaction start). Simulated here:
+-- after the capture the content changes and updated_at becomes 1 microsecond earlier (trigger off for that statement).
+SELECT tap._s225('e41', tap._exp225(tap._l225(41)));
+ALTER TABLE public.listings DISABLE TRIGGER trg_listings_updated_at;
+UPDATE public.listings SET restrictions = 'R6.6 earlier-started writer', updated_at = tap._aged225() - interval '1 microsecond'
+ WHERE id = tap._l225(41);
+ALTER TABLE public.listings ENABLE TRIGGER trg_listings_updated_at;
+SELECT tap._s225('md41', to_jsonb(tap._md225(tap._l225(41))));
+SELECT is((SELECT (r ->> 'status', r ->> 'reject_reason')
+             FROM tap._rl225(tap.admin_user(), 'k225-r6-back-a06', tap._l225(41), tap._in3d(), tap._g225('e41')) r),
+          ('rejected'::text, 'stale_state'::text),
+  'R6.6: the live updated_at is EARLIER than the expected one (an earlier-started writer rewrote the content) => stale_state');
+SELECT is(tap._md225(tap._l225(41)), tap._g225('md41') #>> '{}', 'R6.7: listing 41 unchanged (the unreviewed content stays unpublished)');
 
 -- ── R7 — domain guards with a FRESH expected ────────────────────────────────
 SELECT tap._s225('md7x', (SELECT jsonb_object_agg(n::text, tap._md225(tap._l225(n))) FROM unnest(ARRAY[11,12,13,14,15,16]) n));
