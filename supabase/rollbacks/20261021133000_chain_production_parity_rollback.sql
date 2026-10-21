@@ -9,7 +9,8 @@
 --   authenticated can SELECT/INSERT/UPDATE through the payments table grant — and a rollback must never restore a
 --   security hole. Nothing is lost by leaving it out: 173 dropped it only while every value was NULL and it carried no
 --   column ACL, and no SQL, edge, app, web or console code reads or writes it (the 173 header's S4 grep). Everything
---   else is restored exactly. After this file, on BOTH lineages, the column is ABSENT, and the verification requires it.
+--   else is restored exactly. After this file, on BOTH lineages, the column is ABSENT, and the verification requires it
+--   on both: on chain lineage after the DDL; on production lineage (no DDL) it refuses if the column exists there.
 --
 -- HOW IT KNOWS WHAT 173 DID HERE. 173 changes all three items or none (it refuses any mixed state), and after 173
 -- every database looks like production for these items. The one durable difference is column order: a column that
@@ -21,7 +22,8 @@
 --                                            Restore exactly that (stripe_client_secret aside: exception above),
 --                                            after checking the state is still 173's post-state.
 --   all three columns BELOW both markers  -> production lineage (production, a branch or restore of it): 173 executed
---                                            no DDL here, so the rollback executes none either (no lock, no write).
+--                                            no DDL here, so the rollback executes none either (no lock, no write);
+--                                            refused if payments.stripe_client_secret exists (it must be absent).
 --   none of the three columns             -> 173 is not applied here (or was rolled back): no-op if the rest is the
 --                                            chain's pre-173 state (stripe_client_secret present and empty, or absent
 --                                            as this file leaves it), refused otherwise.
@@ -132,6 +134,12 @@ BEGIN
   END IF;
 
   IF v_ncols = 3 AND v_early = 3 THEN
+    -- Verification on this lineage too: after this file stripe_client_secret is ABSENT on both lineages. 173 never
+    -- creates it and this branch runs no DDL, so if it exists here something else added it: refuse, nothing changed.
+    IF v_secret IS NOT NULL THEN
+      RAISE EXCEPTION '173 rollback verification failed (nothing changed): production lineage, but payments.stripe_client_secret exists [%]; 173 never creates it, and after this rollback it must be absent on both lineages: find what added it', v_secret
+        USING ERRCODE = 'P0001';
+    END IF;
     RAISE NOTICE '173 rollback: production lineage (Stripe status columns at %, before stripe_onboarding_complete and stripe_customer_id): 173 executed no DDL in this database, so there is nothing to restore; no DDL executed', v_pos;
     RETURN;
   END IF;
