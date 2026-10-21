@@ -8,9 +8,10 @@
 --   Port of origin/venue/dashboard-v2 supabase/tests/188_venue_api_read_views.sql
 --   (blob 7ed77132, plan 47, written for the same views under 20260910120000).
 --   A1–E7 and D1–D5 are carried verbatim, fixture included (ids keep their 187
---   tag). Nine assertions are new (plan 47 -> 56), each added because a planted
---   mutant of the migration survived the 47 (see
---   docs/venue-dashboard/VENUE_API_PROVISIONAL_MIGRATION.md §4.4):
+--   tag). 23 assertions are new (plan 47 -> 70), each added because a planted
+--   mutant of the migration survived (see
+--   docs/venue-dashboard/VENUE_API_PROVISIONAL_MIGRATION.md §4.4 and §4.5).
+--   Round 1 (plan 56), mutants that survived the 47:
 --     E8–E11 the "mine only" filter of my_staff_roles / my_org_roles is the
 --            view's own `identity_id = auth.uid()`, not RLS: a scanner can read
 --            its venue's whole roster in the base table but sees only its own
@@ -20,6 +21,15 @@
 --            the CI gate for venue_api: exact relation + column ACL, exact
 --            schema ACL, no default-ACL grant in the schema, security_barrier
 --            on every view, and the exact projected column set.
+--   Round 2 (plan 70, review of 3bf24c0b), mutants that survived the 56: a
+--   REVOKE of a projected base column (views unreadable, 56/56 green),
+--   WHERE false on venues or resale_policies, and s.ends_at AS starts_at.
+--     C22–C30 venues and resale_policies read as the caller (manager, org
+--            owner, outsider), with a draft venue and a draft-parent policy,
+--            plus value checks on rows whose same-typed columns all differ.
+--     D6–D9  view-equals-base counts for venues and resale_policies.
+--     F6     each view definition equals the migration SELECT (pg_get_viewdef
+--            of the real view against a temp view built from the same text).
 --   Section A: shape — schema, eight views, security_invoker on every one, no
 --     function of any kind in the schema, grants exactly {authenticated}.
 --   Section B: projection — no counter column (capacity/held/sold) and no
@@ -35,7 +45,7 @@
 -- Fixtures are synthetic, created inside this transaction and rolled back.
 -- ============================================================================
 BEGIN;
-SELECT plan(56);
+SELECT plan(70);
 SELECT tap.seed_core();
 
 -- ── Fixture (synthetic; never a migration) ─────────────────────────────────
@@ -175,6 +185,59 @@ SELECT is((SELECT count(*) FROM kernel.org_member WHERE org_id = '18700000-0000-
 SELECT is((SELECT string_agg(org_id::text || ':' || role, ',') FROM venue_api.my_org_roles), '18700000-0000-4000-8000-00000000000a:org_finance', 'E11: org finance A''s my_org_roles is exactly its own row, never the owner''s');
 SELECT tap.logout();
 
+-- ── Section C (cont.) — venues and resale_policies, as the caller ───────────
+-- The app reads both on every route (venue scope, policies), so a revoked
+-- base column or an emptied view must fail here, not only in the browser.
+-- More synthetic rows, as postgres: a DRAFT venue of org A (Room C), a
+-- venue-scoped policy on approved Room A, an event-scoped policy on A's DRAFT
+-- event e2 (078 catalog_resale_policy_sel_public: a draft parent hides its
+-- policy from every client), and a session of e1 whose starts_at, ends_at and
+-- doors_at all differ, so a view that maps one base column to another name
+-- returns a wrong value (C28-C30).
+INSERT INTO catalog.venue (venue_id, org_id, name, neighborhood, approval_status) VALUES
+  ('18700000-0000-4000-8000-0000000000cc', '18700000-0000-4000-8000-00000000000a', 'Room C 226', 'brickell', 'draft');
+INSERT INTO catalog.event_session (session_id, event_id, session_label, starts_at, ends_at, doors_at) VALUES
+  ('18700000-0000-4000-8000-0000000000f4', '18700000-0000-4000-8000-0000000000e1', 'Late 226',
+   '2031-01-10 20:00:00+00', '2031-01-10 23:30:00+00', '2031-01-10 19:00:00+00');
+INSERT INTO catalog.resale_policy (policy_id, scope_kind, venue_id, event_id, mode, price_cap_bps, royalty_bps, version, effective_from) VALUES
+  ('18700000-0000-4000-8000-000000000031', 'venue', '18700000-0000-4000-8000-0000000000aa', NULL, 'fixed_cap', 10000, 500, 1, '2026-01-01 00:00:00+00'),
+  ('18700000-0000-4000-8000-000000000032', 'event', NULL, '18700000-0000-4000-8000-0000000000e2', 'buy_now', NULL, NULL, 1, '2026-01-01 00:00:00+00');
+
+-- venue_manager at Room A: both approved rooms, not org A's draft Room C (080 venue arm is per venue); Room A's policy, not the draft event's.
+SELECT tap.login('18700000-0000-4000-8000-0000000000a1');
+SELECT is((SELECT count(*) FROM venue_api.venues WHERE venue_id IN ('18700000-0000-4000-8000-0000000000aa','18700000-0000-4000-8000-0000000000bb')), 2::bigint, 'C22: manager A reads both approved rooms (Room A, Room B) through venue_api.venues');
+SELECT is((SELECT count(*) FROM venue_api.venues WHERE venue_id = '18700000-0000-4000-8000-0000000000cc'), 0::bigint, 'C23: manager A cannot read org A''s draft Room C (no role there)');
+SELECT is((SELECT count(*) FROM venue_api.resale_policies WHERE policy_id IN ('18700000-0000-4000-8000-000000000031','18700000-0000-4000-8000-000000000032')), 1::bigint, 'C24: manager A reads Room A''s venue policy and not the draft event''s policy (078 sel_public only)');
+SELECT tap.logout();
+
+-- org_owner of A: the draft venue IS visible (078 catalog_venue_sel_org).
+SELECT tap.login('18700000-0000-4000-8000-0000000000a2');
+SELECT is((SELECT count(*) FROM venue_api.venues WHERE org_id = '18700000-0000-4000-8000-00000000000a'), 2::bigint, 'C25: org owner A sees Room A and its draft Room C');
+SELECT tap.logout();
+
+-- outsider (authenticated, no grants): approved venues only; the venue policy only; values come from the matching base columns.
+SELECT tap.login('18700000-0000-4000-8000-0000000000c1');
+SELECT is((SELECT count(*) FROM venue_api.venues WHERE venue_id IN ('18700000-0000-4000-8000-0000000000aa','18700000-0000-4000-8000-0000000000bb','18700000-0000-4000-8000-0000000000cc')), 2::bigint, 'C26: outsider reads the two approved rooms and not the draft Room C');
+SELECT is((SELECT count(*) FROM venue_api.resale_policies WHERE policy_id IN ('18700000-0000-4000-8000-000000000031','18700000-0000-4000-8000-000000000032')), 1::bigint, 'C27: outsider reads Room A''s venue policy only');
+SELECT is((SELECT v.org_id::text || '|' || v.name || '|' || v.neighborhood || '|' || v.approval_status
+             FROM venue_api.venues v WHERE v.venue_id = '18700000-0000-4000-8000-0000000000aa'),
+          '18700000-0000-4000-8000-00000000000a|Room A 187|wynwood|approved',
+          'C28: outsider reads Room A''s org_id, name, neighborhood and approval_status from the matching base columns');
+SELECT is((SELECT p.scope_kind || '|' || p.venue_id::text || '|' || coalesce(p.event_id::text, '-') || '|' || p.mode || '|'
+                  || p.price_cap_bps::text || '|' || p.royalty_bps::text || '|' || p.version::text || '|'
+                  || to_char(p.effective_from AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI')
+             FROM venue_api.resale_policies p WHERE p.policy_id = '18700000-0000-4000-8000-000000000031'),
+          'venue|18700000-0000-4000-8000-0000000000aa|-|fixed_cap|10000|500|1|2026-01-01 00:00',
+          'C29: outsider reads the venue policy''s scope, target, mode, cap, royalty, version and effective_from from the matching base columns');
+SELECT is((SELECT s.event_id::text || '|' || s.session_label || '|'
+                  || to_char(s.starts_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI') || '|'
+                  || to_char(s.ends_at   AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI') || '|'
+                  || to_char(s.doors_at  AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI') || '|' || s.status
+             FROM venue_api.event_sessions s WHERE s.session_id = '18700000-0000-4000-8000-0000000000f4'),
+          '18700000-0000-4000-8000-0000000000e1|Late 226|2031-01-10 20:00|2031-01-10 23:30|2031-01-10 19:00|scheduled',
+          'C30: outsider reads the session''s starts_at, ends_at and doors_at from the matching base columns (a swapped-column view fails here)');
+SELECT tap.logout();
+
 -- ── Section D — the views never widen ─────────────────────────────────────────
 SELECT tap.login('18700000-0000-4000-8000-0000000000b1');
 SELECT is((SELECT count(*) FROM venue_api.events), (SELECT count(*) FROM catalog.event), 'D1: finance B: events view row count equals base-table row count under the same RLS');
@@ -184,6 +247,15 @@ SELECT tap.logout();
 SELECT tap.login('18700000-0000-4000-8000-0000000000c1');
 SELECT is((SELECT count(*) FROM venue_api.events), (SELECT count(*) FROM catalog.event), 'D4: outsider: events view equals base table under RLS');
 SELECT is((SELECT count(*) FROM venue_api.ticket_types), (SELECT count(*) FROM venue.ticket_type), 'D5: outsider: ticket_types view equals base table under RLS');
+SELECT tap.logout();
+-- venues and resale_policies the same way (the fixture makes both base counts non-zero for these callers).
+SELECT tap.login('18700000-0000-4000-8000-0000000000b1');
+SELECT is((SELECT count(*) FROM venue_api.venues), (SELECT count(*) FROM catalog.venue), 'D6: finance B: venues view equals base table under RLS');
+SELECT is((SELECT count(*) FROM venue_api.resale_policies), (SELECT count(*) FROM catalog.resale_policy), 'D7: finance B: resale_policies view equals base table under RLS');
+SELECT tap.logout();
+SELECT tap.login('18700000-0000-4000-8000-0000000000c1');
+SELECT is((SELECT count(*) FROM venue_api.venues), (SELECT count(*) FROM catalog.venue), 'D8: outsider: venues view equals base table under RLS');
+SELECT is((SELECT count(*) FROM venue_api.resale_policies), (SELECT count(*) FROM catalog.resale_policy), 'D9: outsider: resale_policies view equals base table under RLS');
 SELECT tap.logout();
 
 
@@ -248,6 +320,53 @@ SELECT set_eq(
             ('my_staff_roles.venue_id'), ('my_staff_roles.role'),
             ('my_org_roles.org_id'), ('my_org_roles.role') $$,
   'F5: the views project exactly these 55 columns (a widened view fails here before it reaches the API)');
+
+-- F6 pins each view's DEFINITION, not only its column names (F5). The expected
+-- definitions are the eight SELECTs of migration 20261021120000, copied
+-- verbatim into transaction-local temp views (they die with the ROLLBACK).
+-- Both sides are deparsed by pg_get_viewdef in this same session, so the
+-- comparison needs no stored hash and does not depend on the deparser version.
+-- A view that maps a base column to another name (s.ends_at AS starts_at), drops a filter
+-- (identity_id = auth.uid()), adds WHERE false or reads another table fails here.
+CREATE TEMP VIEW exp_venues AS
+  SELECT v.venue_id, v.org_id, v.name, v.neighborhood, v.approval_status, v.created_at, v.updated_at
+    FROM catalog.venue v;
+CREATE TEMP VIEW exp_events AS
+  SELECT e.event_id, e.venue_id, e.org_id, e.title, e.status, e.created_at, e.updated_at
+    FROM catalog.event e;
+CREATE TEMP VIEW exp_event_sessions AS
+  SELECT s.session_id, s.event_id, s.session_label, s.starts_at, s.ends_at, s.doors_at,
+         s.door_open_at, s.status, s.created_at, s.updated_at
+    FROM catalog.event_session s;
+CREATE TEMP VIEW exp_resale_policies AS
+  SELECT p.policy_id, p.scope_kind, p.venue_id, p.event_id, p.mode, p.price_cap_bps,
+         p.royalty_bps, p.version, p.effective_from, p.created_at
+    FROM catalog.resale_policy p;
+CREATE TEMP VIEW exp_ticket_types AS
+  SELECT t.ticket_type_id, t.event_id, t.kind, t.name, t.price_minor, t.currency, t.visibility,
+         t.created_at, t.updated_at
+    FROM venue.ticket_type t;
+CREATE TEMP VIEW exp_inventory_batches AS
+  SELECT b.batch_id, b.ticket_type_id, b.event_session_id, b.release_kind, b.is_sharded,
+         b.remaining, b.created_at, b.updated_at
+    FROM venue.inventory_batch b;
+CREATE TEMP VIEW exp_my_staff_roles AS
+  SELECT s.venue_id, s.role
+    FROM venue.staff_role s
+   WHERE s.identity_id = auth.uid();
+CREATE TEMP VIEW exp_my_org_roles AS
+  SELECT m.org_id, m.role
+    FROM kernel.org_member m
+   WHERE m.identity_id = auth.uid();
+SELECT set_eq(
+  $$ SELECT c.relname::text || ':' || md5(pg_get_viewdef(c.oid))
+       FROM pg_class c
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'venue_api' AND c.relkind = 'v' $$,
+  $$ SELECT substr(c.relname::text, 5) || ':' || md5(pg_get_viewdef(c.oid))
+       FROM pg_class c
+      WHERE c.relnamespace = pg_my_temp_schema() AND c.relkind = 'v' AND c.relname::text LIKE 'exp\_%' $$,
+  'F6: each of the eight view definitions is exactly the migration''s SELECT (deparsed md5 per view)');
 
 SELECT * FROM finish();
 ROLLBACK;

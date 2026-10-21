@@ -24,7 +24,7 @@ are frozen and were not touched.
 |---|---|---|
 | `supabase/migrations/20261021120000_venue_api_read_views.sql` | `20260910120000_venue_api_read_views.sql` (blob `80cf2762`) | Header only. The SQL from `BEGIN;` to `COMMIT;` is byte-identical (sha256 `fb3cf536…1199e70` on both). |
 | `supabase/rollbacks/20261021120000_venue_api_read_views_rollback.sql` | `20260910120000_…_rollback.sql` (blob `114b94ed`) | Header only. The statements are byte-identical (sha256 `d191b761…27b7340`). |
-| `supabase/tests/226_venue_api_read_views.sql` (provisionally `224`, renamed with `git mv`) | `188_venue_api_read_views.sql` (blob `7ed77132`, plan 47) | The 47 assertions are carried verbatim, fixture included. Nine assertions are new (plan 56), see §4.4. |
+| `supabase/tests/226_venue_api_read_views.sql` (provisionally `224`, renamed with `git mv`) | `188_venue_api_read_views.sql` (blob `7ed77132`, plan 47) | The 47 assertions are carried verbatim, fixture included. 23 assertions are new (plan 70): nine in the first round (§4.4) and 14 after review (§4.5). |
 
 Header fixes in the migration:
 - the registry banner (159 / 226, allocated by A, merge order) and a provenance paragraph
@@ -71,9 +71,15 @@ That is 55 columns in total. Every one is a column the base table already grants
 - org_member column grant: 077:168
 - table grants on staff_role and ticket_type: 080:338, 081:988
 
-Checked on the rehearsal database with `has_column_privilege('authenticated', <base>, <col>, 'SELECT')`: 55 of 55 projected columns are granted. No assertion in 224 reads `venues` or `resale_policies`
-as a caller, so both were checked with `SELECT *` as an `authenticated` caller: no permission
-error. The other six views are read as callers in Sections C–E.
+Checked on the rehearsal database with `has_column_privilege('authenticated', <base>, <col>, 'SELECT')`: 55 of 55 projected columns are granted.
+
+All eight views are now read as callers.
+- **Before (`3bf24c0b`, plan 56):** no assertion read `venues` or `resale_policies` as a
+  caller. Both were checked by hand with `SELECT *` as an `authenticated` caller.
+- **Review finding:** that left a REVOKE of a projected base column green in CI, while the view
+  became unreadable to every caller.
+- **Now:** pgTAP 226 reads both as callers in C22–C30 and D6–D9. The other six views are read
+  in Sections C–E. See §4.5.
 
 **Grants:** USAGE on the schema and SELECT on the eight views, to `authenticated` only. `anon`,
 `service_role` and `PUBLIC` get nothing.
@@ -188,7 +194,10 @@ gate:
 - F3: no default privilege granted inside the schema
 - F4: security_barrier on every view
 - F5: the exact 55-column projection
+- F6: each view's definition equals the migration's SELECT (§4.5)
 - A2/A3: eight views, zero functions
+- Sections C–E and D6–D9: every view read as a caller, so a base-column REVOKE that makes a view
+  unreadable fails the file
 
 Probe 1 shows that a function added to `venue_api` would not be caught by the manifest. A3
 catches it, and so does mutant m14 below.
@@ -224,6 +233,54 @@ manager. 188's fixture had one person per roster, so the filter was never exerci
 
 E8 and E10 are controls: they show that the base table does return the other person's row. E9
 and E11 assert that the view does not.
+
+### 4.5 Review round (2026-10-21): plan 56 to 70
+
+The reviewer ran these mutants on a scratch copy against plan 56. All four survived with 56/56
+PASS. The last column is what plan 70 is **expected** to do. It is **not run**, because this
+revision was written in a wave with no database (§8).
+
+| Mutant | 56 (reviewer, run) | 70 (expected, not run) |
+|---|---|---|
+| r1 `REVOKE SELECT (neighborhood) ON catalog.venue FROM authenticated` and `REVOKE SELECT (royalty_bps) ON catalog.resale_policy FROM authenticated`. The views stay, but every caller read raises `permission denied for table venue`. | survived | C22 raises 42501, the file's transaction aborts, and every later assertion errors. The file FAILS. |
+| r2 venues `WHERE false` | survived | C22, C25, C26, C28 (NULL value), D6, D8, F6 |
+| r3 resale_policies `WHERE false` | survived | C24, C27, C29 (NULL value), D7, D9, F6 |
+| r4 `s.ends_at AS starts_at, s.starts_at AS ends_at` in event_sessions (188 also 47/47) | survived | C30 (starts 23:30 / ends 20:00 against the fixture's 20:00 / 23:30), F6 |
+
+**The new fixture** is added in its own block after E11. The 47 carried assertions keep their
+fixture byte for byte. It adds:
+- `Room C 226`, a draft venue of org A
+- a session `Late 226` of e1 whose starts_at, ends_at and doors_at all differ
+- a venue-scoped policy on Room A: `fixed_cap`, cap 10000, royalty 500, version 1,
+  effective_from 2026-01-01
+- an event-scoped policy on the draft event e2
+
+Same-typed columns hold different values, so a view that maps one base column to another
+name returns a wrong value.
+
+**New caller assertions:**
+- C22–C24, manager A: both approved rooms; not Room C, because the 080 venue arm is per venue;
+  Room A's policy but not the draft event's policy, because only 078's `sel_public` applies.
+- C25, org owner A: Room A and draft Room C, through the 078 org arm.
+- C26–C27, outsider: the approved rooms only, and the venue policy only.
+- C28–C30, outsider: value checks on the venue, policy and session rows.
+- D6–D9: view-equals-base counts for venues and resale_policies, as finance B and as outsider.
+
+**F6 pins the definitions.**
+- The eight SELECTs are copied verbatim from the migration body into transaction-local temp
+  views named `exp_<view>`. F6 then compares `md5(pg_get_viewdef(...))` per view name between
+  `venue_api` and the temp schema (`set_eq`).
+- Both sides are deparsed in the same session, so no hash is stored. A hash would have to be
+  computed on a database, and deparser output can differ between the CI image's PostgreSQL and
+  a local 17.11.
+- A static check confirms that the eight temp-view SELECTs are byte-identical to the
+  migration's. A planted swap in a copy of the migration makes that check report DIFFERENT.
+- F6 is expected to fail for every mutant that changes a view's SELECT: r2–r4, and m03, m04,
+  m05, m10, m12 and m13.
+- F6 does not cover reloption, grant, default-ACL or function mutants (m01, m02, m06–m09, m11,
+  m14). A4, A10, F1–F4 and A3 keep those.
+- A later migration that legitimately redefines a view must update F6's temp-view text in the
+  same change.
 
 ## 5. Local rehearsal evidence (2026-10-21, Homebrew PostgreSQL 17.11, localhost:5432)
 
@@ -327,6 +384,10 @@ schema changes no other suite. That includes the closed-world suites 140/141/154
 On-disk totals for CI (`ls supabase/tests/*.sql`): 103 files and 5944 planned assertions (5938 + `000_helpers`' 6), up from
 102 / 5888 on the base. The floors are `MIN_FILES=59` and `MIN_ASSERTIONS=4053`. 224 uses no `todo()` or
 `skip()`, so the masking ratchets do not move.
+
+**After the review round (plan 70):** 103 files and 5958 planned. That figure is the sum of every
+file's `plan(N)` line. The same count gives 5944 at `3bf24c0b`, which matches the run above. It
+was **not** run. 226 still uses no `todo()` or `skip()`.
 
 ## 6. Rollback procedure
 
@@ -457,6 +518,20 @@ After exposure, the expected API behaviour was not rehearsed against PostgREST h
 D's acceptance kit (V0–V10) is the instrument for this, in the sandbox window.
 
 ## 8. Limits
+
+- **pgTAP 226 after the review round has not been run.** That covers the rename, the new fixture
+  block, C22–C30, D6–D9 and F6. It was written in a wave with no database access, so all
+  numbers in §5 are from the plan-56 file at `460d85f9`. The checks that did run were static:
+  - the migration body hash is unchanged
+  - the eight F6 temp-view SELECTs are byte-identical to the migration's
+  - the plan equals the assertion count
+
+  Owed before A's review counts it:
+  - a full-chain replay
+  - 226 RED without the migration and GREEN with it
+  - mutants r1–r4 FAILING
+  - rollback and re-apply
+  - the neighbouring suites
 
 - CI's own replay (`supabase start` on CLI 2.115.0 in Docker) and `pg_prove` were not run
   locally. The evidence is the documented local equivalent. GitHub CI runs when a PR exists.
