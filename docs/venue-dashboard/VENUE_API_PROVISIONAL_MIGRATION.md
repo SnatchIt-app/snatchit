@@ -256,8 +256,9 @@ and E11 assert that the view does not.
 
 ### 4.5 Review round (2026-10-21): plan 56 to 71
 
-The reviewer ran these mutants on a scratch copy against plan 56. All four survived with 56/56
-PASS. The last column is what plan 71 is **expected** to do. It is **not run**, because this
+The reviewer ran r1–r4 on a scratch copy against plan 56, and all four survived with 56/56 PASS.
+r5 is the reviewer's reasoning case and was not run. The last column is what plan 71 is
+**expected** to do. It is **not run**, because this
 revision was written in a wave with no database (§8).
 
 | Mutant | 56 (reviewer, run) | 71 (expected, not run) |
