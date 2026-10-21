@@ -590,21 +590,25 @@ test('hostile paths: the final URL is on app.snatchitapp.com, never another host
   const listed = readHeredoc('HOSTILE');
   for (const s of HOSTILE_REQUIRED) assert.ok(listed.includes(s), `verify.sh HOSTILE lists ${JSON.stringify(s)}`);
   const samples = [...new Set([...HOSTILE_REQUIRED, ...HOSTILE_EXTRA, ...listed])];
+  const runs = [];
   for (const s of samples) {
-    for (const opts of EDGE_VARIANTS) {
-      const res = follow(routes, s, opts);
-      const where = `${JSON.stringify(s)} ${JSON.stringify(opts)}: ${res.trace}`;
-      assert.ok(res.url, `answered with a redirect: ${where}`);
-      assert.equal(res.url.host, APP_HOST, `final host: ${where}`);
-      assert.equal(res.url.protocol, 'https:', `final scheme: ${where}`);
-      assert.ok(res.statuses.every((x) => x === 308), `all 308: ${where}`);
-      assert.ok(res.hops.length <= 2, `at most the slash merge and one rule: ${where}`);
-      for (const h of res.hops) {
-        if (h.route === 'merge') {
-          assert.equal(h.url.origin, LEGACY, `the slash merge stays on the legacy host: ${where}`);
-        } else {
-          assert.ok(h.location.startsWith(`${APP}/`), `a rule's Location is absolute on the app host: ${where}`);
-        }
+    for (const opts of EDGE_VARIANTS) runs.push({ s, opts, res: follow(routes, s, opts) });
+  }
+  // The property first, over every sample and variant at once, so a failure
+  // lists every path that ends somewhere other than the app host.
+  const offHost = runs
+    .filter(({ res }) => !res.url || res.url.host !== APP_HOST || res.url.protocol !== 'https:')
+    .map(({ s, opts, res }) => `${JSON.stringify(s)} -> ${res.final} ${JSON.stringify(opts)}: ${res.trace}`);
+  assert.deepEqual(offHost, [], `paths whose final URL is not on https://${APP_HOST}/`);
+  for (const { s, opts, res } of runs) {
+    const where = `${JSON.stringify(s)} ${JSON.stringify(opts)}: ${res.trace}`;
+    assert.ok(res.statuses.every((x) => x === 308), `all 308: ${where}`);
+    assert.ok(res.hops.length <= 2, `at most the slash merge and one rule: ${where}`);
+    for (const h of res.hops) {
+      if (h.route === 'merge') {
+        assert.equal(h.url.origin, LEGACY, `the slash merge stays on the legacy host: ${where}`);
+      } else {
+        assert.ok(h.location.startsWith(`${APP}/`), `a rule's Location is absolute on the app host: ${where}`);
       }
     }
   }
