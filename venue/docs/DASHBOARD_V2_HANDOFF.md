@@ -255,6 +255,18 @@ full `npm test`, `npm run typecheck`, `next build` in both modes, and the kit `-
 | Kit cookie read-back | `writeAuthCookie` reads the cookie back after `Network.setCookie` and returns whether the browser holds exactly the session it wrote. H2 and H3 each record that as a check before their visit ("… (read back)") and gate their outcome on it, so a refused Secure cookie (a plain-http host other than localhost) can no longer pass H2 on "Sign in to continue" with no token presented, or H3 on the old unexpired session. `authCookie` moved unchanged to `lib/checks.mjs` so both are unit-tested offline. This adds two checks to `--phase all`. |
 | Cookie name | The session cookie is `sb-venue-auth-token[.N]` (`cookieOptions.name` in `lib/supabase/cookies.ts`; @supabase/ssr makes it the auth `storageKey`, so both SSR clients read, refresh and clear it under that name). The default `sb-<first host label>-auth-token` is admin's too: on localhost both apps share host `localhost` (ports do not separate cookies) and the harness Supabase URL, so the venue's HttpOnly cookie replaced admin's, whose MFA runs in the browser. Tests: sign-in writes only the venue name, the proxy neither refreshes nor rewrites admin's cookie, sign-out leaves it alone, a chunked session keeps `.0`/`.1`, the kit's `authCookie` finds it. One-time effect: a session stored under the old name is no longer read, so a signed-in user signs in once more; the old cookie is ignored until it expires. |
 | HSTS wording | `next.config.ts` and this record no longer say `includeSubDomains` would bind every `snatchitapp.com` subdomain: sent from `venue.snatchitapp.com` it covers `*.venue.snatchitapp.com` only. They also say what the code does: only HSTS is gated on `next dev`; `Permissions-Policy` is sent in every mode (now pinned by a test). |
+| pgTAP record | `DEMO.md` / `REMAINING_WORK.md` B1: "pgTAP 47/47" was the retired 188 suite; pgTAP 226 (plan 72 on F's `venue/api-read-views-provisional` @ `ad728964`) has not been run on this branch, and that run is owed by F/A. |
+| Window manifest pins | Only the 159 SQL body hash (`fb3cf536…1199e70`, recomputed from F's file at `ad728964` and the retired file at `ae2e2ea`) and "re-pin to the ref A merges" stay; the stale whole-file values from `239c2c4f` are gone. |
+
+Verification for this pass: targeted vitest runs of the touched test files only
+(`resale-policy-scope`, `data-source-ui`, `acceptance-kit-markers`, `domain-readiness`). Each
+behaviour fix was RED on the unfixed code and GREEN after, and planted mutants were killed. eslint
+ran on the changed TS/TSX files; the kit `.mjs` files are eslint-ignored, so `node --check` was used
+for them. Still owed (heavy slot): full `npm test` (untouched tests that render `EventsTable` /
+`EventSetup`: `demo-usability`, `readiness-fixes`, `entry-policy`, `surfaces`; `slice1-fixes` mocks
+`@supabase/ssr`, so its cookie name is arbitrary), `npm run typecheck` (`mapEvents` now has 4
+parameters; `.mjs` imports into TS tests), `next build` in both modes, and the kit `--phase all`
+rerun. That rerun has two more checks (H2/H3 read-back) and is the first with `sb-venue-auth-token`.
 
 Hosting notes for `venue.snatchitapp.com` (code side; nothing configured):
 
