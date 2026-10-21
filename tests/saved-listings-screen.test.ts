@@ -33,6 +33,7 @@ const h = vi.hoisted(() => ({
   pushed: [] as unknown[],
   replaced: [] as unknown[],
   navigated: [] as unknown[],
+  dismissedTo: [] as unknown[],
 }));
 
 vi.mock('@/src/lib/supabase', () => ({
@@ -61,6 +62,7 @@ vi.mock('expo-router', () => ({
     push: (to: unknown) => { h.pushed.push(to); },
     replace: (to: unknown) => { h.replaced.push(to); },
     navigate: (to: unknown) => { h.navigated.push(to); },
+    dismissTo: (to: unknown) => { h.dismissedTo.push(to); },
     back: () => {},
   },
 }));
@@ -137,7 +139,7 @@ beforeEach(() => {
   h.auth = { user: { id: USER }, loading: false };
   h.network = { isOffline: false };
   h.focus.current = null;
-  h.pushed = []; h.replaced = []; h.navigated = [];
+  h.pushed = []; h.replaced = []; h.navigated = []; h.dismissedTo = [];
 });
 
 // ── The pure decisions ──────────────────────────────────────────────────────
@@ -211,7 +213,7 @@ describe('screen — app/saved.tsx', () => {
     expect(h.pushed).toEqual(['/listing/L3']);
   });
 
-  it('SC2: nothing saved is the empty state — its own words, and a way to browse', async () => {
+  it('SC2: nothing saved is the empty state — its own words, and a way back to the live feed', async () => {
     h.reply = () => ({ data: [], error: null });
     const host = await mountScreen();
     await tick();
@@ -221,7 +223,11 @@ describe('screen — app/saved.tsx', () => {
     const action = empty?.props.action as { label: string; onPress: () => void };
     expect(action.label).toBe('Browse live listings');
     action.onPress();
-    expect(h.navigated).toEqual(['/(tabs)/home']);
+    // Back to the tabs already underneath, on Home — never a NAVIGATE, which from this root-Stack route
+    // pushes a second (tabs) navigator over Saved (SC10 has the router's side).
+    expect(h.dismissedTo).toEqual(['/(tabs)/home']);
+    expect(h.navigated).toEqual([]);
+    expect(h.pushed).toEqual([]);
     expect(findElement(host.output, (el) => el.type === 'ScreenState')).toBeUndefined();
   });
 
@@ -292,6 +298,28 @@ describe('screen — app/saved.tsx', () => {
     expect(store.savedShownFor(USER, 'L3'), 'the list primed the shared state').toBe(true);
     store.toggleSaved(USER, 'L3', async () => true); // unsaved on the detail screen
     expect(renderedRows(host).map((r) => r.props.eventName)).toEqual(['Older Night']);
+  });
+
+  it('SC10: dismissTo pops the root Stack back to the existing (tabs) route and hands it Home (installed routers)', async () => {
+    // expo-router turns dismissTo into a POP_TO on the navigator where the paths diverge — the root
+    // Stack here, since the current route is 'saved' and the target is '(tabs)'.
+    const routing = read('node_modules/expo-router/build/global-state/routing.js');
+    expect(routing).toMatch(/function dismissTo\(href, options\) \{\s*return linkTo\(\(0, href_1\.resolveHref\)\(href\), \{ \.\.\.options, event: 'POP_TO' \}\);/);
+    const { StackRouter, StackActions } = await import('@react-navigation/routers');
+    const router = StackRouter({});
+    const opts = { routeNames: ['(tabs)', 'saved'], routeParamList: {}, routeGetIdList: {} };
+    let state = router.getInitialState(opts);
+    state = router.getStateForAction(state, StackActions.push('saved'), opts) as typeof state;
+    expect(state.routes.map((r) => r.name)).toEqual(['(tabs)', 'saved']);
+    const tabsKey = state.routes[0].key;
+    const next = router.getStateForAction(
+      state,
+      { type: 'POP_TO', payload: { name: '(tabs)', params: { screen: 'home', params: {} } } },
+      opts,
+    ) as typeof state;
+    expect(next.routes.map((r) => r.name), 'one tabs navigator, not two').toEqual(['(tabs)']);
+    expect(next.routes[0].key, 'the same tabs instance').toBe(tabsKey);
+    expect(next.routes[0].params).toMatchObject({ screen: 'home' });
   });
 
   it('SC7: the route is registered in the root Stack', () => {

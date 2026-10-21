@@ -18,6 +18,9 @@
  * signed-out deep link to login), a failed first read (offline or error, with Retry), genuinely empty
  * (its own words and a way to browse), and the list. A failed QUIET refresh keeps the rows already on
  * screen and says so above them (F-BIDS-1).
+ *
+ * "Browse live listings" goes back to the tabs already underneath (dismissTo), never a second copy of
+ * them: a NAVIGATE from this root-Stack route to '(tabs)' pushes a new tabs navigator.
  */
 
 import { router } from 'expo-router';
@@ -178,7 +181,7 @@ export default function SavedScreen() {
         <EmptyState
           title={SAVED_COPY.emptyTitle}
           body={SAVED_COPY.emptyBody}
-          action={{ label: SAVED_COPY.emptyAction, onPress: () => router.navigate('/(tabs)/home') }}
+          action={{ label: SAVED_COPY.emptyAction, onPress: () => router.dismissTo('/(tabs)/home') }}
         />
       ) : (
         <FlatList
