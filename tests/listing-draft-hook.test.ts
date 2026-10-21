@@ -293,6 +293,51 @@ describe('UH4 · disabled (harness fixture) or signed out, the hook is inert', (
   });
 });
 
+describe('UH5 · the offer belongs to the account it was read for, and to no listing but its own', () => {
+  it('UH5a: a change of account while mounted — no render under the new account shows the old account’s offer, and Continue there restores nothing', async () => {
+    h.mem.set(KEY, serializeListingDraft(draft(), NOW));
+    const { useListingDraft } = await import('@/src/hooks/useListingDraft');
+    const restored: ListingDraftFields[] = [];
+    const opts: Opts = { userId: 'u-1', enabled: true, fields: empty(), onRestore: (f) => { restored.push(f); } };
+    const seen: { uid: string | null; offer: ListingDraftOffer | null; accept: () => void }[] = [];
+    const host = new HookHost(() => {
+      const r = useListingDraft(opts) as Ret;
+      seen.push({ uid: opts.userId, offer: r.offer, accept: r.accept });
+      return null;
+    }, new Map());
+    host.mount();
+    await settle();
+    host.flush();
+    expect(seen.at(-1)!.offer?.eventName).toBe('Weekend pool party');   // u-1's own draft is offered to u-1
+
+    h.authListener!('SIGNED_IN', { user: { id: 'u-2' } });
+    opts.userId = 'u-2';
+    seen.length = 0;
+    host.flush();
+    await settle();
+    host.flush();
+    const underU2 = seen.filter((s) => s.uid === 'u-2');
+    expect(underU2.length).toBeGreaterThan(0);
+    expect(underU2.map((s) => s.offer)).toEqual(underU2.map(() => null));
+    underU2[0].accept();                                               // even the very first render's Continue
+    expect(restored).toEqual([]);
+  });
+
+  it('UH5b: a publish while an older draft is still on offer leaves that draft, and its offer, alone', async () => {
+    // The seller ignored the banner, filled in a different listing and published it. The stored draft
+    // is not that listing, and nobody chose Discard: clear() removes only the draft this form wrote.
+    const stored = serializeListingDraft(draft(), NOW);
+    h.mem.set(KEY, stored);
+    const { state, setFields, step, AUTOSAVE_DELAY_MS } = await mountHook();
+    expect(state.ret!.offer).not.toBeNull();
+    await setFields({ ...empty(), eventName: 'A different listing' });
+    state.ret!.clear();
+    await step(AUTOSAVE_DELAY_MS * 2);
+    expect(h.mem.get(KEY)).toBe(stored);
+    expect(state.ret!.offer?.eventName).toBe('Weekend pool party');
+  });
+});
+
 describe('UB · the banner', () => {
   async function renderBanner(offer: Partial<ListingDraftOffer> = {}) {
     const { ContinueListingBanner } = await import('@/src/components/sell/ContinueListingBanner');

@@ -11,6 +11,12 @@
  * PURGE — every sign-out, and any change of account, removes the other accounts' drafts. The store
  * hears of both through its OWN onAuthStateChange subscription (`arm`), so neither the A-gated
  * sign-out path (src/lib/auth/signOut.ts) nor the shared root layout carries a line for it.
+ * A sign-out is the SIGNED_OUT event, which auth-js emits on every real removal of a session
+ * (`_removeSession`). A null session on any other event is not one: auth-js 2.98 hands
+ * INITIAL_SESSION a null session when the stored token has expired and the refresh cannot reach the
+ * server, yet keeps the stored session — an offline launch an hour after the app was killed, the very
+ * interruption a draft exists for. Then nothing is read or written, and nothing is deleted, until an
+ * account is current again; if that account is a different one, the change of account purges.
  *
  * WHY THE LISTENER IS SYNCHRONOUS (Build 17, src/lib/auth/authStateHandler.ts): auth-js runs
  * signOut() inside its lock and awaits whatever every onAuthStateChange callback returns. A callback
@@ -102,13 +108,13 @@ export function createListingDraftStore(
   }
 
   // The onAuthStateChange listener. Synchronous: no await, no auth call, nothing returned.
-  function handleAuthChange(_event: AuthChangeEvent, session: Session | null): void {
+  function handleAuthChange(event: AuthChangeEvent, session: Session | null): void {
     const uid = session?.user?.id ?? null;
     const previous = currentUid;
     currentUid = uid;
-    if (uid === null) {
+    if (event === 'SIGNED_OUT') {
       void serial(() => purgeAllExcept(null), undefined);
-    } else if (previous !== uid) {
+    } else if (uid !== null && previous !== uid) {
       void serial(() => purgeAllExcept(uid), undefined);
     }
   }
@@ -125,7 +131,9 @@ export function createListingDraftStore(
           await storage.removeItem(key);
           return null;
         }
-        return draft;
+        // Checked again at the end, inside the queue: a sign-out or a change of account that landed
+        // while this read waited (or ran) means the draft is no longer the signed-in account's to see.
+        return isCurrent(uid) ? draft : null;
       }, null);
     },
 

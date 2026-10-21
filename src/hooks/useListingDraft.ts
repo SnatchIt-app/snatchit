@@ -4,7 +4,12 @@
  * On mount (signed in, enabled) it reads the account's draft. A draft becomes an OFFER — the
  * Sell tab shows ContinueListingBanner — and while the offer is undecided autosave waits, so
  * nothing the seller has not yet seen is overwritten. Continue hands the stored fields to
- * `onRestore`; Discard removes the draft; `clear()` removes it after a publish the server confirmed.
+ * `onRestore`; Discard removes the draft; `clear()` removes it after a publish the server confirmed —
+ * but only the draft this form has been writing: an older one still on offer is a different listing
+ * that nobody chose to discard, so it stays, with its banner.
+ *
+ * The offer and the phase belong to the account they were read for. Under any other account they
+ * read as nothing, so a change of account never shows, restores or autosaves over the last one's.
  * Otherwise every change is saved after AUTOSAVE_DELAY_MS of quiet, and at once when the app leaves
  * the foreground (the kill that a draft exists for). Unmounting — a sign-out unmounts the tabs —
  * cancels a pending write rather than flushing it; the store would refuse it anyway.
@@ -106,7 +111,7 @@ export interface UseListingDraftReturn {
   offer: ListingDraftOffer | null;
   accept: () => void;
   discard: () => void;
-  /** Remove the draft — only after the server confirmed the publish. */
+  /** Remove the draft this form wrote — only after the server confirmed the publish. An undecided offer stays. */
   clear: () => void;
 }
 
@@ -114,28 +119,27 @@ type Phase = 'off' | 'loading' | 'offer' | 'editing';
 
 export function useListingDraft({ userId, enabled, fields, onRestore }: UseListingDraftOptions): UseListingDraftReturn {
   const uid = enabled && userId ? userId : null;
-  const [offer, setOffer] = useState<ListingDraftOffer | null>(null);
-  const [phase, setPhase] = useState<Phase>('off');
+  const [held, setHeld] = useState<{ uid: string; phase: Phase; offer: ListingDraftOffer | null } | null>(null);
+  const mine = held !== null && held.uid === uid ? held : null;
+  const phase: Phase = mine ? mine.phase : 'off';
+  const offer = mine ? mine.offer : null;
   const [saver] = useState(() => createDraftAutosaver((u, f) => listingDraftStore.save(u, f)));
   const live = useRef(0);
 
   // Read this account's draft. A change of account (or unmount) drops anything pending for the last.
   useEffect(() => {
     if (!uid) {
-      setOffer(null);
-      setPhase('off');
+      setHeld(null);
       return;
     }
     armListingDraftPurge();
     const run = ++live.current;
-    setOffer(null);
-    setPhase('loading');
+    setHeld({ uid, phase: 'loading', offer: null });
     void (async () => {
       const draft = await listingDraftStore.load(uid);
       const next = draft ? await prepareListingDraftOffer(draft, probeLocalImage) : null;
       if (run !== live.current) return;
-      setOffer(next);
-      setPhase(next ? 'offer' : 'editing');
+      setHeld({ uid, phase: next ? 'offer' : 'editing', offer: next });
     })();
     return () => {
       live.current += 1;
@@ -159,26 +163,27 @@ export function useListingDraft({ userId, enabled, fields, onRestore }: UseListi
   }, [uid, saver]);
 
   const accept = useCallback(() => {
-    if (!offer) return;
+    if (!uid || !offer) return;
     const restored = offer.fields;
-    setOffer(null);
-    setPhase('editing');
+    setHeld({ uid, phase: 'editing', offer: null });
     onRestore(restored);
-  }, [offer, onRestore]);
+  }, [uid, offer, onRestore]);
 
   const discard = useCallback(() => {
     if (!uid) return;
     saver.forget();
-    setOffer(null);
-    setPhase('editing');
+    setHeld({ uid, phase: 'editing', offer: null });
     void listingDraftStore.clear(uid);
   }, [uid, saver]);
 
   const clear = useCallback(() => {
     if (!uid) return;
     saver.forget();
+    // Only once the seller is editing is the stored draft this form's own. While an older draft is
+    // on offer (or still being read), it is a different listing, and only Discard may remove it.
+    if (phase !== 'editing') return;
     void listingDraftStore.clear(uid);
-  }, [uid, saver]);
+  }, [uid, phase, saver]);
 
   return { offer, accept, discard, clear };
 }

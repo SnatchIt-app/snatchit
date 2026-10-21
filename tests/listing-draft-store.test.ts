@@ -189,10 +189,52 @@ describe('DS3 · the auth listener is synchronous (Build 17)', () => {
     expect(ops).toEqual([]);
   });
 
-  it('DS3e: a launch with nobody signed in clears any draft left behind', async () => {
+  it('DS3e: no session WITHOUT a sign-out (an offline launch whose token expired) deletes nothing and reads or writes nothing', async () => {
+    // auth-js 2.98 hands INITIAL_SESSION a null session when the stored token has expired and the
+    // refresh cannot reach the server, yet it keeps the stored session: the seller is still signed
+    // in, and the next refresh brings them back (DS6c drives the real client through exactly this).
+    // Only SIGNED_OUT — which auth-js emits on every real removal of a session — ends an account here.
     const { mem, storage } = memStorage({ [KEY_A]: serializeListingDraft(fields(), NOW) });
     const store = createListingDraftStore(storage, { now: () => NOW });
     store.handleAuthChange('INITIAL_SESSION', null);
+    await store.idle();
+    expect(mem.has(KEY_A)).toBe(true);
+    expect(await store.load('user-a')).toBeNull();                              // nobody is current: nothing is read
+    expect(await store.save('user-a', fields({ eventName: 'late' }))).toBe(false); // ...or written
+    store.handleAuthChange('TOKEN_REFRESHED', session('user-a'));
+    expect((await store.load('user-a'))?.fields.eventName).toBe('Weekend pool party');
+  });
+
+  it('DS3f: a draft left behind while nobody is signed in goes the moment a different account signs in', async () => {
+    const { mem, storage } = memStorage({ [KEY_A]: serializeListingDraft(fields(), NOW) });
+    const store = createListingDraftStore(storage, { now: () => NOW });
+    store.handleAuthChange('INITIAL_SESSION', null);
+    store.handleAuthChange('SIGNED_IN', session('user-b'));
+    await store.idle();
+    expect(mem.size).toBe(0);
+    expect(await store.load('user-a')).toBeNull();
+  });
+});
+
+describe('DS9 · a read already queued when the account changes returns nothing', () => {
+  // The account is checked again INSIDE the queue: a read accepted for A, still waiting its turn when
+  // B signs in (or A signs out), must not hand A's draft to anyone afterwards.
+  it('DS9a: a change of account lands while the read is queued', async () => {
+    const { storage } = memStorage({ [KEY_A]: serializeListingDraft(fields(), NOW) });
+    const store = createListingDraftStore(storage, { now: () => NOW });
+    store.handleAuthChange('SIGNED_IN', session('user-a'));
+    const reading = store.load('user-a');
+    store.handleAuthChange('SIGNED_IN', session('user-b'));
+    expect(await reading).toBeNull();
+  });
+
+  it('DS9b: a sign-out lands while the read is queued', async () => {
+    const { mem, storage } = memStorage({ [KEY_A]: serializeListingDraft(fields(), NOW) });
+    const store = createListingDraftStore(storage, { now: () => NOW });
+    store.handleAuthChange('SIGNED_IN', session('user-a'));
+    const reading = store.load('user-a');
+    store.handleAuthChange('SIGNED_OUT', null);
+    expect(await reading).toBeNull();
     await store.idle();
     expect(mem.size).toBe(0);
   });
@@ -281,9 +323,10 @@ describe('DS6 · against the real auth client', () => {
     };
   }
 
-  function makeClient() {
-    const authMem = new Map<string, string>();
+  function makeClient(opts: { authMem?: Map<string, string>; online?: () => boolean } = {}) {
+    const authMem = opts.authMem ?? new Map<string, string>();
     const fetchImpl: typeof fetch = async (input, init) => {
+      if (opts.online && !opts.online()) throw new TypeError('Network request failed');
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
       if (url.includes('/auth/v1/token')) {
@@ -337,5 +380,47 @@ describe('DS6 · against the real auth client', () => {
     expect(await store.load('user-a')).toBeNull();
     expect(mem.size).toBe(0);
     expect(await race(client.from('listings').select('id'))).toBe('resolved');
+  });
+
+  it('DS6c: an offline launch with an expired token is not a sign-out — the draft survives and comes back once the token refreshes', async () => {
+    // The interruption a draft exists for: the app was killed, and is opened again more than an hour
+    // later where the signal is poor. The tabs layout (the launch route) has armed the purge before
+    // auth-js reports the launch session, so the store hears INITIAL_SESSION with no session.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    vi.setSystemTime(new Date(2026, 9, 21, 12, 0, 0));
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      let online = false;
+      const authMem = new Map<string, string>();
+      authMem.set('test-auth', JSON.stringify({ ...fakeSession('user-a'), expires_at: Math.floor(Date.now() / 1000) - 60 }));
+      const client = makeClient({ authMem, online: () => online });
+      const { mem, storage } = memStorage({ [KEY_A]: serializeListingDraft(fields(), NOW) });
+      const store = createListingDraftStore(storage, { now: () => NOW });
+      const events: [string, string | null][] = [];
+      client.auth.onAuthStateChange((e, s) => { events.push([e, s?.user?.id ?? null]); });
+      store.arm(client.auth);
+      await vi.advanceTimersByTimeAsync(40_000);           // auth-js retries the refresh for up to 30 s
+      await store.idle();
+
+      expect(events).toContainEqual(['INITIAL_SESSION', null]);   // auth-js reports no session...
+      expect(events.map(([e]) => e)).not.toContain('SIGNED_OUT');
+      expect(authMem.has('test-auth')).toBe(true);                 // ...but keeps it: still signed in
+      expect(mem.has(KEY_A)).toBe(true);                           // so the draft is not purged
+      expect(await store.load('user-a')).toBeNull();               // though nothing is read meanwhile
+
+      online = true;                                              // the signal comes back
+      await client.auth.refreshSession();
+      await store.idle();
+      expect(events.map(([e]) => e)).toContain('TOKEN_REFRESHED');
+      expect((await store.load('user-a'))?.fields.eventName).toBe('Weekend pool party');
+
+      // and a real sign-out afterwards still purges it
+      expect(await race(client.auth.signOut())).toBe('resolved');
+      await store.idle();
+      expect(mem.has(KEY_A)).toBe(false);
+    } finally {
+      quiet.mockRestore();
+      vi.useRealTimers();
+    }
   });
 });
