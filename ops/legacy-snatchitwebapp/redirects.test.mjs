@@ -337,7 +337,7 @@ function minimalSourceToRegex(source) {
       src += '(?:/([^/]+?))';
       segments.push(m[1]);
     } else if (/^[A-Za-z0-9_~-]+(?:\.[A-Za-z0-9_~-]+)*$/.test(p)) {
-      src += `/${p.replace(/\./g, '\\.')}`;
+      src += `/${escapeRe(p)}`;
     } else {
       throw new Error(`minimal matcher: unsupported segment "${p}" in ${source}`);
     }
