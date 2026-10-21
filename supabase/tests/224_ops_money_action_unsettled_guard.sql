@@ -29,7 +29,9 @@
 --       message stamps #1's requested_at, a day old), #2 stays awaiting with its approval pending, the
 --       transfer is NOT released; a deny is never blocked; order_detail.unsettled_money_actions lists the
 --       in-flight refund next to the awaiting payout.
---   T9  non-money action types are unchanged: no lock, no guard, same result shape, replays.
+--   T9  non-money action types are unchanged: no lock, no guard, same result shape, replays. T9.6's listing_relist
+--       sends the listing's own updated_at as expected (158, 20261021110000, refuses a relist without it), so T9.6
+--       asserts the same on 157 alone and on 157 + 158.
 --   T10 ops.order_detail.unsettled_money_actions is uncapped: a blocker 56 deep (55 newer
 --       terminal actions on the order's listing) is listed with its approval; 'actions' is still
 --       the production 50-row list, byte for byte; a refusal's message stamps the blocker's
@@ -41,6 +43,7 @@
 --       with different bodies than the repo chain (126 refund metrics): each must carry its
 --       production md5 or its chain md5 (replay/fp_chain/functions.json), nothing else.
 --       refund_facts is the one ops function production lacks (chain only) and the only exclusion.
+--       action_dispatch: production's md5 or 158's (158 is stacked on 157 and replaces only its listing_relist branch).
 --       The three redefined bodies are live; the index definition is exact. T12.4 pins approve_action's LOCK
 --       ORDER statically (no single-session test can observe it): in its live definition, comments stripped, the
 --       first pg_advisory_xact_lock comes before the first FOR UPDATE (an approve_action that locks the row first
@@ -510,7 +513,21 @@ SELECT tap._s224('t9e', tap._ex224(tap.other_user(), 'k224-t9-case-a01', 'case_c
 SELECT is((tap._g224('t9e') ->> 'status', tap._g224('t9e') ->> 'action_id'), ('idempotent_replay'::text, tap._g224('t9a') ->> 'action_id'),
   'T9.4: a reused key on a non-money type is still idempotent_replay of the original');
 SELECT is(tap._advisory224(), (tap._g224('adv0') ->> 'n')::int, 'T9.5: non-money actions take no advisory lock');
-SELECT tap._s224('t9f', tap._ex224(tap.admin_user(), 'k224-t9-relist-a01', 'listing_relist', 'listing', tap.listing_c(), '{}'::jsonb));
+-- 158 (20261021110000) requires expected.updated_at for listing_relist (invalid_input without it). This call sends the
+-- listing's own updated_at, read as postgres before the login, so T9.6 asserts the same thing with or without 158:
+-- no approval, no money guard (listing_c is a real seller's, so both versions answer rejected / precondition).
+CREATE FUNCTION tap._rl224(p_key text, p_subject uuid) RETURNS jsonb
+LANGUAGE plpgsql AS $f$
+declare
+  e jsonb := jsonb_build_object('updated_at', (SELECT l.updated_at FROM public.listings l WHERE l.id = p_subject));
+  v jsonb;
+begin
+  perform tap.login(tap.admin_user()); perform tap._aal2();
+  v := ops.execute_action(p_key, 'listing_relist', 'listing', p_subject, '{}'::jsonb, 'pgTAP 224 listing_relist', e, NULL);
+  perform tap.logout();
+  return v;
+end $f$;
+SELECT tap._s224('t9f', tap._rl224('k224-t9-relist-a01', tap.listing_c()));
 SELECT is((SELECT (state, approval_id IS NULL) FROM ops.action WHERE id = tap._id224('t9f')), (tap._g224('t9f') ->> 'status', true),
   'T9.6: listing_relist runs without approval or guard (state = the returned status)');
 SELECT is(tap._g224('set_on') #>> '{result,after}', 'true', 'T9.7: setting_set returned before/after as before 157');
@@ -606,7 +623,7 @@ SELECT is((
   WITH prod(fn, args, md5) AS (VALUES
     ('action_allowed_roles', 'p_action_type text', '972443bf571dc94ef1e1400602b28315'),
     ('action_detail', 'p_action_id uuid', 'd1dcd69386f8f8dce5b03f37c9c3eeb6'),
-    ('action_dispatch', 'p_action ops.action', 'bfb8b9dcfaace5ff04009f96b6de7bef'),
+    ('action_dispatch', 'p_action ops.action', 'bfb8b9dcfaace5ff04009f96b6de7bef'),   -- or 158's md5 (chain_alt below)
     ('action_hash', 'p_action_type text, p_subject_kind text, p_subject_id uuid, p_subject_ref text, p_params jsonb', 'ad280c19761b428d644281f6e336a7c5'),
     ('action_precheck', 'p_action ops.action', 'fbc3d08eae4de831ab3f085e170e8f10'),
     ('action_requires_approval', 'p_action_type text', '44ab739b9db2c77ef8709fed6c1d5082'),
@@ -702,7 +719,11 @@ SELECT is((
   ), chain_alt(fn, args, md5) AS (VALUES
     ('build_daily_summary', 'p_date date', '0b5eefaea2b976c46cbd906e1703695f'),
     ('money_overview', 'p_from date, p_to date', '895b0fa065d7fbdae1cd192d92219b0e'),
-    ('refresh_metrics', '', '97be33e2546438353533ec75d0eaa52f')
+    ('refresh_metrics', '', '97be33e2546438353533ec75d0eaa52f'),
+    -- 158 (20261021110000, stacked on 157) replaces action_dispatch's listing_relist branch. This suite runs on 157
+    -- alone (production's dispatch, bfb8b9dc above: the state between the two applies and after a 158 rollback) and
+    -- on 157 + 158 (this md5, pg_get_functiondef of 158's body); any third value still fails.
+    ('action_dispatch', 'p_action ops.action', '7f507fc880c02617c53d1e4f679c608c')
   ), live AS (
     SELECT p.proname::text AS fn, pg_get_function_identity_arguments(p.oid) AS args, md5(pg_get_functiondef(p.oid)) AS md5
       FROM pg_proc p WHERE p.pronamespace = 'ops'::regnamespace AND p.prokind IN ('f','p'))
@@ -718,7 +739,7 @@ SELECT is((
                       'money_order_id','money_unsettled_blocker','expire_stale_money_approvals',
                       'refund_facts')) d),
   '{}'::text[],
-  'T12.1: every other ops function keeps its production md5 (prod_functions.json 2026-10-21; the 3 metric bodies: production or chain md5)');
+  'T12.1: every other ops function keeps its production md5 (prod_functions.json 2026-10-21; the 3 metric bodies: production or chain md5; action_dispatch: production or 158''s md5)');
 SELECT is((SELECT count(*)::int FROM (VALUES
              ('ops.execute_action(text,text,text,uuid,jsonb,text,jsonb,text)', 'e59c158453adabc662431cac9dca1040'),
              ('ops.approve_action(uuid,text,text)', '5de6235288b38792c31dca3e6b3f89af'),
