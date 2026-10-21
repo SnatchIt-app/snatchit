@@ -34,19 +34,57 @@
 --
 -- HARNESS. seed_core fixtures plus private transfers built here (one listing + payment per transfer:
 -- transfers_listing_id_key / transfers_payment_id_key). The production replay restores 8 app schemas, not storage,
--- so storage.buckets is empty there (a157 03_regress.out:4); the two buckets are re-created ON CONFLICT DO NOTHING
--- (proof-docs private, auction-media public, as in the chain). Runs as postgres (PGUSER=postgres), like 207.
+-- so storage.buckets is empty there (a157 03_regress.out:4); a missing bucket is created (proof-docs private,
+-- auction-media public, as in the chain). On the chain and in CI both exist and the INSERT never executes (it sits
+-- behind IF NOT EXISTS, so no storage.buckets write privilege is needed there). Objects are inserted like 207's
+-- tap._obj207. Runs as postgres (PGUSER=postgres), like 207.
 -- Everything dies with the ROLLBACK.
 --
--- NEGATIVE CONTROL: see the header of the migration and private-evidence/A-sprint-20261021/a2/p2/ (RED without 171,
--- GREEN with it, mutants).
+-- NEGATIVE CONTROL (measured; private-evidence/A-sprint-20261021/a2/p2/). Without 171, on the production replay AND on
+-- the chain: 48/85, the 37 failures being exactly the hint and path assertions (H2 H3 H5-H10 H12 H14 H15 H17 H18
+-- H22-H28 V1-V11 V13 A1-A5; 02_red.out, 04_chain_red.out). With 171: 85/85 on both (03_green.out, 04_chain_green.out).
+-- Every message (H1 H4 H13 H16 H21 ...), every valid caller (C1-C17), U1-U9 and S1-S7 pass WITH AND WITHOUT 171.
+-- MUTANTS (05_mutants.out), one deliberate defect each on a fresh replay clone; all 22 killed:
+--   MUTANT                                ASSERTIONS THAT DIE
+--   m01_snt1_no_hint                     H2 H3
+--   m02_snt2_no_detail                   H5 H6 H7 H8 H9 H10 H12
+--   m03_snt2_errcode                     H4 H6 H7 H8 H9 H10
+--   m04_snt1_msg_hyphen                  H1 H3
+--   m05_prf1_no_hint                     H17 H18
+--   m06_prf1_hint_on_dispute             H19
+--   m07_prf2_no_detail                   H14 H15
+--   m08_cnf1_no_hint                     H22 H23 H24 H25 H26 H27 H28
+--   m09_cnf1_wrong_detail                H22 H23 H24 H25 H26 H27 H28
+--   m10_mark_no_owner                    V1 V2 V3 V4 V5 V6 V7 V8 V9 V10 V11 V13
+--   m11_mark_no_prefix                   V3 V4 V5 V6 V7 V8 V9 V10
+--   m12_mark_no_object                   V4 V5 V6 V7 V8 V9 V10
+--   m13_mark_any_bucket                  V5 V6 V7 V8 V9 V10
+--   m14_mark_empty_as_null               V6 V7 V8 V9 V10
+--   m15_mark_owner_contains              V8
+--   m16_mark_owner_auth_uid              V13
+--   m17_mark_validate_before_sent_arm    H3 H7 V14
+--   m18_mark_validate_before_status      H7
+--   m19_mark_owner_no_hint               V2 V13
+--   m20_attach_prefix_no_hint            A2
+--   m21_attach_required_no_hint          A4 A5
+--   m22_mark_skip_service_role           V13
+-- V3-V10 share transfer 1 on purpose (V9: refused calls write nothing), so a mutant that lets one bad path through
+-- also fails the probes after it; the FIRST failing V names the branch. m17/m18 (validation moved earlier) are the
+-- order mutants; m22/m16 are the service-role mutants.
 BEGIN;
 SELECT plan(85);
 SELECT tap.seed_core();
 
-INSERT INTO storage.buckets (id, name, public)
-VALUES ('proof-docs', 'proof-docs', false), ('auction-media', 'auction-media', true)
-ON CONFLICT (id) DO NOTHING;
+DO $b241$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM storage.buckets WHERE id = 'proof-docs') THEN
+    INSERT INTO storage.buckets (id, name, public) VALUES ('proof-docs', 'proof-docs', false);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM storage.buckets WHERE id = 'auction-media') THEN
+    INSERT INTO storage.buckets (id, name, public) VALUES ('auction-media', 'auction-media', true);
+  END IF;
+END
+$b241$;
 
 -- ── helpers ─────────────────────────────────────────────────────────────────
 -- run a statement as the CURRENT role; report the refusal's four client-visible fields, or the jsonb answer
