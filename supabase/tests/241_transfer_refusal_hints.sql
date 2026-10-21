@@ -21,6 +21,10 @@
 --      seller and their buyer through "proof-docs transfer party read"), a dangling path, or a non-evidence object,
 --      clearing the payout engine's EVIDENCE_MISSING signal (supabase/functions/_shared/payout-policy.ts:70) without
 --      uploading anything. Reproduced first: private-evidence/A-sprint-20261021/a2/p2/01_repro.out.
+--      The rules are attach's EXACTLY: the owner is the RESOLVED caller (auth.uid(); p_user_id only on the service path),
+--      never the client-supplied p_user_id (V19-V21); existence is by EXACT object name, so a truncated path that only
+--      prefixes a real object is dangling (V22-V23); the prefix rule keeps its leading slash, so an own object under
+--      '<uid>/old-transfer-evidence/' is refused (V24-V25), as attach refuses both (A8, A9).
 --      UNCHANGED: a NULL path (the sent-without-evidence flow, and the 2-arg overload); the retry on an already-sent
 --      transfer (answers already_sent and writes nothing, whatever path it carries); refusal ORDER (caller, lookup,
 --      seller, already-sent arm, status, then the path — attach's order: status before path).
@@ -40,39 +44,51 @@
 -- tap._obj207. Runs as postgres (PGUSER=postgres), like 207.
 -- Everything dies with the ROLLBACK.
 --
--- NEGATIVE CONTROL (measured; private-evidence/A-sprint-20261021/a2/p2/). Without 171, on the production replay AND on
--- the chain: 48/85, the 37 failures being exactly the hint and path assertions (H2 H3 H5-H10 H12 H14 H15 H17 H18
--- H22-H28 V1-V11 V13 A1-A5; 02_red.out, 04_chain_red.out). With 171: 85/85 on both (03_green.out, 04_chain_green.out).
--- Every message (H1 H4 H13 H16 H21 ...), every valid caller (C1-C17), U1-U9 and S1-S7 pass WITH AND WITHOUT 171.
--- MUTANTS (05_mutants.out), one deliberate defect each on a fresh replay clone; all 22 killed:
---   MUTANT                                ASSERTIONS THAT DIE
---   m01_snt1_no_hint                     H2 H3
---   m02_snt2_no_detail                   H5 H6 H7 H8 H9 H10 H12
---   m03_snt2_errcode                     H4 H6 H7 H8 H9 H10
---   m04_snt1_msg_hyphen                  H1 H3
---   m05_prf1_no_hint                     H17 H18
---   m06_prf1_hint_on_dispute             H19
---   m07_prf2_no_detail                   H14 H15
---   m08_cnf1_no_hint                     H22 H23 H24 H25 H26 H27 H28
---   m09_cnf1_wrong_detail                H22 H23 H24 H25 H26 H27 H28
---   m10_mark_no_owner                    V1 V2 V3 V4 V5 V6 V7 V8 V9 V10 V11 V13
---   m11_mark_no_prefix                   V3 V4 V5 V6 V7 V8 V9 V10
---   m12_mark_no_object                   V4 V5 V6 V7 V8 V9 V10
---   m13_mark_any_bucket                  V5 V6 V7 V8 V9 V10
---   m14_mark_empty_as_null               V6 V7 V8 V9 V10
---   m15_mark_owner_contains              V8
---   m16_mark_owner_auth_uid              V13
---   m17_mark_validate_before_sent_arm    H3 H7 V14
---   m18_mark_validate_before_status      H7
---   m19_mark_owner_no_hint               V2 V13
---   m20_attach_prefix_no_hint            A2
---   m21_attach_required_no_hint          A4 A5
---   m22_mark_skip_service_role           V13
+-- NEGATIVE CONTROL (measured; private-evidence/A-sprint-20261021/a2/p2/fix_p2f/). Without 171, on the production replay
+-- AND on the chain: 50/96, the 46 failures being exactly the hint and path assertions (H2 H3 H5-H10 H12 H14 H15 H17 H18
+-- H22-H28 V1-V11 V13 V19-V25 A1-A5 A8 A9). With 171: 96/96 on both. Every message (H1 H4 H13 H16 H21 ...), every valid
+-- caller (C1-C17), the two fixture checks V17/V18, U1-U9 and S1-S7 pass WITH AND WITHOUT 171. Without 171, A8/A9 fail
+-- on the missing hint only: production attach already refuses both paths with the same text.
+-- MUTANTS, one deliberate defect each on a fresh replay clone; all 31 killed (m01-m22 implementer, n01-n09 reviewer p2rv;
+-- n01-n04 SURVIVED the 85-assertion version of this suite, fix_p2f/runs/01_repro_head241_*.out, hence V17-V25, A8, A9):
+--   MUTANT                                       ASSERTIONS THAT DIE
+--   m01_snt1_no_hint                            H2 H3
+--   m02_snt2_no_detail                          H5 H6 H7 H8 H9 H10 H12
+--   m03_snt2_errcode                            H4 H6 H7 H8 H9 H10
+--   m04_snt1_msg_hyphen                         H1 H3
+--   m05_prf1_no_hint                            H17 H18
+--   m06_prf1_hint_on_dispute                    H19
+--   m07_prf2_no_detail                          H14 H15
+--   m08_cnf1_no_hint                            H22 H23 H24 H25 H26 H27 H28
+--   m09_cnf1_wrong_detail                       H22 H23 H24 H25 H26 H27 H28
+--   m10_mark_no_owner                           V1 V2 V3 V4 V5 V6 V7 V8 V9 V10 V11 V13 V19 V20 V21
+--   m11_mark_no_prefix                          V3 V4 V5 V6 V7 V8 V9 V10 V24 V25
+--   m12_mark_no_object                          V4 V5 V6 V7 V8 V9 V10 V22 V23
+--   m13_mark_any_bucket                         V5 V6 V7 V8 V9 V10
+--   m14_mark_empty_as_null                      V6 V7 V8 V9 V10
+--   m15_mark_owner_contains                     V8
+--   m16_mark_owner_auth_uid                     V13 V21
+--   m17_mark_validate_before_sent_arm           H3 H7 V14
+--   m18_mark_validate_before_status             H7
+--   m19_mark_owner_no_hint                      V2 V13 V19
+--   m20_attach_prefix_no_hint                   A2 A9
+--   m21_attach_required_no_hint                 A4 A5
+--   m22_mark_skip_service_role                  V13 V21
+--   n01_mark_owner_vs_p_user_id                 V19 V20 V21
+--   n02_mark_validate_only_if_p_user_is_caller  V19 V20 V21
+--   n03_mark_prefix_no_leading_slash            V24 V25
+--   n04_mark_object_prefix_match                V22 V23
+--   n05_cnf_hint_on_not_buyer                   U5
+--   n06_attach_owner_no_hint                    A1
+--   n07_guard_append_only_from_null             C11 C12 C13 A7
+--   n08_mark_null_treated_as_empty              C6 C7 C8 C9
+--   n09_cnf1_detail_caller                      H22 H23 H24 H25 H26 H27 H28
 -- V3-V10 share transfer 1 on purpose (V9: refused calls write nothing), so a mutant that lets one bad path through
--- also fails the probes after it; the FIRST failing V names the branch. m17/m18 (validation moved earlier) are the
--- order mutants; m22/m16 are the service-role mutants.
+-- also fails the probes after it; the FIRST failing V names the branch. V19-V25 use one transfer per probe (21-23), so
+-- each of n01-n04 dies at its own probe. V21 runs after V13, so it also sees a service-path breach (m16/m22).
+-- m17/m18 (validation moved earlier) are the order mutants; m22/m16 are the service-role mutants.
 BEGIN;
-SELECT plan(85);
+SELECT plan(96);
 SELECT tap.seed_core();
 
 DO $b241$
@@ -157,6 +173,10 @@ SELECT tap._obj241('proof-docs', tap._ev241(tap.seller(), '1729000000014.png'), 
 SELECT tap._obj241('proof-docs', tap._ev241(tap.seller(), '1729000000015.jpg'), tap.seller());
 SELECT tap._obj241('proof-docs', tap.seller()::text || '/proofs/1729000000099.jpg', tap.seller());
 SELECT tap._obj241('auction-media', tap._ev241(tap.seller(), '1729000000098.jpg'), tap.seller());
+-- an own object in a folder that merely ENDS in 'transfer-evidence' (reachable: the 'proof-docs owner insert' policy
+-- checks only bucket_id and foldername[1] = auth.uid(); an authenticated seller uploads it through RLS on the replay and
+-- the chain, a2/p2/fix_p2f/runs/06_reachability_*.out)
+SELECT tap._obj241('proof-docs', tap.seller()::text || '/old-transfer-evidence/1729000000002.jpg', tap.seller());
 SELECT tap._mk241(1,  tap.seller(), 'pending',         NULL);   -- refused paths, then the app's valid call
 SELECT tap._mk241(2,  tap.seller(), 'pending',         NULL);   -- 3-arg, NULL path
 SELECT tap._mk241(3,  tap.seller(), 'pending',         NULL);   -- 2-arg
@@ -174,6 +194,9 @@ SELECT tap._mk241(14, tap.seller(), 'seller_sent',     NULL);   -- attach path r
 SELECT tap._mk241(15, tap.seller(), 'pending',         NULL);   -- the web's call
 SELECT tap._mk241(16, tap.seller(), 'pending',         NULL);   -- the app's call (a transfer no refused probe touched)
 SELECT tap._mk241(17, tap.seller(), 'pending',         NULL);   -- the service-role caller's valid call
+SELECT tap._mk241(21, tap.seller(), 'pending',         NULL);   -- p_user_id names another seller (V19-V21)
+SELECT tap._mk241(22, tap.seller(), 'pending',         NULL);   -- truncated own path (V22-V23)
+SELECT tap._mk241(23, tap.seller(), 'pending',         NULL);   -- own object under old-transfer-evidence/ (V24-V25)
 
 -- O's transfer also carries a dispute proof, so the guard's OTHER append-only branch is reachable (H19)
 SELECT set_config('app.bypass_transfer_guard', 'on', true);
@@ -186,6 +209,8 @@ CREATE TEMP TABLE v241 (row_before text, n_before int);
 GRANT ALL ON v241 TO PUBLIC;
 CREATE TEMP TABLE v241b (row_before text);
 GRANT ALL ON v241b TO PUBLIC;
+CREATE TEMP TABLE v241c (k text PRIMARY KEY, row_before text);
+GRANT ALL ON v241c TO PUBLIC;
 
 -- ═════ H. hints, with messages and codes unchanged ═════════════════════════
 SELECT tap.login(tap.seller());
@@ -328,6 +353,37 @@ SELECT tap.login(tap.buyer());
 SELECT is(tap._cm241(tap._e241(format('SELECT public.mark_transfer_sent(%L, auth.uid(), %L)::text', tap._t241(1), tap._ev241(tap.other_user(), '1729000000020.jpg')))),
   'P0001 | Only the seller can mark a transfer as sent.', 'V16: a non-seller is refused as the seller check, before any path check');
 SELECT tap.logout();
+-- the owner is the RESOLVED caller (auth.uid(); p_user_id only on the service path), existence is by EXACT name, and the
+-- prefix rule keeps its leading slash. One pending transfer per probe (21-23), so a mutant that lets one of these through
+-- fails at ITS probe instead of by cascade from an earlier one.
+SELECT is((SELECT count(*) FILTER (WHERE o.name = tap._ev241(tap.seller(), '1729'))::text || ' exact, '
+               || (count(*) FILTER (WHERE pg_catalog.starts_with(o.name, tap._ev241(tap.seller(), '1729'))
+                                      AND o.name <> tap._ev241(tap.seller(), '1729')) > 0)::text || ' longer'
+             FROM storage.objects o WHERE o.bucket_id = 'proof-docs'),
+  '0 exact, true longer', 'V17: fixture: the truncated path has no proof-docs object of its own and is a strict prefix of a real one (V22 is not vacuous)');
+SELECT is((SELECT count(*)::text FROM storage.objects o
+            WHERE o.bucket_id = 'proof-docs' AND o.name = tap.seller()::text || '/old-transfer-evidence/1729000000002.jpg'
+              AND pg_catalog.split_part(o.name, '/', 1) = tap.seller()::text
+              AND o.name LIKE '%transfer-evidence/%' AND o.name NOT LIKE '%/transfer-evidence/%'),
+  '1', 'V18: fixture: the seller''s own real proof-docs object that only the leading slash of the prefix rule tells apart (V24 is not vacuous)');
+INSERT INTO v241c VALUES ('launder', tap._row241(tap._t241(21))), ('trunc', tap._row241(tap._t241(22))), ('oldev', tap._row241(tap._t241(23)));
+SELECT tap.login(tap.seller());
+INSERT INTO r241 VALUES
+  ('v_launder', tap._e241(format('SELECT public.mark_transfer_sent(%L, %L, %L)::text', tap._t241(21), tap.other_user(), tap._ev241(tap.other_user(), '1729000000020.jpg')))),
+  ('v_trunc',   tap._e241(format('SELECT public.mark_transfer_sent(%L, auth.uid(), %L)::text', tap._t241(22), tap._ev241(tap.seller(), '1729')))),
+  ('v_oldev',   tap._e241(format('SELECT public.mark_transfer_sent(%L, auth.uid(), %L)::text', tap._t241(23), tap.seller()::text || '/old-transfer-evidence/1729000000002.jpg')));
+SELECT is(tap._cm241(r) || ' || ' || tap._hd241(r), 'P0001 | precondition_failed: evidence path must be inside the caller''s own folder || PROOF_PATH_INVALID | <none>',
+  'V19: an authenticated seller passing p_user_id = ANOTHER seller with that seller''s real proof is refused (the owner is auth.uid(), never the client-supplied p_user_id)') FROM r241 WHERE k = 'v_launder';
+SELECT is(tap._row241(tap._t241(21)), (SELECT row_before FROM v241c WHERE k = 'launder'), 'V20: ...and wrote nothing (status, path and xmin unchanged)');
+SELECT is((SELECT count(*)::int FROM storage.objects WHERE bucket_id = 'proof-docs' AND name = tap._ev241(tap.other_user(), '1729000000020.jpg')), 0,
+  'V21: ...so the seller still cannot read the other seller''s private proof (the cross-seller read V11 guards, attempted through p_user_id)');
+SELECT is(tap._cm241(r) || ' || ' || tap._hd241(r), 'P0001 | precondition_failed: no such object in proof-docs || PROOF_PATH_INVALID | <none>',
+  'V22: a TRUNCATED own path (a strict prefix of a real proof-docs object, no object of its own) is refused: existence is by exact name') FROM r241 WHERE k = 'v_trunc';
+SELECT is(tap._row241(tap._t241(22)), (SELECT row_before FROM v241c WHERE k = 'trunc'), 'V23: ...and wrote nothing (no dangling path stored)');
+SELECT is(tap._cm241(r) || ' || ' || tap._hd241(r), 'P0001 | precondition_failed: evidence path must be under transfer-evidence/ || PROOF_PATH_INVALID | <none>',
+  'V24: the seller''s own real object under <uid>/old-transfer-evidence/ is refused, as attach refuses it (A9): the prefix rule keeps its leading slash') FROM r241 WHERE k = 'v_oldev';
+SELECT is(tap._row241(tap._t241(23)), (SELECT row_before FROM v241c WHERE k = 'oldev'), 'V25: ...and wrote nothing');
+SELECT tap.logout();
 
 -- ═════ C. every caller with valid input still works ═══════════════════════
 SELECT tap.login(tap.seller());
@@ -381,7 +437,9 @@ INSERT INTO r241 VALUES
   ('a_prefix',  tap._e241(format('SELECT public.attach_transfer_evidence(%L, %L)::text', tap._t241(14), tap.seller()::text || '/proofs/1729000000099.jpg'))),
   ('a_dangle',  tap._e241(format('SELECT public.attach_transfer_evidence(%L, %L)::text', tap._t241(14), tap._ev241(tap.seller(), 'does-not-exist.jpg')))),
   ('a_empty',   tap._e241(format('SELECT public.attach_transfer_evidence(%L, %L)::text', tap._t241(14), ''))),
-  ('a_null',    tap._e241(format('SELECT public.attach_transfer_evidence(%L, NULL)::text', tap._t241(14))));
+  ('a_null',    tap._e241(format('SELECT public.attach_transfer_evidence(%L, NULL)::text', tap._t241(14)))),
+  ('a_trunc',   tap._e241(format('SELECT public.attach_transfer_evidence(%L, %L)::text', tap._t241(14), tap._ev241(tap.seller(), '1729')))),
+  ('a_oldev',   tap._e241(format('SELECT public.attach_transfer_evidence(%L, %L)::text', tap._t241(14), tap.seller()::text || '/old-transfer-evidence/1729000000002.jpg')));
 SELECT is(tap._cm241(r) || ' || ' || tap._hd241(r), 'P0001 | precondition_failed: evidence path must be inside the caller''s own folder || PROOF_PATH_INVALID | <none>',
   'A1: attach, foreign folder: unchanged text/code, HINT PROOF_PATH_INVALID') FROM r241 WHERE k = 'a_foreign';
 SELECT is(tap._cm241(r) || ' || ' || tap._hd241(r), 'P0001 | precondition_failed: evidence path must be under transfer-evidence/ || PROOF_PATH_INVALID | <none>',
@@ -395,6 +453,10 @@ SELECT is(tap._cm241(r) || ' || ' || tap._hd241(r), 'P0001 | precondition_failed
 SELECT is(tap._st241(tap._t241(14)), 'seller_sent | <null>', 'A6: attach''s refusals wrote nothing');
 SELECT is(tap._out241(tap._e241(format('SELECT public.attach_transfer_evidence(%L, %L)::text', tap._t241(14), tap._ev241(tap.seller(), '1729000000014.png')))),
   'attached', 'A7: then a valid attach on the same transfer succeeds');
+SELECT is(tap._cm241(r) || ' || ' || tap._hd241(r), 'P0001 | precondition_failed: no such object in proof-docs || PROOF_PATH_INVALID | <none>',
+  'A8: attach, truncated path (prefix of a real object): refused like mark-sent refuses it (V22)') FROM r241 WHERE k = 'a_trunc';
+SELECT is(tap._cm241(r) || ' || ' || tap._hd241(r), 'P0001 | precondition_failed: evidence path must be under transfer-evidence/ || PROOF_PATH_INVALID | <none>',
+  'A9: attach, own object under old-transfer-evidence/: refused like mark-sent refuses it (V24)') FROM r241 WHERE k = 'a_oldev';
 SELECT tap.logout();
 
 -- ═════ U. the other refusals in the redefined bodies are byte-identical, no hint ═
