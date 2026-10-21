@@ -28,14 +28,25 @@
 //   open/being reconciled, 'pending_review' when an operator must act,
 //   already_released only when a succeeded attempt exists.
 //   Enforced mechanically since 2026-10-21 (CFT-703 catalogue CRE-404 /
-//   CRE-500): once confirm_transfer_received has succeeded — or reported the
-//   row already buyer_confirmed / auto_released — `confirmationRecorded` is
-//   set, a failed transfer re-read answers 200 processing, and ANY throw
-//   after that point (e.g. a Stripe pre-flight fetch inside
-//   _shared/payouts.ts createSellerPayout, which does not catch it) answers
-//   200 processing too. Nothing is retried here: a claimed attempt stays open
-//   under its lease and the payout sweep (enforce-transfer-expiry Phase 2b)
-//   remains the authority that reconciles and pays it.
+//   CRE-500): once the confirmation is KNOWN to be recorded (below)
+//   `confirmationRecorded` is set; from then on a failed transfer re-read
+//   answers 200 processing, and ANY throw (e.g. a Stripe pre-flight fetch
+//   inside _shared/payouts.ts createSellerPayout, which does not catch it)
+//   answers 200 processing too. Nothing is retried here: a claimed attempt
+//   stays open under its lease and the payout sweep (enforce-transfer-expiry
+//   Phase 2b) remains the authority that reconciles and pays it.
+//
+// WHEN IS THE CONFIRMATION KNOWN? (2026-10-21 review: no false 200)
+//   • confirm_transfer_received succeeded — it committed buyer_confirmed.
+//   • It refused with migration 171's HINT TRANSFER_NOT_CONFIRMABLE and
+//     DETAIL buyer_confirmed / auto_released — PROOF: the RPC read that
+//     status FOR UPDATE and raised before writing (the retry case).
+//   • It refused WITHOUT that HINT (production before 171) but its message
+//     names buyer_confirmed / auto_released — only a CLAIM: another error
+//     can carry those words after the RPC rolled back (e.g. a trigger error
+//     naming buyer_confirmed_at). The §5 re-read must show the status before
+//     anything answers 200; if that re-read fails the answer is 503
+//     SERVICE_UNAVAILABLE (the retry re-runs both), never 200.
 //
 // ERROR BODIES: { error, code }. `error` text is unchanged for existing
 // clients; `code` is the stable key (catalogue §7 P1).
@@ -46,8 +57,7 @@
 //   • Edge-originated: AUTH_REQUIRED 401 · RATE_LIMITED 429 ·
 //     SERVICE_UNAVAILABLE 503 · TRANSFER_ID_REQUIRED 400 ·
 //     ORDER_UNDER_REVIEW 409 · TRANSFER_STATE_CHANGED 400 ·
-//     NOT_TRANSFER_BUYER 403 · INTERNAL 500 (only before the confirmation);
-//     account_deletion_pending 403 keeps its pre-existing lowercase code.
+//     NOT_TRANSFER_BUYER 403 · INTERNAL 500 (only before the confirmation).
 //
 // NON-200 ANSWERS AFTER THE RPC, kept deliberately (2026-10-21 review):
 //   • 403 NOT_TRANSFER_BUYER — unreachable: the RPC checks the buyer before
@@ -57,15 +67,23 @@
 //     freezes the row between the RPC and the re-read / claim (race only).
 //   • 400 TRANSFER_STATE_CHANGED — race only: the status left
 //     buyer_confirmed / auto_released between the RPC and the re-read.
-//   • 403 account_deletion_pending (F-5) — runs AFTER the RPC has already
-//     confirmed, so it refuses the payout of this call, not the confirmation
-//     it is meant to stop. Open owner decision (move it before the RPC, or
-//     answer 200); not changed here.
+//
+// F-5 DELETION-PENDING (owner ruling, A 2026-10-21): the guard can only run
+// after the confirmation is recorded, so it is NOT an error. It answers 200
+// { success:true, payout_status:'processing', notice:{ code:
+// 'ACCOUNT_DELETION_PENDING', message } } — the former 403 text, now an
+// advisory clients may surface or ignore — and withholds only this call's
+// payout attempt; the sweep pays the buyer_confirmed row exactly as after
+// the old 403. It sits just before the payout attempt, the only thing it
+// still withholds: a row already paid answers already_released first, and a
+// failed re-read answers 200 processing without probing. (Refusing the
+// acquisition itself, the frozen F-5 intent, would need the guard BEFORE the
+// RPC — an owner decision, not made here.)
 // =============================================================================
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
-import { captureException } from '../_shared/sentry.ts';
+import { captureException, captureMessage } from '../_shared/sentry.ts';
 import { executePayoutAttempt } from '../_shared/payouts.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -140,6 +158,28 @@ function hintCode(err: { hint?: unknown } | null | undefined): string | null {
   const hint = err?.hint;
   return typeof hint === 'string' && HINT_CODE_RE.test(hint) ? hint : null;
 }
+
+// Is a confirm_transfer_received refusal the "already confirmed" one? (header,
+// WHEN IS THE CONFIRMATION KNOWN?) 'proof' — 171's HINT with DETAIL = the
+// status the RPC read FOR UPDATE. 'claim' — no such HINT; the message merely
+// names a confirmed status, so the §5 re-read must show it. null — a real
+// refusal. With the HINT present its DETAIL decides; the message is not read.
+const ALREADY_CONFIRMED_STATUSES = ['buyer_confirmed', 'auto_released'];
+function alreadyConfirmedEvidence(
+  err: { message?: unknown; hint?: unknown; details?: unknown },
+): 'proof' | 'claim' | null {
+  if (err.hint === 'TRANSFER_NOT_CONFIRMABLE') {
+    return typeof err.details === 'string' && ALREADY_CONFIRMED_STATUSES.includes(err.details) ? 'proof' : null;
+  }
+  const message = typeof err.message === 'string' ? err.message : '';
+  return ALREADY_CONFIRMED_STATUSES.some((s) => message.includes(s)) ? 'claim' : null;
+}
+
+// F-5's former 403 text, byte-identical, now carried as an advisory notice.
+const DELETION_PENDING_NOTICE = {
+  code: 'ACCOUNT_DELETION_PENDING',
+  message: 'Your account deletion request is pending. Withdraw it in Settings to accept new transfers.',
+};
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
 // Manual JWT verification. Requires "Verify JWT" to be DISABLED in the
@@ -247,8 +287,9 @@ serve(async (req: Request) => {
     return new Response('ok', { headers: { ...getResponseHeaders(req) } });
   }
 
-  // Set once confirm_transfer_received has succeeded (or found the row
-  // already confirmed). From then on no answer may be an error (header).
+  // Set once the confirmation is KNOWN to be recorded (header: the RPC
+  // succeeded or proved it; a message-only claim after the re-read shows it).
+  // From then on no answer may be an error (header).
   let confirmationRecorded = false;
   let transferIdForLog: unknown = null;
 
@@ -286,7 +327,9 @@ serve(async (req: Request) => {
     // Possible outcomes:
     //   - Success: status transitions seller_sent → buyer_confirmed
     //   - Already confirmed: RPC raises "cannot be confirmed from current
-    //     status: buyer_confirmed" — we catch this and proceed to payout
+    //     status: buyer_confirmed" (171 adds HINT TRANSFER_NOT_CONFIRMABLE,
+    //     DETAIL = status) — we proceed to payout; a message-only claim is
+    //     verified by the §5 re-read first (header)
     //   - Not the buyer: RPC raises "Only the buyer can confirm" — we
     //     propagate this error to the client
     //   - Wrong state (pending): RPC raises error — we propagate
@@ -295,13 +338,13 @@ serve(async (req: Request) => {
       p_user_id:     buyerId,
     });
 
+    let confirmedBy: 'rpc' | 'proof' | 'claim' = 'rpc';
     if (rpcErr) {
       // If already buyer_confirmed — or the cron already flipped it to
       // auto_released — that's fine: the buyer's goal is met, proceed to
       // the payout idempotency check (which returns already_released when
-      // the money moved). The RPC error message names the current status.
-      const alreadyConfirmed = rpcErr.message?.includes('buyer_confirmed') ||
-        rpcErr.message?.includes('auto_released');
+      // the money moved).
+      const alreadyConfirmed = alreadyConfirmedEvidence(rpcErr);
 
       if (!alreadyConfirmed) {
         // Real error — wrong user, wrong state, not found, etc.
@@ -315,14 +358,17 @@ serve(async (req: Request) => {
         return errorResponse(req, 400, rpcErr.message, code);
       }
 
+      confirmedBy = alreadyConfirmed;
       console.log('confirm-and-release: transfer already confirmed, proceeding to payout check', {
         transfer_id,
+        evidence: alreadyConfirmed,
       });
     }
 
-    // The buyer's confirmation is recorded (or already was). Nothing below
-    // may answer with an error status for a FAILURE (see header).
-    confirmationRecorded = true;
+    // The RPC committed the confirmation, or proved the row already
+    // confirmed: nothing below may answer with an error status for a FAILURE
+    // (see header). A message-only claim waits for the §5 re-read.
+    if (confirmedBy !== 'claim') confirmationRecorded = true;
 
     // ── 5. Transfer state (buyer check, dispute freeze, status gate) ─────
     // The claim RPC below re-checks all of this under FOR UPDATE; this read
@@ -333,56 +379,26 @@ serve(async (req: Request) => {
       .eq('id', transfer_id)
       .single();
 
-    // ── F-5 live-rail acquisition guard (OR-17 release train; FR-9; DSM §3.2
-    // F-5): a DELETION_PENDING buyer must not CONFIRM an inbound transfer that
-    // was INITIATED AFTER their deletion request (accepting it is a custody
-    // acquisition). A transfer initiated BEFORE the request is resolution of
-    // existing business and stays allowed. Class A read (EA-1): the caller's
-    // own kernel.identity_ext row via the caller's JWT — the owner SELECT
-    // policy scopes it; before migration 077 the schema is absent and the
-    // probe errs → not-pending (the DB sweep's BP wall is the enforcement).
-    try {
-      const callerAuth = req.headers.get('authorization')!;
-      const callerKernel = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-        global: { headers: { Authorization: callerAuth } },
-        auth: { autoRefreshToken: false, persistSession: false },
-        db: { schema: 'kernel' },
-      });
-      const { data: ext } = await callerKernel
-        .from('identity_ext')
-        .select('deletion_state, deletion_requested_at')
-        .eq('identity_id', buyerId)
-        .maybeSingle();
-      if (ext?.deletion_state === 'DELETION_PENDING' && ext.deletion_requested_at) {
-        const { data: tCreated } = await supabase
-          .from('transfers')
-          .select('created_at')
-          .eq('id', transfer_id)
-          .maybeSingle();
-        if (tCreated?.created_at && new Date(tCreated.created_at) > new Date(ext.deletion_requested_at)) {
-          return new Response(
-            JSON.stringify({
-              error: 'Your account deletion request is pending. Withdraw it in Settings to accept new transfers.',
-              code: 'account_deletion_pending',
-            }),
-            { status: 403, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } },
-          );
-        }
-      }
-    } catch {
-      /* pre-077 world or transient probe failure — proceed; the DB wall holds */
-    }
-
     if (transferErr || !transfer) {
-      // The RPC above found this row FOR UPDATE and recorded the
-      // confirmation, so a failed re-read is transient — never "not found"
-      // to the buyer (was 404, CRE-404). No payout is attempted this call;
-      // the sweep pays the buyer_confirmed row.
-      console.error('confirm-and-release: transfer re-read failed after the confirmation was recorded (answering 200 processing):', {
+      if (confirmationRecorded) {
+        // The RPC above found this row FOR UPDATE and recorded (or proved)
+        // the confirmation, so a failed re-read is transient — never "not
+        // found" to the buyer (was 404, CRE-404). No payout is attempted this
+        // call; the sweep pays the buyer_confirmed row.
+        console.error('confirm-and-release: transfer re-read failed after the confirmation was recorded (answering 200 processing):', {
+          transfer_id,
+          error: transferErr,
+        });
+        return jsonResponse(req, 200, { success: true, payout_status: 'processing' });
+      }
+      // The RPC only CLAIMED the row was already confirmed, and the read that
+      // would show it failed: never a 200 (a double fault must not read as
+      // "confirmed"). Transient — the retry re-runs the RPC and the re-read.
+      console.error('confirm-and-release: transfer re-read failed and the confirmation is unverified (answering 503):', {
         transfer_id,
         error: transferErr,
       });
-      return jsonResponse(req, 200, { success: true, payout_status: 'processing' });
+      return errorResponse(req, 503, 'Service temporarily unavailable. Please try again shortly.', 'SERVICE_UNAVAILABLE', { 'Retry-After': '30' });
     }
 
     // Verify caller is the buyer (defense-in-depth — RPC already checks this).
@@ -403,6 +419,10 @@ serve(async (req: Request) => {
     if (transfer.status !== 'buyer_confirmed' && transfer.status !== 'auto_released') {
       return errorResponse(req, 400, `Transfer is in unexpected state: ${transfer.status}`, 'TRANSFER_STATE_CHANGED');
     }
+
+    // Past the status gate the row itself is buyer_confirmed / auto_released:
+    // a message-only claim is now verified (no-op for the other two cases).
+    confirmationRecorded = true;
 
     // ── 5a. Already paid? Return success (idempotent) ───────────────────
     if (transfer.payout_released_at !== null) {
@@ -488,6 +508,53 @@ serve(async (req: Request) => {
       });
       return respond({ success: true, payout_status: 'pending_review' });
     };
+
+    // ── F-5 live-rail acquisition guard (OR-17 release train; FR-9; DSM §3.2
+    // F-5): a DELETION_PENDING buyer must not CONFIRM an inbound transfer that
+    // was INITIATED AFTER their deletion request (accepting it is a custody
+    // acquisition). A transfer initiated BEFORE the request is resolution of
+    // existing business and stays allowed. Class A read (EA-1): the caller's
+    // own kernel.identity_ext row via the caller's JWT — the owner SELECT
+    // policy scopes it; before migration 077 the schema is absent and the
+    // probe errs → not-pending (the DB sweep's BP wall is the enforcement).
+    // Owner ruling (A, 2026-10-21; header): this runs after the confirmation
+    // is recorded, so it answers 200 processing + `notice` and withholds only
+    // this call's payout attempt — the sweep pays the row, as after the old 403.
+    let deletionPendingAcquisition = false;
+    try {
+      const callerAuth = req.headers.get('authorization')!;
+      const callerKernel = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        global: { headers: { Authorization: callerAuth } },
+        auth: { autoRefreshToken: false, persistSession: false },
+        db: { schema: 'kernel' },
+      });
+      const { data: ext } = await callerKernel
+        .from('identity_ext')
+        .select('deletion_state, deletion_requested_at')
+        .eq('identity_id', buyerId)
+        .maybeSingle();
+      if (ext?.deletion_state === 'DELETION_PENDING' && ext.deletion_requested_at) {
+        const { data: tCreated } = await supabase
+          .from('transfers')
+          .select('created_at')
+          .eq('id', transfer_id)
+          .maybeSingle();
+        if (tCreated?.created_at && new Date(tCreated.created_at) > new Date(ext.deletion_requested_at)) {
+          deletionPendingAcquisition = true;
+        }
+      }
+    } catch {
+      /* pre-077 world or transient probe failure — proceed; the DB wall holds */
+    }
+    if (deletionPendingAcquisition) {
+      await captureMessage(
+        'confirm-and-release:deletion-pending-after-confirmation',
+        'DELETION_PENDING buyer confirmed a transfer initiated after the deletion request; payout left to the sweep',
+        'warning',
+        { transfer_id },
+      );
+      return respond({ success: true, payout_status: 'processing', notice: DELETION_PENDING_NOTICE });
+    }
 
     // ── 6. Payout attempt protocol (_shared/payouts.ts) ─────────────────
     // claim (short RPC; freezes destination + amount, 10-min lease)

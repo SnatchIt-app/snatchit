@@ -15,6 +15,13 @@
  *       is unchanged.
  *   RL  check_rate_limit (021) returns FALSE from its EXCEPTION branch too; an
  *       internal limiter error answers 503, a real over-limit answers 429.
+ *   AC  "Already confirmed" needs evidence: 171's HINT TRANSFER_NOT_CONFIRMABLE +
+ *       DETAIL is proof; a message that merely names buyer_confirmed (production
+ *       before 171) is a claim the re-read must show — a double fault (the
+ *       claim is false and the re-read fails) is never a 200.
+ *   EC-7..9  F-5 deletion-pending (owner ruling, A 2026-10-21): after the
+ *       confirmation it is not an error — 200 processing + an advisory `notice`,
+ *       the payout left to the sweep.
  *
  * Real handler (tests/helpers/edge-vm.ts) on the real _shared/payouts.ts
  * (tests/helpers/payouts-vm.ts), a stubbed supabase client and a stubbed Stripe
@@ -95,6 +102,14 @@ async function world(o: WorldOpts = {}) {
 }
 
 const PROCESSING = { success: true, payout_status: 'processing' };
+const UNAVAILABLE = { error: 'Service temporarily unavailable. Please try again shortly.', code: 'SERVICE_UNAVAILABLE' };
+const TOO_MANY = { error: 'Too many requests. Please try again later.', code: 'RATE_LIMITED' };
+const DELETION_TEXT = 'Your account deletion request is pending. Withdraw it in Settings to accept new transfers.';
+/** 171's CNF-1 refusal: HINT TRANSFER_NOT_CONFIRMABLE, DETAIL = the status read FOR UPDATE */
+const CNF1_171 = (t: TransferRow): RpcResult => ({ error: { message: CNF1(t.status), code: 'P0001', hint: 'TRANSFER_NOT_CONFIRMABLE', details: t.status } });
+/** an RPC failure whose MESSAGE names buyer_confirmed although the row was never confirmed (the RPC rolled back) */
+const FALSE_CLAIM = (): RpcResult => ({ error: { message: 'record "new" has no field "buyer_confirmed_at"', code: '42703', hint: null, details: null } });
+const PENDING_SINCE_A_MINUTE = { deletion_state: 'DELETION_PENDING', deletion_requested_at: new Date(Date.now() - 60_000).toISOString() };
 
 // ── PC: nothing after the confirmation is an error ──────────────────────────
 
@@ -149,8 +164,8 @@ describe('PC — after the confirmation is recorded, every answer is 200', () =>
     expect(r.body).toEqual(PROCESSING);
   });
 
-  it('PC-6 the already-confirmed bypass is a recorded confirmation too: a re-read failure there is 200', async () => {
-    const w = await world({ status: 'buyer_confirmed', transfersRead: () => ({ data: null, error: { message: 'timeout' } }) });
+  it('PC-6 with 171 the already-confirmed refusal is PROOF (HINT + DETAIL): a re-read failure there is 200', async () => {
+    const w = await world({ status: 'buyer_confirmed', confirm: CNF1_171, transfersRead: () => ({ data: null, error: { message: 'timeout' } }) });
     const r = await w.call();
     expect(r.status).toBe(200);
     expect(r.body).toEqual(PROCESSING);
@@ -170,6 +185,79 @@ describe('PC — after the confirmation is recorded, every answer is 200', () =>
     expect(r.status).toBe(200);
     expect(r.body).toEqual({ success: true, stripe_transfer_id: 'tr_1' });
     expect(w.posts()).toHaveLength(1);
+  });
+
+  it('PC-9 retry on a confirmed row (production RPC, no HINT; the re-read shows buyer_confirmed) + a pre-flight THROW ⇒ 200 processing', async () => {
+    const w = await world({ status: 'buyer_confirmed', stripe: (c, base) => { if (c.path.startsWith('/accounts/')) throw new Error('fetch failed: connect ECONNRESET'); return base(c); } });
+    const r = await w.call();
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual(PROCESSING);
+    expect(w.rpcNames(), 'the attempt was claimed: the throw came after the confirmation').toContain('claim_payout_attempt');
+    expect(w.posts()).toHaveLength(0);
+    expect(w.edge.sentry.map((s) => s.tag)).toContain('confirm-and-release:after-confirmation');
+  });
+
+  it('PC-9b the same retry under 171 (HINT + DETAIL proof) + a pre-flight THROW ⇒ 200 processing', async () => {
+    const w = await world({ status: 'buyer_confirmed', confirm: CNF1_171, stripe: (c, base) => { if (c.path.startsWith('/payment_intents/')) throw new Error('network timeout'); return base(c); } });
+    const r = await w.call();
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual(PROCESSING);
+    expect(w.posts()).toHaveLength(0);
+  });
+
+  it('PC-10 the transfer re-read THROWS after the RPC confirmed ⇒ 200 processing (the flag is set before the re-read)', async () => {
+    const w = await world({ transfersRead: () => { throw new Error('fetch failed: socket hang up'); } });
+    const r = await w.call();
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual(PROCESSING);
+    expect(w.ledger.transfers.get('t1')!.status).toBe('buyer_confirmed');
+    expect(w.rpcNames()).toEqual(['check_rate_limit', 'confirm_transfer_received']);
+  });
+});
+
+// ── AC: "already confirmed" needs evidence — no false 200 ───────────────────
+
+describe('AC — an already-confirmed CLAIM is verified by the re-read; a double fault is never a 200', () => {
+  it('AC-1 production RPC (no HINT) on a confirmed row, the re-read fails ⇒ 503 SERVICE_UNAVAILABLE (unverifiable), not 200', async () => {
+    const w = await world({ status: 'buyer_confirmed', transfersRead: () => ({ data: null, error: { message: 'timeout' } }) });
+    const r = await w.call();
+    expect(r.status).toBe(503);
+    expect(r.headers.get('Retry-After')).toBe('30');
+    expect(r.body).toEqual(UNAVAILABLE);
+    expect(w.rpcNames()).toEqual(['check_rate_limit', 'confirm_transfer_received']);
+  });
+
+  it('AC-2 the double fault: the RPC rolled back with a message NAMING buyer_confirmed, and the re-read fails ⇒ 503, never 200', async () => {
+    const w = await world({ confirm: FALSE_CLAIM, transfersRead: () => ({ data: null, error: { message: 'upstream request timeout' } }) });
+    const r = await w.call();
+    expect(r.status).toBe(503);
+    expect(r.body).toEqual(UNAVAILABLE);
+    expect(w.ledger.transfers.get('t1')!.status, 'nothing was confirmed').toBe('seller_sent');
+    expect(w.rpcNames()).toEqual(['check_rate_limit', 'confirm_transfer_received']);
+    expect(w.stripe.calls).toHaveLength(0);
+  });
+
+  it('AC-3 the same false claim, the re-read shows seller_sent ⇒ an error (400 TRANSFER_STATE_CHANGED), nothing claimed', async () => {
+    const w = await world({ confirm: FALSE_CLAIM });
+    const r = await w.call();
+    expect(r.status).toBe(400);
+    expect(r.body).toEqual({ error: 'Transfer is in unexpected state: seller_sent', code: 'TRANSFER_STATE_CHANGED' });
+    expect(w.rpcNames()).toEqual(['check_rate_limit', 'confirm_transfer_received']);
+  });
+
+  it('AC-4 a false claim never reaches the F-5 notice: DELETION_PENDING buyer, re-read shows seller_sent ⇒ still the 400', async () => {
+    const w = await world({ confirm: FALSE_CLAIM, identityExt: PENDING_SINCE_A_MINUTE });
+    const r = await w.call();
+    expect(r.status).toBe(400);
+    expect(r.body).toEqual({ error: 'Transfer is in unexpected state: seller_sent', code: 'TRANSFER_STATE_CHANGED' });
+  });
+
+  it('AC-5 a false claim and a re-read that THROWS ⇒ 500 INTERNAL, never 200', async () => {
+    const w = await world({ confirm: FALSE_CLAIM, transfersRead: () => { throw new Error('fetch failed: socket hang up'); } });
+    const r = await w.call();
+    expect(r.status).toBe(500);
+    expect(r.body).toEqual({ error: 'Internal server error', code: 'INTERNAL' });
+    expect(w.ledger.transfers.get('t1')!.status).toBe('seller_sent');
   });
 });
 
@@ -209,14 +297,28 @@ describe('HC — confirm RPC refusals carry the Postgres HINT as `code`', () => 
     expect(r.status).toBe(200);
     expect(r.body).toEqual({ success: true, stripe_transfer_id: 'tr_1' });
   });
+
+  it('HC-5 a prose hint that merely STARTS with an upper-case word is not a code ⇒ code null', async () => {
+    const w = await world({ confirm: () => ({ error: { message: 'Transfer not found.', code: 'P0001', hint: 'CHECK the transfer id and retry', details: null } }) });
+    const r = await w.call();
+    expect(r.status).toBe(400);
+    expect(r.body).toEqual({ error: 'Transfer not found.', code: null });
+  });
+
+  it('HC-6 with the 171 HINT present its DETAIL decides, not the message: DETAIL pending ⇒ the 400 refusal', async () => {
+    const w = await world({ status: 'pending', confirm: () => ({ error: { message: 'cannot move pending to buyer_confirmed', code: 'P0001', hint: 'TRANSFER_NOT_CONFIRMABLE', details: 'pending' } }) });
+    const r = await w.call();
+    expect(r.status).toBe(400);
+    expect(r.body).toEqual({ error: 'cannot move pending to buyer_confirmed', code: 'TRANSFER_NOT_CONFIRMABLE' });
+    expect(w.rpcNames()).toEqual(['check_rate_limit', 'confirm_transfer_received']);
+  });
 });
 
 // ── RL: limiter internal error is 503, over-limit is 429 ────────────────────
 
 describe('RL — check_rate_limit FALSE is disambiguated by the counter', () => {
   const now = () => new Date().toISOString();
-  const UNAVAILABLE = { error: 'Service temporarily unavailable. Please try again shortly.', code: 'SERVICE_UNAVAILABLE' };
-  const TOO_MANY = { error: 'Too many requests. Please try again later.', code: 'RATE_LIMITED' };
+  const ago = (s: number) => new Date(Date.now() - s * 1000).toISOString();
 
   it('RL-1 FALSE from the EXCEPTION branch (counter within the limit) ⇒ 503, Retry-After 30, nothing confirmed', async () => {
     const w = await world({ rateLimit: () => ({ data: false }), rateRow: () => ({ data: { counter: 2, window_start: now() } }) });
@@ -266,11 +368,37 @@ describe('RL — check_rate_limit FALSE is disambiguated by the counter', () => 
     const w = await world({ rateLimit: () => ({ data: null }) });
     expect((await w.call()).status).toBe(503);
   });
+
+  it('RL-8 boundary: FALSE with the counter AT the limit (5 == max; the EXCEPTION branch rolled the 6th back) ⇒ 503, not 429', async () => {
+    const w = await world({ rateLimit: () => ({ data: false }), rateRow: () => ({ data: { counter: 5, window_start: now() } }) });
+    const r = await w.call();
+    expect(r.status).toBe(503);
+    expect(r.body).toEqual(UNAVAILABLE);
+  });
+
+  it('RL-9 a non-boolean reply is a limiter error even when the counter looks over the limit ⇒ 503', async () => {
+    const w = await world({ rateLimit: () => ({ data: null }), rateRow: () => ({ data: { counter: 6, window_start: now() } }) });
+    const r = await w.call();
+    expect(r.status).toBe(503);
+    expect(r.body).toEqual(UNAVAILABLE);
+  });
+
+  it('RL-10 control: over the limit late in the live window (290 s of 300) ⇒ 429', async () => {
+    const w = await world({ rateLimit: () => ({ data: false }), rateRow: () => ({ data: { counter: 6, window_start: ago(290) } }) });
+    const r = await w.call();
+    expect(r.status).toBe(429);
+    expect(r.body).toEqual(TOO_MANY);
+  });
+
+  it('RL-11 control: just past the window but inside the 30 s clock slack (315 s) ⇒ still 429', async () => {
+    const w = await world({ rateLimit: () => ({ data: false }), rateRow: () => ({ data: { counter: 6, window_start: ago(315) } }) });
+    expect((await w.call()).status).toBe(429);
+  });
 });
 
-// ── every error response has a code ─────────────────────────────────────────
+// ── every error response has a code; F-5 is advisory after the confirmation ─
 
-describe('EC — every error response carries `code`; error texts unchanged', () => {
+describe('EC — every error response carries `code`; error texts unchanged; F-5 after the confirmation is no error', () => {
   it('EC-1 no Authorization ⇒ 401 AUTH_REQUIRED', async () => {
     const w = await world();
     const r = await w.call(new Request('https://edge.test/fn', { method: 'POST', body: '{}' }));
@@ -314,11 +442,30 @@ describe('EC — every error response carries `code`; error texts unchanged', ()
     expect(r.body).toEqual({ error: 'Only the buyer can release payout', code: 'NOT_TRANSFER_BUYER' });
   });
 
-  it('EC-7 F-5 deletion-pending wall keeps its existing code (and, open owner decision, still answers after the RPC ran)', async () => {
-    const w = await world({ identityExt: { deletion_state: 'DELETION_PENDING', deletion_requested_at: new Date(Date.now() - 60_000).toISOString() } });
+  it('EC-7 F-5 after the confirmation is NOT an error: 200 processing + advisory notice (existing text); payout left to the sweep', async () => {
+    const w = await world({ identityExt: PENDING_SINCE_A_MINUTE });
     const r = await w.call();
-    expect(r.status).toBe(403);
-    expect(r.body).toEqual({ error: 'Your account deletion request is pending. Withdraw it in Settings to accept new transfers.', code: 'account_deletion_pending' });
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ ...PROCESSING, notice: { code: 'ACCOUNT_DELETION_PENDING', message: DELETION_TEXT } });
+    expect(r.body).not.toHaveProperty('error');
+    expect(w.ledger.transfers.get('t1')!.status, 'the confirmation committed').toBe('buyer_confirmed');
+    expect(w.rpcNames(), 'no payout attempt in this call').toEqual(['check_rate_limit', 'confirm_transfer_received']);
+    expect(w.stripe.calls).toHaveLength(0);
+    expect(w.edge.sentry.map((s) => s.tag)).toContain('confirm-and-release:deletion-pending-after-confirmation');
+  });
+
+  it('EC-8 control: DELETION_PENDING, but the transfer was initiated BEFORE the request ⇒ the normal payout, no notice', async () => {
+    const w = await world({ identityExt: { deletion_state: 'DELETION_PENDING', deletion_requested_at: new Date(Date.now() + 60_000).toISOString() } });
+    const r = await w.call();
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ success: true, stripe_transfer_id: 'tr_1' });
+  });
+
+  it('EC-9 F-5 on the already-confirmed retry (171 proof) ⇒ the same 200 processing + notice, no payout attempt', async () => {
+    const w = await world({ status: 'buyer_confirmed', confirm: CNF1_171, identityExt: PENDING_SINCE_A_MINUTE });
+    const r = await w.call();
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ ...PROCESSING, notice: { code: 'ACCOUNT_DELETION_PENDING', message: DELETION_TEXT } });
     expect(w.rpcNames()).toEqual(['check_rate_limit', 'confirm_transfer_received']);
   });
 });
