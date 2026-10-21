@@ -6,6 +6,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { callOps } from "@/lib/ops";
 import { toWhoami, type Whoami } from "@/lib/types";
 import { deniedReasonCode } from "@/lib/auth/messages";
+import { decideMfaAccess, type MfaAccess } from "@/lib/auth/mfa-access";
 
 export type AuthedUser = {
   id: string;
@@ -56,3 +57,20 @@ export const requireOperator = cache(async function requireOperator(): Promise<O
   if (!whoami || !whoami.role) redirect("/denied");
   return { ...user, whoami, role: whoami.role };
 });
+
+/**
+ * Gate for /mfa, which runs at aal1: only an operator may enrol or verify a
+ * TOTP factor here. ops.whoami() answers at aal1 (it has no aal check), so a
+ * non-operator is turned away before the browser lists or creates a factor
+ * on their account. Decision rules: lib/auth/mfa-access.ts.
+ */
+export async function mfaAccess(): Promise<MfaAccess> {
+  const user = await getAuthedUser();
+  if (!user) return decideMfaAccess({ signedIn: false, whoami: null });
+  const whoami = await callOps<unknown>("whoami");
+  const decision = decideMfaAccess({ signedIn: true, whoami });
+  if (decision.type === "redirect" && !whoami.ok && whoami.kind !== "denied") {
+    console.warn("[auth] /mfa operator check failed", { kind: whoami.kind, unavailable: whoami.kind === "error" ? Boolean(whoami.unavailable) : false });
+  }
+  return decision;
+}
