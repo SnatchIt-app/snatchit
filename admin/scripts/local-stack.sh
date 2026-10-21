@@ -189,7 +189,7 @@ print_env() {
 # ---- TEST HARNESS env for admin/.env.local (synthetic; see admin/.env.local.example-harness)
 NEXT_PUBLIC_SUPABASE_URL=http://localhost:${AUTH_PORT}
 NEXT_PUBLIC_SUPABASE_ANON_KEY=${anon}
-# Turns on the "Sample data" notice (exactly local|harness|rehearsal, never on Vercel production/preview)
+# Turns on the "Sample data" notice (exactly harness|rehearsal with a loopback Supabase URL; never on Vercel production/preview)
 NEXT_PUBLIC_ENV_LABEL=harness
 # ---- synthetic logins (password for all: harness-pass-123; MFA code: 123456)
 #   founder.a@example.test  platform_admin (admin_users), aal1 -> exercises MFA enrollment

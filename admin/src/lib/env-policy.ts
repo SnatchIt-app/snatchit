@@ -7,20 +7,43 @@
 
 /**
  * Labels that mean "this console is wired to the local synthetic harness".
- * Exact values only: anything else — unset, "preview", "staging", "sample",
- * a typo — is not a claim that the figures are fixtures.
+ * Exact values only: anything else — unset, "local", "preview", "staging",
+ * "sample", a typo — is not a claim that the figures are fixtures. "local" is
+ * deliberately absent: admin/.env.example ships it as the header badge, so a
+ * developer who fills that template in with a hosted project's URL has it.
  */
-export const SAMPLE_DATA_LABELS = ["local", "harness", "rehearsal"] as const;
+export const SAMPLE_DATA_LABELS = ["harness", "rehearsal"] as const;
+
+/** Loopback hostnames as WHATWG URL reports them (an IPv6 literal keeps its brackets). */
+const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/**
+ * True when the value is an http(s) URL whose hostname is exactly localhost,
+ * 127.0.0.1 or ::1. Look-alikes (localhost.example.com, foo.localhost,
+ * 127.0.0.2, 0.0.0.0) are not loopback here.
+ */
+export function isLoopbackUrl(raw: string | null | undefined): boolean {
+  let url: URL;
+  try {
+    url = new URL((raw ?? "").trim());
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+  return LOOPBACK_HOSTNAMES.has(url.hostname);
+}
 
 /**
  * The label to show in the "Sample data" notice, or null for no notice.
- * The notice says the figures are not Snatch It business data, so it needs an
- * explicitly set allowlisted label, and it never appears on a Vercel
- * production or preview deployment (both can point at a real database).
+ * The notice says the figures are not Snatch It business data, so it needs
+ * all of: an explicitly set allowlisted label, a NEXT_PUBLIC_SUPABASE_URL on
+ * a loopback host (the harness is http://localhost:3202; a hosted project
+ * never is), and not a Vercel production or preview deployment.
  */
-export function sampleDataLabel(input: { label: string | undefined; vercelEnv: string | undefined }): string | null {
+export function sampleDataLabel(input: { label: string | undefined; vercelEnv: string | undefined; supabaseUrl: string | null | undefined }): string | null {
   const vercel = (input.vercelEnv ?? "").trim();
   if (vercel === "production" || vercel === "preview") return null;
+  if (!isLoopbackUrl(input.supabaseUrl)) return null;
   const label = (input.label ?? "").trim();
   return (SAMPLE_DATA_LABELS as readonly string[]).includes(label) ? label : null;
 }

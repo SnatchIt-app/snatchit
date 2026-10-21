@@ -77,9 +77,11 @@ experiments — the admin app must never receive one). No real Supabase key
 exists anywhere in this harness.
 
 `NEXT_PUBLIC_ENV_LABEL=harness` turns on the "Sample data" notice on Today and
-Money. The notice needs a label of exactly `local`, `harness` or `rehearsal`, set
-explicitly, and never shows on a Vercel production or preview deployment
-(`src/lib/env-policy.ts`); without it the figures are not called fixture data.
+Money. The notice needs both a label of exactly `harness` or `rehearsal`, set
+explicitly, and a `NEXT_PUBLIC_SUPABASE_URL` whose host is `localhost`,
+`127.0.0.1` or `::1`. It never shows on a Vercel production or preview
+deployment (`src/lib/env-policy.ts`). `local`, the `.env.example` badge, does
+not turn it on. Without both, the figures are not called fixture data.
 
 ## Synthetic logins (password for all: `harness-pass-123`, MFA code: `123456`)
 

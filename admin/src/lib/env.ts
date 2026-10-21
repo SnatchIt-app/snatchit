@@ -31,12 +31,14 @@ export const IS_PRODUCTION_ENV_LABEL = ENV_LABEL.toLowerCase() === "production";
 
 /**
  * Label for the "Sample data" notice, or null. Only an explicitly set
- * NEXT_PUBLIC_ENV_LABEL of exactly local / harness / rehearsal, and never on
- * a Vercel production or preview deployment (lib/env-policy.ts).
+ * NEXT_PUBLIC_ENV_LABEL of exactly harness / rehearsal, with
+ * NEXT_PUBLIC_SUPABASE_URL on localhost / 127.0.0.1 / ::1, and never on a
+ * Vercel production or preview deployment (lib/env-policy.ts).
  */
 export const SAMPLE_DATA_LABEL = sampleDataLabel({
   label: process.env.NEXT_PUBLIC_ENV_LABEL,
   vercelEnv: process.env.NEXT_PUBLIC_VERCEL_ENV,
+  supabaseUrl: SUPABASE_URL,
 });
 
 const IS_PROD = process.env.NODE_ENV === "production";

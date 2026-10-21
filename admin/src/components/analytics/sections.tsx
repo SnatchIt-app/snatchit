@@ -23,8 +23,9 @@ import { OpsFailureAlert } from "@/components/ui/Alert";
 
 // ---------------------------------------------------------------------------
 // Sample-data notice — the local harness says so. It claims the figures are
-// not business data, so it needs an explicit local/harness/rehearsal label and
-// is never shown on a Vercel production or preview deployment (env-policy.ts).
+// not business data, so it needs an explicit harness/rehearsal label AND a
+// loopback Supabase URL, and is never shown on a Vercel production or preview
+// deployment (env-policy.ts).
 // ---------------------------------------------------------------------------
 export function SampleDataNotice() {
   if (!SAMPLE_DATA_LABEL) return null;
