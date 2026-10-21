@@ -6,7 +6,8 @@ import { submitActionForm, type ActionFormState } from "@/lib/actions";
 import { IDEMPOTENCY_FIELD } from "@/lib/idempotency";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Alert, OpsFailureAlert } from "@/components/ui/Alert";
-import type { ActionOutcome } from "@/lib/types";
+import { str, type ActionOutcome } from "@/lib/types";
+import { RELIST_STALE_MESSAGE, relistOutcomeDetail, type RelistOutcomeDetail } from "@/lib/relist";
 
 /**
  * While a submission is pending the button stays focusable (aria-disabled, not
@@ -72,11 +73,67 @@ export function OutcomeHost({ actionType = "", children }: { actionType?: string
 function FormResult({ state, actionType }: { state: ActionFormState; actionType: string }) {
   if (state.invalid) return <Alert state="failed" title={state.invalid} compact />;
   if (state.failure) return <OpsFailureAlert failure={state.failure} fn={actionType === "approval_decide" ? "approve_action" : "execute_action"} />;
-  if (state.outcome) return <OutcomeText outcome={state.outcome} />;
+  if (state.outcome) return <OutcomeText outcome={state.outcome} actionType={actionType} />;
   return null;
 }
 
-export function OutcomeText({ outcome }: { outcome: ActionOutcome }) {
+/** Raw server values, never reformatted (a timestamp keeps its offset and microseconds). */
+function FieldList({ caption, rows }: { caption: string; rows: { key: string; value: string | null }[] }) {
+  return (
+    <div className="mt-1">
+      <p className="eyebrow text-dim">{caption}</p>
+      <ul className="font-mono text-[0.6875rem]">
+        {rows.map((r) => (
+          <li key={r.key}>
+            {r.key} <span className={r.value === null ? "text-dim" : "text-ink"}>{r.value ?? "null"}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** listing_relist answers that carry more than the generic text (migration 158). */
+function RelistOutcome({ outcome, detail }: { outcome: ActionOutcome; detail: RelistOutcomeDetail }) {
+  if (detail.kind === "stale") {
+    return (
+      <Alert state="stale" title={RELIST_STALE_MESSAGE} compact>
+        {outcome.status === "rejected" && outcome.message && outcome.message !== RELIST_STALE_MESSAGE ? <p>{outcome.message}</p> : null}
+        {detail.current ? <FieldList caption="The listing as the server found it" rows={detail.current} /> : null}
+        <button type="button" className="link" onClick={() => window.location.reload()}>
+          Reload now
+        </button>
+      </Alert>
+    );
+  }
+  const relisted = detail.relisted
+    ? [
+        { key: "new_ends_at", value: str(detail.relisted.new_ends_at) },
+        { key: "previous_ends_at", value: str(detail.relisted.previous_ends_at) },
+      ]
+    : null;
+  return (
+    <Alert state="success" title="Recorded." compact>
+      {outcome.status === "succeeded" && outcome.action_id ? (
+        <a className="link" href={`/actions/${outcome.action_id}`}>
+          Action {outcome.action_id.slice(0, 8)}
+        </a>
+      ) : null}
+      {relisted ? <FieldList caption="Relisted (admin_relist_listing)" rows={relisted} /> : null}
+      {detail.before ? <FieldList caption="The listing before the relist, as the server locked it" rows={detail.before} /> : null}
+    </Alert>
+  );
+}
+
+/**
+ * The server's answer, in its words. `actionType` only adds what an action's
+ * answer carries beyond the generic text (listing_relist: result.result /
+ * result.before / result.current); every other answer renders the same for
+ * every action, unknown codes included.
+ */
+export function OutcomeText({ outcome, actionType }: { outcome: ActionOutcome; actionType?: string }) {
+  const relist = actionType === "listing_relist" ? relistOutcomeDetail(outcome) : null;
+  if (relist) return <RelistOutcome outcome={outcome} detail={relist} />;
   switch (outcome.status) {
     case "succeeded":
       return (

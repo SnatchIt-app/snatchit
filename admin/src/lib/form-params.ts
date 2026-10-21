@@ -6,14 +6,22 @@
  * jsonb-typed setting (boolean / number) or a cents amount arrives with the
  * right JSON type. Pure and unit-tested.
  */
-export type ParamType = "string" | "number" | "integer" | "boolean" | "json" | "optional";
+export type ParamType = "string" | "number" | "integer" | "boolean" | "json" | "optional" | "utc";
 
 /**
  * `optional` is a string field whose empty value means "no change": it is left
  * out of `p_params` entirely instead of being sent as null, which every other
  * type uses to mean "clear" (unassign, clear the due date).
+ *
+ * `utc` is a `<input type="datetime-local">` the form labels UTC: the posted
+ * wall clock gets an explicit `Z`, because a zone-less timestamptz literal is
+ * read in the database session's TimeZone. A value that already states its
+ * zone (`Z` or `±HH:MM`) is kept as is.
  */
-export const PARAM_TYPES: ParamType[] = ["string", "number", "integer", "boolean", "json", "optional"];
+export const PARAM_TYPES: ParamType[] = ["string", "number", "integer", "boolean", "json", "optional", "utc"];
+
+const WALL_CLOCK = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?$/;
+const ZONED = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?(Z|[+-]\d{2}:\d{2})$/;
 
 export function parseParamField(name: string): { key: string; type: ParamType } | null {
   if (!name.startsWith("param.")) return null;
@@ -60,6 +68,10 @@ export function coerceParam(type: ParamType, raw: string): Coerced {
       } catch {
         return { ok: false, error: `"${raw}" is not valid JSON` };
       }
+    case "utc":
+      if (WALL_CLOCK.test(s)) return { ok: true, value: `${s}Z` };
+      if (ZONED.test(s)) return { ok: true, value: s };
+      return { ok: false, error: `"${raw}" is not a date-time (YYYY-MM-DDTHH:MM, UTC)` };
   }
 }
 

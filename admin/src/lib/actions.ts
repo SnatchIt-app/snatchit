@@ -114,7 +114,7 @@ function parseJsonRecord(raw: FormDataEntryValue | null): Record<string, unknown
 /**
  * Generic form-post adapter for ConfirmForm. Hidden inputs carry the action
  * envelope; visible inputs named `param.<key>` (or `param.<key>:<type>` for
- * boolean/number/integer/json coercion) become `p_params` entries (empty
+ * boolean/number/integer/json/utc coercion) become `p_params` entries (empty
  * string -> null so "unassign"/"clear due" work; an empty `:optional` field
  * is left out, for "leave as is"). `reason` is the operator's
  * justification (required unless the form opts out, in which case the note

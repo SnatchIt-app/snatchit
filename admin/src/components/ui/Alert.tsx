@@ -88,6 +88,17 @@ export function OpsFailureAlert({ failure, retryHref, fn, subject }: { failure: 
       </Alert>
     );
   }
+  if (failure.outdated) {
+    // 158 raises before any row or audit is written, so nothing changed; the database's own words stay visible.
+    return (
+      <Alert state="stale" title="This console is out of date — reload the page, then try again.">
+        Nothing was changed. The server needs data this build of the console does not send.
+        <span className="mt-1 block font-mono text-[0.6875rem] text-dim">
+          {failure.code} {failure.message}
+        </span>
+      </Alert>
+    );
+  }
   if (subject && !failure.unavailable) {
     return (
       <Alert state="failed" title={`${subject} couldn't be loaded.`} retryHref={retryHref} retryLabel="Try again">
