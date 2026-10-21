@@ -54,8 +54,9 @@ Schema `venue_api` (comment set). The statements, in order:
 The `ALTER DEFAULT PRIVILEGES` statement stores no `pg_default_acl` row, because the built-in
 table default already grants nothing. The rehearsal confirms this with V7 = 0 and F3.
 
-**Correction to the body comment.** Line 66 of the body says "Deny-by-default for anything added
-to this schema later". That overstates it:
+**Correction to the body comment.** The body comment directly above
+`ALTER DEFAULT PRIVILEGES IN SCHEMA venue_api REVOKE ALL ON TABLES …` says "Deny-by-default for
+anything added to this schema later". That overstates it:
 - A per-schema REVOKE stores nothing.
 - A schema-scoped default can only add to the global defaults, never subtract from them (076's
   accuracy note and PFA-1 record the same point).
