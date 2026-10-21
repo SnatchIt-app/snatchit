@@ -125,7 +125,7 @@ already open is reconciled first, whatever the transfer's status is now
 marked sent* transfer and never holds one [MSE:548-569], [ORDER:82],
 [ORDER:399-404]. Neither the console @ `07100a35` nor console v2 has a hold
 or freeze action [TYP:294-310], [TYP2:294-313], and neither does the
-server's action set [115:235-237], [144:95-96], [115:515-528],
+server's action set [115:235-238], [144:95-96], [115:515-528],
 [MSE:356-719]. A suspension leaves payouts running [MSE:620], and the keys
 **Change setting** can edit include no payout switch [115:144-153], [118:37],
 [144:155], [145:58], [146:97], [150:259-260]. So for items 1 and 3 the rule
