@@ -22,7 +22,7 @@ export function mapReadError(read: string, e: PgError | null | undefined, status
   if (code === "PGRST106") return { ok: false, kind: "not_exposed", message, code, read };
   if (code === "PGRST301" || code === "PGRST302" || status === 401) return { ok: false, kind: "auth", message, code, read };
   if (code === "42501") return { ok: false, kind: "permission", message, code, read };
-  if (code === "42P01" || code === "42883" || code === "3F000") return { ok: false, kind: "config", message: `${message} (migration 20260910120000_venue_api_read_views not applied?)`, code, read };
+  if (code === "42P01" || code === "42883" || code === "3F000") return { ok: false, kind: "config", message: `${message} (migration 20261021120000_venue_api_read_views not applied?)`, code, read };
   if (/fetch failed|ECONNREFUSED|ENOTFOUND|network|TypeError/i.test(message)) return { ok: false, kind: "transport", message, code, read };
   return { ok: false, kind: "error", message, code, read };
 }

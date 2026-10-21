@@ -11,7 +11,7 @@ import type { Event, InventoryBatch, TicketType } from "@/lib/types";
  * Authenticated read adapters — slice 1 (events list + event setup, read side).
  *
  * Every read goes through the `venue_api` schema (eight security_invoker views;
- * migration 20260910120000). Authorization is the base tables' RLS and column
+ * migration 20261021120000, registry 159). Authorization is the base tables' RLS and column
  * grants evaluated as the signed-in user; this file adds nothing and hides
  * nothing. The UI role switch never reaches this layer.
  */

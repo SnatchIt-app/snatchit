@@ -4,8 +4,10 @@ Venue dashboard and admin operating console in the owner-approved concept
 (visual direction locked 2026-10-09), plus the functional-readiness pass of
 2026-10-12. **Not deployed, not merged to `main`, not in the current app
 release** (A's `CANDIDATE_MANIFEST.md`). Both are local previews with exact
-commits. Venue v2 still carries the unapplied `20260910120000_venue_api_read_views`
-migration, so it cannot go live before an owner-approved apply; admin v2 would
+commits. Venue v2's database mode needs the `venue_api` read views, now registry 159
+`20261021120000_venue_api_read_views` (pgTAP 226). It replaces the unapplied
+`20260910120000` file these branches still carry (retired, never to be applied).
+Venue v2 cannot go live before an owner-approved apply; admin v2 would
 replace the current console UI, which is a separate owner decision.
 
 ## Branch tips (verified against `origin`, 2026-10-12)
@@ -231,7 +233,7 @@ Hosting notes for `venue.snatchitapp.com` (code side; nothing configured):
 - Env (all inlined at build, so a change needs a rebuild): `NEXT_PUBLIC_VENUE_DATA_SOURCE=database`,
   `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (anon or `sb_publishable_…`, never a
   secret key: the app refuses one), `NEXT_PUBLIC_ENV_LABEL`. The production project still needs
-  `20260910120000_venue_api_read_views` applied and `venue_api` exposed (owner-gated).
+  registry 159 `20261021120000_venue_api_read_views` applied and `venue_api` exposed (owner-gated).
 - Sign-in is password-only through a server action, so no Supabase Auth redirect URL is used
   today. Adding reset or magic-link sign-in later would need `https://venue.snatchitapp.com/**` in
   the Auth redirect allow-list.

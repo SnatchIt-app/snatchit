@@ -22,13 +22,24 @@ export function roleLabelClaimed(text) {
 }
 
 // ---------------------------------------------------------------- migration ledger
+// venue_api read views = registry 159: 20261021120000_venue_api_read_views (pgTAP 226), a re-timestamp of the
+// pre-registry 20260910120000 with the same SQL body. That old version is retired: it was applied nowhere, and a
+// ledger that holds it means someone applied the wrong file, so the kit stops there (fails closed if unreported).
+const RETIRED = "20260910120000";
+
 /** Ledger checks of the preflight phase, as [id, ok, detail]. `snap` is the preflight.sql json. */
 export function preflightLedgerChecks(snap, targetName) {
   if (snap.ledger_count === null) return [["local replay: no migration ledger to inspect (expected)", targetName === "local", ""]];
-  return [["076-092 recorded in the ledger, no duplicate versions", snap.ledger_076_092 === 17 && snap.ledger_dupes === 0, { ledger_count: snap.ledger_count, tip: snap.ledger_tip_timestamp, dupes: snap.ledger_dupes }]];
+  return [
+    ["076-092 recorded in the ledger, no duplicate versions", snap.ledger_076_092 === 17 && snap.ledger_dupes === 0, { ledger_count: snap.ledger_count, tip: snap.ledger_tip_timestamp, dupes: snap.ledger_dupes }],
+    [`retired venue_api version ${RETIRED} absent from the ledger (superseded by registry 159, 20261021120000)`, snap.ledger_has_retired_venue_api === 0, { retired_rows: snap.ledger_has_retired_venue_api }],
+  ];
 }
 
 /** Ledger checks of the verify-apply phase (sandbox only), as [id, ok, detail]. `v` is the verify-apply.sql json. */
 export function verifyApplyLedgerChecks(v) {
-  return [["ledger row 20260910120000 = venue_api_read_views with 24 statements", v.ledger_row_statements === 24 && v.ledger_row_name === "venue_api_read_views", { name: v.ledger_row_name, statements: v.ledger_row_statements }]];
+  return [
+    ["ledger row 20261021120000 = venue_api_read_views with 24 statements", v.ledger_row_statements === 24 && v.ledger_row_name === "venue_api_read_views", { name: v.ledger_row_name, statements: v.ledger_row_statements }],
+    [`retired ${RETIRED} still absent from the ledger`, v.ledger_retired_row === 0, { retired_rows: v.ledger_retired_row }],
+  ];
 }

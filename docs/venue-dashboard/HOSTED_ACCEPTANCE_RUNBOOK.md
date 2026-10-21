@@ -7,7 +7,7 @@ the rationale and the local rehearsal. Nothing here has been run against the san
 
 | Item | Value |
 |---|---|
-| Migration under test | `supabase/migrations/20260910120000_venue_api_read_views.sql` (+ rollback), pgTAP `188` — byte-identical to `ae2e2ea` |
+| Migration under test | `supabase/migrations/20261021120000_venue_api_read_views.sql` (registry 159, + rollback), pgTAP `226`. The SQL body is byte-identical to the retired `20260910120000` file and its pgTAP 188 at `ae2e2ea`, which the readiness results below were recorded with |
 | App under test | `venue/production-readiness` (dashboard v2 + this kit, sha pinned in the window manifest). The results below were recorded against `venue/read-slice1-fixes` @ `2665a20` (F1–F4 approved by Claude A); the frozen app fails eight checks |
 | Kit | `venue/scripts/acceptance/` on `venue/production-readiness` (merged from `venue/slice1-acceptance-kit` @ `62ec887d`; `DENIED` marker updated to v2's denial copy) |
 | Target | shared sandbox `ofaidukbieeekqaboscm` only; production ref is refused by the kit |

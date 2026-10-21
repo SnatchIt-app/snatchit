@@ -145,7 +145,7 @@ async function preflight() {
   check("preflight", "no leftover acceptance users", snap.acceptance_users === 0, snap.acceptance_users);
   check("preflight", "feature flags dark", snap.feature_flags.every((f) => f.v === false), snap.feature_flags);
   if (target.name === "sandbox") {
-    check("preflight", "venue_api not yet applied (views 0, no ledger row)", snap.venue_api_views === 0 && snap.ledger_has_venue_api === 0, { views: snap.venue_api_views, ledger: snap.ledger_has_venue_api });
+    check("preflight", "venue_api not yet applied (views 0, no 20261021120000 ledger row)", snap.venue_api_views === 0 && snap.ledger_has_venue_api === 0, { views: snap.venue_api_views, ledger: snap.ledger_has_venue_api });
     const probe = await rest("nonexistent");
     check("preflight", "venue_api not exposed yet (406 PGRST106)", probe.status === 406 && probe.json?.code === "PGRST106", probe.text.slice(0, 160));
     const jwks = await fetch(`${target.url}/auth/v1/.well-known/jwks.json`).then((r) => r.json()).catch(() => null);
@@ -156,9 +156,11 @@ async function preflight() {
   console.log(`baseline -> ${BASELINE}`);
 }
 
+// venue_api read views: registry 159 (pgTAP 226). The pre-registry 20260910120000 file is retired and never applied.
 function apply() {
-  const mig = join(REPO, "supabase/migrations/20260910120000_venue_api_read_views.sql");
-  const tmp = join(tmpdir(), `ledger_20260910120000_${process.pid}.sql`);
+  const mig = join(REPO, "supabase/migrations/20261021120000_venue_api_read_views.sql");
+  if (!existsSync(mig)) throw new Error(`${mig} not found: run the kit from a tree that carries registry 159 (never the retired 20260910120000 file)`);
+  const tmp = join(tmpdir(), `ledger_20261021120000_${process.pid}.sql`);
   writeFileSync(tmp, execFileSync("python3", [join(REPO, "venue/scripts/acceptance/ledger-row.py"), mig], { encoding: "utf8" }), { mode: 0o600 });
   try {
     target.execFile(mig);

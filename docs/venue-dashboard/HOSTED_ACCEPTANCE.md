@@ -46,12 +46,12 @@ Stop if 0.1 shows 076–092 missing or duplicated, or 0.2 shows `views > 0`.
 
 ## 1. Apply the migration — **MUTATION** (owner/Claude A, SQL editor)
 
-Paste `supabase/migrations/20260910120000_venue_api_read_views.sql` verbatim (one transaction),
+Paste `supabase/migrations/20261021120000_venue_api_read_views.sql` (registry 159) verbatim (one transaction),
 then record the ledger row exactly as the repo names it:
 
 ```sql
 insert into supabase_migrations.schema_migrations (version, name, statements)
-values ('20260910120000', 'venue_api_read_views', '{}') on conflict do nothing;
+values ('20261021120000', 'venue_api_read_views', '{}') on conflict do nothing;
 -- verify
 select count(*) from pg_views where schemaname = 'venue_api';                                   -- 8
 select relname from pg_class c join pg_namespace n on n.oid = c.relnamespace
@@ -60,7 +60,7 @@ select relname from pg_class c join pg_namespace n on n.oid = c.relnamespace
 select has_schema_privilege('anon', 'venue_api', 'USAGE');                                        -- f
 ```
 
-Reversal: `supabase/rollbacks/20260910120000_venue_api_read_views_rollback.sql` + delete the ledger row.
+Reversal: `supabase/rollbacks/20261021120000_venue_api_read_views_rollback.sql` + delete the ledger row.
 
 ---
 
