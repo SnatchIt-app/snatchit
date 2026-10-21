@@ -7,7 +7,7 @@
 | | |
 |---|---|
 | **Who** | Founders (console role `platform_admin`), each using their own Stripe Dashboard login. Never share a login. |
-| **When** | The order page's **Execute refund** panel shows *"Disabled until ops-refund-execute is deployed."* This means `ops.setting refund_execute_enabled` is `false` [ORDER:426-459], [115:144-145]. |
+| **When** | Console refund execution is **off on the server**: **System → Settings** shows `refund_execute_enabled` as `false` (§2 row 1). The setting is seeded `false` [115:144-145]. The order page's **Execute refund** warning *"Disabled until ops-refund-execute is deployed."* is only a prompt to check: the page also shows it when its own settings read fails [ORDER:73-79], [ORDER:432-437]. |
 | **Covers** | Marketplace resale orders on **Orders** whose payment `mode` is `buy_now` or `auction`. |
 | **Does not cover** | Primary-ticket orders (`mode = native_primary` [093:3005]). They refund on a separate rail; escalate those to A. Stripe chargebacks (disputes raised at the buyer's bank) follow the evidence process, not this SOP. |
 | **Replaces** | For founders, Part 1 and the "Emergency" section of `docs/operations/DAY5_MANUAL_REFUND_PLAYBOOK.md` (2026-04-01, private beta). Never run that playbook's SQL. §11 explains why. |
@@ -27,10 +27,13 @@
 4. **Some refunds need the owner's decision first:** partial refunds, refunds
    after the seller was paid, and any transfer reversal (§8, §9). This SOP
    does not authorise them.
-5. **Do not press "Request refund (will be rejected: disabled)".** It cannot
-   move money. The server rejects it at request time and leaves a rejected
-   `refund_execute` action on the order [ORDER:446], [118:251-255],
-   [144:546-555].
+5. **Do not press "Request refund (will be rejected: disabled)".** While the
+   setting is `false` it cannot move money: the server rejects it at request
+   time and leaves a rejected `refund_execute` action on the order
+   [ORDER:446], [118:251-255], [144:546-555]. The label comes from the same
+   settings read as the warning, so when that read has failed the request is
+   not rejected: it parks a real refund for the other founder's approval
+   [144:556-563].
 
 ## At a glance (buyer win, seller not yet paid)
 
@@ -67,7 +70,7 @@ subject link.
 
 | # | Check | Where | If it fails |
 |---|---|---|---|
-| 1 | Console refund execution is off | The **Execute refund** panel shows the "Disabled…" warning. Founders also see `refund_execute_enabled` under **System → Settings** [SYS:231-238], [116:1593-1601]. | If it is **on**, use the console refund (`OPERATING_GUIDE.md` → Taking a safe action → Execute refund) instead of this SOP. Never use both on one order. |
+| 1 | Console refund execution is off **on the server** | **System → Settings** → `refund_execute_enabled` reads **`Current: false (boolean)`**, and the Settings panel shows no failure alert [SYS:231-240], [SYS:428], [116:1593-1601]. The order page's "Disabled…" warning does **not** prove this. The page shows it whenever its own settings read fails, and it treats every value except the boolean `true` as off [ORDER:73-79]. The server also treats the text `"true"` as on [118:252]. | Settings shows an error, the key is missing, or the value is anything other than `false`: stop and escalate to A. It reads `true`: use the console refund (`OPERATING_GUIDE.md` → Taking a safe action → Execute refund) instead of this SOP. Never use both on one order. |
 | 2 | The order is a resale order | **Payment** panel → `mode` is `buy_now` or `auction`. | `native_primary`: stop and escalate to A. |
 | 3 | Live mode | The header has **no** "stripe test mode" badge [ORDER:122]. | Test mode: stop and escalate to A. |
 | 4 | The decision to refund is on record | **Buyer win:** Disputes panel → In-app dispute → `dispute_resolution` reads "Resolved — buyer (refund required)" [FMT:207-211]. If the dispute is still open, record it first: **Resolve dispute** → outcome **Buyer win** (founder or risk role [115:521]). That records the decision, moves no money, and leads to the "Refund owed to buyer" case [MSE:528-546], [065:130-142]. **Expired:** Transfer status reads "Expired (seller did not send)". **Anything else:** the owner's decision, written on a case (§3). | No recorded decision means no refund. |
