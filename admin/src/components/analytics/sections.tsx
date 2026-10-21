@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { MetricTile } from "@/lib/types";
 import { metricHref } from "@/lib/routes";
-import { ENV_LABEL } from "@/lib/env";
+import { SAMPLE_DATA_LABEL } from "@/lib/env";
 import { readPeriod, readSeries } from "@/lib/analytics";
 import {
   dayCount,
@@ -22,15 +22,17 @@ import { TrendChart, type TrendPoint } from "@/components/charts/TrendChart";
 import { OpsFailureAlert } from "@/components/ui/Alert";
 
 // ---------------------------------------------------------------------------
-// Sample-data notice — every preview against the local harness says so.
+// Sample-data notice — the local harness says so. It claims the figures are
+// not business data, so it needs an explicit local/harness/rehearsal label and
+// is never shown on a Vercel production or preview deployment (env-policy.ts).
 // ---------------------------------------------------------------------------
 export function SampleDataNotice() {
-  if (!/local|harness|rehears|sample|preview/i.test(ENV_LABEL)) return null;
+  if (!SAMPLE_DATA_LABEL) return null;
   return (
     <p role="note" className="panel mb-6 flex items-start gap-3 px-4 py-3 text-[0.8125rem] text-ink">
       <span aria-hidden="true" className="mt-1.5 inline-block h-2 w-2 shrink-0 rounded-full bg-[#e08a2e]" />
       <span>
-        <strong className="font-semibold">Sample data.</strong> This console is connected to the local synthetic harness ({ENV_LABEL}). Every figure and
+        <strong className="font-semibold">Sample data.</strong> This console is connected to the local synthetic harness ({SAMPLE_DATA_LABEL}). Every figure and
         chart below is fixture data, not Snatch It business data.
       </span>
     </p>

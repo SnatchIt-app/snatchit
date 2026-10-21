@@ -67,6 +67,7 @@ the script sets a local-only password if it has none), `db-anon-role = anon`,
 ```
 NEXT_PUBLIC_SUPABASE_URL=http://localhost:3202
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1oYXJuZXNzIiwicmVmIjoibG9jYWwtaGFybmVzcyIsInJvbGUiOiJhbm9uIiwiaWF0IjoxNzU2MDAwMDAwLCJleHAiOjIwNzEzNjAwMDB9.SOC2vWZoCh6gM7wQqixH9h3ZL6kwzNxZOZTxKTdEO0M
+NEXT_PUBLIC_ENV_LABEL=harness
 ```
 
 The anon key is an HS256 JWT `{role:"anon"}` signed with the dev secret
@@ -74,6 +75,11 @@ The anon key is an HS256 JWT `{role:"anon"}` signed with the dev secret
 reproduces it, `--mint service_role` mints a harness service key for curl
 experiments — the admin app must never receive one). No real Supabase key
 exists anywhere in this harness.
+
+`NEXT_PUBLIC_ENV_LABEL=harness` turns on the "Sample data" notice on Today and
+Money. The notice needs a label of exactly `local`, `harness` or `rehearsal`, set
+explicitly, and never shows on a Vercel production or preview deployment
+(`src/lib/env-policy.ts`); without it the figures are not called fixture data.
 
 ## Synthetic logins (password for all: `harness-pass-123`, MFA code: `123456`)
 

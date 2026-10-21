@@ -5,6 +5,8 @@
  * Every read and mutation the console performs is an `ops.*` RPC executed
  * with the operator's own JWT; the database re-checks role + aal2 itself.
  */
+import { sampleDataLabel } from "@/lib/env-policy";
+
 export const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? null;
 export const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? null;
 
@@ -18,6 +20,16 @@ export const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:32
  */
 export const ENV_LABEL = (process.env.NEXT_PUBLIC_ENV_LABEL ?? "local").trim() || "local";
 export const IS_PRODUCTION_ENV_LABEL = ENV_LABEL.toLowerCase() === "production";
+
+/**
+ * Label for the "Sample data" notice, or null. Only an explicitly set
+ * NEXT_PUBLIC_ENV_LABEL of exactly local / harness / rehearsal, and never on
+ * a Vercel production or preview deployment (lib/env-policy.ts).
+ */
+export const SAMPLE_DATA_LABEL = sampleDataLabel({
+  label: process.env.NEXT_PUBLIC_ENV_LABEL,
+  vercelEnv: process.env.NEXT_PUBLIC_VERCEL_ENV,
+});
 
 const IS_PROD = process.env.NODE_ENV === "production";
 
