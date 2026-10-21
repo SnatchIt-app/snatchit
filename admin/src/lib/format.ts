@@ -307,6 +307,48 @@ export function payoutStateLabel(row: {
 }
 
 /**
+ * Stripe mode of a payment, from `payments.stripe_livemode` (migration 045). `ops.order_detail`
+ * returns it through `ops.payment_json` — `to_jsonb(p)` minus the client secret (116:172-176) —
+ * so pre-045 rows carry an explicit null. Column comment: true = live, false = test-era, null =
+ * unclassified. Only a literal `true` reads as Live and only a literal `false` as Test.
+ *
+ * A recorded null fails closed in the money rails: ops-refund-execute refuses
+ * `row_mode_unclassified` (classify.ts `checkModeConsistency`), `claim_payout_attempt` raises
+ * `PAYMENT_NOT_LIVE` (20260906120000) and `rowIsLiveActionable` is false
+ * (_shared/payout-logic.ts). A missing or non-boolean field is NOT a recorded null: the console
+ * can't tell what the row holds, so that note claims nothing about what automation will do.
+ * Pass the payload record itself (`Payment.raw`): `toPayment` folds a missing key into null.
+ */
+export type StripeMode = "live" | "test" | "unclassified" | "not_provided" | "unrecognised";
+
+const STRIPE_MODE_STOP = "a manual refund must stop here and go to the owner.";
+
+export function stripeModeOf(payment: Record<string, unknown> | null | undefined): { mode: StripeMode; label: string; note: string | null } {
+  const v = payment ? payment.stripe_livemode : undefined;
+  if (v === true) return { mode: "live", label: "Live", note: null };
+  if (v === false) return { mode: "test", label: "Test", note: null };
+  if (v === null) {
+    return {
+      mode: "unclassified",
+      label: "Unclassified",
+      note: `No Stripe mode is recorded for this payment. Automated refunds and payouts fail closed on unclassified payments, so ${STRIPE_MODE_STOP}`,
+    };
+  }
+  if (v === undefined) {
+    return {
+      mode: "not_provided",
+      label: "Unclassified (not provided by the server)",
+      note: `ops.order_detail returned no stripe_livemode, so the console can't tell live from test. Treat it as unclassified: ${STRIPE_MODE_STOP}`,
+    };
+  }
+  return {
+    mode: "unrecognised",
+    label: "Unclassified (unrecognised value)",
+    note: `ops.order_detail returned a stripe_livemode that is not true, false or null, so the console can't tell live from test. Treat it as unclassified: ${STRIPE_MODE_STOP}`,
+  };
+}
+
+/**
  * Provenance of `payout_decisions.buyer_confirmed`, per WRITER. The flag means different
  * things depending on who wrote it and when, so the console annotates rather than rewrites.
  *

@@ -5,7 +5,7 @@ import { callOps } from "@/lib/ops";
 import { requireOperator } from "@/lib/auth/session";
 import { isUuid } from "@/lib/routes";
 import { SUPABASE_URL } from "@/lib/env";
-import { decisionProvenanceNote, labelFor, payoutStateLabel, refundStateLabel, shortId, transferStateLabel } from "@/lib/format";
+import { decisionProvenanceNote, labelFor, payoutStateLabel, refundStateLabel, shortId, stripeModeOf, transferStateLabel } from "@/lib/format";
 import { asArray, str, num, bool, evidenceItems, refundStatusOf, toOrderDetail, toSettings, toTimeline, type JsonRecord, type OpsAction } from "@/lib/types";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Panel } from "@/components/ui/Panel";
@@ -85,6 +85,8 @@ export default async function OrderPage({ params }: { params: Promise<{ paymentI
   // a failed read hides the form (fail closed).
   const guards = await loadMoneyGuards((fn, args) => callOps<unknown>(fn, args), d, { release: canRelease && Boolean(t?.id), refund: canRefund });
   const eventTitle = l?.event_name ?? "Order";
+  // From the payload record, not p.stripe_livemode: toPayment folds a missing key into null.
+  const stripeMode = stripeModeOf(p.raw);
 
   return (
     <>
@@ -169,6 +171,18 @@ export default async function OrderPage({ params }: { params: Promise<{ paymentI
                 { key: "mode", value: p.mode ? <StatusBadge status={p.mode} variant="neutral" /> : null },
                 { key: "payment_method", value: p.payment_method },
                 { key: "stripe_payment_intent_id", label: "Stripe PaymentIntent", value: p.stripe_payment_intent_id ? <code className="font-mono text-[0.75rem]">{p.stripe_payment_intent_id}</code> : null },
+                {
+                  key: "stripe_livemode",
+                  label: "Stripe mode",
+                  value: (
+                    <StatusBadge
+                      status={`stripe_${stripeMode.mode}`}
+                      label={stripeMode.label}
+                      variant={stripeMode.mode === "live" ? "neutral" : stripeMode.mode === "test" ? "muted" : "warn"}
+                      qualifier="below"
+                    />
+                  ),
+                },
                 { key: "status", value: <StatusBadge status={p.status} label={labelFor("payment", p.status)} /> },
                 { key: "created_at", value: <DateTime value={p.created_at} /> },
                 { key: "paid_at", label: "Captured at", value: <DateTime value={p.paid_at} /> },
@@ -176,6 +190,13 @@ export default async function OrderPage({ params }: { params: Promise<{ paymentI
                 { key: "refunded_at", value: <DateTime value={p.refunded_at} /> },
               ]}
             />
+            {stripeMode.note ? (
+              <div className="mt-3">
+                <Alert state="warning" title={`Stripe mode: ${stripeMode.label}`} compact>
+                  {stripeMode.note}
+                </Alert>
+              </div>
+            ) : null}
           </Panel>
 
           <Panel eyebrow="Seller obligation" title="Transfer">
