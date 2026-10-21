@@ -101,3 +101,21 @@ describe("mode-aware copy: database mode never calls itself a demo", () => {
     expect(out).toContain(`<p class="eyebrow-caps">${VENUE.name}</p>`);
   });
 });
+
+describe("database mode offers no Create event control, even on an empty venue", () => {
+  it("a manager at a venue with no events yet gets no Create event link (no write path is wired)", async () => {
+    await inMode("database");
+    const { default: EventsPage } = await import("@/app/o/[org]/v/[venue]/events/page");
+    const out = html(await EventsPage({ params: Promise.resolve({ org: db.ORG, venue: db.VEN }), searchParams: Promise.resolve({}) }));
+    expect(out).toContain("No events yet.");
+    expect(out).not.toContain("Create event");
+    expect(out).not.toContain("/events/new");
+  });
+  it("fixture mode keeps Create event on the empty list", async () => {
+    await inMode("fixtures");
+    const { default: EventsPage } = await import("@/app/o/[org]/v/[venue]/events/page");
+    const out = html(await EventsPage({ params: Promise.resolve({ org: "smp_org_wynwood", venue: "smp_ven_room" }), searchParams: Promise.resolve({ state: "empty" }) }));
+    expect(out).toContain("No events yet.");
+    expect(out).toContain("/events/new");
+  });
+});

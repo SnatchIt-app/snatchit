@@ -78,7 +78,8 @@ export function EventsTable({
   if (events.length === 0) {
     return (
       <EmptyState title="No events yet.">
-        {canEditEvents(ctx.role) ? (
+        {/* Database mode wires no write path (ctx.writesEnabled false): offering Create would lead to a dead end. */}
+        {canEditEvents(ctx.role) && ctx.writesEnabled !== false ? (
           <Link className="btn btn-primary btn-sm" href={withPreview(`${basePath}/events/new`, ctx)}>
             Create event
           </Link>
