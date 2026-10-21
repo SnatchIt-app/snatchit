@@ -30,6 +30,13 @@ export type ActionFormState = {
   failure?: OpsFailure;
   /** Client-side validation problem (e.g. missing reason). */
   invalid?: string;
+  /**
+   * The subject this answer is for: subject_kind and subject_id exactly as the
+   * form posted them (absent for a ref-addressed or subject-less post). One
+   * host shared by a list of rows (ListOutcomeHost) uses it to show the answer
+   * at that row, or to say the row has left the list after the refresh.
+   */
+  subject?: { kind: string; id: string };
 };
 
 /** The first of `keys` holding a non-empty string. Not pick(): it stops at the first key present, even one that is null. */
@@ -128,13 +135,15 @@ export async function submitActionForm(_prev: ActionFormState, formData: FormDat
   const subjectRef = String(formData.get("subject_ref") ?? "");
   const reasonRequired = formData.get("reason_required") !== "0";
   const revalidate = formData.get("revalidate");
+  // Every answer below names the subject it is for (see ActionFormState.subject).
+  const forSubject = (state: ActionFormState): ActionFormState => (subjectId ? { ...state, subject: { kind: subjectKind, id: subjectId } } : state);
 
   const params: Record<string, unknown> = parseJsonRecord(formData.get("params"));
   for (const [k, v] of formData.entries()) {
     const field = parseParamField(k);
     if (!field || typeof v !== "string") continue;
     const coerced = coerceParam(field.type, v);
-    if (!coerced.ok) return { submitted: true, invalid: `${field.key}: ${coerced.error}` };
+    if (!coerced.ok) return forSubject({ submitted: true, invalid: `${field.key}: ${coerced.error}` });
     if (coerced.value === undefined) continue; // `:optional` left empty: no change, so no key at all
     params[field.key] = coerced.value;
   }
@@ -149,18 +158,18 @@ export async function submitActionForm(_prev: ActionFormState, formData: FormDat
   // (or nothing at all); everything else needs a uuid subject.
   const refAddressed = actionType === "job_retry" || actionType === "setting_set" || (actionType === "case_create" && subjectKind === "none");
   if (!actionType || !subjectKind || (!subjectId && !refAddressed)) {
-    return { submitted: true, invalid: "This form is missing its action envelope. Reload and try again." };
+    return forSubject({ submitted: true, invalid: "This form is missing its action envelope. Reload and try again." });
   }
-  if (!reason) return { submitted: true, invalid: "A reason is required." };
-  if (reason.length > 2000) return { submitted: true, invalid: "Reason is too long (2000 characters max)." };
+  if (!reason) return forSubject({ submitted: true, invalid: "A reason is required." });
+  if (reason.length > 2000) return forSubject({ submitted: true, invalid: "Reason is too long (2000 characters max)." });
 
   let state: ActionFormState;
   if (actionType === "approval_decide") {
     // Never default a decision: an unrecognised value must not approve.
     const decision = parseApprovalDecision(params.decision);
-    if (!decision) return { submitted: true, failure: { ok: false, kind: "error", message: "invalid decision" } };
+    if (!decision) return forSubject({ submitted: true, failure: { ok: false, kind: "error", message: "invalid decision" } });
     if (typeof params.action_id !== "string" || !params.action_id) {
-      return { submitted: true, invalid: "This form is missing its action envelope. Reload and try again." };
+      return forSubject({ submitted: true, invalid: "This form is missing its action envelope. Reload and try again." });
     }
     state = await approveAction({ actionId: params.action_id, decision, reason });
   } else {
@@ -170,7 +179,7 @@ export async function submitActionForm(_prev: ActionFormState, formData: FormDat
   if (state.outcome && typeof revalidate === "string" && revalidate.startsWith("/")) {
     revalidatePath(revalidate);
   }
-  return state;
+  return forSubject(state);
 }
 
 // ---------------------------------------------------------------------------

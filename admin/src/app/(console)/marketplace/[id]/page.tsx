@@ -17,7 +17,7 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { DateTime } from "@/components/ui/DateTime";
 import { Money } from "@/components/ui/Money";
 import { Alert, OpsFailureAlert } from "@/components/ui/Alert";
-import { ConfirmForm, OutcomeHost } from "@/components/ui/ConfirmForm";
+import { ConfirmForm, ListOutcomeHost, OutcomeHost } from "@/components/ui/ConfirmForm";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { IdLink, PartyLink } from "@/components/ui/IdLink";
 import { EvidenceList } from "@/components/ui/EvidenceLink";
@@ -67,6 +67,11 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
   const founder = canRequest(me.role, "listing_relist");
   const transacted = d.payments.some((p) => p.payment_status === "succeeded" || p.payment_status === "refunded");
   const openReports = d.reports.filter((r) => r.status !== "actioned" && r.status !== "dismissed");
+  // The reports given triage forms in this render, and a server-read name for every report on the listing, so an
+  // answer about a report this refresh no longer lists as open still says which report it was.
+  const openReportIds = openReports.flatMap((r) => (r.id ? [r.id] : []));
+  const reportLabels: Record<string, string> = {};
+  for (const r of d.reports) if (r.id) reportLabels[r.id] = `${r.reason ?? shortId(r.id)} · ${labelFor("report", r.status)}`;
 
   return (
     <>
@@ -212,26 +217,31 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
             </OutcomeHost>
           </Panel>
 
-          {openReports.length ? (
-            <Panel eyebrow={`${openReports.length}`} title="Resolve reports">
-              <div className="space-y-6">
-                {openReports.map((r) => (
-                  <div key={r.id} id={`report-${r.id}`} className="border-b border-line-neutral pb-4 last:border-b-0 last:pb-0">
-                    <p className="text-[0.8125rem] text-ink">
-                      <span className="font-mono">{r.reason ?? "report"}</span> <StatusBadge status={r.status} label={labelFor("report", r.status)} />
-                    </p>
-                    <p className="mt-1 text-[0.75rem] text-muted">{r.notes ?? "—"}</p>
-                    <p className="mt-1 text-[0.6875rem] text-dim">
-                      by <IdLink kind="user" id={r.reporter_id} label={r.reporter_label ?? undefined} /> · <DateTime value={r.created_at} />
-                    </p>
-                    <div className="mt-3">
-                      <ReportResolveForms report={r} revalidate={path} />
+          {/* One report_resolve answer host in every state, outside the open-reports filter. Actioned / Dismiss
+              drop the report from this panel in the action's own refresh (the whole panel when it was the last);
+              the host keeps its place and key, so React keeps the answer and shows it below, naming the report. */}
+          <ListOutcomeHost key="report_resolve" actionType="report_resolve" listed={openReportIds} labels={reportLabels}>
+            {openReports.length ? (
+              <Panel eyebrow={`${openReports.length}`} title="Resolve reports">
+                <div className="space-y-6">
+                  {openReports.map((r) => (
+                    <div key={r.id} id={`report-${r.id}`} className="border-b border-line-neutral pb-4 last:border-b-0 last:pb-0">
+                      <p className="text-[0.8125rem] text-ink">
+                        <span className="font-mono">{r.reason ?? "report"}</span> <StatusBadge status={r.status} label={labelFor("report", r.status)} />
+                      </p>
+                      <p className="mt-1 text-[0.75rem] text-muted">{r.notes ?? "—"}</p>
+                      <p className="mt-1 text-[0.6875rem] text-dim">
+                        by <IdLink kind="user" id={r.reporter_id} label={r.reporter_label ?? undefined} /> · <DateTime value={r.created_at} />
+                      </p>
+                      <div className="mt-3">
+                        <ReportResolveForms report={r} revalidate={path} />
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            </Panel>
-          ) : null}
+                  ))}
+                </div>
+              </Panel>
+            ) : null}
+          </ListOutcomeHost>
 
           <Panel eyebrow="Manual" title="Open a case on this listing">
             <NewCaseForm subjectKind="listing" subjectId={id} revalidate={path} defaultTitle={l.event_name ? `${l.event_name} — ` : undefined} />

@@ -79,7 +79,11 @@ describe("A10 — the server's answer survives the keyed remount", () => {
     expect(keyed.length).toBe(7);
     for (const m of s.matchAll(/<OutcomeHost actionType="([a-z_]+)">\s*<ConfirmForm key=\{`[a-z]+-\$\{c\.version\}`\}[\s\S]*?actionType="([a-z_]+)"/g)) expect(m[1]).toBe(m[2]);
     expect([...s.matchAll(/<OutcomeHost actionType=/g)].length).toBe(7);
-    expect(src("components/reports/ReportResolveForms.tsx")).toContain('<OutcomeHost actionType="report_resolve">');
+    expect(src("components/reports/ReportResolveForms.tsx")).toContain('<OutcomeSlot subjectId={report.id} actionType="report_resolve">');
+    // Both lists can drop the report in the action's own refresh, so the answer's host sits above the list
+    // (behaviour: tests/report-resolve-refresh.test.ts).
+    expect(src("app/(console)/marketplace/[id]/page.tsx")).toContain('<ListOutcomeHost key="report_resolve" actionType="report_resolve" listed={openReportIds}');
+    expect(src("app/(console)/reports/page.tsx")).toContain('<ListOutcomeHost key="report_resolve" actionType="report_resolve" listed={rows.flatMap(');
   });
   it("inside a host the form posts the same fields and does not render its own copy of the answer", () => {
     const s = src("components/ui/ConfirmForm.tsx");

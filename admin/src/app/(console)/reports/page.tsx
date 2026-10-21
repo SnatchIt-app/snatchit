@@ -11,6 +11,7 @@ import { DataTable, type Column } from "@/components/ui/DataTable";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { DateTime } from "@/components/ui/DateTime";
 import { IdLink } from "@/components/ui/IdLink";
+import { ListOutcomeHost } from "@/components/ui/ConfirmForm";
 import { ReportResolveForms } from "@/components/reports/ReportResolveForms";
 
 export const metadata: Metadata = { title: "Reports" };
@@ -91,11 +92,17 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
           <FilterSelect name="target_type" options={TARGETS} value={targetType} />
         </FilterField>
       </FilterForm>
-      {!res.ok ? (
-        <OpsFailureAlert failure={res} fn="list_reports" retryHref={selfHref(basePath, sp)} />
-      ) : (
-        <DataTable columns={columns} rows={rows} rowKey={(r, i) => r.id ?? `${i}`} basePath={basePath} searchParams={sp} nextCursor={page?.next_cursor} emptyText="No reports match." caption="Reports" />
-      )}
+      {/* One report_resolve answer host for the page, around the table. With a status filter (the Today tile opens
+          ?status=pending) a triaged report leaves the list in the action's own refresh; the host keeps its place, so
+          React keeps the answer and shows it above the table, naming the report. A row still listed shows it in its
+          own Triage cell. */}
+      <ListOutcomeHost key="report_resolve" actionType="report_resolve" listed={rows.flatMap((r) => (r.id ? [r.id] : []))} unlisted="before">
+        {!res.ok ? (
+          <OpsFailureAlert failure={res} fn="list_reports" retryHref={selfHref(basePath, sp)} />
+        ) : (
+          <DataTable columns={columns} rows={rows} rowKey={(r, i) => r.id ?? `${i}`} basePath={basePath} searchParams={sp} nextCursor={page?.next_cursor} emptyText="No reports match." caption="Reports" />
+        )}
+      </ListOutcomeHost>
     </>
   );
 }

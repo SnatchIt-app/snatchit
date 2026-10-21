@@ -8,6 +8,7 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Alert, OpsFailureAlert } from "@/components/ui/Alert";
 import { str, type ActionOutcome } from "@/lib/types";
 import { RELIST_STALE_MESSAGE, relistOutcomeDetail, type RelistOutcomeDetail } from "@/lib/relist";
+import { shortId } from "@/lib/format";
 
 /**
  * While a submission is pending the button stays focusable (aria-disabled, not
@@ -50,22 +51,104 @@ const OutcomeHostContext = createContext<HostValue | null>(null);
  */
 export function OutcomeHost({ actionType = "", children }: { actionType?: string; children: ReactNode }) {
   const [state, formAction, pending] = useActionState<ActionFormState, FormData>(submitActionForm, {});
-  const box = useRef<HTMLDivElement>(null);
-  const has = Boolean(state.invalid || state.failure || state.outcome);
-  useEffect(() => {
-    if (!has) return;
-    const a = document.activeElement;
-    if (!a || a === document.body) box.current?.focus();
-  }, [state, has]);
   return (
     <OutcomeHostContext.Provider value={{ formAction, pending }}>
       {children}
-      {has ? (
-        <div ref={box} tabIndex={-1} className="mt-3 outline-none">
-          <FormResult state={state} actionType={actionType} />
-        </div>
-      ) : null}
+      {hasAnswer(state) ? <AnswerBox state={state} actionType={actionType} /> : null}
     </OutcomeHostContext.Provider>
+  );
+}
+
+const hasAnswer = (state: ActionFormState) => Boolean(state.invalid || state.failure || state.outcome);
+
+/** The answer on screen. Focus moves to it when the form that held focus was replaced (focus fell to the page). */
+function AnswerBox({ state, actionType, caption }: { state: ActionFormState; actionType: string; caption?: ReactNode }) {
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const a = document.activeElement;
+    if (!a || a === document.body) box.current?.focus();
+  }, [state]);
+  return (
+    <div ref={box} tabIndex={-1} className="mt-3 outline-none">
+      {caption}
+      <FormResult state={state} actionType={actionType} />
+    </div>
+  );
+}
+
+type ListHostValue = { state: ActionFormState; actionType: string };
+const ListOutcomeContext = createContext<ListHostValue | null>(null);
+
+/**
+ * One OutcomeHost for a list whose rows can leave the list in the refresh that
+ * delivers the answer. submitActionForm revalidates the page after an outcome,
+ * and Next commits the re-rendered page in the same response, so a host kept in
+ * a row that the refreshed page no longer lists (an actioned report under "open
+ * reports", a pending filter after Mark reviewing) is unmounted and the answer
+ * is thrown away. This host sits above the list, in the same place in every
+ * state; the forms inside post through it exactly as through an OutcomeHost.
+ * Its answer names the subject it is for (ActionFormState.subject): an
+ * OutcomeSlot for that subject shows it in the row while the row is
+ * `listed`; otherwise the host shows it in its own place, `unlisted`
+ * ("before" or "after" its children), naming the subject by `labels[id]` or
+ * its short id. Only the last answer is held, as in every OutcomeHost.
+ */
+export function ListOutcomeHost({
+  actionType,
+  listed,
+  labels,
+  unlisted = "after",
+  children,
+}: {
+  actionType: string;
+  /** Subject ids rendered with an OutcomeSlot in this render, as the server listed them. */
+  listed: string[];
+  /** Server-read names for subjects that can leave the list (e.g. a report's reason and status). */
+  labels?: Record<string, string>;
+  unlisted?: "before" | "after";
+  children: ReactNode;
+}) {
+  const [state, formAction, pending] = useActionState<ActionFormState, FormData>(submitActionForm, {});
+  const subject = state.subject;
+  const elsewhere = hasAnswer(state) && !(subject && listed.includes(subject.id));
+  const answer = elsewhere ? (
+    <AnswerBox
+      state={state}
+      actionType={actionType}
+      caption={
+        subject ? (
+          <p className="eyebrow mb-1 text-dim">
+            {subject.kind} <span title={subject.id}>{labels?.[subject.id] ?? shortId(subject.id)}</span> — no longer listed here
+          </p>
+        ) : null
+      }
+    />
+  ) : null;
+  return (
+    <OutcomeHostContext.Provider value={{ formAction, pending }}>
+      <ListOutcomeContext.Provider value={{ state, actionType }}>
+        {unlisted === "before" ? answer : null}
+        {children}
+        {unlisted === "after" ? answer : null}
+      </ListOutcomeContext.Provider>
+    </OutcomeHostContext.Provider>
+  );
+}
+
+/**
+ * One subject's forms. Inside a ListOutcomeHost: the forms, then the host's
+ * answer when it is for `subjectId`. Outside one: that subject's own
+ * OutcomeHost, as before.
+ */
+export function OutcomeSlot({ subjectId, actionType = "", children }: { subjectId: string; actionType?: string; children: ReactNode }) {
+  const list = useContext(ListOutcomeContext);
+  if (!list) return <OutcomeHost actionType={actionType}>{children}</OutcomeHost>;
+  const mine = hasAnswer(list.state) && list.state.subject?.id === subjectId;
+  return (
+    <>
+      {children}
+      {mine ? <AnswerBox state={list.state} actionType={list.actionType} /> : null}
+    </>
   );
 }
 
