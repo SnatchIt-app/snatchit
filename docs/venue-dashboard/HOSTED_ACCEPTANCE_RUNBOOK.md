@@ -8,8 +8,8 @@ the rationale and the local rehearsal. Nothing here has been run against the san
 | Item | Value |
 |---|---|
 | Migration under test | `supabase/migrations/20260910120000_venue_api_read_views.sql` (+ rollback), pgTAP `188` — byte-identical to `ae2e2ea` |
-| App under test | `venue/read-slice1-fixes` @ `2665a20` (F1–F4 approved by Claude A) — the frozen app fails eight checks |
-| Kit | `venue/scripts/acceptance/` on `venue/slice1-acceptance-kit` (pin: the commit carrying the manifest) |
+| App under test | `venue/production-readiness` (dashboard v2 + this kit, sha pinned in the window manifest). The results below were recorded against `venue/read-slice1-fixes` @ `2665a20` (F1–F4 approved by Claude A); the frozen app fails eight checks |
+| Kit | `venue/scripts/acceptance/` on `venue/production-readiness` (merged from `venue/slice1-acceptance-kit` @ `62ec887d`; `DENIED` marker updated to v2's denial copy) |
 | Target | shared sandbox `ofaidukbieeekqaboscm` only; production ref is refused by the kit |
 | Window | **not scheduled** — owner authorizes the specific window; Claude A's phases run first, then venue V0–V10, then any C preview. |
 
@@ -92,7 +92,7 @@ checkout/payments/transfers/bids, refunds/payouts, door/scan, resale policies, p
 
 Automated wall time ≈ 8 min (browser phases dominate; the sandbox H3 includes a 12 s reuse-interval wait).
 
-## Commands (from a checkout of `venue/slice1-acceptance-kit`, CLI linked; no `db push`, ever)
+## Commands (from a checkout of `venue/production-readiness`, CLI linked; no `db push`, ever)
 
 ```bash
 export REF=ofaidukbieeekqaboscm
@@ -114,7 +114,7 @@ Build and serve the app under test against the sandbox (keys are public-class; t
 touches a file; `NEXT_PUBLIC_*` is inlined at build):
 
 ```bash
-git worktree add ../venue-under-test venue/read-slice1-fixes && cd ../venue-under-test/venue && npm ci
+git worktree add ../venue-under-test <pinned venue/production-readiness sha> && cd ../venue-under-test/venue && npm ci
 export NEXT_PUBLIC_VENUE_DATA_SOURCE=database NEXT_PUBLIC_ENV_LABEL=sandbox
 export NEXT_PUBLIC_SUPABASE_URL=https://$REF.supabase.co
 export NEXT_PUBLIC_SUPABASE_ANON_KEY="$(supabase projects api-keys --project-ref $REF -o json | python3 -c 'import sys,json;print(next(k["api_key"] for k in json.load(sys.stdin) if k["name"]=="anon"))')"

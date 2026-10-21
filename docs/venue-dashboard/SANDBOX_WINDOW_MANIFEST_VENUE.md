@@ -18,8 +18,8 @@ runs until the owner authorizes the specific window. No production step exists i
 | Item | Commit | Integrity |
 |---|---|---|
 | Migration + rollback + pgTAP 188 | `ae2e2ea8528db37b3b416d5192cb18e3e6192bad` (byte-identical at every pin below) | sha256 migration `4106b9d0…46d4a3`, rollback `087d94fd…3165c6`, pgTAP `9e08b4ef…c97269` |
-| App under test | `venue/read-slice1-fixes` @ `2665a207988b21df56ebb3f0fe9a389a77baf4ec` (F1–F4 approved by A) | build locally; never deployed |
-| Acceptance kit | `venue/slice1-acceptance-kit` @ the commit that carries this file (see §9) | contains no `venue/src` and no `supabase/` change vs `ae2e2ea` |
+| App under test | `venue/production-readiness` (dashboard v2 + this kit; pin the exact sha when the owner names the window). Previously `venue/read-slice1-fixes` @ `2665a207988b21df56ebb3f0fe9a389a77baf4ec` (F1–F4 approved by A) | build locally; never deployed. The kit has not yet been run against v2: run `--phase all` on the local replay first |
+| Acceptance kit | `venue/scripts/acceptance/` on `venue/production-readiness` (merged from `venue/slice1-acceptance-kit` @ `62ec887d`; the `DENIED` marker now matches v2's "… isn't open to you." denial copy, guarded by `venue/tests/acceptance-kit-markers.test.tsx`) | the migration, rollback and pgTAP 188 stay byte-identical to `ae2e2ea` (sha256 above) |
 
 Verify on the day: `shasum -a 256 supabase/migrations/20260910120000_venue_api_read_views.sql` equals the value above.
 
@@ -84,7 +84,7 @@ $K --phase verify-apply                                # V2  read-only
 #     A: witness ledger count (+1) + Gate-2 census unchanged (after)
 #     OWNER: S1 (§8)
 $K --phase verify-exposure                             # V3  read-only: venue_api 404, catalog/venue 406, no schema dropped, hook unchanged
-# build + serve the app under test at 2665a20 (runbook "Build and serve"), then:
+# build + serve the app under test at the pinned venue/production-readiness sha (runbook "Build and serve"), then:
 $K --phase fixtures   --window $VENUE_ACCEPT_WINDOW    # V4  MUTATION §4
 $K --phase api        --window $VENUE_ACCEPT_WINDOW    # V5  sign-ins + refused write attempts (C1–C7, H4, H5)
 $K --phase browser    --window $VENUE_ACCEPT_WINDOW    # V6  H1–H7, C4, C6, C7, P1; writes 3 evidence PNGs

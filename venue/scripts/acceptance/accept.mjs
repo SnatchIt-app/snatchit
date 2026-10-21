@@ -89,7 +89,9 @@ const ID = {
 const A = `/o/${ID.orgA}/v/${ID.venA}`;
 const B = `/o/${ID.orgB}/v/${ID.venB}`;
 const TITLE = { e1: "Hosted Acceptance Night A (synthetic, on sale)", e2: "Hosted Acceptance Draft A (synthetic)", e3: "Hosted Acceptance Night B (synthetic, announced)", e4: "Hosted Acceptance Draft B (synthetic)" };
-const DENIED = "You don't have access to this.";
+// v2 denial copy (components/ui/State.tsx DeniedState, also used by EntryGate): "<surface> isn't open to you."
+// The pre-v2 app said "You don't have access to this." — that sentence is now only the database 42501 screen.
+const DENIED = "isn't open to you.";
 const NO_GRANT = "holds no staff or organization role at this venue";
 const SIGN_IN = "Sign in to continue";
 
