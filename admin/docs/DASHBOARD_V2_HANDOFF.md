@@ -277,3 +277,19 @@ it with `HARNESS_MFA_MODE=totp HARNESS_QR_ENCODER=<repo>/snatchit/node_modules/q
 7. Small phone targets meet WCAG AA 2.5.8 (24px), not the 44px AAA guideline; MetricTile definitions on /system are hover-only.
 8. Screen reader (VoiceOver) not exercised; real event photography needs storage work — both optional.
 9. The private rehearsal copy keeps the harness's append-only audit rows (labelled "harness:"); state was restored.
+
+### Full gates run 2026-10-21 (wave 4, local, Node 24.13.1; CI on Node 22 runs on the PR)
+Supersedes the "still owed" notes above for these items.
+- `npm ci`, typecheck, lint: exit 0. `npm test`: **38 files / 353 tests**. `next build` with the CI placeholder env: exit 0 (18 dynamic routes + /_not-found + Proxy).
+- Production guards, re-run first-hand by the lead at 07591c28:
+  - a `sb_secret_` key gives exit 1, "Refusing to start: … is a Supabase secret key", and the key appears 0 times in the log;
+  - `SITE_URL=https://evil.example` gives exit 1;
+  - `SITE_URL=https://admin.snatchitapp.com` with an anon JWT gives exit 0.
+- #89 flows on a LOCAL replay of the production chain (fix/154 @ bfc5cf97, 171 migrations), driven through the console's real server actions in headless Chrome as an aal2 founder:
+  - classify A with "Leave as is" raises no obligation and leaves the case unassigned;
+  - classify B raises `payout_owed`;
+  - an unchosen State is blocked by the browser; when posted anyway, `settled=false` is recorded;
+  - resolve is refused while an obligation is unsettled, and allowed after `settled=true`;
+  - `alert_ack` works, and a stale page shows the "new incident #M … showed #N" warning;
+  - a recovered alert is refused.
+- Not run: the aal1 → TOTP enrolment path in this pass, a real authenticator, and any hosted environment.
