@@ -1,0 +1,31 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "trailingSlash": false,
+  "redirects": [
+    { "source": "/", "destination": "https://app.snatchitapp.com/", "permanent": true },
+
+    { "source": "/home", "destination": "https://app.snatchitapp.com/", "permanent": true },
+    { "source": "/explore", "destination": "https://app.snatchitapp.com/browse", "permanent": true },
+    { "source": "/create", "destination": "https://app.snatchitapp.com/sell", "permanent": true },
+    { "source": "/bids", "destination": "https://app.snatchitapp.com/account", "permanent": true },
+    { "source": "/profile", "destination": "https://app.snatchitapp.com/account", "permanent": true },
+    { "source": "/my-listings", "destination": "https://app.snatchitapp.com/account/listings", "permanent": true },
+    { "source": "/bid/:id", "destination": "https://app.snatchitapp.com/listing/:id", "permanent": true },
+    { "source": "/settings/edit-profile", "destination": "https://app.snatchitapp.com/account/profile", "permanent": true },
+    { "source": "/settings/notifications", "destination": "https://app.snatchitapp.com/account/notifications", "permanent": true },
+    { "source": "/settings/payout-setup", "destination": "https://app.snatchitapp.com/account/settings", "permanent": true },
+    { "source": "/settings/:rest*", "destination": "https://app.snatchitapp.com/account/settings", "permanent": true },
+
+    { "source": "/login", "destination": "https://app.snatchitapp.com/login", "permanent": true },
+    { "source": "/signup", "destination": "https://app.snatchitapp.com/signup", "permanent": true },
+    { "source": "/reset-password", "destination": "https://app.snatchitapp.com/reset-password", "permanent": true },
+    { "source": "/payout-return", "destination": "https://app.snatchitapp.com/payout-return", "permanent": true },
+    { "source": "/payout-refresh", "destination": "https://app.snatchitapp.com/payout-refresh", "permanent": true },
+    { "source": "/listing/:id", "destination": "https://app.snatchitapp.com/listing/:id", "permanent": true },
+    { "source": "/checkout/:id", "destination": "https://app.snatchitapp.com/checkout/:id", "permanent": true },
+    { "source": "/transfer/send/:id", "destination": "https://app.snatchitapp.com/transfer/send/:id", "permanent": true },
+    { "source": "/transfer/receive/:id", "destination": "https://app.snatchitapp.com/transfer/receive/:id", "permanent": true },
+
+    { "source": "/:path(.*)", "destination": "https://app.snatchitapp.com/:path", "permanent": true }
+  ]
+}
