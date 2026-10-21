@@ -471,6 +471,9 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   -- 155 (20261015000100): the server-owned end time, a trigger function on listings (BEFORE INSERT OR
   -- UPDATE; SECURITY INVOKER). REVOKE PUBLIC/anon/authenticated.
   ('set_listing_ends_at_from_duration()',                            'no-client-execute'),
+  -- 172 (20261021132000, DRAFT, owner-gated): the server-owned bids.created_at, a trigger function on bids
+  -- (BEFORE INSERT, the first by name; SECURITY INVOKER). REVOKE ALL FROM PUBLIC, anon, authenticated.
+  ('set_bid_created_at_server_clock()',                              'no-client-execute'),
 
   -- ── authenticated-execute ────────────────────────────────────────────────
   -- Signed-in RPCs. Each derives caller identity from auth.uid() internally;

@@ -685,7 +685,10 @@ jobs:
           # 2026-10-15 156 ADDENDUM 3 (old-build purchase safeguard): functions 123 -> 126 — +3
           # public.client_shows_proof_disclosure, public.guard_bid_requires_disclosure,
           # public.guard_reservation_requires_disclosure (all no-client-execute). Read from an actual local replay.
-          EXPECT_FUNCS: 126
+          # 2026-10-21 migration 172 (DRAFT, owner-gated; BE-37 S2): functions 126 -> 127 — +1
+          # public.set_bid_created_at_server_clock (no-client-execute). Read from a clone of A's local chain
+          # a_sprint_chain (bfc5cf97) + 172, extension-owned functions excluded (162 P2's query): 126 -> 127.
+          EXPECT_FUNCS: 127
           # 2026-10-15 migration 154: policies 37 -> 37 — listings_select_all -> listings_select_visible and
           # bids_select_all -> bids_select_visible, 1-for-1; listing_visibility carries no policy.
           EXPECT_POLICIES: 37
@@ -698,7 +701,9 @@ jobs:
           # (listings); 156: +trg_guard_listing_proof_waiver (listings).
           # 2026-10-15 156 ADDENDUM 3: triggers 47 -> 49 — +trg_reservation_requires_disclosure (listings),
           # +trg_bid_requires_disclosure (bids). Read from an actual local replay.
-          EXPECT_TRIGGERS: 49
+          # 2026-10-21 migration 172 (DRAFT, owner-gated): triggers 49 -> 50 — +before_bid_created_at_server_owned
+          # (bids, BEFORE INSERT, first by name). Read from a clone of a_sprint_chain + 172: 49 -> 50.
+          EXPECT_TRIGGERS: 50
 
       # Privilege-parity diagnostic. Production's table grants come from Supabase's
       # DEFAULT PRIVILEGES, not from the migration chain (migration 063 says so

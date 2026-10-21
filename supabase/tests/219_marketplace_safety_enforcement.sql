@@ -82,9 +82,15 @@ UPDATE auth.users SET phone = '+1305555' || right(id::text, 4), phone_confirmed_
 SELECT alike((SELECT pg_get_triggerdef(oid) FROM pg_trigger WHERE tgrelid = 'public.bids'::regclass AND tgname = 'before_bid_guard_parties'),
   'CREATE TRIGGER before_bid_guard_parties BEFORE INSERT ON public.bids FOR EACH ROW EXECUTE FUNCTION %guard_bid_parties()',
   'A1: before_bid_guard_parties is BEFORE INSERT on bids');
+-- 172 (BE-37 S2) puts one trigger ahead of the guard on purpose: before_bid_created_at_server_owned only assigns
+-- NEW.created_at := now() (it cannot refuse, locks nothing, writes no table), so the rule this pins (the parties
+-- refusal fires before validate_and_apply_bid locks or updates the listing) is unchanged. The exemption holds only
+-- while that trigger runs that function; any other BEFORE trigger sorting ahead of the guard still fails A2.
 SELECT ok('before_bid_guard_parties' < (SELECT min(tgname) FROM pg_trigger WHERE tgrelid = 'public.bids'::regclass
-            AND NOT tgisinternal AND tgname <> 'before_bid_guard_parties' AND tgtype & 2 = 2),
-  'A2: it sorts before every other BEFORE trigger on bids, so it fires first');
+            AND NOT tgisinternal AND tgname <> 'before_bid_guard_parties' AND tgtype & 2 = 2
+            AND NOT (tgname = 'before_bid_created_at_server_owned'
+                     AND tgfoid IS NOT DISTINCT FROM to_regprocedure('public.set_bid_created_at_server_clock()'))),
+  'A2: it sorts before every other BEFORE trigger on bids (172''s created_at stamp aside), so it fires before any refusal or lock');
 SELECT alike((SELECT pg_get_triggerdef(oid) FROM pg_trigger WHERE tgrelid = 'public.listings'::regclass AND tgname = 'trg_guard_listing_reservation_parties'),
   'CREATE TRIGGER trg_guard_listing_reservation_parties BEFORE UPDATE OF status, reserved_by ON public.listings FOR EACH ROW EXECUTE FUNCTION %guard_listing_reservation_parties()',
   'A3: the reservation guard is BEFORE UPDATE OF status, reserved_by on listings');
