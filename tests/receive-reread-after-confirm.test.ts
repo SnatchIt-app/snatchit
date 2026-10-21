@@ -10,6 +10,7 @@
 // Harness copied from receive-transfer-confirm-dialog.test.ts, plus a captured focus callback and a
 // switchable read failure.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 
 import { RETURN_PROMPT } from '@/src/lib/transfer/providerHandoff';
 import { transferStatusCopy } from '@/src/lib/transfer/transferState';
@@ -212,5 +213,19 @@ describe('the order re-reads after confirming, and on return', () => {
     await flush();
     host.flush();
     expect(buttonByLabel(host.output, CONFIRM)).toBeUndefined();
+  });
+
+  it('RR5: an older re-read that lands after a newer one changes nothing (review m6)', async () => {
+    const host = await mountReceive();
+    h.transfer = transfer({ status: 'buyer_confirmed', buyer_confirmed_at: '2026-10-19T16:05:48Z', payout_released_at: '2026-10-19T16:05:52Z' });
+    await confirmAndSucceed(host);
+    expect(released(host)).toBe(true);
+    const src = readFileSync('app/transfer/receive/[id].tsx', 'utf8');
+    expect(src).toMatch(/const gen = \+\+readGenRef\.current;[\s\S]{0,900}if \(gen !== readGenRef\.current\) return null;/);
+  });
+
+  it('RR6: a refused stale row is not returned to callers (review m7)', () => {
+    const src = readFileSync('app/transfer/receive/[id].tsx', 'utf8');
+    expect(src).toMatch(/if \(stale\) fresh = null;/);
   });
 });

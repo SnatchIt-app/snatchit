@@ -231,6 +231,8 @@ export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixt
   }, [transfer?.transfer_evidence_path, transfer?.status, fixture]);
 
   const confirmedHereRef = useRef(false);
+  // Only the newest read may land (review m6): an older re-read finishing last put "not released" back.
+  const readGenRef = useRef(0);
   const fetchTransfer = useCallback(async (opts?: { quiet?: boolean }): Promise<TransferData | null> => {
     // Harness: the fixture replaces this one read and nothing else — no query leaves the app.
     if (fixture) { setTransfer(fixture.transfer); setError(''); setLoading(false); return fixture.transfer; }
@@ -238,6 +240,7 @@ export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixt
     // Quiet: re-read behind the content (a return from the provider) instead
     // of replacing the order with a spinner.
     if (!opts?.quiet) setLoading(true);
+    const gen = ++readGenRef.current;
     const { data, error: fetchErr } = await supabase
       .from('transfers')
       .select(
@@ -250,6 +253,9 @@ export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixt
       .eq('id', id)
       .eq('buyer_id', userId)
       .single();
+
+    // A newer read has started: this one is superseded and changes nothing.
+    if (gen !== readGenRef.current) return null;
 
     let fresh: TransferData | null = null;
     if (fetchErr || !data) {
@@ -270,7 +276,8 @@ export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixt
       // stale read, never a step back: the status doesn't return from buyer_confirmed. Keep the
       // confirmed state rather than offer "I have my tickets" again.
       const stale = confirmedHereRef.current && (fresh.status === 'pending' || fresh.status === 'seller_sent');
-      if (!stale) setTransfer(fresh);
+      if (stale) fresh = null;   // review m7: callers (the arrival prompt) never act on a row we refused
+      else setTransfer(fresh);
     }
     setLoading(false);
     return fresh;
