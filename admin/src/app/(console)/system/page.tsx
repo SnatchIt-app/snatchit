@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { callOps } from "@/lib/ops";
 import { requireOperator } from "@/lib/auth/session";
 import { newIdempotencyKey } from "@/lib/idempotency";
@@ -36,6 +35,7 @@ import { FilterField, FilterSelect } from "@/components/ui/FilterField";
 import { ActionTable } from "@/components/actions/ActionTable";
 import { AuditTable } from "@/components/system/AuditTable";
 import { SummaryView } from "@/components/system/SummaryView";
+import { AlertList } from "@/components/system/AlertList";
 import { ReportFreshness } from "@/components/shell/Freshness";
 
 export const metadata: Metadata = { title: "System" };
@@ -54,6 +54,11 @@ const SETTING_HELP: Record<string, string> = {
   webhook_stuck_minutes: "Age of an unprocessed Stripe webhook that counts as stuck.",
   release_stuck_minutes: "Minutes after a recorded release without a Stripe Transfer before Release stuck fires.",
   approval_ttl_hours: "Hours before a pending second-founder approval expires.",
+  // Owner decisions (A, PR #89 port): the help says so, and never tells an operator to flip them.
+  alert_delivery_enabled:
+    "Owner decision; not changed without the owner. Gate for ops.dispatch_alerts (migration 146): while false nothing is posted. True still sends nothing by itself: 146 schedules no caller, and scheduling one is a separate owner decision.",
+  refund_resolution_detector_enabled:
+    "Owner decision; not changed without the owner. While false the refund_resolution detector is skipped for every trigger, Run now included, so it opens no refund-resolution case (migration 144).",
 };
 
 export default async function SystemPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
@@ -182,32 +187,7 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
 
             <Panel eyebrow={`${health.alerts.length} firing`} title="Alerts">
               <div id="alerts" />
-              {health.alerts.length === 0 ? (
-                <p className="text-dim">No alerts firing.</p>
-              ) : (
-                <ul className="space-y-2">
-                  {health.alerts.map((a, i) => {
-                    const caseId = typeof a.payload?.case_id === "string" ? a.payload.case_id : null;
-                    const title = typeof a.payload?.title === "string" ? a.payload.title : null;
-                    return (
-                      <li key={a.alert_key ?? i} className="flex flex-wrap items-baseline gap-2 border-l-2 border-warning pl-3 text-[0.8125rem]">
-                        <StatusBadge status={a.state} label={a.state ?? "firing"} />
-                        <span className="font-mono text-[0.75rem] text-dim">{a.kind}</span>
-                        {caseId ? (
-                          <Link href={`/cases/${caseId}`} className="link">
-                            {title ?? a.alert_key}
-                          </Link>
-                        ) : (
-                          <span>{title ?? a.alert_key}</span>
-                        )}
-                        <span className="text-[0.6875rem] text-dim">
-                          first <TimeAgo value={a.first_fired_at} /> · last <TimeAgo value={a.last_fired_at} /> · ×{a.fire_count ?? 1}
-                        </span>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
+              <AlertList alerts={health.alerts} meId={me.id} />
             </Panel>
           </>
         )}

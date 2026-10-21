@@ -233,3 +233,65 @@ export async function submitResumeRefund(_prev: ResumeRefundState, formData: For
   const actionId = String(formData.get("action_id") ?? "");
   return resumeRefundExecution(actionId);
 }
+
+// ---------------------------------------------------------------------------
+// Alert acknowledgement (ops.alert_ack, migration 146) — port of PR #89
+// ---------------------------------------------------------------------------
+
+/**
+ * Acknowledging is NOT part of the action engine: `ops.alert_ack(p_alert_key
+ * text, p_note text default null)` is its own function, gated by
+ * `ops.assert_reader()` and audited by itself (`alert.acknowledged`). It
+ * records that a PERSON has seen a firing alert — the one thing neither a
+ * database row nor a confirmed delivery can tell you. It does not recover the
+ * alert: the condition still has to clear on its own.
+ */
+export type AlertAckState = {
+  submitted?: boolean;
+  /** The alert as it stands after the call. */
+  acknowledgedAt?: string;
+  /** The incident that was acknowledged, when the database reports one. */
+  incidentSeq?: number;
+  failure?: OpsFailure;
+  invalid?: string;
+  /** ops.alert_ack's own refusal (unknown key, already recovered), in its words. */
+  refused?: string;
+};
+
+export async function acknowledgeAlert(alertKey: string, note: string): Promise<AlertAckState> {
+  if (!alertKey) return { submitted: true, invalid: "This form is missing its alert key. Reload and try again." };
+  if (note.length > 2000) return { submitted: true, invalid: "Note is too long (2000 characters max)." };
+  const res = await callOps<unknown>("alert_ack", { p_alert_key: alertKey, p_note: note || null });
+  if (!res.ok) {
+    // 146 raises P0002 'not_found: no alert …' and P0001 'precondition_failed:
+    // … nothing to acknowledge': the function's own refusals, not a fault.
+    // Anything else stays the generic failure mapOpsError built (the
+    // database's message and code, verbatim).
+    const message = res.kind === "error" ? res.message : undefined;
+    if (message && /no alert|nothing to acknowledge/i.test(message)) {
+      return { submitted: true, refused: message };
+    }
+    return { submitted: true, failure: res };
+  }
+  const row = isRecord(res.data) ? res.data : {};
+  const acknowledgedAt = typeof row.acknowledged_at === "string" ? row.acknowledged_at : undefined;
+  if (!acknowledgedAt) {
+    return { submitted: true, failure: { ok: false, kind: "error", message: "Unrecognised response from alert_ack" } };
+  }
+  return {
+    submitted: true,
+    acknowledgedAt,
+    incidentSeq: typeof row.incident_seq === "number" ? row.incident_seq : undefined,
+  };
+}
+
+export async function submitAlertAck(_prev: AlertAckState, formData: FormData): Promise<AlertAckState> {
+  const alertKey = String(formData.get("alert_key") ?? "");
+  const note = String(formData.get("note") ?? "").trim();
+  const state = await acknowledgeAlert(alertKey, note);
+  const revalidate = formData.get("revalidate");
+  if (state.acknowledgedAt && typeof revalidate === "string" && revalidate.startsWith("/")) {
+    revalidatePath(revalidate);
+  }
+  return state;
+}
