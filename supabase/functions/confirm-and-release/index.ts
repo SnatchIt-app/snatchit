@@ -27,6 +27,40 @@
 //   (2026-08-03 incident): payout_status 'processing' while an attempt is
 //   open/being reconciled, 'pending_review' when an operator must act,
 //   already_released only when a succeeded attempt exists.
+//   Enforced mechanically since 2026-10-21 (CFT-703 catalogue CRE-404 /
+//   CRE-500): once confirm_transfer_received has succeeded — or reported the
+//   row already buyer_confirmed / auto_released — `confirmationRecorded` is
+//   set, a failed transfer re-read answers 200 processing, and ANY throw
+//   after that point (e.g. a Stripe pre-flight fetch inside
+//   _shared/payouts.ts createSellerPayout, which does not catch it) answers
+//   200 processing too. Nothing is retried here: a claimed attempt stays open
+//   under its lease and the payout sweep (enforce-transfer-expiry Phase 2b)
+//   remains the authority that reconciles and pays it.
+//
+// ERROR BODIES: { error, code }. `error` text is unchanged for existing
+// clients; `code` is the stable key (catalogue §7 P1).
+//   • confirm_transfer_received refusal (400): `code` is the Postgres HINT
+//     when it is a machine code (migration 171: TRANSFER_NOT_CONFIRMABLE,
+//     DETAIL = status). Until 171 is applied the RPC raises without a HINT
+//     and `code` is null — harmless; deploy order relative to 171 is free.
+//   • Edge-originated: AUTH_REQUIRED 401 · RATE_LIMITED 429 ·
+//     SERVICE_UNAVAILABLE 503 · TRANSFER_ID_REQUIRED 400 ·
+//     ORDER_UNDER_REVIEW 409 · TRANSFER_STATE_CHANGED 400 ·
+//     NOT_TRANSFER_BUYER 403 · INTERNAL 500 (only before the confirmation);
+//     account_deletion_pending 403 keeps its pre-existing lowercase code.
+//
+// NON-200 ANSWERS AFTER THE RPC, kept deliberately (2026-10-21 review):
+//   • 403 NOT_TRANSFER_BUYER — unreachable: the RPC checks the buyer before
+//     the status, so a non-buyer is refused there (400) and never gets here.
+//   • 409 ORDER_UNDER_REVIEW (§5 and the claim's DISPUTED) — a `disputed`
+//     row is refused by the RPC first (400); these answer only when a dispute
+//     freezes the row between the RPC and the re-read / claim (race only).
+//   • 400 TRANSFER_STATE_CHANGED — race only: the status left
+//     buyer_confirmed / auto_released between the RPC and the re-read.
+//   • 403 account_deletion_pending (F-5) — runs AFTER the RPC has already
+//     confirmed, so it refuses the payout of this call, not the confirmation
+//     it is meant to stop. Open owner decision (move it before the RPC, or
+//     answer 200); not changed here.
 // =============================================================================
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
@@ -75,6 +109,38 @@ function getResponseHeaders(req: Request): Record<string, string> {
   };
 }
 
+function jsonResponse(
+  req: Request,
+  status: number,
+  body: Record<string, unknown>,
+  extraHeaders: Record<string, string> = {},
+): Response {
+  return new Response(
+    JSON.stringify(body),
+    { status, headers: { 'Content-Type': 'application/json', ...extraHeaders, ...getResponseHeaders(req) } },
+  );
+}
+
+/** Every error body: the unchanged `error` text plus a stable `code` (or null). */
+function errorResponse(
+  req: Request,
+  status: number,
+  error: string,
+  code: string | null,
+  extraHeaders: Record<string, string> = {},
+): Response {
+  return jsonResponse(req, status, { error, code }, extraHeaders);
+}
+
+// A Postgres HINT becomes `code` only when it is a machine code
+// (UPPER_SNAKE). Prose hints — Postgres' own, or PostgREST's "Perhaps you
+// meant …" — are not a contract and map to null.
+const HINT_CODE_RE = /^[A-Z][A-Z0-9_]{2,63}$/;
+function hintCode(err: { hint?: unknown } | null | undefined): string | null {
+  const hint = err?.hint;
+  return typeof hint === 'string' && HINT_CODE_RE.test(hint) ? hint : null;
+}
+
 // ── Auth ─────────────────────────────────────────────────────────────────────
 // Manual JWT verification. Requires "Verify JWT" to be DISABLED in the
 // Supabase Dashboard for this function, so the relay passes the request
@@ -101,8 +167,13 @@ async function getAuthenticatedUserId(req: Request): Promise<string> {
 
 // ── Rate limiting ────────────────────────────────────────────────────────────
 // Fail-CLOSED. Identical pattern in confirm-payment, create-payment-intent,
-// create-connect-account, delete-account.
+// create-connect-account, delete-account (only this function disambiguates
+// FALSE below; the others still answer 429 for a limiter error).
 type RateLimitResult = 'allowed' | 'over_limit' | 'error';
+
+// Clock tolerance between the database's now() (window_start) and this
+// isolate's Date.now() when deciding whether the window is still live.
+const RATE_LIMIT_CLOCK_SLACK_MS = 30_000;
 
 async function checkRateLimit(
   supabase: SupabaseClient,
@@ -122,11 +193,52 @@ async function checkRateLimit(
       console.warn('Rate limit RPC error (failing closed):', error.message);
       return 'error';
     }
-    return data === true ? 'allowed' : 'over_limit';
+    if (data === true) return 'allowed';
+    if (data !== false) {
+      console.warn('Rate limit RPC returned a non-boolean (failing closed):', data);
+      return 'error';
+    }
+    return await classifyRateLimitDenial(supabase, userId, action, maxRequests, windowSeconds);
   } catch (err) {
     console.warn('Rate limit check threw (failing closed):', err);
     return 'error';
   }
+}
+
+// check_rate_limit (021) returns FALSE both for a real over-limit and from its
+// EXCEPTION WHEN OTHERS branch (an internal error, failing closed; the
+// WARNING never reaches PostgREST). The counter tells them apart: a real
+// over-limit has just committed counter > max inside a live window; the
+// EXCEPTION branch rolled its upsert back, so the counter is at most what an
+// allowed request would leave. Both outcomes still DENY — only the status
+// differs (429 vs 503). A counter read that fails is itself a limiter fault:
+// 503.
+async function classifyRateLimitDenial(
+  supabase: SupabaseClient,
+  userId: string,
+  action: string,
+  maxRequests: number,
+  windowSeconds: number,
+): Promise<'over_limit' | 'error'> {
+  const { data: row, error } = await supabase
+    .from('rate_limits')
+    .select('counter, window_start')
+    .eq('user_id', userId)
+    .eq('action', action)
+    .maybeSingle();
+  if (error) {
+    console.warn('Rate limit denial unclassifiable — counter read failed (failing closed, 503):', error.message);
+    return 'error';
+  }
+  const counter = typeof row?.counter === 'number' ? row.counter : null;
+  const windowStart = row?.window_start ? Date.parse(row.window_start) : NaN;
+  const windowLive = Number.isFinite(windowStart) &&
+    windowStart >= Date.now() - windowSeconds * 1000 - RATE_LIMIT_CLOCK_SLACK_MS;
+  if (counter !== null && counter > maxRequests && windowLive) return 'over_limit';
+  console.warn('check_rate_limit returned false without an over-limit counter — internal limiter error (failing closed, 503):', {
+    counter, window_live: windowLive,
+  });
+  return 'error';
 }
 
 // ── Main handler ─────────────────────────────────────────────────────────────
@@ -135,6 +247,11 @@ serve(async (req: Request) => {
     return new Response('ok', { headers: { ...getResponseHeaders(req) } });
   }
 
+  // Set once confirm_transfer_received has succeeded (or found the row
+  // already confirmed). From then on no answer may be an error (header).
+  let confirmationRecorded = false;
+  let transferIdForLog: unknown = null;
+
   try {
     // ── 1. Authenticate caller ──────────────────────────────────────────
     const buyerId = await getAuthenticatedUserId(req);
@@ -142,44 +259,23 @@ serve(async (req: Request) => {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
     // ── 2. Rate limit ───────────────────────────────────────────────────
-    // 5 requests per 300 seconds (5 min). Fail-closed: any RPC failure
-    // returns 503 instead of silently bypassing rate limiting.
+    // 5 requests per 300 seconds (5 min). Fail-closed: a limiter failure
+    // (RPC error, or check_rate_limit's internal-error FALSE) returns 503
+    // instead of silently bypassing rate limiting; a real over-limit 429.
     const rl = await checkRateLimit(supabase, buyerId, 'confirm-and-release', 5, 300);
     if (rl === 'error') {
-      return new Response(
-        JSON.stringify({ error: 'Service temporarily unavailable. Please try again shortly.' }),
-        {
-          status: 503,
-          headers: {
-            'Content-Type': 'application/json',
-            'Retry-After': '30',
-            ...getResponseHeaders(req),
-          },
-        },
-      );
+      return errorResponse(req, 503, 'Service temporarily unavailable. Please try again shortly.', 'SERVICE_UNAVAILABLE', { 'Retry-After': '30' });
     }
     if (rl === 'over_limit') {
-      return new Response(
-        JSON.stringify({ error: 'Too many requests. Please try again later.' }),
-        {
-          status: 429,
-          headers: {
-            'Content-Type': 'application/json',
-            'Retry-After': '300',
-            ...getResponseHeaders(req),
-          },
-        },
-      );
+      return errorResponse(req, 429, 'Too many requests. Please try again later.', 'RATE_LIMITED', { 'Retry-After': '300' });
     }
 
     // ── 3. Parse input ──────────────────────────────────────────────────
     const { transfer_id } = await req.json();
+    transferIdForLog = transfer_id ?? null;
 
     if (!transfer_id) {
-      return new Response(
-        JSON.stringify({ error: 'Missing transfer_id' }),
-        { status: 400, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } },
-      );
+      return errorResponse(req, 400, 'Missing transfer_id', 'TRANSFER_ID_REQUIRED');
     }
 
     // ── 4. Call confirm_transfer_received RPC ────────────────────────────
@@ -209,21 +305,24 @@ serve(async (req: Request) => {
 
       if (!alreadyConfirmed) {
         // Real error — wrong user, wrong state, not found, etc.
+        const code = hintCode(rpcErr);
         console.error('confirm-and-release: RPC failed:', {
           transfer_id,
           buyer_id: buyerId,
           error:    rpcErr.message,
+          code,
         });
-        return new Response(
-          JSON.stringify({ error: rpcErr.message }),
-          { status: 400, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } },
-        );
+        return errorResponse(req, 400, rpcErr.message, code);
       }
 
       console.log('confirm-and-release: transfer already confirmed, proceeding to payout check', {
         transfer_id,
       });
     }
+
+    // The buyer's confirmation is recorded (or already was). Nothing below
+    // may answer with an error status for a FAILURE (see header).
+    confirmationRecorded = true;
 
     // ── 5. Transfer state (buyer check, dispute freeze, status gate) ─────
     // The claim RPC below re-checks all of this under FOR UPDATE; this read
@@ -275,39 +374,34 @@ serve(async (req: Request) => {
     }
 
     if (transferErr || !transfer) {
-      console.error('confirm-and-release: transfer lookup failed:', {
+      // The RPC above found this row FOR UPDATE and recorded the
+      // confirmation, so a failed re-read is transient — never "not found"
+      // to the buyer (was 404, CRE-404). No payout is attempted this call;
+      // the sweep pays the buyer_confirmed row.
+      console.error('confirm-and-release: transfer re-read failed after the confirmation was recorded (answering 200 processing):', {
         transfer_id,
         error: transferErr,
       });
-      return new Response(
-        JSON.stringify({ error: 'Transfer not found' }),
-        { status: 404, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } },
-      );
+      return jsonResponse(req, 200, { success: true, payout_status: 'processing' });
     }
 
-    // Verify caller is the buyer (defense-in-depth — RPC already checks this)
+    // Verify caller is the buyer (defense-in-depth — RPC already checks this).
+    // Unreachable: the RPC refuses a non-buyer before reading the status.
     if (transfer.buyer_id !== buyerId) {
-      return new Response(
-        JSON.stringify({ error: 'Only the buyer can release payout' }),
-        { status: 403, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } },
-      );
+      return errorResponse(req, 403, 'Only the buyer can release payout', 'NOT_TRANSFER_BUYER');
     }
 
     // ── Dispute freeze (explicit, in addition to the claim predicate) ────
+    // Race only: the RPC refuses a `disputed` row first (400).
     if (transfer.status === 'disputed' || transfer.disputed_at !== null) {
-      return new Response(
-        JSON.stringify({ error: 'This order is under review. Payout is frozen until the dispute is resolved.' }),
-        { status: 409, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } },
-      );
+      return errorResponse(req, 409, 'This order is under review. Payout is frozen until the dispute is resolved.', 'ORDER_UNDER_REVIEW');
     }
 
     // Verify transfer is in a releasable state (auto_released = the cron
     // already claimed the row; the buyer's confirmation is tolerated).
+    // Race only: the status moved between the RPC and this read.
     if (transfer.status !== 'buyer_confirmed' && transfer.status !== 'auto_released') {
-      return new Response(
-        JSON.stringify({ error: `Transfer is in unexpected state: ${transfer.status}` }),
-        { status: 400, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } },
-      );
+      return errorResponse(req, 400, `Transfer is in unexpected state: ${transfer.status}`, 'TRANSFER_STATE_CHANGED');
     }
 
     // ── 5a. Already paid? Return success (idempotent) ───────────────────
@@ -497,10 +591,8 @@ serve(async (req: Request) => {
 
       case 'not_eligible':
         if (outcome.reason === 'DISPUTED') {
-          return new Response(
-            JSON.stringify({ error: 'This order is under review. Payout is frozen until the dispute is resolved.' }),
-            { status: 409, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } },
-          );
+          // Race only (a dispute froze the row after the §5 read).
+          return errorResponse(req, 409, 'This order is under review. Payout is frozen until the dispute is resolved.', 'ORDER_UNDER_REVIEW');
         }
         // SELLER_NOT_ONBOARDED / PAYMENT_NOT_SUCCEEDED / PAYMENT_NOT_LIVE /
         // TRANSFER_NOT_RELEASABLE: operator conditions, buyer stays confirmed.
@@ -538,15 +630,26 @@ serve(async (req: Request) => {
 
   } catch (err) {
     const message = err instanceof Error ? err.message : '';
+    if (confirmationRecorded) {
+      // The buyer's confirmation is committed; this throw (e.g. a Stripe
+      // pre-flight fetch in createSellerPayout — was 500, CRE-500) is an
+      // operations problem. A claimed attempt stays open under its lease and
+      // the payout sweep reconciles it; nothing is retried here.
+      console.error('confirm-and-release: error after the confirmation was recorded (answering 200 processing):', {
+        transfer_id: transferIdForLog,
+        error: message,
+      });
+      await captureException('confirm-and-release:after-confirmation', err, { transfer_id: transferIdForLog });
+      return jsonResponse(req, 200, { success: true, payout_status: 'processing' });
+    }
     const isAuthError = /authorization|token/i.test(message);
     if (isAuthError) {
       console.warn('confirm-and-release: auth error:', message);
     } else {
       await captureException('confirm-and-release', err);
     }
-    return new Response(
-      JSON.stringify({ error: isAuthError ? message : 'Internal server error' }),
-      { status: isAuthError ? 401 : 500, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } },
-    );
+    return isAuthError
+      ? errorResponse(req, 401, message, 'AUTH_REQUIRED')
+      : errorResponse(req, 500, 'Internal server error', 'INTERNAL');
   }
 });
