@@ -8,7 +8,7 @@
 --   Port of origin/venue/dashboard-v2 supabase/tests/188_venue_api_read_views.sql
 --   (blob 7ed77132, plan 47, written for the same views under 20260910120000).
 --   A1–E7 and D1–D5 are carried verbatim, fixture included (ids keep their 187
---   tag). 23 assertions are new (plan 47 -> 70), each added because a planted
+--   tag). 24 assertions are new (plan 47 -> 71), each added because a planted
 --   mutant of the migration survived (see
 --   docs/venue-dashboard/VENUE_API_PROVISIONAL_MIGRATION.md §4.4 and §4.5).
 --   Round 1 (plan 56), mutants that survived the 47:
@@ -21,7 +21,7 @@
 --            the CI gate for venue_api: exact relation + column ACL, exact
 --            schema ACL, no default-ACL grant in the schema, security_barrier
 --            on every view, and the exact projected column set.
---   Round 2 (plan 70, review of 3bf24c0b), mutants that survived the 56: a
+--   Round 2 (plan 71, review of 3bf24c0b), mutants that survived the 56: a
 --   REVOKE of a projected base column (views unreadable, 56/56 green),
 --   WHERE false on venues or resale_policies, and s.ends_at AS starts_at.
 --     C22–C30 venues and resale_policies read as the caller (manager, org
@@ -30,6 +30,9 @@
 --     D6–D9  view-equals-base counts for venues and resale_policies.
 --     F6     each view definition equals the migration SELECT (pg_get_viewdef
 --            of the real view against a temp view built from the same text).
+--     F7     no GLOBAL table default of the owner grants PUBLIC, anon or
+--            authenticated. F3 checks schema-scoped rows only, and its label
+--            no longer claims more.
 --   Section A: shape — schema, eight views, security_invoker on every one, no
 --     function of any kind in the schema, grants exactly {authenticated}.
 --   Section B: projection — no counter column (capacity/held/sold) and no
@@ -45,7 +48,7 @@
 -- Fixtures are synthetic, created inside this transaction and rolled back.
 -- ============================================================================
 BEGIN;
-SELECT plan(70);
+SELECT plan(71);
 SELECT tap.seed_core();
 
 -- ── Fixture (synthetic; never a migration) ─────────────────────────────────
@@ -290,7 +293,7 @@ SELECT set_eq(
   'F2: schema venue_api ACL is exactly USAGE to authenticated');
 SELECT is((SELECT count(*) FROM pg_default_acl d JOIN pg_namespace n ON n.oid = d.defaclnamespace
             CROSS JOIN LATERAL aclexplode(d.defaclacl) a WHERE n.nspname = 'venue_api'), 0::bigint,
-          'F3: no default privilege is granted inside venue_api (a later object gets nothing implicitly)');
+          'F3: no schema-scoped default-ACL row in venue_api grants anything (the migration''s per-schema REVOKE stores none; global defaults are F7)');
 SELECT is((SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'venue_api' AND c.relkind = 'v'
              AND NOT EXISTS (SELECT 1 FROM unnest(c.reloptions) o WHERE o = 'security_barrier=true')), 0::bigint, 'F4: every view is security_barrier');
 SELECT set_eq(
@@ -367,6 +370,21 @@ SELECT set_eq(
        FROM pg_class c
       WHERE c.relnamespace = pg_my_temp_schema() AND c.relkind = 'v' AND c.relname::text LIKE 'exp\_%' $$,
   'F6: each of the eight view definitions is exactly the migration''s SELECT (deparsed md5 per view)');
+
+-- F7 is the other half of F3. A schema-scoped default can only ADD to the
+-- global defaults (076, PFA-1), so what a table or view the owner adds here
+-- later receives is decided by the owner's GLOBAL table defaults
+-- (defaclnamespace = 0). The CI stack carries no TABLE default-ACL entries at
+-- all (supabase/ci/parity_grants.sql header). Objects another role creates
+-- are not covered by F7, and A1-A3/F1 catch them anyway.
+SELECT is((SELECT count(*) FROM pg_default_acl d
+             CROSS JOIN LATERAL aclexplode(d.defaclacl) a
+            WHERE d.defaclnamespace = 0
+              AND d.defaclobjtype = 'r'
+              AND d.defaclrole = (SELECT n.nspowner FROM pg_namespace n WHERE n.nspname = 'venue_api')
+              AND (a.grantee = 0 OR a.grantee IN (SELECT r.oid FROM pg_roles r WHERE r.rolname IN ('anon', 'authenticated')))),
+          0::bigint,
+          'F7: no GLOBAL table default privilege of the venue_api owner grants PUBLIC, anon or authenticated (with F3: a table or view the owner adds later starts with no client grant)');
 
 SELECT * FROM finish();
 ROLLBACK;

@@ -51,6 +51,17 @@
 -- Four-file rule: the grant-decision manifest and expected_grants.txt read
 -- `public` only, so neither carries a venue_api row. pgTAP 226 asserts the
 -- exact venue_api privilege matrix instead. No function is created.
+-- Default privileges, correcting the body comment above ALTER DEFAULT
+-- PRIVILEGES (the comment stays as written because the body is byte-identical
+-- to the original): it says deny-by-default for anything added to this schema
+-- later, which overstates it. A per-schema REVOKE stores nothing. It writes no pg_default_acl row,
+-- because the built-in table default already grants clients nothing, and a
+-- schema-scoped default can only add to the global defaults, never subtract
+-- from them (076, PFA-1). What a later object gets comes from the role that
+-- creates it and the global defaults of that role. pgTAP 226 F3 (no schema-scoped
+-- row) and F7 (no global table default of the owner to PUBLIC, anon or
+-- authenticated) pin that for objects the owner creates, and A1-A3 and F1
+-- catch any object added to the schema at all.
 --
 -- Rollback: supabase/rollbacks/20261021120000_venue_api_read_views_rollback.sql
 -- Verification:

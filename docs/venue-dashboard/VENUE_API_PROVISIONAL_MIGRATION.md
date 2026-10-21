@@ -24,7 +24,7 @@ are frozen and were not touched.
 |---|---|---|
 | `supabase/migrations/20261021120000_venue_api_read_views.sql` | `20260910120000_venue_api_read_views.sql` (blob `80cf2762`) | Header only. The SQL from `BEGIN;` to `COMMIT;` is byte-identical (sha256 `fb3cf536…1199e70` on both). |
 | `supabase/rollbacks/20261021120000_venue_api_read_views_rollback.sql` | `20260910120000_…_rollback.sql` (blob `114b94ed`) | Header only. The statements are byte-identical (sha256 `d191b761…27b7340`). |
-| `supabase/tests/226_venue_api_read_views.sql` (provisionally `224`, renamed with `git mv`) | `188_venue_api_read_views.sql` (blob `7ed77132`, plan 47) | The 47 assertions are carried verbatim, fixture included. 23 assertions are new (plan 70): nine in the first round (§4.4) and 14 after review (§4.5). |
+| `supabase/tests/226_venue_api_read_views.sql` (provisionally `224`, renamed with `git mv`) | `188_venue_api_read_views.sql` (blob `7ed77132`, plan 47) | The 47 assertions are carried verbatim, fixture included. 24 assertions are new (plan 71): nine in the first round (§4.4) and 15 after review (§4.5). |
 
 Header fixes in the migration:
 - the registry banner (159 / 226, allocated by A, merge order) and a provenance paragraph
@@ -50,6 +50,25 @@ Schema `venue_api` (comment set). The statements, in order:
 
 The `ALTER DEFAULT PRIVILEGES` statement stores no `pg_default_acl` row, because the built-in
 table default already grants nothing. The rehearsal confirms this with V7 = 0 and F3.
+
+**Correction to the body comment.** Line 66 of the body says "Deny-by-default for anything added
+to this schema later". That overstates it:
+- A per-schema REVOKE stores nothing.
+- A schema-scoped default can only add to the global defaults, never subtract from them (076's
+  accuracy note and PFA-1 record the same point).
+- So what a later object receives is decided by the role that creates it, through that role's
+  global defaults and the built-in default.
+
+The comment stays in place because the body is byte-identical to the original. The correction
+lives in the migration header and here.
+
+pgTAP 226 pins both halves for objects the owner creates:
+- F3: no schema-scoped default-ACL row. Its label was reworded; it used to claim "a later object
+  gets nothing implicitly".
+- F7: no global table default of the owner that grants to PUBLIC, anon or authenticated.
+
+Objects created by another role are outside F7. A1–A3 and F1 still catch any object added to
+the schema.
 
 It creates eight views, each `WITH (security_invoker = true, security_barrier = true)`:
 
@@ -191,7 +210,8 @@ gate:
 - A10 (no grantee other than authenticated or the owner)
 - F1: the exact relation and column ACL, 8 × `authenticated:SELECT`
 - F2: the exact schema ACL `authenticated:USAGE`
-- F3: no default privilege granted inside the schema
+- F3: no schema-scoped default-ACL row in the schema grants anything
+- F7: no global table default of the schema owner grants to PUBLIC, anon or authenticated
 - F4: security_barrier on every view
 - F5: the exact 55-column projection
 - F6: each view's definition equals the migration's SELECT (§4.5)
@@ -234,18 +254,19 @@ manager. 188's fixture had one person per roster, so the filter was never exerci
 E8 and E10 are controls: they show that the base table does return the other person's row. E9
 and E11 assert that the view does not.
 
-### 4.5 Review round (2026-10-21): plan 56 to 70
+### 4.5 Review round (2026-10-21): plan 56 to 71
 
 The reviewer ran these mutants on a scratch copy against plan 56. All four survived with 56/56
-PASS. The last column is what plan 70 is **expected** to do. It is **not run**, because this
+PASS. The last column is what plan 71 is **expected** to do. It is **not run**, because this
 revision was written in a wave with no database (§8).
 
-| Mutant | 56 (reviewer, run) | 70 (expected, not run) |
+| Mutant | 56 (reviewer, run) | 71 (expected, not run) |
 |---|---|---|
 | r1 `REVOKE SELECT (neighborhood) ON catalog.venue FROM authenticated` and `REVOKE SELECT (royalty_bps) ON catalog.resale_policy FROM authenticated`. The views stay, but every caller read raises `permission denied for table venue`. | survived | C22 raises 42501, the file's transaction aborts, and every later assertion errors. The file FAILS. |
 | r2 venues `WHERE false` | survived | C22, C25, C26, C28 (NULL value), D6, D8, F6 |
 | r3 resale_policies `WHERE false` | survived | C24, C27, C29 (NULL value), D7, D9, F6 |
 | r4 `s.ends_at AS starts_at, s.starts_at AS ends_at` in event_sessions (188 also 47/47) | survived | C30 (starts 23:30 / ends 20:00 against the fixture's 20:00 / 23:30), F6 |
+| r5 `ALTER DEFAULT PRIVILEGES FOR ROLE postgres GRANT SELECT ON TABLES TO authenticated` (global, not in the schema). The reviewer's "future" case. | F3 stays green (reviewer, by reading) | F7 |
 
 **The new fixture** is added in its own block after E11. The 47 carried assertions keep their
 fixture byte for byte. It adds:
@@ -385,7 +406,7 @@ On-disk totals for CI (`ls supabase/tests/*.sql`): 103 files and 5944 planned as
 102 / 5888 on the base. The floors are `MIN_FILES=59` and `MIN_ASSERTIONS=4053`. 224 uses no `todo()` or
 `skip()`, so the masking ratchets do not move.
 
-**After the review round (plan 70):** 103 files and 5958 planned. That figure is the sum of every
+**After the review round (plan 71):** 103 files and 5959 planned. That figure is the sum of every
 file's `plan(N)` line. The same count gives 5944 at `3bf24c0b`, which matches the run above. It
 was **not** run. 226 still uses no `todo()` or `skip()`.
 
@@ -399,7 +420,7 @@ Run these in order. Each step is owner-authorised on any hosted project.
 3. Delete the ledger row: `delete from supabase_migrations.schema_migrations where version = '20261021120000';`.
    This is a production write and is authorised separately.
 4. Run read-only checks R1–R3 (§7.6). Expected: `venue_api_absent = t`; views, grants,
-   default_acl_rows and same_named_views_anywhere all 0; base_policies 19.
+   default_acl_rows all 0; base_policies 19.
 
 ## 7. Owner and A steps (nothing here is authorised by this branch)
 
@@ -492,11 +513,21 @@ set local role authenticated;
 select (select count(*) from venue_api.my_staff_roles) as my_staff_roles, (select count(*) from venue_api.my_org_roles) as my_org_roles;
 rollback;
 
--- V11 (hosted only) ledger row present under the FINAL version: 1 row
+-- V11 (hosted only) ledger row present under version 20261021120000: 1 row
 select version, name from supabase_migrations.schema_migrations where version = '20261021120000';
+
+-- V12 GLOBAL table default privileges of the venue_api owner that grant to PUBLIC, anon or authenticated: 0
+-- (what F7 asserts in CI; expected 0 on a hosted project because 074's records put every permissive row in public,
+--  but that has not been read; a non-zero count does not change the eight views, it means a view the owner
+--  adds to venue_api later would arrive with a client grant)
+select count(*) as global_table_default_client_grants
+  from pg_default_acl d cross join lateral aclexplode(d.defaclacl) a
+ where d.defaclnamespace = 0 and d.defaclobjtype = 'r'
+   and d.defaclrole = (select nspowner from pg_namespace where nspname = 'venue_api')
+   and (a.grantee = 0 or a.grantee in (select oid from pg_roles where rolname in ('anon', 'authenticated')));
 ```
 
-After a rollback (§6), these checks must return `t`, then `0 | 0 | 0 | 0`, then `19`:
+After a rollback (§6), these checks must return `t`, then `0 | 0 | 0`, then `19`:
 
 ```sql
 -- R1
@@ -504,11 +535,14 @@ select to_regnamespace('venue_api') is null as venue_api_absent;
 -- R2
 select (select count(*) from information_schema.views where table_schema = 'venue_api') as views,
        (select count(*) from information_schema.role_table_grants where table_schema = 'venue_api') as grants,
-       (select count(*) from pg_default_acl d join pg_namespace n on n.oid = d.defaclnamespace where n.nspname = 'venue_api') as default_acl_rows,
-       (select count(*) from pg_class c where c.relname in ('venues','events','event_sessions','resale_policies','ticket_types',
-         'inventory_batches','my_staff_roles','my_org_roles') and c.relkind = 'v') as same_named_views_anywhere;
+       (select count(*) from pg_default_acl d join pg_namespace n on n.oid = d.defaclnamespace where n.nspname = 'venue_api') as default_acl_rows;
 -- R3 = V9
 ```
+
+R2 used to have a fourth column, `same_named_views_anywhere`. It counted views named `venues`,
+`events` and so on in **every** schema, so an unrelated later `public.events` view would make a
+correct rollback look failed. It was dropped. R1 already proves the schema is gone, and with it
+every view in it.
 
 After exposure, the expected API behaviour was not rehearsed against PostgREST here:
 - an `anon` request with `Accept-Profile: venue_api` is refused, because anon has no USAGE on
@@ -520,7 +554,7 @@ D's acceptance kit (V0–V10) is the instrument for this, in the sandbox window.
 ## 8. Limits
 
 - **pgTAP 226 after the review round has not been run.** That covers the rename, the new fixture
-  block, C22–C30, D6–D9 and F6. It was written in a wave with no database access, so all
+  block, C22–C30, D6–D9, F6, F7 and the reworded F3. It was written in a wave with no database access, so all
   numbers in §5 are from the plan-56 file at `460d85f9`. The checks that did run were static:
   - the migration body hash is unchanged
   - the eight F6 temp-view SELECTs are byte-identical to the migration's
@@ -529,12 +563,17 @@ D's acceptance kit (V0–V10) is the instrument for this, in the sandbox window.
   Owed before A's review counts it:
   - a full-chain replay
   - 226 RED without the migration and GREEN with it
-  - mutants r1–r4 FAILING
+  - mutants r1–r5 FAILING
   - rollback and re-apply
   - the neighbouring suites
+
+  F7 also rests on a record. The `supabase/ci/parity_grants.sql` header (2026-08-27) says the CI
+  stack carries no TABLE default-ACL entries. If the CI image does carry a global TABLE row for
+  the owner granting anon or authenticated, F7 fails in CI. That would be a true finding about
+  later objects, not about the eight views.
 
 - CI's own replay (`supabase start` on CLI 2.115.0 in Docker) and `pg_prove` were not run
   locally. The evidence is the documented local equivalent. GitHub CI runs when a PR exists.
 - Hosted default privileges are taken from the records (074/076: production's permissive
-  default-ACL rows are all in `public`), not read. V4, V5 and V7 after the apply are the proof.
+  default-ACL rows are all in `public`), not read. V4, V5, V7 and V12 after the apply are the proof. F7 covers the CI stack only.
 - The exposure step and the PostgREST behaviour are not testable locally.
