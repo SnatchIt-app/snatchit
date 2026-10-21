@@ -117,7 +117,16 @@ describe("the kit waits out the route loading state before reading a page", () =
     expect(roleLabelClaimed(denial.toUpperCase())).toBe(false);
     expect(roleLabelClaimed(`${denial} Signed in as x · VENUE MANAGER`)).toBe(true);
     expect(roleLabelClaimed(`${denial.toUpperCase()} Org owner`)).toBe(true);
-    expect(kit.match(/!roleLabelClaimed\(t\)|!roleLabelClaimed\(to\)/g)).toHaveLength(2);
+    // P1 signed out, P1 grant-less, and C6 at /o/A/v/B.
+    expect(kit.match(/!roleLabelClaimed\(t\)|!roleLabelClaimed\(to\)/g)).toHaveLength(3);
+  });
+  // C6 ("Org A owner at /o/A/v/B: … no role claimed") used to test only /Capabilities come from your grants/,
+  // case-sensitively: an "Org owner" label, or an uppercase-styled strip, on that denied page passed.
+  it("C6 at /o/A/v/B uses the same any-case matcher as P1", () => {
+    const c6 = kit.split("\n").find((l) => l.includes('"C6 Org A owner at /o/A/v/B: denied, no Venue B rows, no role claimed"'));
+    expect(c6).toBeTruthy();
+    expect(c6).toContain("!roleLabelClaimed(t)");
+    expect(c6).not.toMatch(/Capabilities come from your grants\/\.test/);
   });
   it("P1 catches a planted verifiedRole leak on a grant-less database-mode page", () => {
     const page = (verifiedRole: boolean) =>
@@ -129,6 +138,20 @@ describe("the kit waits out the route loading state before reading a page", () =
     expect(roleLabelClaimed(page(false))).toBe(false);
     expect(roleLabelClaimed(page(true))).toBe(true);
     expect(roleLabelClaimed(page(true).toUpperCase())).toBe(true);
+  });
+  it("C6: the Org A owner's denied page at /o/A/v/B claims no role, and a planted leak there is caught", () => {
+    // readPage: the route venue (B) is not in the route org (A), so entry is denied with verifiedRole false.
+    const page = (verifiedRole: boolean) =>
+      text(
+        <Shell ctx={{ role: "org_owner", state: "live", source: "database", countersAvailable: false, writesEnabled: false, verifiedRole, scope: { orgId: "5a4d0b0e-0000-4000-8000-00000000000a", venueId: "5a4d0b0e-0000-4000-8000-0000000000bb" } }} event={null} active="events" signedInAs="owner@example.com">
+          <EntryGate entry={{ kind: "denied" }} loginHref="/login" retryHref="/" />
+        </Shell>,
+      );
+    expect(page(false)).toContain(DENIED);
+    expect(roleLabelClaimed(page(false))).toBe(false);
+    expect(roleLabelClaimed(page(true))).toBe(true);
+    expect(roleLabelClaimed(page(true).toUpperCase())).toBe(true);
+    expect(/Capabilities come from your grants/.test(page(true).toUpperCase())).toBe(false); // what the old C6 test missed
   });
 });
 

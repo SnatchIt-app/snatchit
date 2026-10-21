@@ -489,7 +489,7 @@ async function browser() {
     t = await visit(o, `/o/${ID.orgA}/v/${ID.venC}/events`);
     check(P, "C7 Org A owner enters Org A's pending venue (Org owner)", !t.includes(DENIED) && t.includes("Org owner"), t.slice(0, 300));
     t = await visit(o, `/o/${ID.orgA}/v/${ID.venB}/events`);
-    check(P, "C6 Org A owner at /o/A/v/B: denied, no Venue B rows, no role claimed", t.includes(DENIED) && !t.includes(TITLE.e3) && !t.includes(TITLE.e4) && !/Capabilities come from your grants/.test(t), t.slice(0, 300));
+    check(P, "C6 Org A owner at /o/A/v/B: denied, no Venue B rows, no role claimed", t.includes(DENIED) && !t.includes(TITLE.e3) && !t.includes(TITLE.e4) && !roleLabelClaimed(t), t.slice(0, 300));
     t = await visit(o, `/o/${ID.orgA}/v/${ID.venB}/events/${ID.e3}`);
     check(P, "C6 Org A owner at /o/A/v/B event page: denied", t.includes(DENIED) && !t.includes(TITLE.e3) && !t.includes("Hidden Venue B tier"), t.slice(0, 300));
     await o.close();

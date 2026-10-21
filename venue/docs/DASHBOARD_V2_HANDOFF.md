@@ -251,6 +251,7 @@ full `npm test`, `npm run typecheck`, `next build` in both modes, and the kit `-
 | Fix | What changed |
 |---|---|
 | Resale at an unapproved venue | `mapEvents` takes the venue's `approval_status` (`venue_api.venues`, read with the policies, in parallel). An event at a venue that is not approved, or whose row the caller cannot read, reads as `not_readable` unless one of its own event-scope rows is visible, exactly like a draft: RLS hides that venue's venue-wide rows from every client (own staff included) while 088 `create_native_listing` applies them. The line says "Resale not readable until the venue is approved" (drafts keep "… until published"). |
+| Kit C6 | "Org A owner at /o/A/v/B: … no role claimed" now uses `roleLabelClaimed(t)` (any case, every role label) instead of a case-sensitive test for the strip sentence alone; a rendered owner denial at that route is shown not to trip it, and a planted `verifiedRole` leak there is caught. |
 
 Hosting notes for `venue.snatchitapp.com` (code side; nothing configured):
 
