@@ -113,8 +113,8 @@ describe('the itemised rows are server figures only (A\'s ruling Q1–Q3, 2026-0
     expect(src).toMatch(/breakdown=\{serverBreakdown && !priceChange \? \{/);
     // RETARGETED (C, 2026-10-21; A's ruling): the Tickets/Winning bid row shows 2dp (capture B04). Same server cents.
     expect(src).toContain('amount: formatCentsV3(serverBreakdown.amount)');
-    expect(src).toContain('fee: formatCents(serverBreakdown.buyerFee)');
-    expect(src).toContain('total: formatCents(serverBreakdown.total)');
+    expect(src).toContain('fee: formatCentsV3(serverBreakdown.buyerFee)');
+    expect(src).toContain('total: formatCentsV3(serverBreakdown.total)');
     // The word "Total" never sits over the route estimate: the only remaining use of the mixed
     // figure is the pay control's input, which the control prints only when payment is ready.
     expect(src.match(/formatCents\(totalCents\)/g)?.length).toBe(1);

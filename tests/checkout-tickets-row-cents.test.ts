@@ -2,7 +2,8 @@
  * The checkout Tickets row shows cents like the rows under it (TEST-MODE capture finding 7, B04):
  * "$95" sat next to "$9.50" and "$104.50". The row went through `formatCents`, which trims ".00";
  * it now uses `formatCentsV3`, the 2dp display the rest of V3 money uses. Display only: the server
- * breakdown's cents are passed through unchanged. A ruled this row only (2026-10-21).
+ * breakdown's cents are passed through unchanged. A's ruling (2026-10-21, after review M2): all three
+ * rows, since one row alone moved the mismatch onto every multiple-of-$10 price ("$100.00 / $10").
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -12,18 +13,21 @@ import { formatCents, formatCentsV3 } from '@/src/lib/money';
 const src = readFileSync('src/screens/checkout/CheckoutNative.tsx', 'utf8')
   .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
 
-describe('checkout Tickets row', () => {
-  it('TC1: 9500 cents reads "$95.00" beside "$9.50" and "$104.50"; formatCents is the control', () => {
-    expect(formatCentsV3(9500)).toBe('$95.00');
-    expect(formatCents(9500)).toBe('$95');          // negative control: the old formatter
-    expect(formatCents(950)).toBe('$9.50');
-    expect(formatCents(10450)).toBe('$104.50');
+describe('checkout breakdown: one formatter for all three rows (A, 2026-10-21)', () => {
+  const rows = (amount: number, fee: number, total: number) => [formatCentsV3(amount), formatCentsV3(fee), formatCentsV3(total)];
+
+  it('TC1: 9500/950/10450 and 10000/1000/11000 read with cents on every row', () => {
+    expect(rows(9500, 950, 10450)).toEqual(['$95.00', '$9.50', '$104.50']);
+    expect(rows(10000, 1000, 11000)).toEqual(['$100.00', '$10.00', '$110.00']);
+    // Control: the old formatter mixes forms on the most common prices.
+    expect([formatCents(10000), formatCents(1000), formatCents(11000)]).toEqual(['$100', '$10', '$110']);
+    expect(formatCents(9500)).toBe('$95');
   });
 
-  it('TC2: the breakdown item amount uses the 2dp formatter; fee and total are unchanged', () => {
-    expect(src).toContain('amount: formatCentsV3(serverBreakdown.amount),');
-    expect(src.replace('amount: formatCentsV3(', 'amount: formatCents(')).not.toContain('amount: formatCentsV3(serverBreakdown.amount),');
-    expect(src).toContain('fee: formatCents(serverBreakdown.buyerFee),');
-    expect(src).toContain('total: formatCents(serverBreakdown.total),');
-  });
+  it.each(['amount: formatCentsV3(serverBreakdown.amount),', 'fee: formatCentsV3(serverBreakdown.buyerFee),', 'total: formatCentsV3(serverBreakdown.total),'])(
+    'TC2: the breakdown row uses the 2dp formatter: %s', (line) => {
+      expect(src).toContain(line);
+      // Control: the same row on formatCents fails.
+      expect(src.replace(line, line.replace('formatCentsV3(', 'formatCents('))).not.toContain(line);
+    });
 });

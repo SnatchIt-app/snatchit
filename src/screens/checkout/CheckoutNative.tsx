@@ -849,10 +849,11 @@ export default function CheckoutScreen() {
       // amount is formatted HERE, by the one money module; the view formats nothing.
       breakdown={serverBreakdown && !priceChange ? {
         item: isBuyNow ? 'Tickets' : 'Winning bid',
-        // 2dp like the fee and total beside it: "$95" read as a different kind of figure (capture B04).
+        // One formatter for the one breakdown (A, 2026-10-21): 2dp on all three rows, so "$95" never sits
+        // beside "$9.50" (capture B04) and "$100.00" never beside "$10". Same server cents.
         amount: formatCentsV3(serverBreakdown.amount),
-        fee: formatCents(serverBreakdown.buyerFee),
-        total: formatCents(serverBreakdown.total),
+        fee: formatCentsV3(serverBreakdown.buyerFee),
+        total: formatCentsV3(serverBreakdown.total),
       } : null}
       preparing={preparing}
       paymentMethodLine={!preparing && paymentReady ? (applePayAvailable ? 'Apple Pay or card' : 'Card payment') : null}
