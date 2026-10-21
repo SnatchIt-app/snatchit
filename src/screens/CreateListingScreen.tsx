@@ -53,6 +53,9 @@ import { ctaLift } from '@/src/lib/nav/keyboardLift';
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
 import { useImageUpload } from '@/src/hooks/useImageUpload';
+import { useListingDraft } from '@/src/hooks/useListingDraft';
+import { ContinueListingBanner } from '@/src/components/sell/ContinueListingBanner';
+import type { ListingDraftFields } from '@/src/lib/sell/listingDraft';
 import { useSingleFlight } from '@/src/hooks/useSingleFlight';
 import { Button, Chip, Input, MediaUpload, Sheet, StickyBar } from '@/src/components/ui';
 import { useDockScroll } from '@/src/components/nav/dockContext';
@@ -348,6 +351,8 @@ export default function CreateListingScreen({ fixture }: { fixture?: CreateFixtu
   const [platformQuery,    setPlatformQuery]    = useState('');
   const [eventDate,        setEventDate]        = useState<Date>(fx?.eventDate ?? defaultDate);
   const [eventTime,        setEventTime]        = useState<Date>(fx?.eventTime ?? defaultTime);
+  // CFT-608: the seller picked the date (the row starts at today). Only a picked date expires a draft.
+  const [dateChosen,       setDateChosen]       = useState(false);
 
   // B — Ticket
   const [ticketType,     setTicketType]     = useState<TicketType | null>(fx?.ticketType ?? null);
@@ -400,6 +405,27 @@ export default function CreateListingScreen({ fixture }: { fixture?: CreateFixtu
   const [submitted, setSubmitted] = useState(fixture?.submitted ?? false);
   const [loading,   setLoading]   = useState(false);
 
+  // CFT-608: the form's own inputs autosave per account and come back as "Continue your listing".
+  // listingDraft.ts decides what is kept — never the attestation or the proof, never risk or submit
+  // state. A mounted fixture (the harness) keeps drafts inert.
+  const listingDraft = useListingDraft({
+    userId: user?.id,
+    enabled: !fixture,
+    fields: {
+      eventName, venue, neighborhood, category, eventDate, eventTime, dateChosen, ticketType, quantity, transferMethod,
+      restrictions, startingBid, buyNowEnabled, buyNowPrice, durationHours, ticketPlatform, coverUri: coverUpload.localUri,
+    },
+    onRestore: restoreDraft,
+  });
+  function restoreDraft(d: ListingDraftFields) {
+    setEventName(d.eventName); setVenue(d.venue); setNeighborhood(d.neighborhood); setCategory(d.category);
+    setEventDate(d.eventDate); setEventTime(d.eventTime); setDateChosen(d.dateChosen);
+    setTicketType(d.ticketType); setQuantity(d.quantity); setTransferMethod(d.transferMethod); setRestrictions(d.restrictions);
+    setStartingBid(d.startingBid); setBuyNowEnabled(d.buyNowEnabled); setBuyNowPrice(d.buyNowPrice); setDurationHours(d.durationHours);
+    setTicketPlatform(d.ticketPlatform);
+    if (d.coverUri) coverUpload.restore(d.coverUri);
+  }
+
   const startingBidNum = parseAmount(startingBid);
   const buyNowPriceNum = parseAmount(buyNowPrice);
 
@@ -428,7 +454,7 @@ export default function CreateListingScreen({ fixture }: { fixture?: CreateFixtu
   function onPickerChange(_e: DateTimePickerEvent, selected?: Date) {
     if (Platform.OS === 'android') setPickerVisible(false);
     if (!selected) return;
-    if (pickerMode === 'date') setEventDate(selected);
+    if (pickerMode === 'date') { setEventDate(selected); setDateChosen(true); }
     else setEventTime(selected);
   }
 
@@ -654,9 +680,10 @@ export default function CreateListingScreen({ fixture }: { fixture?: CreateFixtu
         throw new Error(error.message);
       }
 
-      // 4. Reset form
+      // 4. Reset form — the server confirmed the insert, so the draft has done its job.
+      listingDraft.clear();
       setEventName(''); setVenue(''); setNeighborhood(null);
-      setEventDate(defaultDate()); setEventTime(defaultTime());
+      setEventDate(defaultDate()); setEventTime(defaultTime()); setDateChosen(false);
       setTicketType(null); setQuantity(1); setTransferMethod(null); setRestrictions('');
       setStartingBid(''); setBuyNowEnabled(false); setBuyNowPrice('');
       setDurationHours(null);
@@ -703,6 +730,15 @@ export default function CreateListingScreen({ fixture }: { fixture?: CreateFixtu
         onScroll={onDockScroll}
         scrollEventThrottle={16}
       >
+        {listingDraft.offer ? (
+          <ContinueListingBanner
+            offer={listingDraft.offer}
+            formHasInput={listingDraft.formHasInput}
+            onContinue={listingDraft.accept}
+            onDiscard={listingDraft.discard}
+          />
+        ) : null}
+
         {/* ── EVENT ─────────────────────────────────────────── */}
         <Section title="Event" sx={sx}>
           <Input

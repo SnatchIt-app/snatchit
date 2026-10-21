@@ -73,6 +73,8 @@ export type UseImageUploadReturn = {
   uploadImage: () => Promise<string | null>;
   reset:       () => void;
   readError:   () => string | null;
+  /** Select a file the app already holds as if just picked (CFT-608 draft cover). See the note at its definition. */
+  restore:     (uri: string) => void;
 };
 
 export function useImageUpload({
@@ -262,8 +264,28 @@ export function useImageUpload({
     setStatus('idle');
   }, [key, reuseKey, userId, setError, setStatus]);
 
+  /**
+   * CFT-608 (additive; the transfer-send screen does not call it): select a file the app already
+   * holds — a sell draft's cover, still in the picker's cache — as if it had just been picked. A new
+   * object name, no upload record carried over, nothing uploaded or deleted now; publish uploads it
+   * under the same rules as any pick. Ignored while the picker is open, so the seller's own pick
+   * wins. The caller vouches for the file: src/lib/sell/listingDraft.ts admits only the picker's
+   * app-private cache folder.
+   */
+  const restore = useCallback((uri: string) => {
+    if (!uri || gateRef.current.inFlight) return;
+    selRef.current = { uri, stamp: String(Date.now()) };
+    recordRef.current = null;
+    setLocalUri(uri);
+    setPublicUrl(null);
+    setStoragePath(null);
+    setError(null);
+    setStatus('ready');
+    remember();
+  }, [remember, setError, setStatus]);
+
   const readError = useCallback(() => errorRef.current, []);
   const busy = status === 'picking' || status === 'uploading';
 
-  return { localUri, publicUrl, storagePath, status, error, busy, pickImage, uploadImage, reset, readError };
+  return { localUri, publicUrl, storagePath, status, error, busy, pickImage, uploadImage, reset, readError, restore };
 }
