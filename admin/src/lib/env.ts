@@ -5,7 +5,7 @@
  * Every read and mutation the console performs is an `ops.*` RPC executed
  * with the operator's own JWT; the database re-checks role + aal2 itself.
  */
-import { anonKeyProblem, sampleDataLabel } from "@/lib/env-policy";
+import { anonKeyProblem, productionSiteUrlProblem, sampleDataLabel } from "@/lib/env-policy";
 
 export const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? null;
 export const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? null;
@@ -60,20 +60,10 @@ if (IS_PROD) {
   }
 
   if (process.env.NEXT_PUBLIC_VERCEL_ENV === "production") {
-    const raw = process.env.NEXT_PUBLIC_SITE_URL!;
-    let parsed: URL | null = null;
-    try {
-      parsed = new URL(raw);
-    } catch {
-      parsed = null;
-    }
-    const host = parsed?.hostname ?? "";
-    const isLocal = host === "localhost" || host === "127.0.0.1" || host === "::1" || host.endsWith(".local");
-    if (!parsed || parsed.protocol !== "https:" || isLocal) {
-      throw new Error(
-        `NEXT_PUBLIC_SITE_URL is "${raw}", which cannot be the production origin (must be https:// on a real host).`,
-      );
-    }
+    // The production origin is admin.snatchitapp.com, or snatchit-admin.vercel.app
+    // during the cut-over (PRODUCTION_SITE_HOSTS in lib/env-policy.ts).
+    const siteProblem = productionSiteUrlProblem(process.env.NEXT_PUBLIC_SITE_URL);
+    if (siteProblem) throw new Error(siteProblem);
     if (!IS_PRODUCTION_ENV_LABEL) {
       // A production deploy that says "staging" in the header is a lie the
       // operator will act on. Refuse it.

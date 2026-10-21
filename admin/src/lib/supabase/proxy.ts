@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { SUPABASE_ANON_KEY, SUPABASE_URL, hasSupabaseEnv } from "@/lib/env";
 import { decideProxyRedirect } from "@/lib/auth/proxy-logic";
+import { hostOnlyCookie } from "@/lib/supabase/cookie-options";
 
 /**
  * Refreshes the Supabase session cookie on every matched request and gates
@@ -39,7 +40,8 @@ export async function updateSession(request: NextRequest) {
         cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
         supabaseResponse = NextResponse.next({ request });
         cookiesToSet.forEach(({ name, value, options }) =>
-          supabaseResponse.cookies.set(name, value, options),
+          // Host-only: never a Domain attribute (lib/supabase/cookie-options.ts).
+          supabaseResponse.cookies.set(name, value, hostOnlyCookie(options)),
         );
         Object.entries(headers).forEach(([key, value]) => supabaseResponse.headers.set(key, value));
       },

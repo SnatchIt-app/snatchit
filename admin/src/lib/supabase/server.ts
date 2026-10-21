@@ -1,11 +1,14 @@
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from "@/lib/env";
+import { hostOnlyCookie } from "@/lib/supabase/cookie-options";
 
 /**
  * Server-side Supabase client (Server Components, Server Actions) using the
  * official @supabase/ssr cookie pattern. Anon key + the operator's session
  * cookie; there is no privileged client anywhere in this app.
+ *
+ * Cookies are host-only (no Domain): see lib/supabase/cookie-options.ts.
  *
  * Authorize with supabase.auth.getClaims() (signature-validated) — never
  * getSession() — and let the `ops.*` functions re-check role/aal in Postgres.
@@ -23,7 +26,7 @@ export async function createSupabaseServerClient() {
       },
       setAll(cookiesToSet) {
         try {
-          cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options));
+          cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, hostOnlyCookie(options)));
         } catch {
           // Called from a Server Component — safe to ignore; proxy.ts owns
           // session refresh on the request path.

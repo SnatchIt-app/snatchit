@@ -66,3 +66,36 @@ export function anonKeyProblem(raw: string | null | undefined): string | null {
   }
   return null;
 }
+
+/**
+ * Hosts a Vercel production deploy of the console may name in
+ * NEXT_PUBLIC_SITE_URL. admin.snatchitapp.com is the final production domain.
+ * snatchit-admin.vercel.app is a transition entry: it is the live origin
+ * today and stays the rollback alias while the custom domain is cut over.
+ * Remove it once admin.snatchitapp.com is live and the old alias is retired.
+ */
+export const PRODUCTION_SITE_HOSTS = ["admin.snatchitapp.com", "snatchit-admin.vercel.app"] as const;
+
+/**
+ * Why NEXT_PUBLIC_SITE_URL cannot be the production origin, or null.
+ * Must be https://, on one of PRODUCTION_SITE_HOSTS, with no port and no
+ * credentials (a path is ignored). The message shows the parsed host only,
+ * never the raw value, which could carry credentials.
+ */
+export function productionSiteUrlProblem(raw: string | undefined): string | null {
+  let url: URL | null = null;
+  try {
+    url = new URL(raw ?? "");
+  } catch {
+    url = null;
+  }
+  const shown = url ? `host "${url.hostname}"` : "a value that is not a URL";
+  const want = `It must be https://${PRODUCTION_SITE_HOSTS[0]} (or https://${PRODUCTION_SITE_HOSTS[1]} during the transition).`;
+  if (!url || url.protocol !== "https:") {
+    return `NEXT_PUBLIC_SITE_URL (${shown}) cannot be the production origin: it must be https:// on a real host. ${want}`;
+  }
+  if (url.username || url.password || url.port || !(PRODUCTION_SITE_HOSTS as readonly string[]).includes(url.hostname)) {
+    return `NEXT_PUBLIC_SITE_URL (${shown}${url.port ? `, port ${url.port}` : ""}${url.username || url.password ? ", with credentials" : ""}) is not this console's production origin. ${want}`;
+  }
+  return null;
+}
