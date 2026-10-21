@@ -11,6 +11,9 @@
 # Scenarios (each prints PASS/FAIL). "Waited" is a LOCK-WAIT INDICATOR, never a wall-clock bound: pg_stat_activity is
 # polled while session 2 runs and must show it in a heavyweight Lock wait (wait_event_type 'Lock', e.g.
 # 'transactionid' = waiting for session 1's row lock); the elapsed ms are printed for information only.
+# The sessions are found by application_name (r158_s1 / r158_s2) AND database: the server is shared, and a run of
+# this script against other clones uses the same names, so every pg_stat_activity read is scoped to the race's
+# own database (datname = current_database()). A second run against the SAME databases is refused at the start.
 #   C1 session 1 (the owner's service-role path) BEGIN; admin_relist_listing + cancel_listing on listing L (a relist
 #      and a deliberate re-cancel, uncommitted) and holds 3 s. Session 2 (founder A) submits the console relist with
 #      the expected it read BEFORE session 1 began: it WAITS on the listing row lock, then answers rejected /
@@ -52,6 +55,9 @@ HAS158="select position('-- 158 begin' in pg_get_functiondef('ops.execute_action
 HAS157="select to_regclass('ops.action_money_unsettled_uidx') is not null"
 [ "$(q "$DB"  "$HAS157")" = "t" ] && [ "$(q "$DB" "$HAS158")" = "t" ]  || { echo "$DB must have 157 and 158 applied" >&2; exit 1; }
 [ "$(q "$CDB" "$HAS157")" = "t" ] && [ "$(q "$CDB" "$HAS158")" = "f" ] || { echo "$CDB must have 157 and NOT 158" >&2; exit 1; }
+BUSY="select count(*) from pg_stat_activity where datname = current_database() and application_name in ('r158_s1', 'r158_s2')"
+[ "$(q "$DB" "$BUSY")" = "0" ] && [ "$(q "$CDB" "$BUSY")" = "0" ] \
+  || { echo "refusing: a rehearsal session (r158_s1 / r158_s2) is already connected to $DB or $CDB" >&2; exit 1; }
 
 A=15800000-0000-0000-0000-0000000000a1      # founder A (platform_admin via admin_users; also the listings' seller)
 B=15800000-0000-0000-0000-0000000000a2      # founder B
@@ -103,22 +109,23 @@ fail=0
 report() { if [ "$2" = "PASS" ]; then echo "  PASS $1 — $3"; else echo "  FAIL $1 — $3"; fail=1; fi; }
 
 # race <db> <session-1 sql> <session-2 sql>: s1 in the background; s2 starts only once s1 is inside its 3 s hold
-# (pg_stat_activity: application_name r158_s1, wait_event PgSleep). Sets R1, R2, W (ms s2 took, informational) and LW:
-# the heavyweight-lock waits pg_stat_activity showed for s2 (application_name r158_s2, wait_event_type Lock), polled
-# while s2 runs; 'none' if never seen.
+# (pg_stat_activity in <db>: application_name r158_s1, wait_event PgSleep). Sets R1, R2, W (ms s2 took, informational)
+# and LW: the heavyweight-lock waits pg_stat_activity showed for s2 (in <db>: application_name r158_s2,
+# wait_event_type Lock), polled while s2 runs; 'none' if never seen. Both reads run in <db> and filter on
+# datname = current_database(), so sessions of the same name in another database are never counted.
 race() {
   ( PGAPPNAME=r158_s1 psql -X -At -d "$1" -c "$2" > "$TMP/s1" 2>&1 ) &
   local p1=$! i=0
-  until [ "$(q "$1" "select count(*) from pg_stat_activity where application_name = 'r158_s1' and wait_event = 'PgSleep'")" = "1" ] || [ $i -ge 200 ]; do
+  until [ "$(q "$1" "select count(*) from pg_stat_activity where datname = current_database() and application_name = 'r158_s1' and wait_event = 'PgSleep'")" = "1" ] || [ $i -ge 200 ]; do
     sleep 0.05; i=$((i + 1))
   done
-  [ $i -ge 200 ] && echo "  (warning: session 1 never reached its hold; the result below is not a race)"
+  [ $i -ge 200 ] && { echo "  FAIL — session 1 never reached its hold: the result below is not a race"; fail=1; }
   local t0; t0=$(ms)
   ( PGAPPNAME=r158_s2 psql -X -At -d "$1" -c "$3" > "$TMP/s2" 2>&1 ) &
   local p2=$! w
   : > "$TMP/lw"
   while kill -0 "$p2" 2>/dev/null; do
-    w=$(q "$1" "select coalesce(string_agg(distinct wait_event, ','), '') from pg_stat_activity where application_name = 'r158_s2' and wait_event_type = 'Lock'")
+    w=$(q "$1" "select coalesce(string_agg(distinct wait_event, ','), '') from pg_stat_activity where datname = current_database() and application_name = 'r158_s2' and wait_event_type = 'Lock'")
     [ -n "$w" ] && echo "$w" >> "$TMP/lw"
     sleep 0.02
   done
