@@ -283,11 +283,19 @@ revision was written in a wave with no database (§8).
 
 | Mutant | 56 (reviewer, run) | 71 (expected, not run) |
 |---|---|---|
-| r1 `REVOKE SELECT (neighborhood) ON catalog.venue FROM authenticated` and `REVOKE SELECT (royalty_bps) ON catalog.resale_policy FROM authenticated`. The views stay, but every caller read raises `permission denied for table venue`. | survived | C22 raises 42501, the file's transaction aborts, and every later assertion errors. The file FAILS. |
+| r1 `REVOKE SELECT (neighborhood) ON catalog.venue FROM authenticated` and `REVOKE SELECT (royalty_bps) ON catalog.resale_policy FROM authenticated`. The views stay, but every caller read raises `permission denied for table venue`. | survived | C22 raises 42501, the run stops and the plan does not match. The file FAILS. |
 | r2 venues `WHERE false` | survived | C22, C25, C26, C28 (NULL value), D6, D8, F6 |
 | r3 resale_policies `WHERE false` | survived | C24, C27, C29 (NULL value), D7, D9, F6 |
 | r4 `s.ends_at AS starts_at, s.starts_at AS ends_at` in event_sessions (188 also 47/47) | survived | C30 (starts 23:30 / ends 20:00 against the fixture's 20:00 / 23:30), F6 |
 | r5 `ALTER DEFAULT PRIVILEGES FOR ROLE postgres GRANT SELECT ON TABLES TO authenticated` (global, not in the schema). The reviewer's "future" case. | F3 stays green (reviewer, by reading) | F7 |
+
+**How an uncaught error shows up.** CI runs 226 through `supabase test db`, that is pg_prove,
+which runs psql with `ON_ERROR_STOP=1`. An uncaught error (42501 for r1 at C22, for m03 at C4)
+stops the script there. The later assertions never run, so they neither pass nor fail, and the
+file FAILS on the plan mismatch. The local runner `scripts/local/runtests.sh` uses
+`ON_ERROR_STOP=0` instead. It keeps going inside the aborted transaction and reports each later
+statement as a psql error, which is where §4.4's "B1 + 70 errors" for m03 comes from. Both
+runners give the same verdict, FAIL. Only the per-assertion detail differs.
 
 **The new fixture** is added in its own block after E11. The 47 carried assertions keep their
 fixture byte for byte. It adds:
@@ -317,8 +325,11 @@ name returns a wrong value.
   a local 17.11.
 - A static check confirms that the eight temp-view SELECTs are byte-identical to the
   migration's. A planted swap in a copy of the migration makes that check report DIFFERENT.
-- F6 is expected to fail for every mutant that changes a view's SELECT: r2–r4, and m03, m04,
-  m05, m10, m12 and m13.
+- F6 is expected to fail for every mutant that changes a view's SELECT and lets the run reach
+  F6: r2–r4, and m04, m05, m10, m12 and m13.
+- m03 changes a SELECT too, but it is killed earlier and F6 never runs: B1 fails, then C4 (the
+  first caller read of `inventory_batches`) raises 42501 because `capacity` is not granted, and
+  the run stops.
 - F6 does not cover reloption, grant, default-ACL or function mutants (m01, m02, m06–m09, m11,
   m14). A4, A10, F1–F4 and A3 keep those.
 - A later migration that legitimately redefines a view must update F6's temp-view text in the
