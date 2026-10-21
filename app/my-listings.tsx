@@ -39,7 +39,7 @@ import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 import type { Listing } from '@/src/types';
 import { useTopInset } from '@/src/lib/nav/navInsets';
-import { sellerActionOpensOrder, sellerNextAction } from '@/src/lib/seller/nextAction';
+import { msUntilNextSellerLineChange, sellerActionOpensOrder, sellerNextAction } from '@/src/lib/seller/nextAction';
 
 type FilterKey = 'all' | 'active' | 'needs_action' | 'ended' | 'sold';
 const VALID_FILTERS: FilterKey[] = ['all', 'active', 'needs_action', 'ended', 'sold'];
@@ -157,6 +157,25 @@ export default function MyListingsScreen({ fixture }: { fixture?: MyListingsFixt
       fetchMyListings(true);
     }, [fetchMyListings]),
   );
+
+  // A "Send by <time>" line must not outlive its deadline on an open screen: ONE timer to the soonest
+  // pending deadline re-renders the rows, which then show the neutral past-window line. The timer only
+  // redraws — it reads nothing and changes no order; the server's expiry sweep stays the authority.
+  const [deadlineTick, setDeadlineTick] = useState(0);
+  useEffect(() => {
+    const delay = msUntilNextSellerLineChange(
+      listings.map((l) => {
+        const tx = transfers.get(l.id);
+        return { listingStatus: l.status, transfer: tx ? { status: tx.status, expires_at: tx.expiresAt } : null };
+      }),
+      Date.now(),
+    );
+    if (delay === null) return;
+    // +250 ms so the redraw lands past the boundary (sellerNextAction: deadline - now > 0 is "before");
+    // capped at setTimeout's 32-bit maximum.
+    const id = setTimeout(() => setDeadlineTick((n) => n + 1), Math.min(delay + 250, 2_147_483_647));
+    return () => clearTimeout(id);
+  }, [listings, transfers, deadlineTick]);
 
   async function onRefresh() {
     setRefreshing(true);
@@ -293,6 +312,8 @@ export default function MyListingsScreen({ fixture }: { fixture?: MyListingsFixt
       ) : (
         <FlatList
           data={filteredListings}
+          // The deadline timer's tick: rows re-render when a "Send by" deadline passes on an open screen.
+          extraData={deadlineTick}
           keyExtractor={(item) => item.id}
           contentContainerStyle={s.list}
           showsVerticalScrollIndicator={false}

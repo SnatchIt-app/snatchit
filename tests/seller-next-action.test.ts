@@ -19,6 +19,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  msUntilNextSellerLineChange,
   SELLER_NEXT_ACTION_COPY,
   sellerActionOpensOrder,
   sellerNextAction,
@@ -214,5 +215,31 @@ describe('the zone pin itself', () => {
       if (saved === undefined) delete process.env.TZ;
       else process.env.TZ = saved;
     }
+  });
+});
+
+describe('when does a row change on its own (E, D-2.3: no line outlives its deadline)', () => {
+  const NOW = Date.parse('2026-10-21T20:00:00Z');
+  const row = (status: string, expires_at: string | null, listingStatus = 'sold') =>
+    ({ listingStatus, transfer: { status, expires_at } });
+
+  it('SN18: the soonest pending deadline still ahead on a sold row — and nothing else — sets the delay', () => {
+    expect(msUntilNextSellerLineChange([
+      row('pending', '2026-10-21T23:00:00Z'),
+      row('pending', '2026-10-21T20:02:00Z'),          // the soonest: 120 000 ms
+      row('pending', '2026-10-21T19:00:00Z'),          // already past: its line has changed
+      row('pending', 'not a date'),
+      row('pending', null),
+      row('seller_sent', '2026-10-21T20:00:30Z'),      // not a send deadline
+      row('expired', '2026-10-21T20:00:10Z'),          // server fact, clock-independent
+      row('pending', '2026-10-21T20:00:05Z', 'active'), // not sold: no action line at all
+    ], NOW)).toBe(120_000);
+  });
+
+  it('SN19: no row that changes with the clock → no timer; the boundary itself is not "ahead"', () => {
+    expect(msUntilNextSellerLineChange([], NOW)).toBeNull();
+    expect(msUntilNextSellerLineChange([row('seller_sent', null), row('expired', '2026-10-22T00:00:00Z')], NOW)).toBeNull();
+    expect(msUntilNextSellerLineChange([row('pending', '2026-10-21T20:00:00Z')], NOW)).toBeNull();
+    expect(msUntilNextSellerLineChange([{ listingStatus: 'sold', transfer: null }], NOW)).toBeNull();
   });
 });

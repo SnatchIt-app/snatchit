@@ -109,6 +109,23 @@ export function sellerNextAction(input: SellerNextActionInput, nowMs: number): S
   return null;
 }
 
+/**
+ * Milliseconds until the next row's line changes on its own: the earliest pending deadline still in
+ * the future on a sold listing (where "Send by <time>" turns into the neutral past-window line). null
+ * when no row will change with the clock. My Listings sets ONE timer to this, so a line drawn before
+ * the deadline is not left on screen after it (E, D-2.3).
+ */
+export function msUntilNextSellerLineChange(rows: readonly SellerNextActionInput[], nowMs: number): number | null {
+  let soonest: number | null = null;
+  for (const r of rows) {
+    const t = r.transfer;
+    if (r.listingStatus !== 'sold' || !t || t.status !== 'pending' || !t.expires_at) continue;
+    const left = new Date(t.expires_at).getTime() - nowMs;
+    if (Number.isFinite(left) && left > 0 && (soonest === null || left < soonest)) soonest = left;
+  }
+  return soonest;
+}
+
 /** The send and proof actions are taken on the order screen; the closed line and "nothing" are not. */
 export function sellerActionOpensOrder(action: SellerNextAction | null | undefined): boolean {
   return action != null && action.kind !== 'do_not_send';

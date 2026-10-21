@@ -278,6 +278,66 @@ describe('each row gets exactly the helper\'s one action', () => {
   });
 });
 
+describe('the line follows the clock on an open screen (E, D-2.3)', () => {
+  const kindOf = (host: HookHost, id: string) =>
+    (rows(host).get(id)!.nextAction as { kind: string } | null | undefined)?.kind ?? null;
+
+  it('SA12: one timer to the soonest deadline redraws the rows — "Send by" turns neutral without a refocus, then the next deadline is armed', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-10-21T20:00:00Z'));
+      h.listings = [listing('l-soon'), listing('l-later')];
+      h.transfers = [
+        transfer('t-soon', 'l-soon', 'pending', { expires_at: '2026-10-21T20:02:00Z' }),
+        transfer('t-later', 'l-later', 'pending', { expires_at: '2026-10-21T23:00:00Z' }),
+      ];
+      const host = await mountMyListings();
+      const tick0 = list(host).props.extraData;
+      expect(kindOf(host, 'l-soon')).toBe('send_by');
+
+      // Just before the deadline: no redraw yet.
+      vi.advanceTimersByTime(119_000);
+      expect(list(host).props.extraData).toBe(tick0);
+
+      // Past it (+250 ms margin): the SCREEN re-rendered on its own — not just a fresh renderItem call.
+      vi.advanceTimersByTime(2_000);
+      const tick1 = list(host).props.extraData;
+      expect(tick1).not.toBe(tick0);
+      expect(kindOf(host, 'l-soon')).toBe('window_passed');
+      expect(kindOf(host, 'l-later')).toBe('send_by');
+
+      // The next deadline is armed after the first fires.
+      vi.setSystemTime(new Date('2026-10-21T22:59:00Z'));
+      vi.advanceTimersByTime(3 * 3_600_000);
+      expect(list(host).props.extraData).not.toBe(tick1);
+      expect(kindOf(host, 'l-later')).toBe('window_passed');
+      host.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('SA13: rows whose line cannot change with the clock arm no timer — nothing redraws over two days', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-10-21T20:00:00Z'));
+      h.listings = [listing('l-proof'), listing('l-expired'), listing('l-late')];
+      h.transfers = [
+        transfer('t-proof', 'l-proof', 'seller_sent'),
+        transfer('t-expired', 'l-expired', 'expired', { expires_at: '2026-10-21T19:00:00Z' }),
+        transfer('t-late', 'l-late', 'pending', { expires_at: '2026-10-21T19:00:00Z' }),
+      ];
+      const host = await mountMyListings();
+      const tick0 = list(host).props.extraData;
+      vi.advanceTimersByTime(48 * 3_600_000);
+      expect(list(host).props.extraData).toBe(tick0);
+      host.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe('SellerListingCard renders the one line', () => {
   async function renderCard(props: Record<string, unknown>) {
     const { default: SellerListingCard } = await import('@/src/components/SellerListingCard');
