@@ -35,11 +35,20 @@ no PR, no CI run, not deployed.**
 | | Commit | Fix | RED → GREEN | Mutants caught |
 |---|---|---|---|---|
 | F1 | `2e103504` | The money-form guard also reads `ops.list_actions` for the one subject in the unsettled states. `order_detail` stops at 50 rows; the guard no longer does. A failed or unrecognised read hides the form ("Couldn't check for an earlier request"). | page test 7 failed / 3 passed → 10/10, plus 10 unit tests | 10/10 |
-| F2 | `24180dc6` | "Sample data" notice only for an explicitly set label of exactly `local`, `harness` or `rehearsal`, and never on Vercel production or preview. The harness now sets `NEXT_PUBLIC_ENV_LABEL=harness`. | 3 failed / 1 passed → 5/5 | 6/6 |
+| F2 | `24180dc6` | "Sample data" notice only for an explicitly set label of exactly `local`, `harness` or `rehearsal`, and never on Vercel production or preview. The harness now sets `NEXT_PUBLIC_ENV_LABEL=harness`. Tightened by F2b below. | 3 failed / 1 passed → 5/5 | 6/6 |
 | F3 | `87509792` | `env.ts` refuses, at startup in every environment, an `sb_secret_` key or a JWT with any role other than anon (service_role included) in `NEXT_PUBLIC_SUPABASE_ANON_KEY`. The key is never printed. | 5 failed / 1 passed → 6/6 | 8/8 |
 | F4 | `e8517067` | `/mfa` calls `ops.whoami()` before the enrol flow. whoami has no aal check (115:1134-1152), so it answers at aal1. A non-operator goes to `/denied`; operators are unchanged. | 4 failed / 2 passed → 7/7 | 7/7 |
 | F5 | `36155fe0` | Session cookies are host-only by construction: `hostOnlyCookie()` drops any Domain. On a Vercel production deploy, `NEXT_PUBLIC_SITE_URL` must be `https://admin.snatchitapp.com`, or `https://snatchit-admin.vercel.app` during the transition. The CSP and headers are pinned as host-agnostic. | 6 failed / 4 passed → 10/10 | 13/13 |
 | F6 | `cd54a3dc` | next 16.3.3 → 16.3.8, exact. The lockfile change set is identical to `bdd1dfb5`. npm audit: 1 critical + 2 high → 2 high (sharp, source-map-js; transitive). | 1 failed / 2 passed → 3/3 | 5/5 |
+
+- **Review follow-ups** (independent review of F1–F6, 2026-10-21). Same rule: one commit each, a test that failed on the parent, planted mutants:
+
+| | Commit | Fix | RED → GREEN | Mutants caught |
+|---|---|---|---|---|
+| F2b | `00fa892a` | `.env.example` ships `NEXT_PUBLIC_ENV_LABEL=local`, which was on the allowlist, so a developer on a hosted project got "fixture data". The notice now needs an explicit `harness` or `rehearsal` label (`local` removed; it stays a badge) **and** a `NEXT_PUBLIC_SUPABASE_URL` whose hostname is exactly `localhost`, `127.0.0.1` or `::1`. Still never on Vercel production or preview. | 7 failed / 3 passed → 10/10 | 7/7 |
+| F1b | `b2b4d31f` | A `list_actions` row the client's exact match missed (subject_id in another case, a reshaped row) fell through to "clear". The server already filters by type, subject and the unsettled states, so any returned row now means pending (exact match preferred); items or `count_hint` > 0 with no usable row hide the form; only an empty page clears. | 7 failed / 21 passed → 28/28 | 7/7 |
+| F7 | `128caa74` | Pre-existing (also on `07100a35`): after `getClaims()` refreshed the session, a proxy redirect (aal1 → `/mfa`, aal2 on `/login` or `/mfa`, no session → `/login`) dropped the rotated cookies, so the operator was signed out later. Redirects now carry every cookie through `hostOnlyCookie` plus the no-store cache headers, and nothing else. | 5 failed / 3 passed → 8/8 | 7/7 |
+| F8 | `0495d524` | A's request, ahead of its refusal code. A raised error with an unseen code and a `rejected` outcome with an unseen `reject_reason` already rendered generically with the database's message; tests with the invented code `duplicate_unsettled` now pin both, for `execute_action` and `approve_action`. Changed: an answer with an unknown `status` no longer drops the database's message and code. | 2 failed / 10 passed → 12/12 | 9/9 |
 
 - **Gates at `cd54a3dc`** (npm ci, local Node v24.13.1):
   - typecheck 0, lint 0;
@@ -48,13 +57,15 @@ no PR, no CI run, not deployed.**
   - A build with `NEXT_PUBLIC_VERCEL_ENV=production` and `NEXT_PUBLIC_SITE_URL=https://admin.snatchitapp.com` passes.
   - Builds with an `sb_secret_` key, or with a production SITE_URL outside the allowlist, exit 1 with the refusal message.
 - **Domain notes (admin.snatchitapp.com):**
-  - Nothing in `admin/src` names the console's host. The only hit is `env.ts`'s dev default `http://localhost:3200`, which Vercel production refuses.
+  - No link, redirect or auth flow is built from the host. The only host names are the `PRODUCTION_SITE_HOSTS` allowlist in `src/lib/env-policy.ts` (`admin.snatchitapp.com`, `snatchit-admin.vercel.app`), a build-time check: a Vercel production build whose `NEXT_PUBLIC_SITE_URL` is on any other host exits 1. Comments in `env.ts` and `cookie-options.ts` mention hosts too, but drive nothing. So adding a host, or retiring `snatchit-admin.vercel.app`, is a code change plus a release, not only a Vercel setting. `env.ts`'s dev default `http://localhost:3200` is refused the same way.
   - `form-action`, `frame-ancestors` and `connect-src` are origin-relative (`'self'`) plus the Supabase origin, so they need no change on the new host.
   - Server Actions stay same-origin (no `allowedOrigins`).
   - Cookies are host-only, so operators sign in again on the new host. Sessions on `snatchit-admin.vercel.app` do not carry over, and none are shared with venue./app.
-  - Admin uses password + TOTP only, with no redirect-based auth flow. Remove the `snatchit-admin.vercel.app` entry from `PRODUCTION_SITE_HOSTS` once the custom domain is live and the alias is retired.
+  - Admin uses password + TOTP only, with no redirect-based auth flow. Remove the `snatchit-admin.vercel.app` entry from `PRODUCTION_SITE_HOSTS` once the custom domain is live and the alias is retired. That removal ships in a release of its own.
+- **Deploy note (server actions):** every console form posts to a Next.js server action, and server-action ids are build artifacts. They change on any Next version change (F6 is one), on a build without the build cache, and on a rollback to another build; Next also rotates them at most every 14 days, even when the source is unchanged. A console tab loaded before a promote or rollback then posts an id the serving deployment does not have ("Failed to find Server Action"), and the submit fails without reaching the database. Operators reload every open console tab after any promote or rollback (a reload also mints a fresh idempotency key), or the owner enables Vercel Skew Protection on the project so an old tab keeps reaching the deployment it was loaded from.
 - **Not done here:**
   - push, draft PR and CI on Node 22;
+  - the full gates after F2b–F8 (npm ci, full vitest, typecheck, `next build`): the shared machine slot was held, so only the touched test files and eslint on the touched files ran. The gate figures above are for `cd54a3dc`;
   - any browser, signed-in or aal2 render;
   - Vercel domain, DNS, TLS and env changes (owner);
   - the server-side duplicate refund/payout rule and relist expected-version (A's migrations; F1 stays a UI guard);
