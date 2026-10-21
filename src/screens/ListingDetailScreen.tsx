@@ -51,6 +51,7 @@ import { allInFromDollars, buyerTotalCents, dollarsToCents } from '@/src/lib/mon
 import { clockLabel } from '@/src/lib/listing/feedRowState';
 import { AnnounceWhenFocused } from '@/src/components/a11y/AnnounceWhenFocused';
 import { displayedBidFloor } from '@/src/lib/bid/bidEntry';
+import { spokenDuration } from '@/src/lib/a11y/spoken';
 import { PLATFORM_INSTRUCTIONS } from '@/src/lib/platformInstructions';
 import { APP_CONFIG } from '@/src/config/app';
 import { sendLocalNotification } from '@/src/utils/notifications';
@@ -1401,7 +1402,10 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
 
         {status ? (
           <View style={s.statusWrap}>
-            <ListingStatusBanner status={status} />
+            <ListingStatusBanner
+              status={status}
+              spokenDetail={status?.kind === 'reserved_by_you' ? `${spokenDuration(reservationMsLeft)} left to finish checkout.` : undefined}
+            />
             {needsTransferRefresh ? (
               <Pressable
                 onPress={() => fetchData(true)}

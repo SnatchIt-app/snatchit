@@ -33,7 +33,11 @@ function toneColors(p: Palette): Record<StatusTone, string> {
   };
 }
 
-export function ListingStatusBanner({ status }: { status: ListingStatus | null }) {
+export function ListingStatusBanner({ status, spokenDetail }: {
+  status: ListingStatus | null;
+  /** What a screen reader hears for `detail` when the visible words read badly (a m:ss countdown). */
+  spokenDetail?: string;
+}) {
   const { palette } = useTheme();
   const styles = useMemo(() => makeStyles(palette), [palette]);
   if (!status) return null;
@@ -42,9 +46,11 @@ export function ListingStatusBanner({ status }: { status: ListingStatus | null }
   return (
     <View
       style={[styles.row, { borderLeftColor: color }]}
+      // One element, read as one sentence: without `accessible` iOS ignored this label and read the
+      // two Texts as fragments.
+      accessible
       accessibilityRole="text"
-      // Read as one sentence rather than two fragments.
-      accessibilityLabel={status.detail ? `${status.label}. ${status.detail}` : status.label}
+      accessibilityLabel={status.detail ? `${status.label}. ${spokenDetail ?? status.detail}` : status.label}
     >
       <Text style={[textStyle('label'), { color }]} numberOfLines={1}>
         {status.label}

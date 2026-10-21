@@ -31,6 +31,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { OrderIdentity } from '@/src/components/checkout/OrderIdentity';
 import { Button, IconButton, Spinner } from '@/src/components/ui';
 import { useAnnounceOnce } from '@/src/hooks/useAnnounceOnce';
+import { spokenDuration } from '@/src/lib/a11y/spoken';
 import { hapticSuccess } from '@/src/lib/feedback/haptics';
 import { useTopInset } from '@/src/lib/nav/navInsets';
 // TYPE ONLY, and deliberately: a value import from the payment module would put `src/lib/payments`
@@ -172,7 +173,12 @@ export default function CheckoutView({
         */}
         {reservationMsLeft != null && reservationMsLeft > 0 ? (
           <View style={s.holdRow}>
-            <Text style={[textStyle('label'), s.hold]} accessibilityLiveRegion="none">
+            <Text
+              style={[textStyle('label'), s.hold]}
+              accessibilityLiveRegion="none"
+              // Spoken as a duration: VoiceOver reads the visible "4:32" as a time of day.
+              accessibilityLabel={`Held for you, ${spokenDuration(reservationMsLeft)} left${holdUntil ? `, until ${holdUntil}` : ''}`}
+            >
               {`Held for you · ${countdown}${holdUntil ? ` · until ${holdUntil}` : ''}`}
             </Text>
           </View>
