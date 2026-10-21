@@ -155,6 +155,7 @@ export function ConfirmForm({
   params,
   expected,
   revalidate,
+  closed = false,
   label,
   pendingLabel = "Submitting…",
   danger = false,
@@ -174,6 +175,14 @@ export function ConfirmForm({
   expected?: Record<string, unknown>;
   /** Path to revalidate after an authoritative outcome (usually the page). */
   revalidate?: string;
+  /**
+   * The subject no longer accepts this action — typically because the refresh that came back with this
+   * form's own answer (revalidatePath) shows it moved on. Nothing to submit is rendered, but the parent keeps
+   * this component mounted in the same slot, so the last server answer held in its state stays visible
+   * instead of being thrown away with the form; with no answer it renders nothing. Same idea as
+   * AlertAckForm's `acknowledged` in admin v2.
+   */
+  closed?: boolean;
   label: string;
   pendingLabel?: string;
   danger?: boolean;
@@ -185,6 +194,14 @@ export function ConfirmForm({
 }) {
   const [state, formAction] = useActionState<ActionFormState, FormData>(submitActionForm, {});
   const reasonId = `${useId()}-reason`;
+  const answer = state.failure ? (
+    <OpsFailureAlert failure={state.failure} fn={actionType === "approval_decide" ? "approve_action" : "execute_action"} />
+  ) : state.outcome ? (
+    <OutcomeText outcome={state.outcome} actionType={actionType} />
+  ) : null;
+
+  // Closed: only a server answer (a client-side validation note belongs to inputs that are gone).
+  if (closed) return answer ? <div className={className}>{answer}</div> : null;
 
   return (
     <form action={formAction} className={`space-y-3 ${className}`}>
@@ -213,13 +230,7 @@ export function ConfirmForm({
         <SubmitButton label={label} pendingLabel={pendingLabel} danger={danger} />
       </div>
 
-      {state.invalid ? (
-        <Alert state="failed" title={state.invalid} compact />
-      ) : state.failure ? (
-        <OpsFailureAlert failure={state.failure} fn={actionType === "approval_decide" ? "approve_action" : "execute_action"} />
-      ) : state.outcome ? (
-        <OutcomeText outcome={state.outcome} actionType={actionType} />
-      ) : null}
+      {state.invalid ? <Alert state="failed" title={state.invalid} compact /> : answer}
     </form>
   );
 }

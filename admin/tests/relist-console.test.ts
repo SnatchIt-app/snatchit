@@ -11,8 +11,19 @@ const h = vi.hoisted(() => ({
   detail: null as unknown,
   execReply: null as unknown,
   role: "platform_admin" as string,
+  /**
+   * When set, useActionState answers with this state: the state React keeps for a ConfirmForm instance it reuses
+   * across the action's own refresh (same slot, same type, same key). Undefined = React's real hook.
+   */
+  heldState: undefined as unknown,
 }));
 
+vi.mock("react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react")>();
+  const useActionState = ((action: never, initial: never, permalink?: string) =>
+    h.heldState !== undefined ? [h.heldState, () => {}, false] : actual.useActionState(action, initial, permalink)) as typeof actual.useActionState;
+  return { ...actual, useActionState };
+});
 vi.mock("server-only", () => ({}));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/ops", () => ({
@@ -26,6 +37,7 @@ vi.mock("@/lib/auth/session", () => ({
   requireOperator: vi.fn(async () => ({ id: "0b000000-0000-4000-8000-0000000000aa", email: null, aal: "aal2", role: h.role, whoami: { role: h.role } })),
 }));
 
+import { revalidatePath } from "next/cache";
 import ListingPage from "../src/app/(console)/marketplace/[id]/page";
 import { ConfirmForm, OutcomeText } from "../src/components/ui/ConfirmForm";
 import { OpsFailureAlert } from "../src/components/ui/Alert";
@@ -100,12 +112,67 @@ function walk(node: unknown, visit: (el: ReactElement) => void): void {
   }
 }
 
+function isRelistHost(el: ReactElement): boolean {
+  return el.type === ConfirmForm && (el.props as Record<string, unknown>).actionType === "listing_relist";
+}
+
+/** Every listing_relist ConfirmForm in the tree: the open form, or the closed host that only holds the last answer. */
 function relistForms(tree: unknown): ReactElement<Record<string, unknown>>[] {
   const out: ReactElement<Record<string, unknown>>[] = [];
   walk(tree, (el) => {
-    if (el.type === ConfirmForm && (el.props as Record<string, unknown>).actionType === "listing_relist") out.push(el as ReactElement<Record<string, unknown>>);
+    if (isRelistHost(el)) out.push(el as ReactElement<Record<string, unknown>>);
   });
   return out;
+}
+
+/** The relist forms an operator can submit (not closed). */
+function openRelistForms(tree: unknown): ReactElement<Record<string, unknown>>[] {
+  return relistForms(tree).filter((f) => f.props.closed !== true);
+}
+
+function containsElement(node: unknown, isTarget: (el: ReactElement) => boolean): boolean {
+  let found = false;
+  walk(node, (el) => {
+    if (isTarget(el)) found = true;
+  });
+  return found;
+}
+
+function typeName(t: unknown): string {
+  if (typeof t === "string") return t;
+  if (typeof t === "function") return t.name || "anonymous";
+  if (typeof t === "symbol") return t.description ?? "symbol";
+  return String(t);
+}
+
+/**
+ * Where React places the target on the client: one step per level, from the page's output down to the target,
+ * as `<position>:<type>`. position is `key=<key>` for a keyed element (React matches those by key) and `#<index>`
+ * among its siblings otherwise (React matches by index; a null/false child still holds its index). Server
+ * components on the way (Panel) are rendered, because the client reconciles their OUTPUT, not the JSX that
+ * names them; host elements and fragments contribute props.children. Two renders with the same path keep the same
+ * component instance, so its useActionState state survives the refresh (Next: "Client state is preserved for
+ * re-rendered components", 07-mutating-data.md:512). null = the target is not in the tree.
+ */
+async function slotPath(node: unknown, isTarget: (el: ReactElement) => boolean): Promise<string[] | null> {
+  const items = Array.isArray(node) ? node : [node];
+  for (let i = 0; i < items.length; i++) {
+    const item: unknown = items[i];
+    if (Array.isArray(item)) {
+      const sub = await slotPath(item, isTarget);
+      if (sub) return [`#${i}:array`, ...sub];
+      continue;
+    }
+    if (!isValidElement(item)) continue;
+    const label = `${item.key != null ? `key=${item.key}` : `#${i}`}:${typeName(item.type)}`;
+    if (isTarget(item)) return [label];
+    if (!containsElement(item.props, isTarget)) continue;
+    const props = item.props as Record<string, unknown>;
+    const inner = typeof item.type === "function" ? await (item.type as (p: unknown) => unknown)(props) : props.children;
+    const sub = await slotPath(inner, isTarget);
+    if (sub) return [label, ...sub];
+  }
+  return null;
 }
 
 function treeText(tree: unknown): string {
@@ -144,9 +211,28 @@ async function renderPage(listing: Record<string, unknown>) {
   return ListingPage({ params: Promise.resolve({ id: LISTING_ID }) });
 }
 
+/** Posts the page's relist form the way the browser would: its hidden inputs, the new end and a reason. */
+async function postRelist(listing: Record<string, unknown>, newEnds: string) {
+  const [form] = openRelistForms(await renderPage(listing));
+  const html = renderToStaticMarkup(form);
+  const fd = new FormData();
+  for (const i of inputs(html)) {
+    if (i.type === "hidden") fd.set(i.name, i.value ?? "");
+  }
+  const ends = inputs(html).find((i) => i.type === "datetime-local");
+  fd.set(ends?.name ?? "missing", newEnds);
+  fd.set("reason", "relist house inventory for the weekend");
+  h.calls.length = 0;
+  const state = await submitActionForm({}, fd);
+  const exec = h.calls.find((c) => c.fn === "execute_action");
+  return { state, exec };
+}
+
 beforeEach(() => {
   h.calls.length = 0;
   h.role = "platform_admin";
+  h.heldState = undefined;
+  vi.mocked(revalidatePath).mockClear();
   h.execReply = { ok: true, data: { status: "succeeded", action_id: ACTION_ID, result: { status: "succeeded" } } };
 });
 
@@ -154,7 +240,7 @@ beforeEach(() => {
 
 describe("marketplace/[id]: when the relist form renders", () => {
   it("renders for status=active + auction_status=cancelled + a string updated_at", async () => {
-    expect(relistForms(await renderPage(listingRow()))).toHaveLength(1);
+    expect(openRelistForms(await renderPage(listingRow()))).toHaveLength(1);
   });
 
   it.each([
@@ -165,7 +251,7 @@ describe("marketplace/[id]: when the relist form renders", () => {
     ["status null", { status: null }],
   ])("does not render for %s", async (_label, over) => {
     const tree = await renderPage(listingRow(over));
-    expect(relistForms(tree)).toHaveLength(0);
+    expect(openRelistForms(tree)).toHaveLength(0);
     expect(treeText(tree)).toContain("Relist applies only to active listings whose auction is cancelled.");
   });
 
@@ -182,7 +268,7 @@ describe("marketplace/[id]: when the relist form renders", () => {
       else row[k] = v;
     }
     const tree = await renderPage(row);
-    expect(relistForms(tree)).toHaveLength(0);
+    expect(openRelistForms(tree)).toHaveLength(0);
     expect(treeText(tree)).toContain("ops.listing_detail did not return this listing's version");
   });
 
@@ -239,22 +325,6 @@ describe("marketplace/[id]: p_expected carries the five raw values byte-identica
 });
 
 describe("relist form post → ops.execute_action (the whole console pipeline)", () => {
-  async function postRelist(listing: Record<string, unknown>, newEnds: string) {
-    const [form] = relistForms(await renderPage(listing));
-    const html = renderToStaticMarkup(form);
-    const fd = new FormData();
-    for (const i of inputs(html)) {
-      if (i.type === "hidden") fd.set(i.name, i.value ?? "");
-    }
-    const ends = inputs(html).find((i) => i.type === "datetime-local");
-    fd.set(ends?.name ?? "missing", newEnds);
-    fd.set("reason", "relist house inventory for the weekend");
-    h.calls.length = 0;
-    const state = await submitActionForm({}, fd);
-    const exec = h.calls.find((c) => c.fn === "execute_action");
-    return { state, exec };
-  }
-
   it("sends p_expected with all five raw values and p_params.new_ends_at with 'Z'", async () => {
     const { exec } = await postRelist(listingRow(), "2026-10-28T03:47");
     expect(exec).toBeDefined();
@@ -479,5 +549,165 @@ describe("raised errors: out-of-date console vs 42501 / reason / pause precedenc
   it("only that exact P0001 prefix is 'out of date'", () => {
     expect(mapOpsError("execute_action", { code: "P0001", message: "invalid_input: unknown action_type listing_relist" })).not.toMatchObject({ outdated: true });
     expect(mapOpsError("execute_action", { code: "XX000", message: OUTDATED_RAISE })).not.toMatchObject({ outdated: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The answer outlives the refresh that carries it. submitActionForm calls revalidatePath after every outcome, so
+// the action's response re-renders this page in the same roundtrip (Next 16: server-actions.md:34-39, :150).
+// After a relist (auction active) or a lost race the listing is no longer relistable; the refreshed page must
+// keep the SAME ConfirmForm instance in the same slot (closed) or useActionState's answer is thrown away.
+// ---------------------------------------------------------------------------
+
+const PATH = `/marketplace/${LISTING_ID}`;
+const NEW_ENDS = "2026-10-28T03:47:00+00:00";
+const RELISTED_UPDATED = "2026-10-21T22:05:31.000987+00:00";
+const OTHER_ENDS = "2026-10-25T20:00:00+00:00";
+const OTHER_UPDATED = "2026-10-21T22:04:59.314159+00:00";
+
+const BEFORE_LOCKED = { status: "active", auction_status: "cancelled", ends_at: RAW_ENDS, ended_at: RAW_ENDED, updated_at: RAW_UPDATED };
+
+const SUCCEEDED_REPLY = {
+  ok: true,
+  data: {
+    status: "succeeded",
+    action_id: ACTION_ID,
+    result: {
+      status: "succeeded",
+      result: { listing_id: LISTING_ID, event_name: "House listing", new_ends_at: NEW_ENDS, previous_ends_at: RAW_ENDS },
+      before: BEFORE_LOCKED,
+    },
+  },
+};
+
+/** Another operator relisted first: 158 compares the stated version under the row lock and answers stale_state. */
+const OTHER_CURRENT = { status: "active", auction_status: "active", ends_at: OTHER_ENDS, ended_at: null, updated_at: OTHER_UPDATED };
+const STALE_REPLY = {
+  ok: true,
+  data: {
+    status: "rejected",
+    action_id: ACTION_ID,
+    reject_reason: "stale_state",
+    message: STALE_COPY,
+    result: { status: "rejected", reject_reason: "stale_state", message: STALE_COPY, current: OTHER_CURRENT },
+  },
+};
+
+describe("the relist answer outlives the page refresh that carries it (revalidatePath)", () => {
+  /** Load the relistable page, post its form, then re-render the page from the row the refresh reads. */
+  async function submitThenRefresh(reply: unknown, afterRow: Record<string, unknown>) {
+    const beforeTree = await renderPage(listingRow());
+    const before = await slotPath(beforeTree, isRelistHost);
+    const [beforeHost] = relistForms(beforeTree);
+    h.execReply = reply;
+    const { state } = await postRelist(listingRow(), "2026-10-28T03:47");
+    const afterTree = await renderPage(afterRow);
+    const after = await slotPath(afterTree, isRelistHost);
+    const hosts = relistForms(afterTree);
+    return { before, beforeHost, after, state, afterTree, hosts };
+  }
+
+  it("succeeded → refreshed row is auction active: same ConfirmForm slot and key, closed, and 'Recorded.' + result.result + result.before stay visible", async () => {
+    const { before, after, state, afterTree, hosts } = await submitThenRefresh(SUCCEEDED_REPLY, listingRow({ auction_status: "active", ends_at: NEW_ENDS, ended_at: null, updated_at: RELISTED_UPDATED }));
+    expect(state.outcome?.status).toBe("succeeded");
+    expect(revalidatePath).toHaveBeenCalledWith(PATH);
+
+    expect(before).not.toBeNull();
+    expect(after).toEqual(before);
+    expect(before?.at(-1)).toBe("key=listing_relist:ConfirmForm");
+    expect(hosts).toHaveLength(1);
+    expect(hosts[0].props.closed).toBe(true);
+    expect(openRelistForms(afterTree)).toHaveLength(0);
+    expect(treeText(afterTree)).toContain("Relist applies only to active listings whose auction is cancelled.");
+
+    h.heldState = state;
+    const html = renderToStaticMarkup(hosts[0]);
+    const text = textOf(html);
+    expect(text).toContain("Recorded.");
+    expect(html).toContain(`href="/actions/${ACTION_ID}"`);
+    expect(text).toContain(`new_ends_at ${NEW_ENDS}`);
+    expect(text).toContain(`previous_ends_at ${RAW_ENDS}`);
+    expect(text).toContain("Listing as the server locked it (before)");
+    expect(text).toContain(`updated_at ${RAW_UPDATED}`);
+    expect(text).toContain(`ended_at ${RAW_ENDED}`);
+    // Nothing left to submit: no form, no inputs, no button.
+    expect(html).not.toContain("<form");
+    expect(inputs(html)).toHaveLength(0);
+    expect(html).not.toContain('type="submit"');
+  });
+
+  it("stale_state (another operator relisted first) → refreshed row is auction active: same slot, closed, the stale copy + result.current + Reload now stay visible", async () => {
+    const { before, after, state, hosts } = await submitThenRefresh(STALE_REPLY, listingRow(OTHER_CURRENT));
+    expect(state.outcome).toMatchObject({ status: "rejected", reason: "stale_state" });
+    expect(revalidatePath).toHaveBeenCalledWith(PATH);
+
+    expect(before).not.toBeNull();
+    expect(after).toEqual(before);
+    expect(hosts).toHaveLength(1);
+    expect(hosts[0].props.closed).toBe(true);
+
+    h.heldState = state;
+    const html = renderToStaticMarkup(hosts[0]);
+    const text = textOf(html);
+    expect(text).toContain(STALE_COPY);
+    expect(text).toContain("Reload now");
+    expect(text).toContain("The listing now (server row)");
+    expect(text).toContain(`updated_at ${OTHER_UPDATED}`);
+    expect(text).toContain(`ends_at ${OTHER_ENDS}`);
+    expect(text).toContain("auction_status active");
+    expect(text).toContain("ended_at null");
+    expect(html).not.toContain("<form");
+    expect(inputs(html)).toHaveLength(0);
+  });
+
+  it("stale_state with the listing still relistable (a newer version): same slot, the form re-opens with the new version and a new key, and the answer stays under it", async () => {
+    const NEWER = "2026-10-21T22:06:00.271828+00:00";
+    const { before, beforeHost, after, state, hosts } = await submitThenRefresh(
+      { ok: true, data: { ...STALE_REPLY.data, result: { ...STALE_REPLY.data.result, current: { ...BEFORE_LOCKED, updated_at: NEWER } } } },
+      listingRow({ updated_at: NEWER }),
+    );
+    expect(after).toEqual(before);
+    expect(hosts).toHaveLength(1);
+    expect(hosts[0].props.closed).not.toBe(true);
+    expect((hosts[0].props.expected as Record<string, unknown>).updated_at).toBe(NEWER);
+    expect(hosts[0].props.idempotencyKey).not.toBe(beforeHost.props.idempotencyKey);
+
+    h.heldState = state;
+    const html = renderToStaticMarkup(hosts[0]);
+    expect(textOf(html)).toContain(STALE_COPY);
+    expect(inputs(html).find((i) => i.type === "datetime-local")?.name).toBe("param.new_ends_at:utc");
+    expect(JSON.parse(inputs(html).find((i) => i.name === "expected")?.value ?? "null")).toMatchObject({ updated_at: NEWER });
+  });
+
+  it("a fresh load of a non-relistable listing mounts the closed host, which renders nothing until it holds an answer", async () => {
+    const tree = await renderPage(listingRow({ auction_status: "active" }));
+    const hosts = relistForms(tree);
+    expect(hosts).toHaveLength(1);
+    expect(hosts[0].props.closed).toBe(true);
+    expect(renderToStaticMarkup(hosts[0])).toBe("");
+  });
+
+  it("the version-missing note keeps the same slot too (active + cancelled, no updated_at)", async () => {
+    const before = await slotPath(await renderPage(listingRow()), isRelistHost);
+    const row = listingRow();
+    delete row.updated_at;
+    const tree = await renderPage(row);
+    expect(await slotPath(tree, isRelistHost)).toEqual(before);
+    expect(relistForms(tree)[0].props.closed).toBe(true);
+    expect(treeText(tree)).toContain("ops.listing_detail did not return this listing's version");
+  });
+
+  it("a closed host keeps a server failure, not a client-side validation note", async () => {
+    const [host] = relistForms(await renderPage(listingRow({ auction_status: "active" })));
+    h.heldState = { submitted: true, failure: mapOpsError("execute_action", { code: "P0001", message: OUTDATED_RAISE }) };
+    expect(textOf(renderToStaticMarkup(host))).toContain("This console is out of date — reload the page");
+    h.heldState = { submitted: true, invalid: "A reason is required." };
+    expect(renderToStaticMarkup(host)).toBe("");
+  });
+
+  it("a non-founder gets no relist host on either side of the refresh", async () => {
+    h.role = "platform_support";
+    expect(relistForms(await renderPage(listingRow()))).toHaveLength(0);
+    expect(relistForms(await renderPage(listingRow({ auction_status: "active" })))).toHaveLength(0);
   });
 });
