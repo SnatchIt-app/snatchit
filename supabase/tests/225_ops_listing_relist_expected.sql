@@ -7,7 +7,7 @@
 --       ended_at NULL; the ops.action row is succeeded; result.before = the locked row (the compared fields).
 --       R1.8: with expected = {updated_at} alone, result.before is still the locked row's five fields: the
 --       server's verified record, never an echo of the client's expected (ops.action.expected keeps that).
---   R2 expected.updated_at is required: expected NULL, {} and today's console payload {status, auction_status}
+--   R2  expected.updated_at is required: expected NULL, {} and today's console payload {status, auction_status}
 --       raise invalid_input (P0001) before any row or audit is written.
 --   R3  ...and must be a concrete ISO-8601 instant with its UTC offset that casts to timestamptz: JSON null, a
 --       number, '', 'yesterday', no offset, 2026-02-30 => invalid_input. No ops.action row, no audit row, the
