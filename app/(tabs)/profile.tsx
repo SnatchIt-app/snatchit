@@ -337,6 +337,7 @@ export default function ProfileScreen({ fixture }: { fixture?: ProfileFixture } 
             value={`${totalListings} total`}
             onPress={() => router.push('/my-listings')}
           />
+          <SettingsRow label="Saved" onPress={() => router.push('/saved')} />
         </AccountSection>
 
         {/* ── Payouts ───────────────────────────────────────── */}
