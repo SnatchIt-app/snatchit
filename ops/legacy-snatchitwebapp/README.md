@@ -65,9 +65,11 @@ unless you explicitly replace them in the destination") and nothing such as
 `client=` is ever added, except that Vercel's slash merge and the app host's
 trailing-slash 308 may re-encode it (semantically equivalent). Observed for
 both on 2026-10-21: `+` becomes `%20`; `/`, `:`, `@`, `;`, `,`, `$` and `\`
-are percent-encoded; `%41` comes back as `A`; `!'()*~` are left alone. Two
-changes are not equivalent, both for degenerate queries only: empty pairs
-(`&&`) are dropped, and an empty-key pair `=1` comes back as `1`.
+are percent-encoded; `%41` comes back as `A`; `!'()*~` are left alone; empty
+pairs (`a=1&&b=2`) are dropped, which form parsing treats the same. Not
+equivalent, for malformed or degenerate queries only: an empty-key pair `=1`
+comes back as `1`, a malformed escape (`a=%zz`) comes back as `a=zz`, and a
+lone `%` is dropped.
 
 | # | Legacy path | App-host destination | Kind |
 |---|---|---|---|
@@ -330,9 +332,15 @@ has no cache) or a fresh private window, not a browser that already visited.
   always runs before the rules, is not pinned down. The test runs every sample
   under every combination; all end on the app host. The slash merge, its `\`
   encoding and its query re-encoding were observed only on today's deployment,
-  which has no rules; `verify.sh` re-checks them after the deploy. The model
-  differs from it in one observed case: a malformed query escape (`%zz`) came
-  back as `zz`, where the model keeps `%25zz`.
+  which has no rules. After the deploy, `verify.sh` checks only that every hop
+  stays on the legacy host or app.snatchitapp.com and that each chain ends on
+  the app host; it does not assert the query re-encoding or that the merge runs
+  first. The model matches 62 pinned live observations but not every edge case:
+  held-out probes differ for a lone `%` (dropped live), a lone `=` pair (dropped
+  live), a malformed escape (`%zz` comes back as `zz`), well-formed escapes that
+  are not valid UTF-8 (kept live, double-encoded by the model) and malformed
+  path escapes (rejected live with an HTTP/2 protocol error). None of these
+  changes the host a visitor ends on.
 - Whether the edge matches case-insensitively is not pinned down; the matrix
   uses lowercase paths and the test checks both ways.
 - The legacy route list comes from the old bundle; the app-host page list is
