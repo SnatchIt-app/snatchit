@@ -27,7 +27,7 @@ are frozen and were not touched.
 |---|---|---|
 | `supabase/migrations/20261021120000_venue_api_read_views.sql` | `20260910120000_venue_api_read_views.sql` (blob `80cf2762`) | Header only. The SQL from `BEGIN;` to `COMMIT;` is byte-identical (sha256 `fb3cf536…1199e70` on both). |
 | `supabase/rollbacks/20261021120000_venue_api_read_views_rollback.sql` | `20260910120000_…_rollback.sql` (blob `114b94ed`) | Header only. The statements are byte-identical (sha256 `d191b761…27b7340`). |
-| `supabase/tests/226_venue_api_read_views.sql` (provisionally `224`, renamed with `git mv`) | `188_venue_api_read_views.sql` (blob `7ed77132`, plan 47) | The 47 assertions are carried verbatim, fixture included. 24 assertions are new (plan 71): nine in the first round (§4.4) and 15 after review (§4.5). |
+| `supabase/tests/226_venue_api_read_views.sql` (provisionally `224`, renamed with `git mv`) | `188_venue_api_read_views.sql` (blob `7ed77132`, plan 47) | The 47 assertions are carried verbatim, fixture included. 25 assertions are new (plan 72): nine in the first round (§4.4), 15 after the first review (§4.5) and one after the second (§4.6). |
 
 Header fixes in the migration:
 - the registry banner (159 / 226, allocated by A, merge order) and a provenance paragraph
@@ -70,8 +70,9 @@ pgTAP 226 pins both halves for objects the owner creates:
   gets nothing implicitly".
 - F7: no global table default of the owner that grants to PUBLIC, anon or authenticated.
 
-Objects created by another role are outside F7. A1–A3 and F1 still catch any object added to
-the schema.
+Objects created by another role are outside F7. Whoever creates them, A2, A3, F1, F5 and F8
+catch an added view, function, granted relation, relation with columns or type. Other object
+kinds are not swept (§4.6).
 
 It creates eight views, each `WITH (security_invoker = true, security_barrier = true)`:
 
@@ -232,6 +233,7 @@ gate:
 - F4: security_barrier on every view
 - F5: the exact 55-column projection
 - F6: each view's definition equals the migration's SELECT (§4.5)
+- F8: no type in the schema other than the eight views' row types and their array types (§4.6)
 - A2/A3: eight views, zero functions
 - Sections C–E and D6–D9: every view read as a caller, so a base-column REVOKE that makes a view
   unreadable fails the file
@@ -320,6 +322,45 @@ name returns a wrong value.
   m14). A4, A10, F1–F4 and A3 keep those.
 - A later migration that legitimately redefines a view must update F6's temp-view text in the
   same change.
+
+### 4.6 Second review round (2026-10-21): plan 71 to 72
+
+The review of `3d2b0bf5` found an overclaim. The doc, the migration header and 226 all said
+that A1–A3 and F1 catch any object added to the schema. They do not:
+- A2 counts `pg_views` only, and A3 counts `pg_proc` only.
+- F1 lists only relations with a non-owner ACL entry. The owner is excluded and `acldefault`
+  grants clients nothing, so a relation with no grant never appears in it.
+- An ungranted table, sequence or composite type was caught only by F5, through its
+  `pg_attribute` rows.
+- An enum, domain or range type exists only in `pg_type`, so no assertion saw it.
+
+There is no security impact, because none of these carries a client grant. The text promised
+coverage that did not exist. The claim is reworded in all three files, and **F8** closes the type
+gap: no `pg_type` row in `venue_api` other than the eight views' row types
+(`pg_class.reltype`) and their array types (the `typarray` of each row type).
+
+What each kind of added object is caught by:
+
+| Added to `venue_api` | Caught by |
+|---|---|
+| a view | A2, F5, F6 (its row type is a view's, so F8 lets it through) |
+| a function, procedure or aggregate | A3 |
+| a table, materialized view, foreign table or composite type with columns | F5 and F8, plus F1 if it carries a client grant |
+| a sequence | F5 (a sequence has no row type), plus F1 if granted |
+| a table with no columns | F8, plus F1 if granted |
+| an enum, domain, range or multirange type | F8 |
+| an operator, collation, text-search object or statistics object, or a trigger or rule on a view | not swept |
+
+**Expected, not run** (no database in this wave, §8):
+
+| Mutant (planted in a copy of the migration) | 71 (by reading) | 72 (expected) |
+|---|---|---|
+| r6 `CREATE TYPE venue_api.r6 AS ENUM ('a')` | survives: A2, A3, F1 and F5 read no `pg_type` | F8 |
+| r7 `CREATE TABLE venue_api.r7 ()` (no columns, no grant) | survives: not a view or function, no ACL entry, no columns | F8 |
+| control: the migration unchanged | — | F8 green: the only types are the eight row types and their eight array types |
+
+F8 changes none of the §4.5 predictions. It is green for r2–r5, and for r1 it is never reached,
+like every assertion after C22.
 
 ## 5. Local rehearsal evidence (2026-10-21, Homebrew PostgreSQL 17.11, localhost:5432)
 
@@ -424,9 +465,9 @@ On-disk totals for CI (`ls supabase/tests/*.sql`): 103 files and 5944 planned as
 102 / 5888 on the base. The floors are `MIN_FILES=59` and `MIN_ASSERTIONS=4053`. 224 uses no `todo()` or
 `skip()`, so the masking ratchets do not move.
 
-**After the review round (plan 71):** 103 files and 5959 planned. That figure is the sum of every
-file's `plan(N)` line. The same count gives 5944 at `3bf24c0b`, which matches the run above. It
-was **not** run. 226 still uses no `todo()` or `skip()`.
+**After the review rounds (plan 72):** 103 files and 5960 planned. That figure is the sum of every
+file's `plan(N)` line. The same count gives 5944 at `3bf24c0b`, which matches the run above, and
+5959 at `3d2b0bf5` (plan 71). It was **not** run. 226 still uses no `todo()` or `skip()`.
 
 ## 6. Rollback procedure
 
@@ -603,8 +644,8 @@ D's acceptance kit (V0–V10) is the instrument for this, in the sandbox window.
 
 ## 8. Limits
 
-- **pgTAP 226 after the review round has not been run.** That covers the rename, the new fixture
-  block, C22–C30, D6–D9, F6, F7 and the reworded F3. It was written in a wave with no database access, so all
+- **pgTAP 226 after the review rounds has not been run.** That covers the rename, the new fixture
+  block, C22–C30, D6–D9, F6, F7, F8 and the reworded F3. It was written in a wave with no database access, so all
   numbers in §5 are from the plan-56 file at `460d85f9`. The checks that did run were static:
   - the migration body hash is unchanged
   - the eight F6 temp-view SELECTs are byte-identical to the migration's
@@ -613,7 +654,7 @@ D's acceptance kit (V0–V10) is the instrument for this, in the sandbox window.
   Owed before A's review counts it:
   - a full-chain replay
   - 226 RED without the migration and GREEN with it
-  - mutants r1–r5 FAILING
+  - mutants r1–r7 FAILING, and the unchanged migration green on F8
   - rollback and re-apply
   - the neighbouring suites
 

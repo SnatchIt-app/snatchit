@@ -67,8 +67,9 @@
 -- grant beyond SELECT to authenticated, F7 says why). The doc's pre-apply read
 -- P1 is therefore a go/no-go: non-zero means do not apply. pgTAP 226 F3 (no schema-scoped
 -- row) and F7 (no global table default of the owner to PUBLIC, anon or
--- authenticated) pin that for objects the owner creates, and A1-A3 and F1
--- catch any object added to the schema at all.
+-- authenticated) pin that for objects the owner creates. Whoever creates them,
+-- A2, A3, F1, F5 and F8 catch an added view, function, granted relation,
+-- relation with columns or type. Other object kinds are not swept.
 --
 -- Rollback: supabase/rollbacks/20261021120000_venue_api_read_views_rollback.sql
 -- Verification:

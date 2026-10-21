@@ -8,9 +8,9 @@
 --   Port of origin/venue/dashboard-v2 supabase/tests/188_venue_api_read_views.sql
 --   (blob 7ed77132, plan 47, written for the same views under 20260910120000).
 --   A1–E7 and D1–D5 are carried verbatim, fixture included (ids keep their 187
---   tag). 24 assertions are new (plan 47 -> 71), each added because a planted
+--   tag). 25 assertions are new (plan 47 -> 72), each added because a planted
 --   mutant of the migration survived (see
---   docs/venue-dashboard/VENUE_API_PROVISIONAL_MIGRATION.md §4.4 and §4.5).
+--   docs/venue-dashboard/VENUE_API_PROVISIONAL_MIGRATION.md §4.4 to §4.6).
 --   Round 1 (plan 56), mutants that survived the 47:
 --     E8–E11 the "mine only" filter of my_staff_roles / my_org_roles is the
 --            view's own `identity_id = auth.uid()`, not RLS: a scanner can read
@@ -33,6 +33,12 @@
 --     F7     no GLOBAL table default of the owner grants PUBLIC, anon or
 --            authenticated. F3 checks schema-scoped rows only, and its label
 --            no longer claims more.
+--   Round 3 (plan 72, review of 3d2b0bf5): the header claimed that A1-A3 and
+--   F1 catch any object added to the schema. An enum, domain or range type, or
+--   a table with no columns, added to venue_api leaves all 71 green (by
+--   reading the queries, not run).
+--     F8     no pg_type row in venue_api other than the eight views' row types
+--            and their array types.
 --   Section A: shape — schema, eight views, security_invoker on every one, no
 --     function of any kind in the schema, grants exactly {authenticated}.
 --   Section B: projection — no counter column (capacity/held/sold) and no
@@ -48,7 +54,7 @@
 -- Fixtures are synthetic, created inside this transaction and rolled back.
 -- ============================================================================
 BEGIN;
-SELECT plan(71);
+SELECT plan(72);
 SELECT tap.seed_core();
 
 -- ── Fixture (synthetic; never a migration) ─────────────────────────────────
@@ -379,7 +385,10 @@ SELECT set_eq(
 -- CREATE time, and F1 would fail with F7 for any grant beyond the SELECT to
 -- authenticated the views carry anyway. The CI stack carries no TABLE default-ACL entries at
 -- all (supabase/ci/parity_grants.sql header). Objects another role creates
--- are not covered by F7, and A1-A3/F1 catch them anyway.
+-- are not covered by F7. Whoever creates them, A2, A3, F1, F5 and F8 catch an
+-- added view, function, granted relation, relation with columns or type. Other
+-- object kinds (operators, collations, text-search objects, statistics
+-- objects, triggers or rules on the views) are not swept.
 SELECT is((SELECT count(*) FROM pg_default_acl d
              CROSS JOIN LATERAL aclexplode(d.defaclacl) a
             WHERE d.defaclnamespace = 0
@@ -388,6 +397,22 @@ SELECT is((SELECT count(*) FROM pg_default_acl d
               AND (a.grantee = 0 OR a.grantee IN (SELECT r.oid FROM pg_roles r WHERE r.rolname IN ('anon', 'authenticated')))),
           0::bigint,
           'F7: no GLOBAL table default privilege of the venue_api owner grants PUBLIC, anon or authenticated (with F3: a table or view the owner adds later starts with no client grant)');
+
+-- F8 sweeps pg_type. A2 counts pg_views and A3 pg_proc. F1 lists only relations
+-- with a non-owner ACL entry, and F5 only relations with columns. An enum,
+-- domain, range or multirange type exists only in pg_type, and a table with no
+-- columns and no grant leaves A2, A3, F1 and F5 green. The only types the
+-- migration creates are each view's row type (pg_class.reltype) and its array
+-- type (typarray of that row type). A ninth view is A2's, not F8's.
+SELECT is((SELECT count(*) FROM pg_type t
+             JOIN pg_namespace n ON n.oid = t.typnamespace
+            WHERE n.nspname = 'venue_api'
+              AND NOT EXISTS (SELECT 1 FROM pg_class c
+                                JOIN pg_type rt ON rt.oid = c.reltype
+                               WHERE c.relnamespace = t.typnamespace AND c.relkind = 'v'
+                                 AND t.oid IN (rt.oid, rt.typarray))),
+          0::bigint,
+          'F8: no type in venue_api other than the eight views'' row types and their array types (an enum, domain, range, composite type or table row type fails here)');
 
 SELECT * FROM finish();
 ROLLBACK;
