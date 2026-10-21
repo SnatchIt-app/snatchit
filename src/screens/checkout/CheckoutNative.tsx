@@ -38,7 +38,7 @@ import {
 } from '@/src/lib/payments';
 import * as Sentry from '@sentry/react-native';
 
-import { buyerTotalCents, dollarsToCents, formatCents } from '@/src/lib/money';
+import { buyerTotalCents, dollarsToCents, formatCents, formatCentsV3 } from '@/src/lib/money';
 import { parseCheckoutRouteParams } from '@/src/screens/checkout/checkoutRouteParams';
 import { buildCheckoutReturnURL, decideNoModeSetup, parseCheckoutMode } from '@/src/screens/checkout/checkoutMode';
 import { useFrozenCheckoutParams } from '@/src/screens/checkout/useFrozenCheckoutParams';
@@ -849,7 +849,8 @@ export default function CheckoutScreen() {
       // amount is formatted HERE, by the one money module; the view formats nothing.
       breakdown={serverBreakdown && !priceChange ? {
         item: isBuyNow ? 'Tickets' : 'Winning bid',
-        amount: formatCents(serverBreakdown.amount),
+        // 2dp like the fee and total beside it: "$95" read as a different kind of figure (capture B04).
+        amount: formatCentsV3(serverBreakdown.amount),
         fee: formatCents(serverBreakdown.buyerFee),
         total: formatCents(serverBreakdown.total),
       } : null}

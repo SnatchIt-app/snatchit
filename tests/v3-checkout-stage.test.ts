@@ -111,7 +111,8 @@ describe('the itemised rows are server figures only (A\'s ruling Q1–Q3, 2026-0
     const src = await screen();
     // The gate is still the same expression, and it is the screen's.
     expect(src).toMatch(/breakdown=\{serverBreakdown && !priceChange \? \{/);
-    expect(src).toContain('amount: formatCents(serverBreakdown.amount)');
+    // RETARGETED (C, 2026-10-21; A's ruling): the Tickets/Winning bid row shows 2dp (capture B04). Same server cents.
+    expect(src).toContain('amount: formatCentsV3(serverBreakdown.amount)');
     expect(src).toContain('fee: formatCents(serverBreakdown.buyerFee)');
     expect(src).toContain('total: formatCents(serverBreakdown.total)');
     // The word "Total" never sits over the route estimate: the only remaining use of the mixed
