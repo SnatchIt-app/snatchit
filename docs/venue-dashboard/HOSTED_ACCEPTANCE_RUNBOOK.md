@@ -157,3 +157,10 @@ LOCAL_STACK_SCHEMAS="public, kernel, ops, venue_api" admin/scripts/local-stack.s
 # app: venue/.env.local with NEXT_PUBLIC_VENUE_DATA_SOURCE=database, URL http://localhost:3202, harness anon key
 node venue/scripts/acceptance/accept.mjs --target local --phase all
 ```
+
+Other ports or database: `LOCAL_STACK_POSTGREST_PORT` / `LOCAL_STACK_AUTH_PORT` for the harness, then
+`--db <name containing rehears> --url http://localhost:<auth port> --app http://localhost:<app port>` for the kit
+(`--url` is local only and must be plain-http loopback; the app's `NEXT_PUBLIC_SUPABASE_URL` is the same URL).
+`--phase all` does not run `apply`: the local database must already carry the migration (a replay that includes
+it, or `psql -f` of the file on a clone). The kit's `apply` also writes the `supabase_migrations` ledger row,
+which a local replay does not have.

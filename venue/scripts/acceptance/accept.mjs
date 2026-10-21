@@ -2,6 +2,7 @@
 // Venue dashboard slice 1 — automated acceptance runner (local rehearsal or the shared sandbox).
 //
 //   node venue/scripts/acceptance/accept.mjs --target local   --phase all
+//   node venue/scripts/acceptance/accept.mjs --target local   --db x_rehears --url http://localhost:3402 --app http://localhost:3403 --phase all
 //   node venue/scripts/acceptance/accept.mjs --target sandbox --project-ref ofaidukbieeekqaboscm --phase preflight
 //   VENUE_ACCEPT_WINDOW=W1 node venue/scripts/acceptance/accept.mjs --target sandbox --project-ref ofaidukbieeekqaboscm --window W1 --phase fixtures
 //
@@ -32,6 +33,8 @@ const opts = {
   phase: arg("phase", "preflight"),
   projectRef: arg("project-ref"),
   db: arg("db", "snatchit_rehears_venueapi_rc"),
+  // Local target only: the harness API (auth stub). Unset = http://localhost:3202; lib/target.mjs refuses non-loopback.
+  url: arg("url"),
   app: arg("app", "http://localhost:3300"),
   window: arg("window"),
   chrome: arg("chrome", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
