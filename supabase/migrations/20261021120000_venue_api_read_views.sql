@@ -6,8 +6,11 @@
 -- A reviews before this leaves draft. The version 20261021120000 is the one
 -- the provisional copy carried, unchanged. Only the pgTAP number moved
 -- (224 -> 226, because 224 and 225 belong to registry rows 157 and 158 of A).
--- ORDER: 159 merges and applies only AFTER 157 (20261021100000) and 158
--- (20261021110000), the registry order. Otherwise A must re-timestamp.
+-- ORDER (registry origin/a/registry-20261021 @ eef30015): 159 merges and
+-- applies only AFTER 157 (20261021100000) and 158 (20261021110000), and only
+-- BEFORE 170-172 (20261021130000, 20261021131000, 20261021132000) and any
+-- 160-169 file (reserved with timestamps above 20261021120000). Otherwise A
+-- must re-timestamp.
 --
 -- PROVENANCE. Re-timestamped copy of origin/venue/dashboard-v2
 -- supabase/migrations/20260910120000_venue_api_read_views.sql (blob 80cf2762,

@@ -1,13 +1,16 @@
 # venue_api read views: migration 20261021120000 (registry 159, pgTAP 226)
 
 > **Registry 159 / pgTAP 226, allocated by A in PR #115 (`origin/a/registry-20261021`); A
-> reviews before this leaves draft.** The registry draft is `origin/a/registry-20261021` @
-> `b4b3df69`. Row 159 keeps the file `20261021120000_venue_api_read_views.sql` with the
+> reviews before this leaves draft.** The registry draft is `origin/a/registry-20261021`.
+> `b4b3df69` allocated 157–159, and the tip `eef30015` (2026-10-21 13:44) reserves 160–169 and
+> allocates 170–172. Row 159 keeps the file `20261021120000_venue_api_read_views.sql` with the
 > version unchanged. Only the pgTAP number moved, from the provisional 224 to 226, because 224
 > and 225 belong to A's 157 and 158. D's old `20260910120000` / pgTAP 188 is retired.
 >
-> **Order:** 159 merges and applies only after 157 (`20261021100000`) and 158
-> (`20261021110000`), the registry order. Otherwise A must re-timestamp (§2).
+> **Order, both directions:** 159 merges and applies only AFTER 157 (`20261021100000`) and 158
+> (`20261021110000`), and only BEFORE 170–172 (`20261021130000`, `20261021131000`,
+> `20261021132000`) and any 160–169 file (the registry reserves those with timestamps above
+> `20261021120000`). Otherwise A must re-timestamp (§2).
 >
 > The doc's file name still says "provisional". It is kept so the migration header's references
 > to it stay valid.
@@ -124,22 +127,36 @@ only columns that are in this projection.
 - **Version:** `20261021120000` sorts after `20261015000200` (`LC_ALL=C`) and is prefix-free. On
   this branch it is the last of 172 files.
 - **Numbers (registry 159, pgTAP 226):** A allocated both in PR #115
-  (`origin/a/registry-20261021` @ `b4b3df69`).
+  (`origin/a/registry-20261021` @ `b4b3df69`). The registry tip is now `eef30015` (13:44), which
+  adds rows above 159 and leaves 157–159 as they were:
   - 157 = `20261021100000_ops_money_action_unsettled_guard.sql` with pgTAP 224.
   - 158 = `20261021110000_ops_listing_relist_expected.sql` with pgTAP 225.
   - 159 = this file with pgTAP 226.
+  - 160–169 (pgTAP 227–239) are reserved for D and F/C follow-ups, with "timestamps above
+    `20261021120000`".
+  - 170 = `20261021130000_listing_seller_integrity.sql` (240), 171 =
+    `20261021131000_transfer_refusal_hints_and_evidence_path.sql` (241), 172 =
+    `20261021132000_bid_created_at_server_owned.sql` (242), all A's.
   - The earlier line here said pgTAP 224 was "free on every local and `origin/*` ref". That was
     wrong when it was committed: A's registry, pushed about five minutes earlier, already gave
     224 to 157. The file is now `226_venue_api_read_views.sql`.
   - 220 is on `fix/153-detect-refunds-state-on`, and 221–223 are on this base.
-- **Merge and apply order (registry order): 157 → 158 → 159.** Both of A's versions sort below
-  this one (`20261021100000` < `20261021110000` < `20261021120000`). So 159 merges into any
-  integration base and applies to any project (sandbox or production) only after 157 and 158.
-  The two ways the order can break:
-  - **159 merges first.** `migrations-guard.yml` rule 4 then fails 157 and 158, because neither
-    is greater than the latest existing ts migration (`20261021120000`).
-  - **159 is applied first.** 157 and 158 would then enter the ledger below its tip. That is the
-    ordering hazard the registry records for 125–128.
+- **Merge and apply order (registry order, `eef30015`): 157 → 158 → 159 → any 160–169 → 170 →
+  171 → 172.** 157 and 158 sort below this version, and 170–172 and every 160–169 timestamp sort
+  above it (`20261021100000` < `20261021110000` < `20261021120000` < 160–169 <
+  `20261021130000` < `20261021131000` < `20261021132000`). So 159 merges into any integration
+  base, and applies to any project (sandbox or production), only after 157 and 158 and only
+  before 170–172 and any 160–169 file. The four ways the order can break:
+  - **159 merges before 157 or 158.** `migrations-guard.yml` rule 4 (the monotonic ordering
+    check) then fails 157 and 158, because neither is greater than the latest existing ts
+    migration (`20261021120000`).
+  - **170, 171, 172 or a 160–169 file merges before 159.** Rule 4 then fails 159, for example
+    `20261021120000 … is not greater than the latest existing ts migration (20261021130000)`.
+    159 would need a new timestamp.
+  - **159 is applied before 157 or 158.** 157 and 158 would then enter the ledger below its tip.
+    That is the ordering hazard the registry records for 125–128.
+  - **170–172 or a 160–169 file is applied before 159.** 159 would then enter that project's
+    ledger below its tip, the same hazard.
 
   If that order cannot hold, A must re-timestamp before anything merges.
 
@@ -444,15 +461,17 @@ Run these in order. Each step is owner-authorised on any hosted project.
 2. **A reviews this branch before it leaves draft.** Then a draft PR goes against the
    integration base A names. A migration-bearing PR needs `AUTODEPLOY-VERIFIED-OFF: YYYY-MM-DD`
    in its description, and only the owner can attest to that.
-   - **Merge order:** 157 → 158 → 159. This PR merges only after A's 157 and 158 PRs are in the
-     same base. Otherwise migrations-guard rule 4 fails 157 and 158 (§2), and A must
-     re-timestamp.
+   - **Merge order:** 157 → 158 → 159 → 160–172 (registry `eef30015`). This PR merges only
+     after A's 157 and 158 PRs are in the same base, and before any 160–172 PR is. Otherwise
+     migrations-guard rule 4 fails 157 and 158, or 159 (§2), and A must re-timestamp.
 3. **The owner authorises the apply.** It is a targeted single-file apply of
    `20261021120000_venue_api_read_views.sql` plus its ledger row, never `db push`. The sandbox
    window (D's kit) comes first, then production.
-   - **Apply order on every project:** 157 → 158 → 159. 159 applies only after
-     `20261021100000` and `20261021110000` are in that project's ledger. If 159 were applied
-     first, 157 and 158 would land below the ledger tip. Otherwise A must re-timestamp.
+   - **Apply order on every project:** 157 → 158 → 159 → 160–172. 159 applies only after
+     `20261021100000` and `20261021110000` are in that project's ledger, and only while none of
+     `20261021130000`, `20261021131000`, `20261021132000` or a 160–169 version is. If 159 were
+     applied first, 157 and 158 would land below the ledger tip. If a 160–172 row were applied
+     first, 159 would. In either case A must re-timestamp.
    - Re-run D's order probe against the target ledger before the apply.
    - **Pre-apply go/no-go read P1 (below).** Run it on the target project immediately before
      the apply, as the role that will run the apply. Expected: `t | postgres | 0 | 0`. Any other
