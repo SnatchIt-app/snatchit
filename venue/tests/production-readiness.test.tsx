@@ -60,6 +60,14 @@ describe("database mode has a route loading state (loading.tsx under o/[org]/v/[
     // Shown in both modes before the page knows who is looking: no data, no mode, no role.
     expect(out).not.toMatch(/sample|demo|fixture|database|Venue manager|Org owner/i);
   });
+  it("keeps the workspace frame (sidebar and content column) and offers no navigation", async () => {
+    const { default: Loading } = await import("@/app/o/[org]/v/[venue]/loading");
+    const out = html(<Loading />);
+    expect(out).toContain('<aside aria-hidden="true"');
+    expect(out).toContain("lg:pl-[17.5rem]");
+    expect(out).not.toMatch(/<a[ >]/);
+    expect(out).not.toContain("<form");
+  });
 });
 
 describe("mode-aware copy: database mode never calls itself a demo", () => {
