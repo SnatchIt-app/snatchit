@@ -52,6 +52,9 @@ import { ctaLift } from '@/src/lib/nav/keyboardLift';
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
 import { useImageUpload } from '@/src/hooks/useImageUpload';
+import { useListingDraft } from '@/src/hooks/useListingDraft';
+import { ContinueListingBanner } from '@/src/components/sell/ContinueListingBanner';
+import type { ListingDraftFields } from '@/src/lib/sell/listingDraft';
 import { useSingleFlight } from '@/src/hooks/useSingleFlight';
 import { Button, Chip, Input, MediaUpload, Sheet, StickyBar } from '@/src/components/ui';
 import { useDockScroll } from '@/src/components/nav/dockContext';
@@ -398,6 +401,27 @@ export default function CreateListingScreen({ fixture }: { fixture?: CreateFixtu
   const [submitted, setSubmitted] = useState(fixture?.submitted ?? false);
   const [loading,   setLoading]   = useState(false);
 
+  // CFT-608: the form's own inputs autosave per account and come back as "Continue your listing".
+  // listingDraft.ts decides what is kept — never the attestation or the proof, never risk or submit
+  // state. A mounted fixture (the harness) keeps drafts inert.
+  const listingDraft = useListingDraft({
+    userId: user?.id,
+    enabled: !fixture,
+    fields: {
+      eventName, venue, neighborhood, category, eventDate, eventTime, ticketType, quantity, transferMethod,
+      restrictions, startingBid, buyNowEnabled, buyNowPrice, durationHours, ticketPlatform, coverUri: coverUpload.localUri,
+    },
+    onRestore: restoreDraft,
+  });
+  function restoreDraft(d: ListingDraftFields) {
+    setEventName(d.eventName); setVenue(d.venue); setNeighborhood(d.neighborhood); setCategory(d.category);
+    setEventDate(d.eventDate); setEventTime(d.eventTime);
+    setTicketType(d.ticketType); setQuantity(d.quantity); setTransferMethod(d.transferMethod); setRestrictions(d.restrictions);
+    setStartingBid(d.startingBid); setBuyNowEnabled(d.buyNowEnabled); setBuyNowPrice(d.buyNowPrice); setDurationHours(d.durationHours);
+    setTicketPlatform(d.ticketPlatform);
+    if (d.coverUri) coverUpload.restore(d.coverUri);
+  }
+
   const startingBidNum = parseAmount(startingBid);
   const buyNowPriceNum = parseAmount(buyNowPrice);
 
@@ -648,7 +672,8 @@ export default function CreateListingScreen({ fixture }: { fixture?: CreateFixtu
         throw new Error(error.message);
       }
 
-      // 4. Reset form
+      // 4. Reset form — the server confirmed the insert, so the draft has done its job.
+      listingDraft.clear();
       setEventName(''); setVenue(''); setNeighborhood(null);
       setEventDate(defaultDate()); setEventTime(defaultTime());
       setTicketType(null); setQuantity(1); setTransferMethod(null); setRestrictions('');
@@ -697,6 +722,10 @@ export default function CreateListingScreen({ fixture }: { fixture?: CreateFixtu
         onScroll={onDockScroll}
         scrollEventThrottle={16}
       >
+        {listingDraft.offer ? (
+          <ContinueListingBanner offer={listingDraft.offer} onContinue={listingDraft.accept} onDiscard={listingDraft.discard} />
+        ) : null}
+
         {/* ── EVENT ─────────────────────────────────────────── */}
         <Section title="Event" sx={sx}>
           <Input
