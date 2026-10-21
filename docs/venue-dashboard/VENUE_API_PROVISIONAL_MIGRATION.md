@@ -143,12 +143,25 @@ only columns that are in this projection.
     wrong when it was committed: A's registry, pushed about five minutes earlier, already gave
     224 to 157. The file is now `226_venue_api_read_views.sql`.
   - 220 is on `fix/153-detect-refunds-state-on`, and 221–223 are on this base.
-- **Merge and apply order (registry order, `eef30015`): 157 → 158 → 159 → any 160–169 → 170 →
-  171 → 172.** 157 and 158 sort below this version, and 170–172 and every 160–169 timestamp sort
-  above it (`20261021100000` < `20261021110000` < `20261021120000` < 160–169 <
-  `20261021130000` < `20261021131000` < `20261021132000`). So 159 merges into any integration
-  base, and applies to any project (sandbox or production), only after 157 and 158 and only
-  before 170–172 and any 160–169 file. The four ways the order can break:
+- **What the registry gives (`eef30015`), row by row:**
+  - 157 = `20261021100000`
+  - 158 = `20261021110000` ("written on 157's bodies (stacked)")
+  - 159 = `20261021120000`
+  - 160–169 = reserved, "assigned by A on request; timestamps above `20261021120000`"
+  - 170 = `20261021130000` ("not for apply before 2026-10-28 03:47Z")
+  - 171 = `20261021131000`
+  - 172 = `20261021132000` (the same note as 170)
+
+  The registry states no merge sequence for these rows beyond their timestamps (its allocation
+  protocol: "timestamp-named above the current tip"). It does not place 160–169 against
+  170–172: a 160–169 timestamp only has to be above `20261021120000`, so it may sort below,
+  between or above `20261021130000`, `20261021131000` and `20261021132000`.
+- **The order for 159 that follows** from those timestamps and `migrations-guard.yml` rule 4:
+  `20261021100000` < `20261021110000` < `20261021120000`, and `20261021120000` is below
+  `20261021130000`, `20261021131000`, `20261021132000` and every 160–169 timestamp. So 159
+  merges into any integration base, and applies to any project (sandbox or production), only
+  after 157 and 158 and only before 170–172 and any 160–169 file. The order among 160–172 is
+  not this file's to state. The four ways the order can break for 159:
   - **159 merges before 157 or 158.** `migrations-guard.yml` rule 4 (the monotonic ordering
     check) then fails 157 and 158, because neither is greater than the latest existing ts
     migration (`20261021120000`).
@@ -514,13 +527,15 @@ Run these in order. Each step is owner-authorised on any hosted project.
 2. **A reviews this branch before it leaves draft.** Then a draft PR goes against the
    integration base A names. A migration-bearing PR needs `AUTODEPLOY-VERIFIED-OFF: YYYY-MM-DD`
    in its description, and only the owner can attest to that.
-   - **Merge order:** 157 → 158 → 159 → 160–172 (registry `eef30015`). This PR merges only
-     after A's 157 and 158 PRs are in the same base, and before any 160–172 PR is. Otherwise
+   - **Merge order for 159** (from the registry `eef30015` timestamps, §2): after 157 and 158,
+     before 170–172 and any 160–169 file. This PR merges only after A's 157 and 158 PRs are in
+     the same base, and before any 160–172 PR is. Otherwise
      migrations-guard rule 4 fails 157 and 158, or 159 (§2), and A must re-timestamp.
 3. **The owner authorises the apply.** It is a targeted single-file apply of
    `20261021120000_venue_api_read_views.sql` plus its ledger row, never `db push`. The sandbox
    window (D's kit) comes first, then production.
-   - **Apply order on every project:** 157 → 158 → 159 → 160–172. 159 applies only after
+   - **Apply order for 159 on every project:** after 157 and 158, before 170–172 and any
+     160–169 file. 159 applies only after
      `20261021100000` and `20261021110000` are in that project's ledger, and only while none of
      `20261021130000`, `20261021131000`, `20261021132000` or a 160–169 version is. If 159 were
      applied first, 157 and 158 would land below the ledger tip. If a 160–172 row were applied
