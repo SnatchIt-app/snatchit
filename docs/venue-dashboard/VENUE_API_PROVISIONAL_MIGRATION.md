@@ -454,6 +454,43 @@ Run these in order. Each step is owner-authorised on any hosted project.
      `20261021100000` and `20261021110000` are in that project's ledger. If 159 were applied
      first, 157 and 158 would land below the ledger tip. Otherwise A must re-timestamp.
    - Re-run D's order probe against the target ledger before the apply.
+   - **Pre-apply go/no-go read P1 (below).** Run it on the target project immediately before
+     the apply, as the role that will run the apply. Expected: `t | postgres | 0 | 0`. Any other
+     result means **do not apply**: report it to A and the owner. If `applying_role` is not the
+     role that will run the apply, re-run P1 as that role.
+   - Why it must be read before, not after: a GLOBAL table default-ACL row
+     (`defaclnamespace = 0`, type `r`) of the creating role is applied when each view is created.
+     The eight views are created by that role in this migration, so they would inherit the row,
+     and the migration's per-schema REVOKE cannot subtract it (§1). After an apply the grant could
+     only be removed by revoking it on the views by hand, which is a patch in place and a STOP
+     under step 6. V4 after the apply stays the proof.
+
+```sql
+-- P1 PRE-APPLY go/no-go (read-only), as the role that will run the apply.
+-- Expected: t | postgres | 0 | 0. Anything else: do not apply.
+-- Column 3: global table defaults of the applying role that grant PUBLIC, anon or authenticated
+--   (what pgTAP 226 F7 asserts in CI). Column 4: the same rows granting any other role except the
+--   applying role itself. Either is inherited by the eight views at CREATE time, and V4 then shows
+--   every such grant except a SELECT to authenticated, which the views get anyway.
+select to_regnamespace('venue_api') is null as venue_api_absent,
+       current_user as applying_role,
+       (select count(*) from pg_default_acl d cross join lateral aclexplode(d.defaclacl) a
+         where d.defaclnamespace = 0 and d.defaclobjtype = 'r'
+           and d.defaclrole = (select oid from pg_roles where rolname = current_user)
+           and (a.grantee = 0 or a.grantee in (select oid from pg_roles where rolname in ('anon', 'authenticated'))))
+         as global_table_default_client_grants,
+       (select count(*) from pg_default_acl d cross join lateral aclexplode(d.defaclacl) a
+         where d.defaclnamespace = 0 and d.defaclobjtype = 'r'
+           and d.defaclrole = (select oid from pg_roles where rolname = current_user)
+           and a.grantee <> 0 and a.grantee <> d.defaclrole
+           and a.grantee not in (select oid from pg_roles where rolname in ('anon', 'authenticated')))
+         as global_table_default_other_grants;
+```
+
+   P1 replaces the former post-apply V12. V12 was the same count keyed on the owner of
+   `venue_api`, which does not exist before the apply, so P1 keys on the applying role instead
+   (the role that becomes the owner, `postgres` in V1). Its old comment said a non-zero count
+   "does not change the eight views". That was wrong, for the reason above.
 4. **The owner adds `venue_api` to the Data API exposed schemas** (Dashboard → Settings → API →
    Exposed schemas), as a separate step after the apply. Reversal: remove it. The last recorded
    production list is `public, graphql_public, kernel, ops` (2026-09-08). It has not been re-read
@@ -517,15 +554,8 @@ rollback;
 -- V11 (hosted only) ledger row present under version 20261021120000: 1 row
 select version, name from supabase_migrations.schema_migrations where version = '20261021120000';
 
--- V12 GLOBAL table default privileges of the venue_api owner that grant to PUBLIC, anon or authenticated: 0
--- (what F7 asserts in CI; expected 0 on a hosted project because 074's records put every permissive row in public,
---  but that has not been read; a non-zero count does not change the eight views, it means a view the owner
---  adds to venue_api later would arrive with a client grant)
-select count(*) as global_table_default_client_grants
-  from pg_default_acl d cross join lateral aclexplode(d.defaclacl) a
- where d.defaclnamespace = 0 and d.defaclobjtype = 'r'
-   and d.defaclrole = (select nspowner from pg_namespace where nspname = 'venue_api')
-   and (a.grantee = 0 or a.grantee in (select oid from pg_roles where rolname in ('anon', 'authenticated')));
+-- (V12, the global default-ACL count, is now the PRE-apply go/no-go read P1 in step 3.
+--  After the apply, V4 shows any grant the eight views inherited.)
 ```
 
 After a rollback (§6), these checks must return `t`, then `0 | 0 | 0`, then `19`:
@@ -570,11 +600,17 @@ D's acceptance kit (V0–V10) is the instrument for this, in the sandbox window.
 
   F7 also rests on a record. The `supabase/ci/parity_grants.sql` header (2026-08-27) says the CI
   stack carries no TABLE default-ACL entries. If the CI image does carry a global TABLE row for
-  the owner granting anon or authenticated, F7 fails in CI. That would be a true finding about
-  later objects, not about the eight views.
+  the owner granting anon or authenticated, F7 fails in CI. F1 fails with it for any grant beyond
+  the SELECT to authenticated the views carry anyway (and A8, A9 or A10, depending on the grantee
+  and privilege). The eight views are created by that owner in this
+  migration, so they inherit the row at CREATE time, and the per-schema REVOKE cannot subtract it
+  (§1). That would be a true finding about the eight views themselves, and about later objects
+  too. F1 shows the inherited grant, and F7 says where it came from.
 
 - CI's own replay (`supabase start` on CLI 2.115.0 in Docker) and `pg_prove` were not run
   locally. The evidence is the documented local equivalent. GitHub CI runs when a PR exists.
 - Hosted default privileges are taken from the records (074/076: production's permissive
-  default-ACL rows are all in `public`), not read. V4, V5, V7 and V12 after the apply are the proof. F7 covers the CI stack only.
+  default-ACL rows are all in `public`), not read. P1 before the apply is the go/no-go (§7 step 3:
+  a non-zero count means do not apply). V4, V5 and V7 after the apply are the proof. F7 covers the
+  CI stack only.
 - The exposure step and the PostgREST behaviour are not testable locally.

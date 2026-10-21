@@ -58,7 +58,11 @@
 -- because the built-in table default already grants clients nothing, and a
 -- schema-scoped default can only add to the global defaults, never subtract
 -- from them (076, PFA-1). What a later object gets comes from the role that
--- creates it and the global defaults of that role. pgTAP 226 F3 (no schema-scoped
+-- creates it and the global defaults of that role. The eight views are no
+-- exception: a global client grant of the role that runs this migration, present
+-- at apply time, is inherited by them at CREATE time (F1 and V4 would show any
+-- grant beyond SELECT to authenticated, F7 says why). The doc's pre-apply read
+-- P1 is therefore a go/no-go: non-zero means do not apply. pgTAP 226 F3 (no schema-scoped
 -- row) and F7 (no global table default of the owner to PUBLIC, anon or
 -- authenticated) pin that for objects the owner creates, and A1-A3 and F1
 -- catch any object added to the schema at all.

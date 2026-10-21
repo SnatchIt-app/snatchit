@@ -374,7 +374,10 @@ SELECT set_eq(
 -- F7 is the other half of F3. A schema-scoped default can only ADD to the
 -- global defaults (076, PFA-1), so what a table or view the owner adds here
 -- later receives is decided by the owner's GLOBAL table defaults
--- (defaclnamespace = 0). The CI stack carries no TABLE default-ACL entries at
+-- (defaclnamespace = 0). The eight views were created by the same owner under
+-- the same defaults, so a client row here would have been inherited by them at
+-- CREATE time, and F1 would fail with F7 for any grant beyond the SELECT to
+-- authenticated the views carry anyway. The CI stack carries no TABLE default-ACL entries at
 -- all (supabase/ci/parity_grants.sql header). Objects another role creates
 -- are not covered by F7, and A1-A3/F1 catch them anyway.
 SELECT is((SELECT count(*) FROM pg_default_acl d
