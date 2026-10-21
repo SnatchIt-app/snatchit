@@ -38,11 +38,46 @@ describe("decidePendingGuard", () => {
   it("a pending row already held still blocks when the read fails", () => {
     expect(decidePendingGuard({ type: "payout_release", subjectId: TR, known: [act({ state: "processing" })], listed: { ok: false, kind: "error", message: "x" } }).kind).toBe("pending");
   });
-  it("clear only when list_actions answered a page with nothing unsettled for this subject", () => {
+  it("clear only when list_actions answered an empty page", () => {
     expect(decidePendingGuard({ type: "payout_release", subjectId: TR, known: settled, listed: ok([]) })).toEqual({ kind: "clear" });
-    // Rows that do not match type/subject/state never block, even if the server returned them.
+    expect(decidePendingGuard({ type: "payout_release", subjectId: TR, known: [], listed: { ok: true, data: { items: [], next_cursor: null, count_hint: 0 } } })).toEqual({ kind: "clear" });
+    expect(decidePendingGuard({ type: "payout_release", subjectId: TR, known: [], listed: { ok: true, data: { items: [], next_cursor: null, count_hint: null } } })).toEqual({ kind: "clear" });
+    // Rows the page already held that do not match type/subject/state never block on their own.
     const strays = [act({ state: "succeeded" }), act({ state: "rejected" }), act({ subject_id: "other" }), act({ action_type: "refund_execute" })];
-    expect(decidePendingGuard({ type: "payout_release", subjectId: TR, known: [], listed: ok(strays) })).toEqual({ kind: "clear" });
+    expect(decidePendingGuard({ type: "payout_release", subjectId: TR, known: strays, listed: ok([]) })).toEqual({ kind: "clear" });
+  });
+});
+
+/**
+ * list_actions has already filtered by action_type, subject_kind, subject_id
+ * and the unsettled states (116:1428-1433), so every row it returns is a
+ * pending duplicate by construction. The client's own exact-string match is a
+ * second opinion: when it cannot match a returned row, the row still blocks.
+ */
+describe("decidePendingGuard — any row list_actions returns blocks (reviewer probes)", () => {
+  it("probe 1: subject_id in another case → pending, not clear", () => {
+    const row = { action_type: "payout_release", subject_kind: "transfer", subject_id: TR.toUpperCase(), state: "requested" };
+    const g = decidePendingGuard({ type: "payout_release", subjectId: TR, known: [], listed: { ok: true, data: { items: [row], count_hint: 1 } } });
+    expect(g).toEqual({ kind: "pending", action: expect.objectContaining({ subject_id: TR.toUpperCase(), state: "requested" }) });
+  });
+  it("probe 2: a reshaped row ({subject:{kind,id}}) → pending, not clear", () => {
+    const row = { id: "dddddddd-0000-4000-8000-0000000000e1", action_type: "payout_release", subject: { kind: "transfer", id: TR }, state: "requested" };
+    const g = decidePendingGuard({ type: "payout_release", subjectId: TR, known: [], listed: { ok: true, data: { items: [row], count_hint: 1 } } });
+    expect(g).toEqual({ kind: "pending", action: expect.objectContaining({ id: "dddddddd-0000-4000-8000-0000000000e1" }) });
+  });
+  it("rows the client reads as settled, other-subject or other-type still block when the server returned them", () => {
+    for (const row of [act({ state: "succeeded" }), act({ state: undefined }), act({ subject_id: "other" }), act({ action_type: "refund_execute" })]) {
+      expect(decidePendingGuard({ type: "payout_release", subjectId: TR, known: [], listed: ok([row]) }).kind, JSON.stringify(row)).toBe("pending");
+    }
+  });
+  it("an exact match is still preferred over the first unmatched row", () => {
+    const g = decidePendingGuard({ type: "payout_release", subjectId: TR, known: [], listed: ok([act({ id: "x-upper", subject_id: TR.toUpperCase() }), act({ id: "x-exact" })]) });
+    expect(g).toEqual({ kind: "pending", action: expect.objectContaining({ id: "x-exact" }) });
+  });
+  it("count_hint > 0 with no usable row → not clear (unverified: nothing to link)", () => {
+    for (const data of [{ items: [], count_hint: 1 }, { items: [], count_hint: "2" }, { items: ["opaque"], count_hint: null }, { items: [null, 7] }]) {
+      expect(decidePendingGuard({ type: "payout_release", subjectId: TR, known: [], listed: { ok: true, data } }), JSON.stringify(data)).toEqual({ kind: "unverified", failure: null });
+    }
   });
 });
 

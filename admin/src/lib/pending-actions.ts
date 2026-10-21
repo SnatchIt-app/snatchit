@@ -1,5 +1,5 @@
 import type { OpsFailure, OpsResult } from "@/lib/ops-errors";
-import { isRecord, toActions, type OpsAction, type OrderDetail } from "@/lib/types";
+import { isRecord, num, toActions, type OpsAction, type OrderDetail } from "@/lib/types";
 
 /**
  * Action states that are not settled (the ops.action state CHECK, 115:248-250).
@@ -43,8 +43,10 @@ export const PENDING_LOOKUP_LIMIT = 5;
 
 /**
  * What the order page may show for one money verb:
- * - clear: list_actions answered and nothing unsettled exists → offer the form;
- * - pending: an unsettled action exists → "Already requested" with a link;
+ * - clear: list_actions answered an empty page and no row the page holds is
+ *   unsettled → offer the form;
+ * - pending: an unsettled action exists, or list_actions returned any row →
+ *   "Already requested" with a link;
  * - unverified: list_actions failed or answered something unrecognisable →
  *   the form stays hidden (fail closed) and the page says why.
  */
@@ -55,25 +57,43 @@ export type PendingGuard =
 
 export type MoneyGuards = { release: PendingGuard | null; refund: PendingGuard | null };
 
-/** The items of a list_actions page, or null when the read failed or the payload is not a page. */
-function listedRows(res: OpsResult<unknown>): OpsAction[] | null {
+type ListedPage = {
+  /** The items that parse as action rows. */
+  rows: OpsAction[];
+  /** How many items the page carried, parseable or not. */
+  itemCount: number;
+  countHint: number | null;
+};
+
+/** A list_actions page, or null when the read failed or the payload is not a page. */
+function listedPage(res: OpsResult<unknown>): ListedPage | null {
   if (!res.ok) return null;
   const v = res.data;
   if (!isRecord(v) || !Array.isArray(v.items)) return null;
-  return toActions(v.items);
+  return { rows: toActions(v.items), itemCount: v.items.length, countHint: num(v.count_hint) };
 }
 
 /**
  * Pure decision. `known` are rows the page already holds (order_detail's
  * capped `actions`, and for refunds the uncapped `refund.refund_actions`);
- * `listed` is the list_actions answer. Any unsettled row from any source
- * blocks; only a successful list_actions read with nothing unsettled clears.
+ * `listed` is the list_actions answer.
+ *
+ * - An unsettled row of this type on this subject, from any source → pending.
+ * - list_actions failed or answered something that is not a page → unverified.
+ * - list_actions returned any row at all → pending. The server already
+ *   filtered by type, subject and the unsettled states (116:1428-1433), so a
+ *   row the exact-string match above misses (a subject_id in another case, a
+ *   reshaped row) is still an unsettled duplicate.
+ * - Items or count_hint > 0 but no usable row → unverified (nothing to link).
+ * - Only an empty page clears.
  */
 export function decidePendingGuard(input: { type: MoneyActionType; subjectId: string; known: OpsAction[]; listed: OpsResult<unknown> }): PendingGuard {
-  const rows = listedRows(input.listed);
-  const pending = unsettledAction([...(rows ?? []), ...input.known], input.type, input.subjectId);
+  const page = listedPage(input.listed);
+  const pending = unsettledAction([...(page?.rows ?? []), ...input.known], input.type, input.subjectId);
   if (pending) return { kind: "pending", action: pending };
-  if (rows === null) return { kind: "unverified", failure: input.listed.ok ? null : input.listed };
+  if (page === null) return { kind: "unverified", failure: input.listed.ok ? null : input.listed };
+  if (page.rows.length > 0) return { kind: "pending", action: page.rows[0] };
+  if (page.itemCount > 0 || (page.countHint ?? 0) > 0) return { kind: "unverified", failure: null };
   return { kind: "clear" };
 }
 

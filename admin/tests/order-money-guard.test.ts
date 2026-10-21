@@ -151,6 +151,32 @@ describe("F1 — payout_release guard does not depend on order_detail's 50-row w
     }
   });
 
+  it("list_actions returns a row the client cannot match (subject_id case, reshaped row) → still blocked, never re-armed", async () => {
+    const upper = { ...oldRelease, subject_id: TR.toUpperCase() };
+    const reshaped = { id: OLD_RELEASE, action_type: "payout_release", subject: { kind: "transfer", id: TR }, state: "requested" };
+    for (const row of [upper, reshaped]) {
+      const html = await render({ release: page([row]) });
+      expect(actionTypes(html), JSON.stringify(row)).not.toContain("payout_release");
+      expect(html).toContain("Already requested");
+      expect(html).toContain(`href="/actions/${OLD_RELEASE}"`);
+      expect(actionTypes(html)).toContain("refund_execute");
+    }
+  });
+
+  it("a returned row with no state reads 'Already requested', never 'undefined'", async () => {
+    const html = await render({ release: page([{ id: OLD_RELEASE }]) });
+    expect(actionTypes(html)).not.toContain("payout_release");
+    // The Alert title ends the <p>: no " — undefined" / " — null" suffix.
+    expect(html).toContain("Already requested</p>");
+    expect(html).not.toContain("undefined");
+  });
+
+  it("count_hint > 0 with no usable row → hidden as unverified, not offered", async () => {
+    const html = await render({ release: { ok: true, data: { items: [], next_cursor: null, count_hint: 1 } } });
+    expect(actionTypes(html)).not.toContain("payout_release");
+    expect(html).toContain("Couldn&#x27;t check for an earlier request");
+  });
+
   it("the capped list still counts: an unsettled release there blocks even when list_actions fails", async () => {
     const html = await render({ detail: orderDetail({ actions: [oldRelease] }), release: { ok: false, kind: "error", message: "x" } });
     expect(actionTypes(html)).not.toContain("payout_release");

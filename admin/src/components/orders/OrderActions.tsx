@@ -17,8 +17,10 @@ import { NewCaseForm } from "@/components/cases/NewCaseForm";
 export { unsettledAction } from "@/lib/pending-actions";
 
 function PendingRequest({ action }: { action: OpsAction }) {
+  // A row list_actions returned may lack a state the console can read; it still blocks.
+  const state = action.state ? (ACTION_STATE_LABELS[action.state] ?? action.state) : null;
   return (
-    <Alert state="info" title={`Already requested — ${ACTION_STATE_LABELS[action.state ?? ""] ?? action.state}`} compact>
+    <Alert state="info" title={state ? `Already requested — ${state}` : "Already requested"} compact>
       Nothing more can be requested here until it finishes.{" "}
       {action.id ? (
         <Link href={`/actions/${action.id}`} className="link">
