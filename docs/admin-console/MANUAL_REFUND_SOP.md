@@ -67,7 +67,7 @@ subject link.
 
 | # | Check | Where | If it fails |
 |---|---|---|---|
-| 1 | Console refund execution is off | The **Execute refund** panel shows the "Disabled…" warning. Founders also see `refund_execute_enabled` under **System → Settings** [SYS:231-238], [116:1593-1601]. | If it is **on**, use the console refund (`OPERATING_GUIDE.md` → Money actions) instead of this SOP. Never use both on one order. |
+| 1 | Console refund execution is off | The **Execute refund** panel shows the "Disabled…" warning. Founders also see `refund_execute_enabled` under **System → Settings** [SYS:231-238], [116:1593-1601]. | If it is **on**, use the console refund (`OPERATING_GUIDE.md` → Taking a safe action → Execute refund) instead of this SOP. Never use both on one order. |
 | 2 | The order is a resale order | **Payment** panel → `mode` is `buy_now` or `auction`. | `native_primary`: stop and escalate to A. |
 | 3 | Live mode | The header has **no** "stripe test mode" badge [ORDER:122]. | Test mode: stop and escalate to A. |
 | 4 | The decision to refund is on record | **Buyer win:** Disputes panel → In-app dispute → `dispute_resolution` reads "Resolved — buyer (refund required)" [FMT:207-211]. If the dispute is still open, record it first: **Resolve dispute** → outcome **Buyer win** (founder or risk role [115:521]). That records the decision, moves no money, and leads to the "Refund owed to buyer" case [MSE:528-546], [065:130-142]. **Expired:** Transfer status reads "Expired (seller did not send)". **Anything else:** the owner's decision, written on a case (§3). | No recorded decision means no refund. |
