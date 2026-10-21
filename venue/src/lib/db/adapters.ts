@@ -16,6 +16,7 @@ import type { Event, InventoryBatch, TicketType } from "@/lib/types";
  * nothing. The UI role switch never reaches this layer.
  */
 const SCHEMA = "venue_api";
+const POLICY_COLS = "policy_id,scope_kind,venue_id,event_id,mode,version";
 
 type Client = SupabaseClient<Record<string, never>, typeof SCHEMA>;
 
@@ -51,6 +52,20 @@ export async function dbVenueScope(venueId: string): Promise<ReadResult<VenueSco
   return { ok: true, data: rows.data[0] ?? null };
 }
 
+/**
+ * Resale policies that can be in force for these events: their own event-scope rows plus the venue's
+ * venue-wide rows. mapEvents picks one per event (event scope first, then the highest version).
+ * RLS (catalog_resale_policy_sel_public) shows event rows of non-draft events and venue rows of
+ * approved venues only, so a draft's own policy or a pending venue's policy reads as absent.
+ */
+async function readPolicies(c: Client, eventIds: string[], venueId: string): Promise<ReadResult<PolicyRow[]>> {
+  const own = await select<PolicyRow[]>("venue_api.resale_policies", c.from("resale_policies").select(POLICY_COLS).in("event_id", eventIds));
+  if (!own.ok) return own;
+  const venueWide = await select<PolicyRow[]>("venue_api.resale_policies", c.from("resale_policies").select(POLICY_COLS).eq("scope_kind", "venue").eq("venue_id", venueId));
+  if (!venueWide.ok) return venueWide;
+  return { ok: true, data: [...own.data, ...venueWide.data] };
+}
+
 /** B1 — venue_api.events + event_sessions + resale_policies, scoped to one venue by the route. */
 export async function dbListEvents(venueId: string): Promise<ReadResult<Event[]>> {
   const cl = await client("venue_api.events");
@@ -61,7 +76,7 @@ export async function dbListEvents(venueId: string): Promise<ReadResult<Event[]>
   if (ids.length === 0) return { ok: true, data: [] };
   const sessions = await select<SessionRow[]>("venue_api.event_sessions", cl.c.from("event_sessions").select("session_id,event_id,session_label,starts_at,ends_at,doors_at,door_open_at,status").in("event_id", ids));
   if (!sessions.ok) return sessions;
-  const policies = await select<PolicyRow[]>("venue_api.resale_policies", cl.c.from("resale_policies").select("policy_id,scope_kind,venue_id,event_id,mode,version").in("event_id", ids));
+  const policies = await readPolicies(cl.c, ids, venueId);
   if (!policies.ok) return policies;
   return { ok: true, data: mapEvents(events.data, sessions.data, policies.data) };
 }
@@ -75,7 +90,7 @@ export async function dbGetEvent(eventId: string): Promise<ReadResult<Event | nu
   if (events.data.length === 0) return { ok: true, data: null };
   const sessions = await select<SessionRow[]>("venue_api.event_sessions", cl.c.from("event_sessions").select("session_id,event_id,session_label,starts_at,ends_at,doors_at,door_open_at,status").eq("event_id", eventId));
   if (!sessions.ok) return sessions;
-  const policies = await select<PolicyRow[]>("venue_api.resale_policies", cl.c.from("resale_policies").select("policy_id,scope_kind,venue_id,event_id,mode,version").eq("event_id", eventId));
+  const policies = await readPolicies(cl.c, [eventId], events.data[0].venue_id);
   if (!policies.ok) return policies;
   return { ok: true, data: mapEvents(events.data, sessions.data, policies.data)[0] ?? null };
 }

@@ -27,8 +27,12 @@ export function mapEvents(events: EventRow[], sessions: SessionRow[], policies: 
       .filter((s) => s.event_id === e.event_id)
       .sort((a, b) => a.starts_at.localeCompare(b.starts_at))
       .map((s) => ({ sessionId: s.session_id, eventId: s.event_id, label: s.session_label, startsAt: s.starts_at, doorsAt: s.doors_at, endsAt: s.ends_at, status: pick(SESSION_STATUS, s.status, "scheduled"), doorOpenAt: s.door_open_at }));
-    // In-force policy = highest version for this event scope; default is off (spec §7.7, C11).
-    const policy = policies.filter((p) => p.scope_kind === "event" && p.event_id === e.event_id).sort((a, b) => b.version - a.version)[0];
+    // In-force policy, resolved the way the server does (088 create_native_listing / buy_now): an
+    // event-scope policy for this event wins over a venue-scope one for its venue, then the highest
+    // version; no policy at all is off (spec §7.7, C11).
+    const policy = policies
+      .filter((p) => (p.scope_kind === "event" && p.event_id === e.event_id) || (p.scope_kind === "venue" && p.venue_id === e.venue_id))
+      .sort((a, b) => Number(b.scope_kind === "event") - Number(a.scope_kind === "event") || b.version - a.version)[0];
     return {
       eventId: e.event_id,
       orgId: e.org_id,
