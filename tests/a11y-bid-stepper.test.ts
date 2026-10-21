@@ -43,3 +43,23 @@ describe('bid amount as an adjustable control', () => {
     expect(src).toContain('disabled={atFloor || submitting}');
   });
 });
+
+describe('sell quantity as an adjustable control (same finding, the Sell form)', () => {
+  const sell = readFileSync('src/screens/CreateListingScreen.tsx', 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+  const value = (s: string) => {
+    const at = s.indexOf('style={[textStyle(\'price\'), sx.stepVal]}');
+    expect(at).toBeGreaterThan(-1);
+    return s.slice(at, s.indexOf('</Text>', at));
+  };
+
+  it('QS1: the quantity is adjustable, labelled, carries its value, and steps through the same rules', () => {
+    const v = value(sell);
+    expect(v).toContain('accessibilityRole="adjustable"');
+    expect(v).toContain('accessibilityLabel="Quantity"');
+    expect(v).toContain('accessibilityValue={{ text: String(quantity) }}');
+    expect(v).toMatch(/actionName === 'increment'\) setQuantity\(\(q\) => q \+ 1\)/);
+    expect(v).toMatch(/actionName === 'decrement'\) setQuantity\(\(q\) => Math\.max\(1, q - 1\)\)/);
+    expect(value(sell.replace('accessibilityRole="adjustable"', '')).includes('accessibilityRole="adjustable"')).toBe(false);
+  });
+});

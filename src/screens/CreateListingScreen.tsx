@@ -761,7 +761,22 @@ export default function CreateListingScreen({ fixture }: { fixture?: CreateFixtu
               >
                 <Text style={sx.stepGlyph}>{'−'}</Text>
               </Pressable>
-              <Text style={[textStyle('price'), sx.stepVal]} accessibilityLabel={`Quantity ${quantity}`}>{quantity}</Text>
+              <Text
+                style={[textStyle('price'), sx.stepVal]}
+                // One adjustable control for VoiceOver, as the bid amount: swipe up/down steps it by the
+                // buttons' own rules (never below 1), and the number is read as its value.
+                accessible
+                accessibilityRole="adjustable"
+                accessibilityLabel="Quantity"
+                accessibilityValue={{ text: String(quantity) }}
+                accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
+                onAccessibilityAction={(e) => {
+                  if (e.nativeEvent.actionName === 'increment') setQuantity((q) => q + 1);
+                  else if (e.nativeEvent.actionName === 'decrement') setQuantity((q) => Math.max(1, q - 1));
+                }}
+              >
+                {quantity}
+              </Text>
               <Pressable
                 style={sx.stepBtn}
                 onPress={() => setQuantity((q) => q + 1)}
