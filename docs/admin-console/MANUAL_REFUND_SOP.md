@@ -1,15 +1,16 @@
 # Manual refund SOP (founders, while console refunds are off)
 
-> **DRAFT — A (payments) reviews the money wording before it is used.**
-> Until A signs off, every sentence here about money is a proposal. Do not
-> follow it for a real refund before that review.
+> **DRAFT — not approved for use.** A (payments) reviews the money wording,
+> and the owner approves the SOP for use. Until then, every sentence here
+> about money is a proposal. Do not follow it for a real refund. A's part is
+> review only: no step below depends on A acting (§10).
 
 | | |
 |---|---|
 | **Who** | Founders (console role `platform_admin`), each using their own Stripe Dashboard login. Never share a login. |
 | **When** | Console refund execution is **off on the server**: **System → Settings** shows `refund_execute_enabled` as `false` (§2 row 1). The setting is seeded `false` [115:144-145]. The order page's **Execute refund** warning *"Disabled until ops-refund-execute is deployed."* is only a prompt to check: the page also shows it when its own settings read fails [ORDER:73-79], [ORDER:432-437]. |
 | **Covers** | Marketplace resale orders on **Orders** whose payment `mode` is `buy_now` or `auction`. |
-| **Does not cover** | Primary-ticket orders (`mode = native_primary` [093:3005]). They refund on a separate rail; escalate those to A. Stripe chargebacks (disputes raised at the buyer's bank) follow the evidence process, not this SOP. |
+| **Does not cover** | Primary-ticket orders (`mode = native_primary` [093:3005]). They refund on a separate rail; escalate those to the owner. Stripe chargebacks (disputes raised at the buyer's bank) follow the evidence process, not this SOP. |
 | **Replaces** | For founders, Part 1 and the "Emergency" section of `docs/operations/DAY5_MANUAL_REFUND_PLAYBOOK.md` (2026-04-01, private beta). Never run that playbook's SQL. §11 explains why. |
 | **Derived from** | Code at `origin/release/production-gate-20260918` @ `6f982f36` (database, edge functions) and `origin/admin/operating-console` @ `07100a35` (console). Each claim cites a source; aliases are resolved in §13. Items marked **Not verified** were not checked against production. |
 
@@ -63,9 +64,9 @@ Any other refund is an **owner decision**: a goodwill refund, a cancelled
 event, or a refund on an order the buyer confirmed. Record that decision on a
 case first (§3), then run every check in §2, especially row 8. On a transfer
 that is neither *Disputed* nor *Expired*, the seller can still be paid while
-you refund. A must first check the payout attempts (confirmed or
-auto-released transfers) or freeze the payout (any other status) before the
-money step (§2, "Row 8: the seller payout").
+you refund, and no console action holds a payout. That is an owner decision:
+do not refund until the payout is settled or held by an owner-approved
+action (§2, "Row 8: the seller payout").
 
 ## 2. Prerequisites (all read-only, all in the console unless marked)
 
@@ -74,16 +75,16 @@ subject link.
 
 | # | Check | Where | If it fails |
 |---|---|---|---|
-| 1 | Console refund execution is off **on the server** | **System → Settings** → `refund_execute_enabled` reads **`Current: false (boolean)`**, and the Settings panel shows no failure alert [SYS:231-240], [SYS:428], [116:1593-1601]. The order page's "Disabled…" warning does **not** prove this. The page shows it whenever its own settings read fails, and it treats every value except the boolean `true` as off [ORDER:73-79]. The server also treats the text `"true"` as on [118:252]. | It reads **`Current: true (boolean)`**: use the console refund (`OPERATING_GUIDE.md` → Taking a safe action → Execute refund) instead of this SOP. Never use both on one order. **Any other result:** stop and escalate to A. That covers a Settings error, a missing key, and every value that is neither the boolean `false` nor the boolean `true`, for example the text `"true"` or `"false"` (shown as `(string)`). |
-| 2 | The order is a resale order | **Payment** panel → `mode` is `buy_now` or `auction`. | `native_primary`: stop and escalate to A. |
-| 3 | Live mode: the payment's `stripe_livemode` is `true` | The console does **not** show this. The header's "stripe test mode" badge appears only when the value is `false` [ORDER:122], so no badge means `true` **or** unclassified (`NULL`) [045:17]. Every automated money path refuses `NULL` [PL:144-152], [ETE:615-625], [ETE:780-799], [148:125-134]. | Unless A has written on the case that this payment's `stripe_livemode` is `true`, stop and escalate to A. A "stripe test mode" badge: stop and escalate to A. |
+| 1 | Console refund execution is off **on the server** | **System → Settings** → `refund_execute_enabled` reads **`Current: false (boolean)`**, and the Settings panel shows no failure alert [SYS:231-240], [SYS:428], [116:1593-1601]. The order page's "Disabled…" warning does **not** prove this. The page shows it whenever its own settings read fails, and it treats every value except the boolean `true` as off [ORDER:73-79]. The server also treats the text `"true"` as on [118:252]. | It reads **`Current: true (boolean)`**: use the console refund (`OPERATING_GUIDE.md` → Taking a safe action → Execute refund) instead of this SOP. Never use both on one order. **Any other result:** stop and escalate to the owner. That covers a Settings error, a missing key, and every value that is neither the boolean `false` nor the boolean `true`, for example the text `"true"` or `"false"` (shown as `(string)`). |
+| 2 | The order is a resale order | **Payment** panel → `mode` is `buy_now` or `auction`. | `native_primary`: stop and escalate to the owner. |
+| 3 | Live mode | The order header shows **no** "stripe test mode" badge, **and** row 10 finds the PaymentIntent in the Stripe Dashboard in **live mode**. Row 10 is your proof of live mode. The console cannot show more yet: the badge appears only when `stripe_livemode` is `false` [ORDER:122], so no badge means `true` **or** unclassified (`NULL`) [045:17]. Unclassified is the remaining gap: every automated money path refuses `NULL` [PL:144-152], [ETE:615-625], [ETE:780-799], [148:125-134], so the expiry job neither refunds such a payment nor records its refunds. Console v2 (PR #121) adds an explicit **"Stripe mode: live / test / unclassified"** field to the order page. | **Interim rule, until the console shows the Stripe mode field:** no "stripe test mode" badge **and** the PaymentIntent found in live mode (row 10): proceed. Anything else: stop and escalate to the owner. **Once the field is shown:** it reads "unclassified" (or "test"): stop and escalate to the owner, even if row 10 finds the PaymentIntent in live mode. |
 | 4 | The decision to refund is on record | **Buyer win:** Disputes panel → In-app dispute → `dispute_resolution` reads "Resolved — buyer (refund required)" [FMT:207-211]. If the dispute is still open, record it first: **Resolve dispute** → outcome **Buyer win** (founder or risk role [115:521]). That records the decision, moves no money, and leads to the "Refund owed to buyer" case [MSE:528-546], [065:130-142]. **Expired:** Transfer status reads "Expired (seller did not send)". **Anything else:** the owner's decision, written on a case (§3). | No recorded decision means no refund. |
-| 5 | The payment is captured | The header badge reads **"payment: Captured"** (`succeeded`) [FMT:65-73]. The Execute refund panel only renders in this state [ORDER:83]. | "Refund recorded (not confirmed settled)": a refund already exists, so do not refund. Go to §7. Pending, Processing or Failed: the payment is not captured. Stop and escalate to A. |
-| 6 | No Stripe chargeback **of any status** | Disputes panel → **Stripe disputes (chargebacks)** reads "No Stripe disputes (chargebacks) on this payment." [ORDER:262-265], [ORDER:521]. | **Any row, whatever its status** (still open, won, lost or otherwise closed): do not refund; stop and escalate to A. A lost chargeback reaches the payment row only through the `charge.dispute.closed` webhook, as a `dispute_lost` refund record [WH:680-698]; if that webhook was missed, the payment still reads *Captured*. While a chargeback is open, Stripe refuses a refund on the charge (Stripe behaviour, not verified; the console executor treats it as a definite error [ORE:110]). A chargeback has its own process (`OPERATING_GUIDE.md`, "Evidence due"). |
-| 7 | No console refund attempt in flight or parked | Refund panel → **Refund execution attempts** is absent or lists only *Rejected* rows [ORDER:295-302]. A row can read *Requested*, *Awaiting approval*, *Processing — …*, *Outcome unknown*, *Succeeded at provider*, *Succeeded*, *Failed* or *Rejected* [FMT:115-124], [FMT:140-149]. | *Awaiting approval*: the request is parked, and it still runs if the setting is later turned on and the other founder approves it [118:217-220]. Before the money step, the founder who did **not** request it opens **System → Approvals** and presses **Deny**, with a reason. The requester cannot decide their own request [SYS:395-396], [SYS:404]. A denied action reads *Rejected* [118:209-214]; re-check this row. If the deny is refused, escalate to A. **Any other state except *Rejected***: stop. `RUNBOOK.md` §5.3 forbids a hand refund while a console attempt is in flight [RUNBOOK:129-133]. Escalate to A with the action id. |
+| 5 | The payment is captured | The header badge reads **"payment: Captured"** (`succeeded`) [FMT:65-73]. The Execute refund panel only renders in this state [ORDER:83]. | "Refund recorded (not confirmed settled)": a refund already exists, so do not refund. Go to §7. Pending, Processing or Failed: the payment is not captured. Stop and escalate to the owner. |
+| 6 | No Stripe chargeback **of any status** | Disputes panel → **Stripe disputes (chargebacks)** reads "No Stripe disputes (chargebacks) on this payment." [ORDER:262-265], [ORDER:521]. | **Any row, whatever its status** (still open, won, lost or otherwise closed): do not refund; stop and escalate to the owner. A lost chargeback reaches the payment row only through the `charge.dispute.closed` webhook, as a `dispute_lost` refund record [WH:680-698]; if that webhook was missed, the payment still reads *Captured*. While a chargeback is open, Stripe refuses a refund on the charge (Stripe behaviour, not verified; the console executor treats it as a definite error [ORE:110]). A chargeback has its own process (`OPERATING_GUIDE.md`, "Evidence due"). |
+| 7 | No console refund attempt in flight or parked | Refund panel → **Refund execution attempts** is absent or lists only *Rejected* rows [ORDER:295-302]. A row can read *Requested*, *Awaiting approval*, *Processing — …*, *Outcome unknown*, *Succeeded at provider*, *Succeeded*, *Failed* or *Rejected* [FMT:115-124], [FMT:140-149]. | *Awaiting approval*: the request is parked, and it still runs if the setting is later turned on and the other founder approves it [118:217-220]. Before the money step, the founder who did **not** request it opens **System → Approvals** and presses **Deny**, with a reason. The requester cannot decide their own request [SYS:395-396], [SYS:404]. A denied action reads *Rejected* [118:209-214]; re-check this row. If the deny is refused, escalate to the owner. **Any other state except *Rejected***: stop. `RUNBOOK.md` §5.3 forbids a hand refund while a console attempt is in flight [RUNBOOK:129-133]. Escalate to the owner with the action id. |
 | 8 | The seller has not been paid, and cannot be paid while you refund | **Transfer** panel status and **Seller funds state** panel [ORDER:178-243]: "Release recorded at" is empty, **and** "Stripe Transfer (connected account)" reads "none — funds not released", **and** the transfer status passes "Row 8: the seller payout" below. **Re-check this row immediately before you click Refund.** | Either release field set: this is a refund after payout (§9), an owner decision. Otherwise do what "Row 8: the seller payout" says for the transfer's status. |
 | 9 | Full amount | You will refund exactly the Payment panel's **"Total charged to buyer"**. | Anything less is a partial refund (§8), an owner decision. |
-| 10 | *(In Stripe, read-only)* Nothing refunded yet | Stripe Dashboard in **live mode** → the PaymentIntent (`pi_…`, copied from the Payment panel): it is found, the amount equals the console's total, **no refund is listed** and **no dispute is listed**. | The PaymentIntent is not found in live mode: stop and escalate to A. Never switch the Dashboard to test mode to look for it or refund it there. A dispute is listed: stop and escalate to A, because the console may have missed its webhook (row 6). A refund is already listed, in any status: do not refund again. Escalate to A, because the console has not recorded it yet. The amount differs: stop and escalate. |
+| 10 | *(In Stripe, read-only)* Nothing refunded yet | Stripe Dashboard in **live mode** → the PaymentIntent (`pi_…`, copied from the Payment panel): it is found, the amount equals the console's total, **no refund is listed** and **no dispute is listed**. | The PaymentIntent is not found in live mode: stop and escalate to the owner. Never switch the Dashboard to test mode to look for it or refund it there. A dispute is listed: stop and escalate to the owner, because the console may have missed its webhook (row 6). A refund is already listed, in any status: do not refund again. Escalate to the owner, because the console has not recorded it yet. The amount differs: stop and escalate to the owner. |
 
 **Row 8: the seller payout.** A new payout can be claimed only for a
 transfer that is *Buyer confirmed* or *Auto-released*, and only while the
@@ -95,8 +96,10 @@ already open is reconciled first, whatever the transfer's status is now
    *Auto-released*, *Resolved — seller (no buyer confirmation)* or
    *Confirmed status, no confirmation record* [FMT:266-276]. Or
    `buyer_confirmed_at` is set, whatever the status and the "Payout state".
-   Or the funds state is "Release scheduled". Stop and escalate to A to check
-   the payout attempts, whatever the other fields say:
+   Or the funds state is "Release scheduled". Stop and escalate to the
+   owner, whatever the other fields say. Owner decision: do not refund until
+   the payout is settled or held by an owner-approved action (below). The
+   payout may already be under way:
    - the payout sweep picks these transfers up [ETE:1292-1308],
      [ETE:1328-1357];
    - after a genuine buyer confirmation, neither manual review nor a hold
@@ -110,12 +113,29 @@ already open is reconciled first, whatever the transfer's status is now
    passes once both release fields are empty.
 3. **Any other status** (*Awaiting seller delivery*, *Seller marked sent*;
    funds "Awaiting buyer confirmation / auto-release", "Held" or "Manual
-   payout review"). Only an owner-decided refund reaches here. Before the
-   money step, A freezes the payout so that it cannot be claimed, and writes
-   on the case how. A buyer confirmation releases the payout straight away
-   [CAR:4-8], and neither manual review nor a hold stops a genuine
-   confirmation [148:102-119], so A chooses the freeze. Then re-check row 8
-   immediately before you click Refund.
+   payout review"). Only an owner-decided refund reaches here. Stop and
+   escalate to the owner. A buyer confirmation releases the payout straight
+   away [CAR:4-8], and neither manual review nor a hold stops a genuine
+   confirmation [148:102-119], so the seller can be paid at any moment.
+   Owner decision: do not refund until the payout is settled or held by an
+   owner-approved action (below).
+
+**No console action holds a payout.** The console's only payout action,
+**Release held payout** (`payout_release`), releases an unreleased *Seller
+marked sent* transfer and never holds one [MSE:548-569], [ORDER:82],
+[ORDER:399-404]. Neither the console @ `07100a35` nor console v2 has a hold
+or freeze action [TYP:294-310], [TYP2:294-313], and neither does the
+server's action set [115:235-237], [144:95-96], [115:515-528],
+[MSE:356-719]. A suspension leaves payouts running [MSE:620], and the keys
+**Change setting** can edit include no payout switch [115:144-153], [118:37],
+[144:155], [145:58], [146:97], [150:259-260]. So for items 1 and 3 the rule
+is: **owner decision; do not refund until the payout is settled or held by
+an owner-approved action.** If it settles as paid, the refund is a refund
+after payout (§9). An owner-approved hold counts only if it stops the claim
+even after a genuine buyer confirmation; manual review and
+`payout_hold_until` do not [148:102-119]. No step here requires a
+hand-written production write, and rule 2 forbids one. Once the owner's
+decision is on the case, re-check row 8 immediately before you click Refund.
 
 **Expired orders only.** The expiry job refunds expired orders on its own.
 Phase 1 refunds each newly expired order once and skips any payment already
@@ -129,12 +149,12 @@ remaining balance** [ETE:811-866]. The job's refunds carry a metadata
 `reason = transfer_expired` [ETE:669-674], [ETE:860-865].
 
 - If Stripe lists **any** refund for the PaymentIntent, the refund is not
-  missing, only unrecorded: escalate to A and do not refund.
-- If Stripe lists none, tell A before you refund by hand. The job should have
+  missing, only unrecorded: escalate to the owner and do not refund.
+- If Stripe lists none, tell the owner before you refund by hand. The job should have
   refunded the order itself, so it is failing or skipping this payment (for
   example because `stripe_livemode` is not `true`, row 3).
-- **Never make a partial refund on an expired order** without A: the next
-  run refunds the rest (§8).
+- **Never make a partial refund on an expired order:** the next run refunds
+  the rest (§8).
 
 **Second founder (proposal; owner to confirm).** In the console, a refund
 needs the other founder's approval [115:532-536]. Until the owner rules
@@ -159,7 +179,7 @@ Manual refund per MANUAL_REFUND_SOP §4 (console refunds are off).
 PaymentIntent: pi_…
 Amount: $… = Total charged to buyer (full refund)
 Why: buyer-win resolution <UTC date> | transfer expired <UTC date> | owner decision <case/note ref>
-§2 checks 1–10: pass. Live mode confirmed by A: <note …>. Second founder: <confirmed in note …>
+§2 checks 1–10: pass. Live mode (row 3): no test-mode badge; pi_… found in live mode (row 10). Second founder: <confirmed in note …>
 ```
 
 Every console action, these notes included, is stored as an `ops.action` and
@@ -282,7 +302,7 @@ Leave every metadata field empty. These are the keys our code reads:
 | "Refund still pending at Stripe" (`refund_pending`, P1, keyed by `re_…`) | Still *pending*/*requires_action* after `refund_state_pending_hours` (120). Same switch [150:377-398] | Same as above [150:384-386] |
 | "Reconciliation mismatch" (`reconciliation_mismatch`, P1) | A refunded payment whose transfer has a Stripe transfer id and is not reversed [117:706-749] | When the transfer shows *Reversed* (§9) |
 | "Stripe webhook not processed" (`webhook_stuck`, P2) | A received event is still unprocessed after 15 minutes, or failed [117:535-574], [115:150] | When the event is processed |
-| Refund resolution (`refund_resolution`, P2) | When its detector is on (seeded off [144:155], [144:349]): every **expired + refunded** order [144:44-48] | Only by a person, after classifying it: close is refused without a classification, and while any obligation the classification raised is not recorded settled [MSE:386-408]. It depends on the console build. **If the case page shows a *Classify* control** (console v2 with the #89 port, on an open case [CW2:168], [CW2:241-331], not merged when this was written), classify there. The *Obligation* control is not there on a new case: it appears only once a classification has raised an obligation, so it never appears while none has been raised [CW2:245-246], [CW2:297-328]. For each obligation, pick *State* yourself: *Settled* only once the money has moved. **If there is no *Classify* control,** escalate to A. The console @ `07100a35` has no classify control (none in `admin/src`) |
+| Refund resolution (`refund_resolution`, P2) | When its detector is on (seeded off [144:155], [144:349]): every **expired + refunded** order [144:44-48] | Only by a person, after classifying it: close is refused without a classification, and while any obligation the classification raised is not recorded settled [MSE:386-408]. It depends on the console build. **If the case page shows a *Classify* control** (console v2 with the #89 port, on an open case [CW2:168], [CW2:241-331], not merged when this was written), classify there. The *Obligation* control is not there on a new case: it appears only once a classification has raised an obligation, so it never appears while none has been raised [CW2:245-246], [CW2:297-328]. For each obligation, pick *State* yourself: *Settled* only once the money has moved. **If there is no *Classify* control,** escalate to the owner. The console @ `07100a35` has no classify control (none in `admin/src`) |
 
 The two cases keyed by `re_…` have no payment id, so they appear in the
 **Cases** queue but not under "Cases on this order" [150:346-349],
@@ -371,10 +391,11 @@ refund done in the Stripe Dashboard has these consequences:
   live transfer, the next expiry run finds a `succeeded` payment whose
   refunds cover less than the total. It then refunds the remaining balance
   by itself [ETE:767-801], [ETE:841-866]. The code comment says so
-  [ETE:817-819]. The money then moves beyond the owner's decision, so a
-  partial refund on an expired order is not possible without A's
-  intervention. The rest of this section applies only to orders that are
-  **not** expired.
+  [ETE:817-819]. The money then moves beyond the owner's decision. No
+  console action stops the job: the action set has none (§2, "Row 8: the
+  seller payout"), and ETE reads no `ops.setting` key. So a partial refund
+  on an expired order is not possible within this SOP. The rest of this
+  section applies only to orders that are **not** expired.
 - The payment stays *Captured*, because `status` changes only when the
   refunded total reaches the payment's total [P3:521].
 - For a buyer-win or partial-refund dispute, the "Refund owed to buyer" case
@@ -388,16 +409,18 @@ refund done in the Stripe Dashboard has these consequences:
 
 If the owner decides on a partial refund:
 
-1. If the transfer reads "Expired (seller did not send)", stop. Send the
-   decision to A before any money step: A says on the case how the expiry
-   job will be kept from refunding the rest, or the refund becomes a full
-   one.
+1. If the transfer reads "Expired (seller did not send)", stop. Nothing in
+   the console keeps the expiry job from refunding the rest, so before any
+   money step the owner decides on the case: the refund becomes a full one,
+   or it waits for an owner-approved change that keeps the job from
+   refunding the rest. Never a hand-written production write (rule 2).
 2. Before any money step, the owner writes the decision on the case: the
    amount, who bears it, and what happens to the seller's payout.
 3. Run §2 (except row 9), refund **that amount** in Stripe, then record it
    (§6, steps 1–2).
 4. Leave the case *Waiting* with the note "partial refund per owner
-   decision". Do not close it, and tell A: the case will not clear by itself.
+   decision". Do not close it, and tell the owner: the case will not clear
+   by itself.
 
 ## 9. Refund after the seller was paid (owner decision)
 
@@ -431,21 +454,24 @@ playbook's "if webhooks are down" SQL calls [DAY5:264-283].
 
 ## 10. Escalation
 
-Send ids only: payment id, `pi_…`, `re_…`, case id and action id. Never send
-personal data.
+Every escalation goes to the owner. Send ids only: payment id, `pi_…`,
+`re_…`, case id and action id. Never send personal data.
+
+A (payments) can help analyse a case when the owner asks. No step in this
+SOP waits on A: A has no production write access and is not on call.
 
 | Situation | To | Do meanwhile |
 |---|---|---|
 | A refund-after-payout, a partial refund, a reversal, a goodwill refund, or any refund not covered by §1 | Owner | Nothing in Stripe until the decision is on the case |
-| A partial refund on an **expired** order (§8) | A + owner | Nothing in Stripe: the expiry job would refund the rest |
-| A confirmed or auto-released transfer, or an owner-decided refund that needs the payout frozen first (§2, "Row 8: the seller payout") | A | Nothing in Stripe until A has written on the case that the payout cannot be claimed |
-| Stripe shows the refund *Succeeded*, but after 30 minutes the console still shows *Captured* | A | Check **System → Webhook backlog** and any "Stripe webhook not processed" case. Do not refund again, and do not edit the database. Webhooks are re-sent from the Stripe Dashboard, never replayed from the console (`OPERATING_GUIDE.md`) |
-| Stripe shows the refund *Failed* or *Canceled* | A + owner | Stripe asks the platform to arrange another way to refund [150:366-367]. Record it on the case |
-| *Pending* for more than 5 days (120 h, the detector's threshold [150:260]) | A | Note it on the case |
-| A refund already listed in Stripe before you acted (§2 row 10), or the expiry job missed an expired order | A | Do not refund |
-| A refund-resolution case whose page has no *Classify* control, or one you cannot classify, or cannot close after classifying (§5.4) | A | Leave it open |
-| `native_primary` order, a test-mode order, a payment whose live mode A has not confirmed (§2 row 3), or a PaymentIntent the live-mode Dashboard cannot find (§2 row 10) | A | Nothing in Stripe |
-| Any check in §2 is unclear | A | Do not refund |
+| A partial refund on an **expired** order (§8) | Owner | Nothing in Stripe: the expiry job would refund the rest |
+| A transfer that was ever confirmed or released, or an owner-decided refund on a transfer that can still be paid (§2, "Row 8: the seller payout") | Owner | Nothing in Stripe until the payout is settled or held by an owner-approved action, and the owner's decision is on the case. No hand-written database write |
+| Stripe shows the refund *Succeeded*, but after 30 minutes the console still shows *Captured* | Owner | Check **System → Webhook backlog** and any "Stripe webhook not processed" case. Do not refund again, and do not edit the database. Webhooks are re-sent from the Stripe Dashboard, never replayed from the console (`OPERATING_GUIDE.md`) |
+| Stripe shows the refund *Failed* or *Canceled* | Owner | Stripe asks the platform to arrange another way to refund [150:366-367]. Record it on the case |
+| *Pending* for more than 5 days (120 h, the detector's threshold [150:260]) | Owner | Note it on the case |
+| A refund already listed in Stripe before you acted (§2 row 10), or the expiry job missed an expired order | Owner | Do not refund |
+| A refund-resolution case whose page has no *Classify* control, or one you cannot classify, or cannot close after classifying (§5.4) | Owner | Leave it open |
+| `native_primary` order, a "stripe test mode" badge, a Stripe mode field reading "unclassified" (§2 row 3), or a PaymentIntent the live-mode Dashboard cannot find (§2 row 10) | Owner | Nothing in Stripe |
+| Any check in §2 is unclear | Owner | Do not refund |
 
 ## 11. Why this SOP contains no SQL
 
@@ -489,10 +515,13 @@ guards that keep the money records consistent.
   connected-account transfer untouched. This SOP assumes it does, because
   payouts are separate Stripe Transfers (`DAY5_MANUAL_REFUND_PLAYBOOK.md` Part
   2 at `6f982f36`).
-- Each payment's `stripe_livemode`. The console shows only `false`, so A
-  confirms `true` per order (§2 row 3).
+- Each payment's `stripe_livemode`. The console @ `07100a35` shows only
+  `false`, so it cannot tell `true` from unclassified (`NULL`). Until console
+  v2 (PR #121) shows the Stripe mode field, row 10's live-mode Dashboard
+  lookup is the per-order proof (§2 row 3).
 - Which console build is deployed: `07100a35`, or console v2 with the #89
-  port, whose open refund-resolution cases show a *Classify* control (§5.4).
+  port, whose open refund-resolution cases show a *Classify* control (§5.4),
+  and whether it has the Stripe mode field from PR #121 (§2 row 3).
 - The current values of `refund_execute_enabled`,
   `refund_state_detection_enabled`, `refund_resolution_detector_enabled` and
   `detectors_enabled` in production. Founders can read them under System →
@@ -514,6 +543,8 @@ Gate = `origin/release/production-gate-20260918` @ `6f982f36`. Console =
 | 117 | `supabase/migrations/117_ops_console_automation.sql` | gate |
 | 118 | `supabase/migrations/118_ops_console_corrections.sql` | gate |
 | 144 | `supabase/migrations/144_ops_refund_resolution_detector.sql` | gate |
+| 145 | `supabase/migrations/145_ops_job_not_running_detection.sql` | gate |
+| 146 | `supabase/migrations/146_ops_alert_delivery_and_ack.sql` | gate |
 | P3 | `supabase/migrations/20260906120000_payout_attempts_and_refund_monotonic.sql` | gate |
 | 148 | `supabase/migrations/20260924000000_seller_win_dispute_payout_and_notice.sql` (latest `claim_payout_attempt`) | gate |
 | 149 | `supabase/migrations/20260924120000_payout_decisions_buyer_confirmed_truth.sql` (latest `flag_payout_reversal_required`) | gate |
@@ -531,12 +562,15 @@ Gate = `origin/release/production-gate-20260918` @ `6f982f36`. Console =
 | SYS | `admin/src/app/(console)/system/page.tsx` | console |
 | NCF | `admin/src/components/cases/NewCaseForm.tsx` | console |
 | FMT | `admin/src/lib/format.ts` | console |
+| TYP | `admin/src/lib/types.ts` (`ActionType`) | console |
 | CW2 | `admin/src/components/cases/CaseWork.tsx` | `admin/console-v2-integration` @ `d614b0d0` (the #89 port; local, not merged) |
+| TYP2 | `admin/src/lib/types.ts` (`ActionType`) | `admin/console-v2-integration` @ `984146c0` (console v2; not merged) |
 
 Latest definitions were checked by `git grep` over the gate's migrations:
 `ops.execute_action` = 144:455, `ops.action_precheck` = 118:229,
 `ops.action_dispatch` = MSE:315, `ops.detect_refunds` = 150:262,
 `guard_transfer_state_columns` = 065:225, `guard_payment_transitions` = P3:350,
 `record_payment_refund` = P3:457, `claim_payout_attempt` = 148:35,
-`flag_payout_reversal_required` = 149:159, `mark_transfer_reversed` = 0561:114.
+`flag_payout_reversal_required` = 149:159, `mark_transfer_reversed` = 0561:114,
+`ops.action_allowed_roles` = 115:515.
 This document edits none of them.
