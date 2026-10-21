@@ -32,6 +32,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, Image } from 'react-native';
 
 import {
+  isListingDraftFieldsExpired,
   isListingDraftEmpty,
   listingDraftSignature,
   prepareListingDraftOffer,
@@ -200,10 +201,19 @@ export function useListingDraft({ userId, enabled, fields, onRestore }: UseListi
 
   const accept = useCallback(() => {
     if (!uid || !offer) return;
+    // An offer held open across midnight can name a picked event day that has since passed. Apply the
+    // load-time rule again (isListingDraftExpired): such a draft is removed, not restored — so a past
+    // event date can never reach the form through Continue (E, D-2.4 L1).
+    if (isListingDraftFieldsExpired(offer.fields, new Date())) {
+      saver.forget();
+      setHeld({ uid, phase: 'editing', offer: null });
+      void listingDraftStore.clear(uid);
+      return;
+    }
     const restored = offer.fields;
     setHeld({ uid, phase: 'editing', offer: null });
     onRestore(restored);
-  }, [uid, offer, onRestore]);
+  }, [uid, offer, onRestore, saver]);
 
   const discard = useCallback(() => {
     if (!uid) return;

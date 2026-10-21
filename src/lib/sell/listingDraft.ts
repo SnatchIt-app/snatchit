@@ -277,8 +277,12 @@ const startOfLocalDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.g
  * choice, so it never expires a draft.
  */
 export function isListingDraftExpired(draft: ListingDraft, now: Date): boolean {
-  return draft.fields.dateChosen
-    && startOfLocalDay(draft.fields.eventDate).getTime() < startOfLocalDay(now).getTime();
+  return isListingDraftFieldsExpired(draft.fields, now);
+}
+
+/** The same rule on the fields an offer carries — re-checked when Continue is tapped (E, D-2.4 L1). */
+export function isListingDraftFieldsExpired(fields: Pick<ListingDraftFields, 'dateChosen' | 'eventDate'>, now: Date): boolean {
+  return fields.dateChosen && startOfLocalDay(fields.eventDate).getTime() < startOfLocalDay(now).getTime();
 }
 
 // ─── The offer ─────────────────────────────────────────────────────────────────

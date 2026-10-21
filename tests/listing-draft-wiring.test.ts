@@ -302,6 +302,19 @@ describe('W4/W5 · publish', () => {
     expect(h.pushes).toEqual([]);
     expect(storedJson()!.fields.eventName).toBe('Weekend pool party');
   });
+
+  it('W5b: a server refusal (152 ACCOUNT_SUSPENDED) shows its own alert AND keeps the draft (E, D-2.4 D1)', async () => {
+    h.insertResult = { data: null, error: { message: 'Account suspended', hint: 'ACCOUNT_SUSPENDED' } };
+    const { host, step } = await restoredAndReady();
+    (publishButton(host).props.onPress as () => void)();
+    await step();
+    expect(h.alerts).toContain('Account suspended');   // the refusal branch ran, not the generic error
+    expect(h.alerts).not.toContain('Error');
+    expect(storedJson()!.fields.eventName).toBe('Weekend pool party');
+    await step(AUTOSAVE * 2);
+    expect(h.pushes).toEqual([]);
+    expect(storedJson()!.fields.eventName).toBe('Weekend pool party');
+  });
 });
 
 describe('W6 · Discard', () => {

@@ -149,6 +149,19 @@ describe('LD2 · the cover is a reference to the picker’s app-private cache, n
   });
 });
 
+describe('LD2c · dot segments are refused even where the folder shape would pass (E, D-2.4 L2)', () => {
+  it('LD2c: "." or ".." anywhere in the path — prefix or last segment — never qualifies', () => {
+    for (const uri of [
+      'file:///var/mobile/Containers/Data/Application/0A/../0B/Library/Caches/ImagePicker/x.jpg',
+      'file:///var/mobile/Containers/Data/Application/0A/./Library/Caches/ImagePicker/x.jpg',
+      'file:///var/mobile/Containers/Data/Application/0A/Library/Caches/ImagePicker/..',
+      'file:///data/user/0/com.snatchit.app/../com.other.app/cache/ImagePicker/x.jpg',
+    ]) expect(isPickerCacheUri(uri), uri).toBe(false);
+    // The same paths without the dot segment still qualify: the guard is what refuses them.
+    expect(isPickerCacheUri('file:///var/mobile/Containers/Data/Application/0B/Library/Caches/ImagePicker/x.jpg')).toBe(true);
+  });
+});
+
 describe('LD3 · reading a stored draft back', () => {
   it('LD3a: a written draft reads back field for field — the date as local midnight of its day, the time on that day', () => {
     const f = filled({ eventTime: new Date(2026, 9, 21, 22, 30) });

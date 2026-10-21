@@ -215,6 +215,31 @@ describe('UH1 · a stored draft is offered, and nothing overwrites it until the 
   });
 });
 
+describe('UH1g · Continue re-checks the picked date (E, D-2.4 L1)', () => {
+  it('UH1g: an offer held open past midnight whose picked event day has passed is removed, not restored', async () => {
+    vi.setSystemTime(new Date(2026, 9, 21, 23, 59));
+    h.mem.set(KEY, serializeListingDraft(draft({ eventDate: new Date(2026, 9, 21), dateChosen: true }), new Date(2026, 9, 21, 22)));
+    const { state, restored, step } = await mountHook();
+    expect(state.ret!.offer?.eventName).toBe('Weekend pool party');   // today's event: offered
+    vi.setSystemTime(new Date(2026, 9, 22, 0, 1));                   // the offer sits across midnight
+    state.ret!.accept();
+    await step();
+    expect(restored).toEqual([]);                 // a past event date never reaches the form
+    expect(state.ret!.offer).toBeNull();
+    expect(h.mem.has(KEY)).toBe(false);
+  });
+
+  it('UH1g2: the same offer accepted before midnight restores as usual (the check is not a blanket refusal)', async () => {
+    vi.setSystemTime(new Date(2026, 9, 21, 23, 0));
+    h.mem.set(KEY, serializeListingDraft(draft({ eventDate: new Date(2026, 9, 21), dateChosen: true }), new Date(2026, 9, 21, 22)));
+    const { state, restored, step } = await mountHook();
+    state.ret!.accept();
+    await step();
+    expect(restored).toHaveLength(1);
+    expect(restored[0].eventDate.getTime()).toBe(new Date(2026, 9, 21).getTime());
+  });
+});
+
 describe('UH2 · the cover comes back only if the cached file still answers', () => {
   it('UH2a: a missing file drops the cover from what is restored', async () => {
     h.getSize = 'fail';
