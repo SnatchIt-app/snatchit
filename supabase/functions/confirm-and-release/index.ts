@@ -66,7 +66,9 @@
 //     row is refused by the RPC first (400); these answer only when a dispute
 //     freezes the row between the RPC and the re-read / claim (race only).
 //   • 400 TRANSFER_STATE_CHANGED — race only: the status left
-//     buyer_confirmed / auto_released between the RPC and the re-read.
+//     buyer_confirmed / auto_released between the RPC and the re-read; or,
+//     before 171, a message-only already-confirmed claim that the re-read
+//     refutes (the RPC failed for another reason; nothing was confirmed).
 //
 // F-5 DELETION-PENDING (owner ruling, A 2026-10-21): the guard can only run
 // after the confirmation is recorded, so it is NOT an error. It answers 200
@@ -415,7 +417,8 @@ serve(async (req: Request) => {
 
     // Verify transfer is in a releasable state (auto_released = the cron
     // already claimed the row; the buyer's confirmation is tolerated).
-    // Race only: the status moved between the RPC and this read.
+    // Race only: the status moved between the RPC and this read — or this
+    // read refutes a message-only already-confirmed claim (header).
     if (transfer.status !== 'buyer_confirmed' && transfer.status !== 'auto_released') {
       return errorResponse(req, 400, `Transfer is in unexpected state: ${transfer.status}`, 'TRANSFER_STATE_CHANGED');
     }
