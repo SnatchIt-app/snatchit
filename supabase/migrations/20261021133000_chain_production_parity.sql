@@ -9,6 +9,13 @@
 --   clone down to every catalog row's xmin and relfilenode). The naive unconditional form (ADD COLUMN IF NOT EXISTS /
 --   CREATE INDEX IF NOT EXISTS / DROP COLUMN IF EXISTS / CREATE OR REPLACE with the identical text) is NOT a no-op
 --   there: it takes ACCESS EXCLUSIVE on profiles and payments and rewrites handle_new_user's pg_proc row (03b N1).
+--   THE ONE PRODUCTION WRITE IS THE DEPLOY PATH'S LEDGER ROW. The no-op above is the file's own behaviour (psql).
+--   Applied through the deploy path — the Supabase CLI (migration up / db push) or the Supabase GitHub integration
+--   on merge to main (AUTODEPLOY-1, docs/operations/DEPLOYMENT_PATHS.md) — it also writes exactly one row,
+--   supabase_migrations.schema_migrations version 20261021133000. That ledger row is the only thing 173 writes in
+--   production: CLI 2.115.0 on a production-replay clone takes the ledger from 168 to 169 rows while every other
+--   pg_catalog tuple and pg_dump --schema-only stay identical (private-evidence/A-sprint-20261021/r173/r09b and
+--   a173/w4/09_cli.out).
 --   It changes environments built from the repo chain (CI, local rehearsal, a branch, the sandbox if it is in the
 --   chain's shape) so that they match production on three items.
 --
@@ -53,8 +60,9 @@
 --     (packages/types/src/index.ts:194, src/types/index.ts:211 — no code reads the field; their removal is R-3's
 --     separate no-number code change, not in this file), the vendored schema.sql/000 text and docs. In the chain it
 --     has no pg_depend dependents, no policy, view or function references it as a column. anon and authenticated could
---     SELECT/INSERT/UPDATE it through the payments table grant. Dropped only when every stored value is NULL (refused
---     otherwise), so the rollback's re-added all-NULL column restores the data exactly.
+--     SELECT/INSERT/UPDATE it through the payments table grant. Dropped only when every stored value is NULL and the
+--     column carries no column ACL (refused otherwise), so the drop loses no value and no grant. The rollback does NOT
+--     re-add it (deliberate, A's ruling of 2026-10-21: a rollback never restores a security hole).
 --
 -- CONDITIONAL BY DESIGN (the 123/124 parity style; BE-37 §3.1 rule 2). One catalog read classifies the database:
 --   PRODUCTION SHAPE  the three columns exist with production's exact type, NOT NULL, default and no column ACL;
@@ -63,14 +71,16 @@
 --                     -> no DDL at all (also the state after 173 on the chain, so a re-run is a no-op).
 --   CHAIN SHAPE       none of the three columns and no idx_profiles_stripe_connect_id; handle_new_user has the
 --                     chain's id-only body (prosrc 7946dc44c2a7ac3bc0a09cbb6a2a5db9), SECURITY DEFINER, search_path;
---                     payments.stripe_client_secret exists as text, nullable, no default, and holds no non-NULL value.
+--                     payments.stripe_client_secret either exists as text, nullable, no default, NO COLUMN ACL, holding
+--                     no non-NULL value, or is absent (the chain after 173's rollback, which never re-adds it).
 --                     -> the DDL below, then postconditions that the result is production's shape.
 --   ANYTHING ELSE     -> RAISE before any DDL; nothing changes. A mixed state means 173 cannot know what it would be
 --                     replacing, and its rollback could not know what to restore.
---   The all-or-nothing classification is what makes the rollback exact: after 173 every environment looks like
---   production for these items, and the one durable difference is column order — columns 173 adds are appended after
---   stripe_onboarding_complete and stripe_customer_id, whereas production's three precede both (attnums 14-16 < 20,
---   21). The rollback reads that order to decide whether 173 changed anything in the database it runs in.
+--   The all-or-nothing classification is what makes the rollback exact (stripe_client_secret deliberately aside):
+--   after 173 every environment looks like production for these items, and the one durable difference is column
+--   order — columns 173 adds are appended after stripe_onboarding_complete and stripe_customer_id, whereas
+--   production's three precede both (attnums 14-16 < 20, 21). The rollback reads that order to decide whether 173
+--   changed anything in the database it runs in, and its verification re-checks it after its own DDL.
 --   ORDER vs R-5c (O-1): if production's idx_profiles_stripe_connect_id is replaced before 173 is applied there, 173
 --   refuses on production (by design); R-5c written after 173 must change the index on both sides.
 --
@@ -85,9 +95,11 @@
 --   client grant. assert_public_table_grant_decisions.sql unchanged (no new table or function).
 --   Test 020's assertions 7-8 become non-vacuous for the three Stripe status columns (and pass).
 -- ROLLBACK: supabase/rollbacks/20261021133000_chain_production_parity_rollback.sql — restores the pre-173 state of the
---   database it runs in: on production (and any production-lineage copy) it executes no DDL; on a chain-lineage
---   database it drops the three columns and the index, restores the chain's id-only handle_new_user and re-adds
---   payments.stripe_client_secret (text, all NULL). It refuses anything that is not 173's exact post-state.
+--   database it runs in, with ONE deliberate exception: on production (and any production-lineage copy) it executes no
+--   DDL; on a chain-lineage database it drops the three columns and the index and restores the chain's id-only
+--   handle_new_user, but does NOT re-add payments.stripe_client_secret (a latent client-readable/writable secret column;
+--   A's ruling 2026-10-21: a rollback never restores a security hole). Its verification requires the column ABSENT
+--   afterwards on both lineages. It refuses anything that is not 173's exact post-state.
 -- VERIFY (read-only; expect c29bf692b5227d9185a264dc65cc31f6 | 3 | idx_profiles_stripe_connect_id | 0):
 --   select md5(pg_get_functiondef('public.handle_new_user()'::regprocedure)),
 --          (select count(*) from pg_attribute where attrelid = 'public.profiles'::regclass and not attisdropped
@@ -117,7 +129,7 @@ DECLARE
   v_ncols      int;
   v_idx        text;     -- pg_get_indexdef of idx_profiles_stripe_connect_id, or NULL
   v_hnu        text;     -- handle_new_user prosrc md5 | secdef | config, or NULL
-  v_secret     text;     -- payments.stripe_client_secret type:notnull:default, or NULL
+  v_secret     text;     -- payments.stripe_client_secret type:notnull:default:column ACL, or NULL (absent)
   v_secret_nn  bigint := 0;
   v_late       int;
   v_acl        text;     -- handle_new_user's ACL before any DDL: 173 must leave it exactly as found
@@ -139,6 +151,7 @@ BEGIN
     INTO v_hnu, v_acl
     FROM pg_catalog.pg_proc p WHERE p.oid = to_regprocedure('public.handle_new_user()');
   SELECT format_type(a.atttypid, a.atttypmod) || ':' || a.attnotnull || ':' || coalesce(pg_get_expr(d.adbin, d.adrelid), '<none>')
+         || ':' || coalesce(array_to_string(a.attacl, ','), '<none>')   -- column ACL: a grant on it is not the chain's shape
     INTO v_secret
     FROM pg_catalog.pg_attribute a
     LEFT JOIN pg_catalog.pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
@@ -153,9 +166,12 @@ BEGIN
     RETURN;
   END IF;
 
-  IF NOT (v_ncols = 0 AND v_idx IS NULL AND to_regclass('public.idx_profiles_stripe_connect_id') IS NULL
+  -- coalesce(…, false): NULL-safe, so an absent handle_new_user (v_hnu NULL) or any other NULL is refused here, before
+  -- any DDL, instead of NOT(NULL) skipping the refusal.
+  IF NOT coalesce(v_ncols = 0 AND v_idx IS NULL AND to_regclass('public.idx_profiles_stripe_connect_id') IS NULL
           AND v_hnu = c_chain_src || '|true|search_path=public, pg_temp'
-          AND v_secret = 'text:false:<none>' AND v_secret_nn = 0) THEN
+          AND ((v_secret = 'text:false:<none>:<none>' AND v_secret_nn = 0)   -- the chain's column: empty, no column ACL
+               OR v_secret IS NULL), false) THEN                             -- or absent: 173's rollback never re-adds it
     RAISE EXCEPTION '173 REFUSED (nothing changed): neither production''s shape nor the chain''s. Found: Stripe status columns [%] (% of 3); idx_profiles_stripe_connect_id [%]; handle_new_user [%]; payments.stripe_client_secret [%] with % non-NULL value(s)',
       coalesce(v_cols, 'none'), v_ncols, coalesce(v_idx, coalesce(to_regclass('public.idx_profiles_stripe_connect_id')::text, 'none')),
       coalesce(v_hnu, 'absent'), coalesce(v_secret, 'absent'), v_secret_nn
@@ -170,7 +186,7 @@ BEGIN
     ADD COLUMN IF NOT EXISTS stripe_payouts_enabled boolean NOT NULL DEFAULT false,
     ADD COLUMN IF NOT EXISTS stripe_charges_enabled boolean NOT NULL DEFAULT false;
   CREATE INDEX IF NOT EXISTS idx_profiles_stripe_connect_id ON public.profiles USING btree (stripe_connect_id) WHERE (stripe_connect_id IS NOT NULL);
-  -- S4: the chain-only column (verified empty above).
+  -- S4: the chain-only column (verified empty and without a column ACL above; already absent after 173's rollback).
   ALTER TABLE public.payments DROP COLUMN IF EXISTS stripe_client_secret;
   -- F7: production's handle_new_user, pg_get_functiondef from the production replay byte for byte (md5 c29bf692…).
 CREATE OR REPLACE FUNCTION public.handle_new_user()
