@@ -53,10 +53,10 @@ const controls = (c: OpsCase, events: CaseEvent[]) =>
 const forms = (html: string) => html.split("<form").slice(1).map((f) => f.slice(0, f.indexOf("</form>")));
 const hidden = (form: string, name: string) => form.match(new RegExp(`name="${name}" value="([^"]*)"`))?.[1]?.replace(/&quot;/g, '"');
 const formFor = (html: string, actionType: string) => forms(html).find((f) => hidden(f, "action_type") === actionType);
-const options = (form: string, name: string) => {
-  const sel = form.match(new RegExp(`<select[^>]*name="${name.replace(/[.:]/g, "\\$&")}"[^>]*>([\\s\\S]*?)</select>`))?.[1] ?? "";
-  return [...sel.matchAll(/<option[^>]*value="([^"]*)"/g)].map((m) => m[1]);
-};
+const selectOf = (form: string, name: string) => form.match(new RegExp(`(<select[^>]*name="${name.replace(/[.:]/g, "\\$&")}"[^>]*>)([\\s\\S]*?)</select>`));
+const options = (form: string, name: string) => [...(selectOf(form, name)?.[2] ?? "").matchAll(/<option[^>]*value="([^"]*)"/g)].map((m) => m[1]);
+/** The <option> tags a select renders with `selected` — what the browser posts if the operator touches nothing. */
+const preselected = (form: string, name: string) => [...(selectOf(form, name)?.[2] ?? "").matchAll(/<option([^>]*)>/g)].map((m) => m[1]).filter((attrs) => /\sselected=""/.test(attrs));
 
 /** FormData exactly as the browser would post the rendered form: its hidden inputs plus the visible fields given. */
 function post(form: string, visible: Record<string, string>): FormData {
@@ -97,10 +97,29 @@ describe("a refund-resolution case offers 144's controls, and only where they ca
     expect(JSON.parse(hidden(f, "expected") ?? "{}")).toEqual({ version: 7 });
     expect(hidden(f, "reason_required")).toBe("0");
     expect(options(f, "param.kind")).toEqual(["payout_owed"]);
-    expect(options(f, "param.settled:boolean")).toEqual(["true", "false"]);
+    expect(options(f, "param.settled:boolean")).toEqual(["", "true", "false"]);
     expect(f).toMatch(/<textarea[^>]*name="param.note"[^>]*required/);
     expect(html).toContain("1 unsettled");
     expect(formFor(html, "case_status")).toContain("Resolving or dismissing will be refused: unsettled obligation(s): payout_owed");
+  });
+
+  it("the obligation's State preselects nothing: 'Settled' is the value that unlocks closing under 144, so it is never the default", () => {
+    // 144's close guard refuses resolve/dismiss only while the latest record of a kind has settled distinct from
+    // 'true'. A form that posted Settled untouched would let a progress note ("emailed the seller, awaiting reply")
+    // unlock closing over money still owed.
+    for (const events of [
+      [classified("B", "2026-09-19T10:00:00Z"), obligation("payout_owed", false, "2026-09-19T10:00:01Z")],
+      // also once it was recorded settled: re-recording must be a choice, never a carry-over
+      [classified("B", "2026-09-19T10:00:00Z"), obligation("payout_owed", true, "2026-09-19T10:00:01Z", "paid")],
+    ]) {
+      const f = formFor(controls(refundCase, events), "case_refund_obligation")!;
+      expect(selectOf(f, "param.settled:boolean")?.[1]).toMatch(/\srequired=""/);
+      const chosen = preselected(f, "param.settled:boolean");
+      expect(chosen).toHaveLength(1);
+      expect(chosen[0]).toMatch(/value=""/);
+      expect(chosen[0]).toMatch(/\sdisabled=""/);
+      expect(f).not.toMatch(/<option[^>]*value="true"[^>]*selected=""/);
+    }
   });
 
   it("with every obligation recorded settled the Status warning goes away", () => {
@@ -165,6 +184,13 @@ describe("what the forms post is what migration 144 reads", () => {
       p_reason: note,
       p_expected: { version: 7 },
     });
+  });
+
+  it("a State left unchosen (a post that skipped the browser's required check) goes as null, which 144 records as not settled", async () => {
+    const f = formFor(controls(refundCase, [classified("B", "2026-09-19T10:00:00Z"), obligation("payout_owed", false, "2026-09-19T10:00:01Z")]), "case_refund_obligation")!;
+    await submitActionForm({}, post(f, { "param.kind": "payout_owed", "param.settled:boolean": "", "param.note": "emailed the seller for bank details, awaiting reply" }));
+    // 144: settled = coalesce((params ->> 'settled')::boolean, false)
+    expect((rpc.calls[0].args.p_params as Record<string, unknown>).settled).toBeNull();
   });
 
   it("'Still outstanding' sends settled false, never a string", async () => {

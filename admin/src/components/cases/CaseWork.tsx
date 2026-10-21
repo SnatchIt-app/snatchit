@@ -309,9 +309,13 @@ function RefundControls({ c, detail, me, envelope, refund, id }: { c: OpsCase; d
                 ))}
               </select>
               <label htmlFor={id("obligation-settled")} className="eyebrow block text-dim">
-                State
+                State <span aria-hidden="true">*</span>
               </label>
-              <select id={id("obligation-settled")} name="param.settled:boolean" defaultValue="true" className="field mt-1">
+              {/* No preselected value: "Settled" is what unlocks closing under 144's guard, so it is only ever an explicit choice. */}
+              <select id={id("obligation-settled")} name="param.settled:boolean" defaultValue="" required className="field mt-1">
+                <option value="" disabled>
+                  Choose settled or still outstanding
+                </option>
                 <option value="true">Settled — the money has moved</option>
                 <option value="false">Still outstanding</option>
               </select>
