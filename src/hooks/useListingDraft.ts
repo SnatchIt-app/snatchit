@@ -10,6 +10,11 @@
  *
  * The offer and the phase belong to the account they were read for. Under any other account they
  * read as nothing, so a change of account never shows, restores or autosaves over the last one's.
+ *
+ * A read the store REFUSES (this account is not the store's current one — the screen's useAuth and
+ * the store's own auth listener can disagree for a moment) is not "no draft": the hook WAITS, with
+ * autosave and `clear()` off, and reads again on the store's next auth change. Taking it for "nothing
+ * stored" would let the next keystroke overwrite, or a confirmed publish remove, a draft never offered.
  * Otherwise every change is saved after AUTOSAVE_DELAY_MS of quiet, and at once when the app leaves
  * the foreground (the kill that a draft exists for). Unmounting — a sign-out unmounts the tabs —
  * cancels a pending write rather than flushing it; the store would refuse it anyway.
@@ -115,7 +120,7 @@ export interface UseListingDraftReturn {
   clear: () => void;
 }
 
-type Phase = 'off' | 'loading' | 'offer' | 'editing';
+type Phase = 'off' | 'loading' | 'waiting' | 'offer' | 'editing';
 
 export function useListingDraft({ userId, enabled, fields, onRestore }: UseListingDraftOptions): UseListingDraftReturn {
   const uid = enabled && userId ? userId : null;
@@ -126,23 +131,45 @@ export function useListingDraft({ userId, enabled, fields, onRestore }: UseListi
   const [saver] = useState(() => createDraftAutosaver((u, f) => listingDraftStore.save(u, f)));
   const live = useRef(0);
 
-  // Read this account's draft. A change of account (or unmount) drops anything pending for the last.
+  // Read this account's draft; on a refusal, wait and read again on the store's next auth change.
+  // A change of account (or unmount) drops anything pending for the last.
   useEffect(() => {
     if (!uid) {
       setHeld(null);
       return;
     }
+    const id = uid;
     armListingDraftPurge();
     const run = ++live.current;
-    setHeld({ uid, phase: 'loading', offer: null });
-    void (async () => {
-      const draft = await listingDraftStore.load(uid);
-      const next = draft ? await prepareListingDraftOffer(draft, probeLocalImage) : null;
+    let reading = false;
+    let waiting = false;
+    let missed = false;      // an auth change arrived while a read was under way
+    setHeld({ uid: id, phase: 'loading', offer: null });
+    const read = async (): Promise<void> => {
+      reading = true;
+      missed = false;
+      const result = await listingDraftStore.read(id);
+      const next = result.status === 'draft' ? await prepareListingDraftOffer(result.draft, probeLocalImage) : null;
+      reading = false;
       if (run !== live.current) return;
-      setHeld({ uid, phase: next ? 'offer' : 'editing', offer: next });
-    })();
+      if (result.status === 'refused') {
+        if (missed) { void read(); return; }
+        waiting = true;
+        setHeld({ uid: id, phase: 'waiting', offer: null });
+        return;
+      }
+      setHeld({ uid: id, phase: next ? 'offer' : 'editing', offer: next });
+    };
+    // Called inside the store's synchronous auth listener: it only queues a read, never awaits.
+    const unsubscribe = listingDraftStore.subscribe(() => {
+      if (run !== live.current) return;
+      if (reading) missed = true;
+      else if (waiting) { waiting = false; void read(); }
+    });
+    void read();
     return () => {
       live.current += 1;
+      unsubscribe();
       saver.forget();
     };
   }, [uid, saver]);
@@ -180,7 +207,8 @@ export function useListingDraft({ userId, enabled, fields, onRestore }: UseListi
     if (!uid) return;
     saver.forget();
     // Only once the seller is editing is the stored draft this form's own. While an older draft is
-    // on offer (or still being read), it is a different listing, and only Discard may remove it.
+    // on offer (or still being read, or its read was refused), it is a different listing, and only
+    // Discard may remove it.
     if (phase !== 'editing') return;
     void listingDraftStore.clear(uid);
   }, [uid, phase, saver]);

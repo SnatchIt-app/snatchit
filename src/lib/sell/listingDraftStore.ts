@@ -28,6 +28,11 @@
  * ORDER — every storage operation runs through one queue, so a save already under way when a
  * sign-out lands is purged after it, not raced by it. A save for an account that is not the signed-in
  * one (a debounce firing after sign-out, say) is refused outright.
+ *
+ * A REFUSED READ IS NOT "NO DRAFT" — `read` says which it is. The screen's account (useAuth) and the
+ * store's last auth event can disagree for a moment; a reader that took a refusal for "nothing
+ * stored" would autosave over, or clear, a draft it never offered. `subscribe` tells readers of every
+ * auth change, after the store has taken the new account, so a refused reader can read again.
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -63,8 +68,23 @@ export interface DraftAuthSource {
   onAuthStateChange(callback: (event: AuthChangeEvent, session: Session | null) => void): unknown;
 }
 
+/** What a read found. `refused`: the account is not the store's current one, so nothing was read. */
+export type ListingDraftRead =
+  | { status: 'draft'; draft: ListingDraft }
+  | { status: 'none' }
+  | { status: 'refused' };
+
+const NONE: ListingDraftRead = { status: 'none' };
+const REFUSED: ListingDraftRead = { status: 'refused' };
+
 export interface ListingDraftStore {
-  /** The account's draft, or null. Corrupt, other-version and expired drafts are removed. */
+  /**
+   * The account's draft, `none`, or `refused` when the account is not the current one (a sign-out or a
+   * change of account, even one that lands while the read waits its turn). Corrupt, other-version and
+   * expired drafts are removed and read as `none`; a storage failure is `none`.
+   */
+  read(uid: string): Promise<ListingDraftRead>;
+  /** `read`, as the draft or null — a refusal and "nothing stored" both null. */
   load(uid: string): Promise<ListingDraft | null>;
   /** Writes (or, for an empty form, removes) the account's draft. False when refused or failed. */
   save(uid: string, fields: ListingDraftFields): Promise<boolean>;
@@ -74,6 +94,12 @@ export interface ListingDraftStore {
   handleAuthChange(event: AuthChangeEvent, session: Session | null): void;
   /** Subscribes `handleAuthChange` to the auth client once; later calls do nothing. */
   arm(auth: DraftAuthSource): void;
+  /**
+   * Calls `listener` after every auth change the store hears, once it has taken the new account and
+   * queued any purge (so a read the listener starts runs after the purge). Synchronously, inside the
+   * auth callback: a listener must not await or call the auth client. Returns the unsubscribe.
+   */
+  subscribe(listener: () => void): () => void;
   /** Resolves when every queued storage operation has finished (tests, diagnostics). */
   idle(): Promise<void>;
 }
@@ -87,6 +113,7 @@ export function createListingDraftStore(
   let currentUid: string | null | undefined;
   let armed = false;
   let queue: Promise<unknown> = Promise.resolve();
+  const listeners = new Set<() => void>();
 
   function serial<T>(op: () => Promise<T>, fallback: T): Promise<T> {
     const run = queue.then(op).catch(() => fallback);
@@ -117,24 +144,36 @@ export function createListingDraftStore(
     } else if (uid !== null && previous !== uid) {
       void serial(() => purgeAllExcept(uid), undefined);
     }
+    // A reader waiting on a refused read tries again now. A listener that throws is ignored: it must
+    // never break the auth callback.
+    for (const listener of [...listeners]) {
+      try { listener(); } catch { /* ignored */ }
+    }
+  }
+
+  function read(uid: string): Promise<ListingDraftRead> {
+    if (!isCurrent(uid)) return Promise.resolve(REFUSED);
+    return serial<ListingDraftRead>(async () => {
+      // Checked inside the queue, and again at the end: a sign-out or a change of account that landed
+      // while this read waited (or ran) means the draft is no longer the signed-in account's to see.
+      if (!isCurrent(uid)) return REFUSED;
+      const key = listingDraftKey(uid);
+      const raw = await storage.getItem(key);
+      let draft = raw === null ? null : parseListingDraft(raw);
+      if (raw !== null && (!draft || isListingDraftExpired(draft, now()))) {
+        await storage.removeItem(key);
+        draft = null;
+      }
+      if (!isCurrent(uid)) return REFUSED;
+      return draft ? { status: 'draft', draft } : NONE;
+    }, NONE);
   }
 
   return {
+    read,
+
     load(uid) {
-      if (!isCurrent(uid)) return Promise.resolve(null);
-      return serial(async () => {
-        const key = listingDraftKey(uid);
-        const raw = await storage.getItem(key);
-        if (raw === null) return null;
-        const draft = parseListingDraft(raw);
-        if (!draft || isListingDraftExpired(draft, now())) {
-          await storage.removeItem(key);
-          return null;
-        }
-        // Checked again at the end, inside the queue: a sign-out or a change of account that landed
-        // while this read waited (or ran) means the draft is no longer the signed-in account's to see.
-        return isCurrent(uid) ? draft : null;
-      }, null);
+      return read(uid).then((r) => (r.status === 'draft' ? r.draft : null));
     },
 
     save(uid, fields) {
@@ -161,6 +200,11 @@ export function createListingDraftStore(
       armed = true;
       // A block body: auth-js awaits the callback's return value, and this one returns nothing.
       auth.onAuthStateChange((event, session) => { handleAuthChange(event, session); });
+    },
+
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => { listeners.delete(listener); };
     },
 
     idle() {

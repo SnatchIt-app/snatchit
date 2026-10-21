@@ -349,6 +349,64 @@ describe('UH5 · the offer belongs to the account it was read for, and to no lis
   });
 });
 
+describe('UH6 · a read the store refuses is not "no draft" (LD-R6)', () => {
+  // The screen's useAuth user and the store's last auth event can disagree (INITIAL_SESSION is
+  // evaluated per subscriber). Then the store refuses the read; the hook must wait — no autosave, no
+  // clear() — and read again when the store hears the account, not unlock autosave for good.
+  it('UH6a: refused while the store has no account — nothing is written or removed, and the draft is offered once the account is current', async () => {
+    const stored = serializeListingDraft(draft(), NOW);
+    h.mem.set(KEY, stored);
+    h.authSession = null;                                    // the store hears INITIAL_SESSION with no session…
+    const { state, step, setFields, AUTOSAVE_DELAY_MS } = await mountHook({ userId: 'u-1' });   // …the screen has u-1
+    expect(state.ret!.offer).toBeNull();
+    await setFields({ ...empty(), eventName: 'x' });
+    await step(AUTOSAVE_DELAY_MS * 3);
+    h.appState!('background');
+    await step();
+    expect(h.mem.get(KEY)).toBe(stored);                     // no keystroke overwrote the draft nobody was shown
+    state.ret!.clear();                                      // nor does a publish confirmed meanwhile remove it
+    await step();
+    expect(h.mem.get(KEY)).toBe(stored);
+    h.authListener!('TOKEN_REFRESHED', { user: { id: 'u-1' } });   // the same account is current again
+    await step();
+    expect(state.ret!.offer?.eventName).toBe('Weekend pool party');
+    expect(h.mem.get(KEY)).toBe(stored);
+  });
+
+  it('UH6b: refused, then the account comes back with nothing stored — autosave starts with what was typed', async () => {
+    h.authSession = null;
+    const { state, step, setFields, AUTOSAVE_DELAY_MS } = await mountHook({ userId: 'u-1' });
+    await setFields({ ...empty(), venue: 'LIV' });
+    await step(AUTOSAVE_DELAY_MS * 2);
+    expect(writes()).toEqual([]);
+    h.authListener!('TOKEN_REFRESHED', { user: { id: 'u-1' } });
+    await step();
+    await step(AUTOSAVE_DELAY_MS);
+    expect(state.ret!.offer).toBeNull();
+    expect(JSON.parse(h.mem.get(KEY)!).fields.venue).toBe('LIV');
+  });
+
+  it('UH6d: the account comes back while the refused read is still settling — it reads again at once, not on some later event', async () => {
+    h.mem.set(KEY, serializeListingDraft(draft(), NOW));
+    const { listingDraftStore } = await import('@/src/lib/sell/listingDraftStore');
+    listingDraftStore.handleAuthChange('INITIAL_SESSION', null);   // the store has no account when the hook reads…
+    h.authSession = { user: { id: 'u-1' } };                        // …and the arm's INITIAL_SESSION brings u-1 back mid-read
+    const { state } = await mountHook({ userId: 'u-1' });
+    expect(state.ret!.offer?.eventName).toBe('Weekend pool party');
+  });
+
+  it('UH6c: unmounted while waiting, it reads nothing more when the account comes back', async () => {
+    h.mem.set(KEY, serializeListingDraft(draft(), NOW));
+    h.authSession = null;
+    const { host, step } = await mountHook({ userId: 'u-1' });
+    host.unmount();
+    h.ops.length = 0;
+    h.authListener!('TOKEN_REFRESHED', { user: { id: 'u-1' } });
+    await step();
+    expect(h.ops.filter((o) => o.startsWith('get '))).toEqual([]);
+  });
+});
+
 describe('UB · the banner', () => {
   async function renderBanner(offer: Partial<ListingDraftOffer> = {}) {
     const { ContinueListingBanner } = await import('@/src/components/sell/ContinueListingBanner');

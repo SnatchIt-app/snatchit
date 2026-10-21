@@ -258,6 +258,54 @@ describe('DS9 · a read already queued when the account changes returns nothing'
   });
 });
 
+describe('DS10 · a refused read says so — it is not "no draft" (LD-R6)', () => {
+  // useListingDraft treats "no draft" as leave to autosave. A read refused because the store has no
+  // current account (or another one) must not look like that, or the next keystroke overwrites a
+  // draft nobody was shown, and a confirmed publish's clear() deletes it.
+  it('DS10a: read() tells a draft, nothing and a refusal apart', async () => {
+    const { storage } = memStorage({ [KEY_A]: serializeListingDraft(fields(), NOW) });
+    const store = createListingDraftStore(storage, { now: () => NOW });
+    store.handleAuthChange('INITIAL_SESSION', null);
+    expect(await store.read('user-a')).toEqual({ status: 'refused' });
+    store.handleAuthChange('TOKEN_REFRESHED', session('user-a'));
+    const found = await store.read('user-a');
+    expect(found.status).toBe('draft');
+    expect(found.status === 'draft' && found.draft.fields.eventName).toBe('Weekend pool party');
+    await store.clear('user-a');
+    expect(await store.read('user-a')).toEqual({ status: 'none' });
+    store.handleAuthChange('SIGNED_IN', session('user-b'));
+    expect(await store.read('user-a')).toEqual({ status: 'refused' });
+    expect(await store.read('')).toEqual({ status: 'refused' });
+  });
+
+  it('DS10b: a read already queued when the account changes is a refusal, not "nothing"', async () => {
+    const { storage } = memStorage();
+    const store = createListingDraftStore(storage, { now: () => NOW });
+    store.handleAuthChange('SIGNED_IN', session('user-a'));
+    const reading = store.read('user-a');
+    store.handleAuthChange('SIGNED_OUT', null);
+    expect(await reading).toEqual({ status: 'refused' });
+  });
+
+  it('DS10c: subscribers hear every auth change once the store has taken the new account; unsubscribe stops it; a throwing one breaks nothing', async () => {
+    const { storage } = memStorage({ [KEY_A]: serializeListingDraft(fields(), NOW) });
+    const store = createListingDraftStore(storage, { now: () => NOW });
+    const seen: string[] = [];
+    store.subscribe(() => { throw new Error('boom'); });
+    const off = store.subscribe(() => { void store.read('user-a').then((r) => { seen.push(r.status); }); });
+    expect(store.handleAuthChange('INITIAL_SESSION', null)).toBeUndefined();
+    expect(store.handleAuthChange('TOKEN_REFRESHED', session('user-a'))).toBeUndefined();
+    await store.idle();
+    await new Promise((r) => setImmediate(r));
+    expect(seen).toEqual(['refused', 'draft']);
+    off();
+    store.handleAuthChange('TOKEN_REFRESHED', session('user-a'));
+    await store.idle();
+    await new Promise((r) => setImmediate(r));
+    expect(seen).toHaveLength(2);
+  });
+});
+
 describe('DS4 · nothing is written for an account that is no longer signed in', () => {
   it('DS4a: after sign-out a late save for the old account is refused', async () => {
     const { mem, storage } = memStorage();
