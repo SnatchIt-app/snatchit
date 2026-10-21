@@ -2,9 +2,13 @@
 
 Redirect-only deployment package for the retired Expo web export at
 https://snatchitwebapp.vercel.app. **Nothing here is deployed.** The owner runs
-the single production deploy below. The snatchitwebapp project has no Git
-link, so no merge or push can deploy this directory; it takes effect only
-through that command.
+the single production deploy below. What was checked (audit LEG-01, a read of
+the project): `snatchitwebapp` has no Git link, so a merge or push does not
+change snatchitwebapp.vercel.app; only that command does. What was not
+checked: whether any other Git-linked Vercel project builds from a root
+directory that contains `ops/`. Earlier wording here and in the first commit
+message said no Vercel project builds from `ops/`; that was never verified
+and is withdrawn.
 
 | | |
 |---|---|
@@ -38,7 +42,7 @@ through that command.
 
 | File | Purpose | Uploaded |
 |---|---|---|
-| `vercel.json` | 22 permanent redirects plus `trailingSlash: false` | yes |
+| `vercel.json` | 22 permanent redirects and nothing else (no `trailingSlash`, `cleanUrls`, rewrites or headers) | yes |
 | `index.html` | `noindex` fallback with a plain link to https://app.snatchitapp.com/. Never served while the rules match (redirects run before the filesystem); it keeps the static output non-empty | yes |
 | `.vercelignore` | keeps everything else out of the upload | no |
 | `README.md` | this runbook | no |
@@ -52,38 +56,67 @@ the same shape as the current deployment.
 ## Rules
 
 Evaluated in order; the first match answers. Every rule is `permanent: true`
-(308). No destination carries a query or fragment, so the visitor's query
-string passes through unchanged (Vercel: "Query parameters pass through unless
-you explicitly replace them in the destination") and nothing such as
-`client=` is ever added.
+(308), and **every Location is absolute on `https://app.snatchitapp.com/`**:
+one hop and the visitor is off the legacy host. No destination carries a query
+or fragment, so the visitor's query string passes through unchanged (Vercel:
+"Query parameters pass through unless you explicitly replace them in the
+destination") and nothing such as `client=` is ever added.
 
 | # | Legacy path | App-host destination | Kind |
 |---|---|---|---|
-| 0 | any path ending in `/` (except `/`) | same path without the slash, on the legacy host, then the rules below | `trailingSlash: false` |
 | 1 | `/` | `/` | root |
-| 2 | `/home` | `/` | legacy tab |
-| 3 | `/explore` | `/browse` | legacy tab |
-| 4 | `/create` | `/sell` | legacy tab |
-| 5 | `/bids` | `/account` | legacy tab |
-| 6 | `/profile` | `/account` | legacy tab |
-| 7 | `/my-listings` | `/account/listings` | legacy |
-| 8 | `/bid/:id` | `/listing/:id` | legacy |
-| 9 | `/settings/edit-profile` | `/account/profile` | legacy settings |
-| 10 | `/settings/notifications` | `/account/notifications` | legacy settings |
-| 11 | `/settings/payout-setup` | `/account/settings` (Payouts section) | legacy settings |
-| 12 | `/settings`, `/settings/*` (preferences, legal, privacy, support, anything else) | `/account/settings` | legacy settings, default rule |
+| 2 | `/home`, `/home/` | `/` | legacy tab |
+| 3 | `/explore`, `/explore/` | `/browse` | legacy tab |
+| 4 | `/create`, `/create/` | `/sell` | legacy tab |
+| 5 | `/bids`, `/bids/` | `/account` | legacy tab |
+| 6 | `/profile`, `/profile/` | `/account` | legacy tab |
+| 7 | `/my-listings`, `/my-listings/` | `/account/listings` | legacy |
+| 8 | `/bid/:id`, `/bid/:id/` | `/listing/:id` | legacy |
+| 9 | `/settings/edit-profile`, with or without `/` | `/account/profile` | legacy settings |
+| 10 | `/settings/notifications`, with or without `/` | `/account/notifications` | legacy settings |
+| 11 | `/settings/payout-setup`, with or without `/` | `/account/settings` (Payouts section) | legacy settings |
+| 12 | `/settings`, `/settings/*` (preferences, legal, privacy, support, anything else), with or without `/` | `/account/settings` | legacy settings, default rule |
 | 13 to 21 | `/login`, `/signup`, `/reset-password`, `/payout-return`, `/payout-refresh`, `/listing/:id`, `/checkout/:id`, `/transfer/send/:id`, `/transfer/receive/:id` | same path | shared |
 | 22 | everything else, `/:path(.*)` | same path | catch-all, last |
 
+Rules 2 to 12 are written with a trailing `{/}?` in `vercel.json` (path-to-regexp
+for "one optional slash"; routing-utils compiles `/my-listings{/}?` to
+`^/my-listings(?:/)?$`).
+
 Notes:
 - Rules 13 to 21 give the same result as the catch-all. They are explicit so
-  the Stripe return pages and the shared routes do not depend on the catch-all.
+  the Stripe return pages and the shared routes do not depend on the catch-all;
+  the test fails if any of them, or `/`, stops being its own rule.
 - The catch-all is `/:path(.*)` rather than `/:path*`, so it also takes `/`,
   empty segments and anything else; nothing on the host falls through to the
   filesystem.
-- A trailing slash costs one extra 308 on the legacy host (`/my-listings/` to
-  `/my-listings` to `/account/listings`). Without rule 0 those URLs would reach
-  the app host as `/my-listings/` and end on a 404.
+- **No `trailingSlash`, on purpose.** `trailingSlash: false` compiles to a
+  route `^/(.*)/$` with the *relative* Location `/$1`. A request for
+  `//evil.example/` then answers `Location: //evil.example`, which a browser
+  reads as a scheme-relative URL and follows to https://evil.example/ (an open
+  redirect; `/\evil.example/` does the same, and so do `%2F`, `%5C` and `%09`
+  forms if the edge matches the decoded path). Without it no
+  rule emits a relative Location, so no path can steer the first hop off
+  `app.snatchitapp.com`. The test resolves every Location with
+  `new URL(location, legacy origin)` and fails on any sample path whose final
+  host is not the app host; `verify.sh` fails any matrix row whose first
+  Location is not absolute on `https://app.snatchitapp.com/`.
+- **Trailing slashes now.** A legacy-only URL with one trailing slash is
+  mapped directly by its rule (`/my-listings/?x=1` to
+  `https://app.snatchitapp.com/account/listings?x=1`, one hop). Every other
+  trailing-slash URL falls to the catch-all with the slash kept:
+  `/login/` lands on `https://app.snatchitapp.com/login/`, and the app host
+  then answers 308 to `/login` (observed 2026-10-21 for `/login/`,
+  `/payout-return/?client=app` and `/account/listings/`). The legacy-only rules
+  take the slash themselves because the app host would strip it from the
+  *legacy* path: `/my-listings/` would end on `/my-listings`, a 404 there
+  (observed 2026-10-21, as is `/settings/legal`).
+- **The one relative Location left is Vercel's, not ours.** Before any rule,
+  Vercel merges repeated slashes with its own 308 and a relative Location
+  (observed on the live legacy host 2026-10-21: `//evil.example/` to
+  `/evil.example/`, `/a//b` to `/a/b`). That hop stays on the legacy host and
+  the next request is answered by the rules above with an absolute Location.
+  The test models the edge with and without that step.
 - Legacy "Your Scene" (`/settings/preferences`) has no web equivalent; it goes
   to `/account/settings`.
 
@@ -185,13 +218,25 @@ each lands on app.snatchitapp.com, the second with `?client=app` kept.
 
 What `verify.sh` checks:
 - **Legacy host:** every matrix row, including `/`, query cases (encoded,
-  repeated keys, `client=app` kept, nothing added) and trailing slashes:
-  status 308 on every hop and the exact final Location.
+  repeated keys, `client=app` kept, nothing added) and trailing slashes: one
+  308 whose raw Location is absolute on `https://app.snatchitapp.com/` and
+  byte-identical to the expected URL. A first Location that is relative,
+  scheme-relative or on any other host fails the row.
+- **Hostile paths** (`//evil.example/`, `/%2F%2Fevil.example`,
+  `/\evil.example` and variants): no hop may name a host other than the
+  legacy host or the app host, and the chain must end in a 308 to the app
+  host. The only relative Location accepted is Vercel's own slash merge of
+  that exact request path. With `--expect current` the chain must end in a
+  200 on the legacy host instead.
 - **App-host destinations:** each distinct destination answers 200, or a 30x
-  to `https://app.snatchitapp.com/login` (sign-in gate). Fake-id and
-  unknown-path rows are only reported. The gate answers for any `/account/*`
-  path, page or not, so page existence is proven by the test against the web
-  route tree, not by this check.
+  to `https://app.snatchitapp.com/login` (sign-in gate). A destination with a
+  trailing slash must first get the app host's 308 to the same URL without
+  it; that hop is followed and shown. Fake-id and unknown-path rows are only
+  reported. The gate answers for any `/account/*` path, page or not, so page
+  existence is proven by the test against the web route tree, not by this
+  check.
+- Relative Locations are resolved with `python3` (`urllib.parse.urljoin`)
+  only to follow and report them; every pass or fail compares the raw header.
 - **Deployment protection:** the two team aliases and the three old immutable
   deployment URLs still answer 302 to `vercel.com/sso-api`, so the old app and
   its Terms stay private.
@@ -246,6 +291,11 @@ has no cache) or a fresh private window, not a browser that already visited.
   deployment; `./verify.sh` after the deploy is the proof.
 - `vercel dev` sends a redirect's Location verbatim without the query, so it is
   not a valid check of query pass-through.
+- Whether the edge matches rules against the raw or the percent-decoded path,
+  and whether its slash merge always runs before the rules, is not pinned
+  down. The test runs the hostile samples under every combination; all end on
+  the app host. The slash merge itself was observed only on today's
+  deployment.
 - Whether the edge matches case-insensitively is not pinned down; the matrix
   uses lowercase paths and the test checks both ways.
 - The legacy route list comes from the old bundle; the app-host page list is
