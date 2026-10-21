@@ -7,7 +7,8 @@ import { submitActionForm, type ActionFormState } from "@/lib/actions";
 import { IDEMPOTENCY_FIELD } from "@/lib/idempotency";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Alert, OpsFailureAlert } from "@/components/ui/Alert";
-import type { ActionOutcome } from "@/lib/types";
+import { str, type ActionOutcome } from "@/lib/types";
+import { RELIST_STALE_MESSAGE, relistOutcomeDetail, type RelistOutcomeDetail } from "@/lib/relist";
 
 function SubmitButton({ label, pendingLabel, danger }: { label: string; pendingLabel: string; danger?: boolean }) {
   const { pending } = useFormStatus();
@@ -18,7 +19,59 @@ function SubmitButton({ label, pendingLabel, danger }: { label: string; pendingL
   );
 }
 
-export function OutcomeText({ outcome }: { outcome: ActionOutcome }) {
+/** Raw server values, never reformatted (a timestamp keeps its offset and microseconds). */
+function FieldList({ caption, rows }: { caption: string; rows: { key: string; value: string | null }[] }) {
+  return (
+    <div className="mt-1">
+      <p className="eyebrow text-dim">{caption}</p>
+      <ul className="font-mono text-[11px]">
+        {rows.map((r) => (
+          <li key={r.key}>
+            {r.key} <span className={r.value === null ? "text-dim" : "text-ink"}>{r.value ?? "null"}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** listing_relist answers that carry more than the generic text (migration 158). */
+function RelistOutcome({ outcome, detail }: { outcome: ActionOutcome; detail: RelistOutcomeDetail }) {
+  if (detail.kind === "stale") {
+    return (
+      <Alert state="stale" title={RELIST_STALE_MESSAGE} compact>
+        {outcome.status === "rejected" && outcome.message && outcome.message !== RELIST_STALE_MESSAGE ? <p>{outcome.message}</p> : null}
+        {detail.current ? <FieldList caption="The listing now (server row)" rows={detail.current} /> : null}
+        <button type="button" className="link" onClick={() => window.location.reload()}>
+          Reload now
+        </button>
+      </Alert>
+    );
+  }
+  return (
+    <Alert state="success" title="Recorded." compact>
+      {outcome.status === "succeeded" && outcome.action_id ? (
+        <a className="link" href={`/actions/${outcome.action_id}`}>
+          Action {outcome.action_id.slice(0, 8)}
+        </a>
+      ) : null}
+      {detail.relisted ? (
+        <FieldList
+          caption="Relisted"
+          rows={[
+            { key: "new_ends_at", value: str(detail.relisted.new_ends_at) },
+            { key: "previous_ends_at", value: str(detail.relisted.previous_ends_at) },
+          ]}
+        />
+      ) : null}
+      {detail.before ? <FieldList caption="Listing as the server locked it (before)" rows={detail.before} /> : null}
+    </Alert>
+  );
+}
+
+export function OutcomeText({ outcome, actionType }: { outcome: ActionOutcome; actionType?: string }) {
+  const relist = actionType === "listing_relist" ? relistOutcomeDetail(outcome) : null;
+  if (relist) return <RelistOutcome outcome={outcome} detail={relist} />;
   switch (outcome.status) {
     case "succeeded":
       return (
@@ -165,7 +218,7 @@ export function ConfirmForm({
       ) : state.failure ? (
         <OpsFailureAlert failure={state.failure} fn={actionType === "approval_decide" ? "approve_action" : "execute_action"} />
       ) : state.outcome ? (
-        <OutcomeText outcome={state.outcome} />
+        <OutcomeText outcome={state.outcome} actionType={actionType} />
       ) : null}
     </form>
   );

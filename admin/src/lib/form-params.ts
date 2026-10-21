@@ -6,9 +6,12 @@
  * jsonb-typed setting (boolean / number) or a cents amount arrives with the
  * right JSON type. Pure and unit-tested.
  */
-export type ParamType = "string" | "number" | "integer" | "boolean" | "json";
+export type ParamType = "string" | "number" | "integer" | "boolean" | "json" | "utc";
 
-export const PARAM_TYPES: ParamType[] = ["string", "number", "integer", "boolean", "json"];
+export const PARAM_TYPES: ParamType[] = ["string", "number", "integer", "boolean", "json", "utc"];
+
+const WALL_CLOCK = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?$/;
+const ZONED = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?(Z|[+-]\d{2}:\d{2})$/;
 
 export function parseParamField(name: string): { key: string; type: ParamType } | null {
   if (!name.startsWith("param.")) return null;
@@ -51,6 +54,12 @@ export function coerceParam(type: ParamType, raw: string): Coerced {
       } catch {
         return { ok: false, error: `"${raw}" is not valid JSON` };
       }
+    case "utc":
+      // <input type="datetime-local"> posts a zone-less wall clock that the form labels UTC.
+      // Make it explicit: a zone-less timestamptz is read in the database session's TimeZone.
+      if (WALL_CLOCK.test(s)) return { ok: true, value: `${s}Z` };
+      if (ZONED.test(s)) return { ok: true, value: s };
+      return { ok: false, error: `"${raw}" is not a date-time (YYYY-MM-DDTHH:MM, UTC)` };
   }
 }
 
