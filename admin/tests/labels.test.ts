@@ -14,7 +14,7 @@ describe("labelFor", () => {
     expect(labelFor("action_type", "refund_execute")).toBe("Execute refund");
   });
   it("never hides an unknown value", () => {
-    expect(labelFor("payment", "brand_new_state")).toBe("Brand New State");
+    expect(labelFor("payment", "brand_new_state")).toBe("Brand new state"); // sentence case (analytics redesign typography)
     expect(labelFor("funds", null)).toBe("—");
     expect(labelFor("funds", "")).toBe("—");
   });

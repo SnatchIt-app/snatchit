@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { callOps } from "@/lib/ops";
 import { requireOperator } from "@/lib/auth/session";
 import { num, toListPage, toListingSummary, type ListingSummary } from "@/lib/types";
-import { cursorOf, first, limitOf, type SearchParams } from "@/lib/search-params";
+import { cursorOf, first, limitOf, selfHref, type SearchParams } from "@/lib/search-params";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { OpsFailureAlert } from "@/components/ui/Alert";
 import { FilterField, FilterForm, FilterSelect } from "@/components/ui/FilterField";
@@ -52,17 +52,17 @@ export default async function MarketplacePage({ searchParams }: { searchParams: 
           <FilterSelect name="auction_status" options={AUCTION_STATUSES} value={auctionStatus} />
         </FilterField>
         <FilterField label="Reports">
-          <select name="has_reports" defaultValue={hasReports ?? ""} className="field min-w-[120px] py-1.5 text-[13px]">
+          <select name="has_reports" defaultValue={hasReports ?? ""} className="field min-w-[120px] py-1.5 text-[0.8125rem]">
             <option value="">Any</option>
             <option value="true">Reported</option>
             <option value="false">Not reported</option>
           </select>
         </FilterField>
         <FilterField label="Search" className="min-w-[220px]">
-          <input name="q" defaultValue={q} placeholder="listing id or event name" className="field py-1.5 text-[13px]" />
+          <input name="q" defaultValue={q} placeholder="listing id or event name" className="field py-1.5 text-[0.8125rem]" />
         </FilterField>
       </FilterForm>
-      {!res.ok ? <OpsFailureAlert failure={res} fn="list_listings" retryHref="/marketplace" /> : <ListingTable rows={rows} basePath="/marketplace" searchParams={sp} nextCursor={page?.next_cursor} />}
+      {!res.ok ? <OpsFailureAlert failure={res} fn="list_listings" retryHref={selfHref("/marketplace", sp)} /> : <ListingTable rows={rows} basePath="/marketplace" searchParams={sp} nextCursor={page?.next_cursor} />}
     </>
   );
 }

@@ -1,12 +1,23 @@
 export type BadgeVariant = "neutral" | "ok" | "warn" | "danger" | "info" | "muted";
 
 const VARIANT_CLASS: Record<BadgeVariant, string> = {
-  neutral: "border-line-neutral text-ink",
-  ok: "border-success text-success",
-  warn: "border-warning text-warning",
-  danger: "border-danger text-danger",
-  info: "border-info text-info",
-  muted: "border-line-neutral text-dim",
+  neutral: "",
+  // Healthy states stay neutral (the glyph carries "done"); colour is kept for what needs a person.
+  ok: "",
+  warn: "badge-amber",
+  danger: "badge-red",
+  info: "",
+  muted: "badge-muted",
+};
+
+/** A shape per variant so status never relies on colour alone. */
+const VARIANT_GLYPH: Record<BadgeVariant, string> = {
+  neutral: "•",
+  ok: "✓",
+  warn: "!",
+  danger: "✕",
+  info: "i",
+  muted: "–",
 };
 
 /**
@@ -75,24 +86,50 @@ export function statusVariant(status: string | null | undefined): BadgeVariant {
   return STATUS_VARIANTS[status.toLowerCase()] ?? "neutral";
 }
 
+/**
+ * Splits a reviewed label into what goes in the pill and the qualifier that
+ * must stay visible beside it — "Refund recorded (not confirmed settled)"
+ * becomes pill "Refund recorded" + "not confirmed settled" underneath. Every
+ * word of the label is still rendered; only the layout changes.
+ */
+export function splitLabel(label: string): { head: string; tail: string | null } {
+  const paren = label.match(/^(.*?)\s*\((.+)\)\s*$/);
+  if (paren && paren[1]) return { head: paren[1], tail: paren[2] };
+  const dash = label.indexOf(" — ");
+  if (dash > 0) return { head: label.slice(0, dash), tail: label.slice(dash + 3) };
+  return { head: label, tail: null };
+}
+
 export function StatusBadge({
   status,
   label,
   variant,
+  qualifier = "inline",
 }: {
   status: string | null | undefined;
   /** Override the visible text (defaults to the status with underscores as spaces). */
   label?: string;
   variant?: BadgeVariant;
+  /** "below": put a label's parenthetical / dash qualifier on its own line under the pill. */
+  qualifier?: "inline" | "below";
 }) {
-  const text = label ?? (status ? status.replace(/_/g, " ") : "—");
+  const raw = label ?? (status ? status.replace(/_/g, " ") : "—");
+  const text = /^p[1-4]$/i.test(raw) ? raw.toUpperCase() : raw.charAt(0).toUpperCase() + raw.slice(1);
   const v = variant ?? statusVariant(status);
+  const parts = qualifier === "below" ? splitLabel(text) : { head: text, tail: null };
+  const pill = (
+    <span className={`badge ${VARIANT_CLASS[v]} ${parts.head.length > 22 ? "badge-wrap" : ""}`} data-status={status ?? ""}>
+      <span aria-hidden="true" className="text-[0.625rem] font-bold leading-none">
+        {VARIANT_GLYPH[v]}
+      </span>
+      {parts.head}
+    </span>
+  );
+  if (!parts.tail) return pill;
   return (
-    <span
-      className={`inline-flex items-center border px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider ${VARIANT_CLASS[v]}`}
-      data-status={status ?? ""}
-    >
-      {text}
+    <span className="inline-flex flex-col items-start gap-1">
+      {pill}
+      <span className="pl-1 text-[0.75rem] leading-snug text-muted">{parts.tail}</span>
     </span>
   );
 }

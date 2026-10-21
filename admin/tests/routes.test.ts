@@ -33,11 +33,11 @@ describe("subjectHref", () => {
 
 describe("metricHref", () => {
   it("sends every Today tile somewhere useful", () => {
-    expect(metricHref("open_cases")).toBe("/cases");
-    expect(metricHref("refunds_pending")).toBe("/cases?case_type=refund_pending");
+    expect(metricHref("open_cases")).toBe("/cases?status=open,in_progress,waiting");
+    expect(metricHref("refunds_pending")).toBe("/cases?case_type=refund_pending&status=open,in_progress,waiting");
     expect(metricHref("reports_pending")).toBe("/reports?status=pending");
     expect(metricHref("approvals_pending")).toBe("/system#approvals");
-    expect(metricHref("payout_review")).toContain("/money");
+    expect(metricHref("payout_review")).toBe("/money#payouts"); // counts manual review and held transfers; the unfiltered list shows both
     expect(metricHref("something_new")).toBeNull();
   });
 });

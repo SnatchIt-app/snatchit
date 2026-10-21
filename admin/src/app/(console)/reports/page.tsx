@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { callOps } from "@/lib/ops";
 import { requireOperator } from "@/lib/auth/session";
 import { num, toListPage, toReport, type Report } from "@/lib/types";
-import { cursorOf, first, limitOf, list, type SearchParams } from "@/lib/search-params";
+import { cursorOf, first, limitOf, list, selfHref, type SearchParams } from "@/lib/search-params";
 import { labelFor, REPORT_STATUS_LABELS } from "@/lib/format";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { OpsFailureAlert } from "@/components/ui/Alert";
@@ -48,13 +48,13 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
       header: "Target",
       render: (r) => (
         <span className="flex flex-col">
-          <span className="text-[11px] uppercase tracking-wider text-dim">{r.target_type ?? "—"}</span>
+          <span className="text-[0.8125rem] text-dim">{r.target_type ?? "—"}</span>
           <IdLink kind={r.target_type} id={r.target_id} label={r.target_label ?? undefined} />
         </span>
       ),
     },
-    { key: "reason", header: "Reason", render: (r) => <span className="font-mono text-[12px]">{r.reason ?? "—"}</span> },
-    { key: "notes", header: "Notes", render: (r) => <span className="line-clamp-3 max-w-[320px] whitespace-pre-wrap text-[12px] text-muted">{r.notes ?? "—"}</span> },
+    { key: "reason", header: "Reason", render: (r) => <span className="font-mono text-[0.75rem]">{r.reason ?? "—"}</span> },
+    { key: "notes", header: "Notes", render: (r) => <span className="line-clamp-3 max-w-[320px] whitespace-pre-wrap text-[0.75rem] text-muted">{r.notes ?? "—"}</span> },
     { key: "reporter", header: "Reporter", render: (r) => <IdLink kind="user" id={r.reporter_id} label={r.reporter_label ?? undefined} /> },
     {
       key: "status",
@@ -63,11 +63,11 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
         <span className="flex flex-col gap-1">
           <StatusBadge status={r.status} label={labelFor("report", r.status)} />
           {r.resolved_at ? (
-            <span className="text-[11px] text-dim">
+            <span className="text-[0.6875rem] text-dim">
               resolved <DateTime value={r.resolved_at} relative={false} />
             </span>
           ) : null}
-          {r.open_cases ? <span className="text-[11px] text-dim">{r.open_cases} open case</span> : null}
+          {r.open_cases ? <span className="text-[0.6875rem] text-dim">{r.open_cases} open case</span> : null}
         </span>
       ),
     },
@@ -92,7 +92,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
         </FilterField>
       </FilterForm>
       {!res.ok ? (
-        <OpsFailureAlert failure={res} fn="list_reports" retryHref={basePath} />
+        <OpsFailureAlert failure={res} fn="list_reports" retryHref={selfHref(basePath, sp)} />
       ) : (
         <DataTable columns={columns} rows={rows} rowKey={(r, i) => r.id ?? `${i}`} basePath={basePath} searchParams={sp} nextCursor={page?.next_cursor} emptyText="No reports match." caption="Reports" />
       )}

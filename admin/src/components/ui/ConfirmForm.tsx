@@ -1,21 +1,79 @@
 "use client";
 
-import { useActionState, useId } from "react";
+import { createContext, useActionState, useContext, useEffect, useId, useRef, type FormEvent, type MouseEvent, type ReactNode } from "react";
 import { useFormStatus } from "react-dom";
-import type { ReactNode } from "react";
 import { submitActionForm, type ActionFormState } from "@/lib/actions";
 import { IDEMPOTENCY_FIELD } from "@/lib/idempotency";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Alert, OpsFailureAlert } from "@/components/ui/Alert";
 import type { ActionOutcome } from "@/lib/types";
 
+/**
+ * While a submission is pending the button stays focusable (aria-disabled, not
+ * disabled — a disabled button drops keyboard focus to the page) and a click is
+ * swallowed; the form's own guard stops Enter. The idempotency key is unchanged.
+ */
 function SubmitButton({ label, pendingLabel, danger }: { label: string; pendingLabel: string; danger?: boolean }) {
   const { pending } = useFormStatus();
   return (
-    <button type="submit" disabled={pending} aria-busy={pending} className={`btn btn-sm ${danger ? "btn-primary" : "btn-ghost"}`}>
+    <button
+      type="submit"
+      aria-disabled={pending}
+      aria-busy={pending}
+      onClick={(e: MouseEvent<HTMLButtonElement>) => blockWhilePending(pending, e)}
+      className={`btn btn-sm ${danger ? "btn-primary" : "btn-ghost"}`}
+    >
       {pending ? pendingLabel : label}
     </button>
   );
+}
+
+/** Cancels a click or submit that arrives while a submission is still pending. Returns true when it cancelled. */
+export function blockWhilePending(pending: boolean, e: { preventDefault: () => void }): boolean {
+  if (!pending) return false;
+  e.preventDefault();
+  return true;
+}
+
+type HostValue = { formAction: (payload: FormData) => void; pending: boolean };
+const OutcomeHostContext = createContext<HostValue | null>(null);
+
+/**
+ * Keeps the server's answer on screen across a remount of the form inside it.
+ * Forms keyed on a record's version are replaced when a change (or a
+ * stale_state refusal) re-renders the page — in the same render that delivers
+ * the answer — so the answer must live above the key. The action state is held
+ * here; the form posts exactly the same fields to the same server action; the
+ * text shown is exactly what the server returned. Focus moves to the answer
+ * when the replaced form took it.
+ */
+export function OutcomeHost({ actionType = "", children }: { actionType?: string; children: ReactNode }) {
+  const [state, formAction, pending] = useActionState<ActionFormState, FormData>(submitActionForm, {});
+  const box = useRef<HTMLDivElement>(null);
+  const has = Boolean(state.invalid || state.failure || state.outcome);
+  useEffect(() => {
+    if (!has) return;
+    const a = document.activeElement;
+    if (!a || a === document.body) box.current?.focus();
+  }, [state, has]);
+  return (
+    <OutcomeHostContext.Provider value={{ formAction, pending }}>
+      {children}
+      {has ? (
+        <div ref={box} tabIndex={-1} className="mt-3 outline-none">
+          <FormResult state={state} actionType={actionType} />
+        </div>
+      ) : null}
+    </OutcomeHostContext.Provider>
+  );
+}
+
+/** The server's answer to a submission: invalid input, a failed call, or the action outcome. */
+function FormResult({ state, actionType }: { state: ActionFormState; actionType: string }) {
+  if (state.invalid) return <Alert state="failed" title={state.invalid} compact />;
+  if (state.failure) return <OpsFailureAlert failure={state.failure} fn={actionType === "approval_decide" ? "approve_action" : "execute_action"} />;
+  if (state.outcome) return <OutcomeText outcome={state.outcome} />;
+  return null;
 }
 
 export function OutcomeText({ outcome }: { outcome: ActionOutcome }) {
@@ -63,6 +121,10 @@ export function OutcomeText({ outcome }: { outcome: ActionOutcome }) {
         </Alert>
       );
     case "rejected":
+      // A second founder's denial is a decision that was recorded, not a failure.
+      if ((outcome.reason as string) === "denied") {
+        return <Alert state="info" title="Denied — nothing changed." compact />;
+      }
       if (outcome.reason === "stale_state") {
         return (
           <Alert state="stale" title="This record changed since you loaded it — reload." compact>
@@ -130,11 +192,24 @@ export function ConfirmForm({
   children?: ReactNode;
   className?: string;
 }) {
-  const [state, formAction] = useActionState<ActionFormState, FormData>(submitActionForm, {});
+  const host = useContext(OutcomeHostContext);
+  const [ownState, ownAction, ownPending] = useActionState<ActionFormState, FormData>(submitActionForm, {});
+  const formAction = host ? host.formAction : ownAction;
+  const pending = host ? host.pending : ownPending;
   const reasonId = `${useId()}-reason`;
+  // Enter in a field while a submission is pending would submit again; the ref
+  // also holds a same-tick double submit, before `pending` has re-rendered.
+  const inFlight = useRef(false);
+  useEffect(() => {
+    if (!pending) inFlight.current = false;
+  }, [pending, ownState]);
+  const onSubmit = (e: FormEvent<HTMLFormElement>) => {
+    if (blockWhilePending(pending || inFlight.current, e)) return;
+    inFlight.current = true;
+  };
 
   return (
-    <form action={formAction} className={`space-y-3 ${className}`}>
+    <form action={formAction} onSubmit={onSubmit} className={`space-y-3 ${className}`}>
       <input type="hidden" name={IDEMPOTENCY_FIELD} value={idempotencyKey} />
       <input type="hidden" name="action_type" value={actionType} />
       <input type="hidden" name="subject_kind" value={subjectKind} />
@@ -160,13 +235,7 @@ export function ConfirmForm({
         <SubmitButton label={label} pendingLabel={pendingLabel} danger={danger} />
       </div>
 
-      {state.invalid ? (
-        <Alert state="failed" title={state.invalid} compact />
-      ) : state.failure ? (
-        <OpsFailureAlert failure={state.failure} fn={actionType === "approval_decide" ? "approve_action" : "execute_action"} />
-      ) : state.outcome ? (
-        <OutcomeText outcome={state.outcome} />
-      ) : null}
+      {host ? null : <FormResult state={ownState} actionType={actionType} />}
     </form>
   );
 }

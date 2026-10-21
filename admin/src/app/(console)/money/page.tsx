@@ -1,27 +1,27 @@
 import type { Metadata } from "next";
-import type { ReactNode } from "react";
+import Link from "next/link";
+import { Suspense, type ReactNode } from "react";
 import { callOps } from "@/lib/ops";
 import { requireOperator } from "@/lib/auth/session";
-import { first, limitOf, type SearchParams } from "@/lib/search-params";
+import { first, limitOf, selfHref, type SearchParams } from "@/lib/search-params";
 import { humanize, labelFor, FUNDS_STATE_LABELS } from "@/lib/format";
-import { metricDisplay } from "@/lib/metrics";
-import { str, toListPage, toMoneyOverview, toPayoutRow, toReconItem, type PayoutRow, type ReconItem } from "@/lib/types";
+import { str, toListPage, toPayoutRow, toReconItem, type PayoutRow, type ReconItem } from "@/lib/types";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Panel } from "@/components/ui/Panel";
-import { Alert, OpsFailureAlert } from "@/components/ui/Alert";
+import { OpsFailureAlert } from "@/components/ui/Alert";
 import { DateTime } from "@/components/ui/DateTime";
 import { Money } from "@/components/ui/Money";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { IdLink, PartyLink } from "@/components/ui/IdLink";
-import { MetricGrid, MetricTile } from "@/components/ui/MetricTile";
 import { FilterField, FilterSelect } from "@/components/ui/FilterField";
-import { ReportFreshness } from "@/components/shell/Freshness";
+import { MoneyCharts, MoneyKpis, SampleDataNotice } from "@/components/analytics/sections";
+import { ChartSkeleton } from "@/components/charts/ChartCard";
+import { RANGE_PRESETS, resolveRange, shortDay } from "@/lib/analytics-core";
 
-export const metadata: Metadata = { title: "Money" };
+export const metadata: Metadata = { title: "Money analytics" };
 export const dynamic = "force-dynamic";
 
-const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const PAYOUT_STATES = ["released", "pending_release", "held", "manual_review", "none"];
 const PAYOUT_STATE_LABELS: Record<string, string> = {
   released: FUNDS_STATE_LABELS.released_to_connected_account,
@@ -30,106 +30,85 @@ const PAYOUT_STATE_LABELS: Record<string, string> = {
   manual_review: "Manual review",
   none: "No release pending",
 };
-const METRIC_LABELS: Record<string, string> = {
-  gross_captured_volume: "Gross captured volume",
-  refunded_volume: "Refunded volume",
-  platform_fees_gross: "Platform fees (gross, pre-refund)",
-  seller_funds_released: "Seller funds released to connected account",
-  seller_funds_pending: "Seller funds pending release",
-  bank_payouts: "Bank payouts",
-};
-
-function isoDate(v: string | undefined, fallback: Date): string {
-  return v && DATE.test(v) ? v : fallback.toISOString().slice(0, 10);
-}
-
 export default async function MoneyPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const sp = await searchParams;
   await requireOperator();
-  const now = new Date();
-  const to = isoDate(first(sp.to), now);
-  const from = isoDate(first(sp.from), new Date(now.getTime() - 30 * 86400_000));
+  const range = resolveRange({ range: first(sp.range), from: first(sp.from), to: first(sp.to) }, new Date());
+  const { from, to } = range;
   const state = first(sp.state);
   const payoutFilters: Record<string, unknown> = {};
   if (state && PAYOUT_STATES.includes(state)) payoutFilters.state = state;
 
-  const [overviewRes, payoutsRes, reconRes] = await Promise.all([
-    callOps<unknown>("money_overview", { p_from: from, p_to: to }),
+  const [payoutsRes, reconRes] = await Promise.all([
     callOps<unknown>("list_payouts", { p_filters: payoutFilters, p_cursor: first(sp.payouts_cursor) ?? null, p_limit: limitOf(sp, 25) }),
     callOps<unknown>("reconciliation_queue", { p_cursor: first(sp.recon_cursor) ?? null, p_limit: 25 }),
   ]);
-  const overview = overviewRes.ok ? toMoneyOverview(overviewRes.data) : null;
   const payoutsPage = payoutsRes.ok ? toListPage(payoutsRes.data) : null;
   const payouts: PayoutRow[] = payoutsPage ? payoutsPage.items.map(toPayoutRow).filter((r): r is PayoutRow => r !== null) : [];
   const reconPage = reconRes.ok ? toListPage(reconRes.data) : null;
   const recon: ReconItem[] = reconPage ? reconPage.items.map(toReconItem).filter((r): r is ReconItem => r !== null) : [];
 
+  const presetHref = (key: string) => `/money?range=${key}${state ? `&state=${encodeURIComponent(state)}` : ""}`;
   return (
     <>
-      {overview?.computed_at ? <ReportFreshness at={overview.computed_at} /> : null}
       <PageHeader
         eyebrow="Money"
-        title="Money"
-        description="USD only, UTC calendar-day basis. Gross captured volume, refunds, platform fees and seller funds are separate figures and are not netted against each other. Bank payouts are not tracked."
-        meta={
-          overview ? (
-            <>
-              Live figures computed <DateTime value={overview.computed_at} withSeconds /> · Snapshot freshness:{" "}
-              {overview.snapshot_computed_at ? <DateTime value={overview.snapshot_computed_at} /> : <span className="text-warning">no snapshot yet (metric_snapshot job has not run)</span>}
-            </>
-          ) : undefined
-        }
-        actions={
-          <form method="get" action="/money" className="flex flex-wrap items-end gap-2">
-            <FilterField label="From (UTC)">
-              <input type="date" name="from" defaultValue={from} className="field py-1 text-[13px]" />
-            </FilterField>
-            <FilterField label="To (UTC)">
-              <input type="date" name="to" defaultValue={to} className="field py-1 text-[13px]" />
-            </FilterField>
-            {state ? <input type="hidden" name="state" value={state} /> : null}
-            <button type="submit" className="btn btn-ghost btn-sm">
-              Apply
-            </button>
-          </form>
-        }
+        title="Money analytics"
+        description="Captured sales, platform fees, refunds and seller payouts are separate measures and are never netted against each other. USD, UTC calendar days."
+        meta={<>Showing {shortDay(from)} – {shortDay(to)} (UTC)</>}
       />
+      <SampleDataNotice />
 
-      <div className="space-y-6">
-        {!overviewRes.ok ? (
-          <OpsFailureAlert failure={overviewRes} fn="money_overview" retryHref="/money" />
-        ) : !overview ? (
-          <Alert state="failed" title="Unrecognised payload from ops.money_overview()" />
-        ) : (
-          <section aria-label="Money metrics">
-            <MetricGrid cols={3}>
-              {overview.metrics.map((m) => {
-                const disp = metricDisplay(m);
-                return (
-                  <MetricTile
-                    key={m.key}
-                    label={METRIC_LABELS[m.key] ?? humanize(m.key)}
-                    definition={[m.definition, m.source ? `Source: ${m.source}.` : null, m.basis ? `Basis: ${m.basis}.` : null, m.currency ? `Currency: ${m.currency}.` : null].filter(Boolean).join(" ")}
-                    value={m.tracked && m.value_cents !== null ? disp.headline : null}
-                    notTracked={!m.tracked}
-                    note={disp.note}
-                    sub={
-                      <>
-                        {disp.secondary}
-                        {m.tracked && m.source ? <span className="block font-mono text-[10px]">{m.source}</span> : null}
-                      </>
-                    }
-                  />
-                );
-              })}
-            </MetricGrid>
-            <p className="mt-2 text-[11px] text-dim">
-              Hover a tile for its definition, source and basis. Range {overview.from} → {overview.to} ({overview.currency ?? "USD"}). “Seller funds pending” is point-in-time and ignores the range.
-            </p>
-          </section>
-        )}
+      <div className="mb-6 flex flex-wrap items-end gap-3 rounded-[var(--radius-card)] border border-line bg-card p-3">
+        <nav aria-label="Date range" className="flex flex-wrap gap-1">
+          {RANGE_PRESETS.map((p) => (
+            <Link key={p.key} href={presetHref(p.key)} aria-current={range.preset === p.key ? "page" : undefined} className={`btn btn-sm ${range.preset === p.key ? "btn-primary" : "btn-ghost"}`}>
+              {p.label}
+            </Link>
+          ))}
+        </nav>
+        <form method="get" action="/money" className="flex flex-wrap items-end gap-2 sm:ml-auto">
+          <FilterField label="From (UTC)">
+            <input type="date" name="from" defaultValue={from} className="field py-1 text-[0.8125rem]" />
+          </FilterField>
+          <FilterField label="To (UTC)">
+            <input type="date" name="to" defaultValue={to} className="field py-1 text-[0.8125rem]" />
+          </FilterField>
+          {state ? <input type="hidden" name="state" value={state} /> : null}
+          <button type="submit" className="btn btn-ghost btn-sm">
+            Apply range
+          </button>
+        </form>
+      </div>
 
-        <Panel eyebrow="Connected-account transfers" title="Payouts (seller funds by transfer)">
+      <div className="space-y-10">
+        <section aria-labelledby="money-summary">
+          <h2 id="money-summary" className="mb-3 title-section">
+            Summary
+          </h2>
+          <Suspense key={`k-${from}-${to}`} fallback={<div className="h-[230px] animate-pulse rounded-[var(--radius-card)] bg-raised" role="status" aria-label="Loading money summary" />}>
+            <MoneyKpis from={from} to={to} />
+          </Suspense>
+        </section>
+
+        <section aria-labelledby="money-trends">
+          <h2 id="money-trends" className="mb-3 title-section">
+            Trends
+          </h2>
+          <Suspense
+            key={`c-${from}-${to}`}
+            fallback={
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <ChartSkeleton title="Captured sales" />
+                <ChartSkeleton title="Platform fees (gross)" />
+              </div>
+            }
+          >
+            <MoneyCharts from={from} to={to} />
+          </Suspense>
+        </section>
+
+        <Panel eyebrow="Connected-account transfers" title="Payouts by transfer" description="Operational list — filter by seller funds state.">
           <form method="get" action="/money#payouts" className="mb-3 flex flex-wrap items-end gap-2">
             <input type="hidden" name="from" value={from} />
             <input type="hidden" name="to" value={to} />
@@ -140,17 +119,17 @@ export default async function MoneyPage({ searchParams }: { searchParams: Promis
               Filter
             </button>
           </form>
-          {!payoutsRes.ok ? <OpsFailureAlert failure={payoutsRes} fn="list_payouts" retryHref="/money" /> : <PayoutTable rows={payouts} searchParams={sp} nextCursor={payoutsPage?.next_cursor} />}
-          <p className="mt-3 text-[11px] text-dim">“Released to connected account” means a Stripe Transfer exists (stripe_transfer_id). Bank payouts from the connected account are not tracked.</p>
+          {!payoutsRes.ok ? <OpsFailureAlert failure={payoutsRes} fn="list_payouts" retryHref={selfHref("/money", sp)} /> : <PayoutTable rows={payouts} searchParams={sp} nextCursor={payoutsPage?.next_cursor} />}
+          <p className="mt-3 text-[0.6875rem] text-dim">“Released to connected account” means a Stripe Transfer exists (stripe_transfer_id). Bank payouts from the connected account are not tracked.</p>
         </Panel>
 
-        <Panel eyebrow="Read-only detector" title="Reconciliation queue">
+        <Panel eyebrow="Read-only detector" title="Reconciliation queue" description="Money facts that disagree.">
           {!reconRes.ok ? (
-            <OpsFailureAlert failure={reconRes} fn="reconciliation_queue" retryHref="/money" />
+            <OpsFailureAlert failure={reconRes} fn="reconciliation_queue" retryHref={selfHref("/money", sp)} />
           ) : (
             <ReconTable rows={recon} searchParams={sp} nextCursor={reconPage?.next_cursor} />
           )}
-          <p className="mt-3 text-[11px] text-dim">Money facts that disagree. Investigate before any money action; the console never repairs money state — escalate with the ids.</p>
+          <p className="mt-3 text-[0.6875rem] text-dim">Money facts that disagree. Investigate before any money action; the console never repairs money state — escalate with the ids.</p>
         </Panel>
       </div>
     </>
@@ -166,7 +145,7 @@ function PayoutTable({ rows, searchParams, nextCursor }: { rows: PayoutRow[]; se
       render: (r) => (
         <span className="flex flex-col">
           <IdLink kind="payment" id={r.payment_id} />
-          <span className="text-[11px] text-dim">{r.event_name ?? ""}</span>
+          <span className="text-[0.6875rem] text-dim">{r.event_name ?? ""}</span>
         </span>
       ),
     },
@@ -179,7 +158,7 @@ function PayoutTable({ rows, searchParams, nextCursor }: { rows: PayoutRow[]; se
       key: "review",
       header: "Review / hold",
       render: (r) => (
-        <span className="flex flex-col text-[12px]">
+        <span className="flex flex-col text-[0.75rem]">
           {r.payout_review_status ? <StatusBadge status={r.payout_review_status} label={labelFor("payout_review", r.payout_review_status)} /> : <span className="text-dim">—</span>}
           {r.payout_hold_until ? (
             <span className="text-dim">
@@ -191,7 +170,7 @@ function PayoutTable({ rows, searchParams, nextCursor }: { rows: PayoutRow[]; se
       ),
     },
     { key: "released", header: "Release recorded", render: (r) => <DateTime value={r.payout_released_at} relative={false} /> },
-    { key: "stripe_transfer_id", header: "Stripe Transfer", render: (r) => (r.stripe_transfer_id ? <code className="font-mono text-[11px]">{r.stripe_transfer_id}</code> : <span className="text-dim">none</span>) },
+    { key: "stripe_transfer_id", header: "Stripe Transfer", render: (r) => (r.stripe_transfer_id ? <code className="font-mono text-[0.6875rem]">{r.stripe_transfer_id}</code> : <span className="text-dim">none</span>) },
   ];
   return <DataTable id="payouts" columns={columns} rows={rows} rowKey={(r, i) => r.id ?? `${i}`} basePath="/money" searchParams={searchParams} nextCursor={nextCursor} cursorParam="payouts_cursor" emptyText="No transfers match." caption="Payouts" dense />;
 }
@@ -204,7 +183,7 @@ function ReconTable({ rows, searchParams, nextCursor }: { rows: ReconItem[]; sea
       key: "subject",
       header: "Subject",
       render: (r) => (
-        <span className="text-[12px]">
+        <span className="text-[0.75rem]">
           <span className="text-dim">{r.subject_kind} </span>
           <IdLink kind={r.subject_kind} id={r.subject_id} label={r.subject_label ?? undefined} />
         </span>
@@ -214,7 +193,7 @@ function ReconTable({ rows, searchParams, nextCursor }: { rows: ReconItem[]; sea
       key: "detail",
       header: "Detail",
       render: (r) => (
-        <dl className="grid grid-cols-[auto_1fr] gap-x-2 text-[11px]">
+        <dl className="grid grid-cols-[auto_1fr] gap-x-2 text-[0.6875rem]">
           {Object.entries(r.detail ?? {}).map(([k, v]) => (
             <ReconDetail key={k} k={k} v={v} />
           ))}

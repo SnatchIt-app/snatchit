@@ -28,11 +28,11 @@ export function UserTable({
           ) : (
             u.display_name ?? "—"
           )}
-          <code className="font-mono text-[10px] text-dim">{u.id}</code>
+          <code className="font-mono text-[0.625rem] text-dim">{u.id}</code>
         </span>
       ),
     },
-    { key: "email", header: "Email (masked)", render: (u) => <span className="font-mono text-[12px]">{u.email_masked ?? "—"}</span> },
+    { key: "email", header: "Email (masked)", render: (u) => <span className="font-mono text-[0.75rem]">{u.email_masked ?? "—"}</span> },
     { key: "verified", header: "Verified seller", render: (u) => <StatusBadge status={String(u.is_verified_seller ?? false)} label={u.is_verified_seller ? "verified" : "no"} /> },
     {
       key: "onboarding",

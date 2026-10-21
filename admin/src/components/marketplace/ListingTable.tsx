@@ -33,7 +33,7 @@ export function ListingTable({
           ) : (
             l.event_name ?? "—"
           )}
-          <span className="text-[11px] text-dim">
+          <span className="text-[0.6875rem] text-dim">
             {[l.venue, l.event_date, l.ticket_type, l.quantity ? `×${l.quantity}` : null].filter(Boolean).join(" · ")}
           </span>
         </span>
@@ -48,7 +48,7 @@ export function ListingTable({
       header: "Buy now / Bid",
       align: "right",
       render: (l) => (
-        <span className="flex flex-col items-end text-[12px]">
+        <span className="flex flex-col items-end text-[0.75rem]">
           {l.buy_now_enabled ? <Money cents={l.buy_now_price} /> : <span className="text-dim">no buy now</span>}
           <span className="text-dim">
             bid <Money cents={l.current_bid ?? l.starting_bid} /> ({l.bid_count ?? 0})
