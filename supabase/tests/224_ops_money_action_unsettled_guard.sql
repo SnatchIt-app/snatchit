@@ -5,7 +5,8 @@
 --   T1  same-type refund duplicate: the second request (another founder, a new key) is refused
 --       up front as a 'rejected' row (reject_reason duplicate_unsettled) naming the first as
 --       blocking.action_id; no second approval; audited; the order advisory lock is taken.
---   T2  the same for payout_release on a transfer.
+--   T2  the same for payout_release on a transfer; the request locks the ORDER (its payment id), not the transfer
+--       id, so a refund on P and a payout on P's transfer serialize on one key.
 --   T3  replaying the refused key returns idempotent_replay, state rejected, the same action id.
 --   T4  cross-type, both directions: refund on payment P vs payout_release on P's transfer.
 --   T5  in-flight states block (processing, unknown, succeeded_at_provider); once the blocker is
@@ -13,26 +14,36 @@
 --       SETTLED payout is not blocked (it stays REFUNDED_AFTER_PAYOUT detection, by design).
 --   T6  expired approvals: a new request on the order sweeps them exactly as ops.approve_action
 --       expires one (cross-type and same-type), and is accepted; other orders are not swept; the
---       swept row equals an approve_action-expired row field by field.
+--       swept row equals an approve_action-expired row field by field, and its approval.expired audit
+--       names the action's own subject (the transfer, not the order's payment); the boundary
+--       expires_at = now() is swept (<=).
 --   T7  the backstop index: a direct second unsettled same-subject INSERT raises 23505 naming
 --       action_money_unsettled_uidx; execute_action maps an index collision to duplicate_unsettled
 --       (never idempotent_replay with a NULL action_id). The collision path is reached through a
 --       subject that resolves to no order (no transfers row), where the order lock does not apply.
 --   T8  approve-time recheck on a legacy cross pair (rows written directly, as before 157):
 --       approving #1 hands off (processing); approving #2 is refused duplicate_unsettled with NO
---       state change (approval stays pending); once #1 is terminal, #2 approves normally.
+--       state change (approval stays pending); once #1 is terminal, #2 approves normally;
+--       approve_action took the order advisory lock. Orders 9 and 10: #1 is moved to unknown /
+--       succeeded_at_provider by the executor; approving #2 is refused (blocking.state = that state, the
+--       message stamps #1's requested_at, a day old), #2 stays awaiting with its approval pending, the
+--       transfer is NOT released; a deny is never blocked; order_detail.unsettled_money_actions lists the
+--       in-flight refund next to the awaiting payout.
 --   T9  non-money action types are unchanged: no lock, no guard, same result shape, replays.
 --   T10 ops.order_detail.unsettled_money_actions is uncapped: a blocker 56 deep (55 newer
 --       terminal actions on the order's listing) is listed with its approval; 'actions' is still
---       the production 50-row list, byte for byte; approval_expired is shown, a read sweeps nothing.
+--       the production 50-row list, byte for byte; a refusal's message stamps the blocker's
+--       requested_at (2 days old), not now(); approval_expired is shown, a read sweeps nothing.
 --   T11 ACLs: the three helpers are postgres-only like ops.action_precheck; execute_action,
 --       approve_action and order_detail keep the production ACL; definer + search_path ''.
 --   T12 catalog: every other ops function keeps its production md5 (prod_functions.json,
---       2026-10-21), except the three repo-only 126 refund-metric bodies that production lacks
---       (build_daily_summary, money_overview, refresh_metrics, refund_facts); the three redefined
---       bodies are live; the index definition is exact.
+--       2026-10-21). build_daily_summary, money_overview and refresh_metrics exist in production
+--       with different bodies than the repo chain (126 refund metrics): each must carry its
+--       production md5 or its chain md5 (replay/fp_chain/functions.json), nothing else.
+--       refund_facts is the one ops function production lacks (chain only) and the only exclusion.
+--       The three redefined bodies are live; the index definition is exact.
 --
--- Fixtures: eight orders (listing + succeeded payment + seller_sent transfer) under fixed ids
+-- Fixtures: ten orders (listing + succeeded payment + seller_sent transfer) under fixed ids
 -- aaaaaaaa/bbbbbbbb/cccccccc-0224-...; founders A = tap.admin_user() (seed_core), B =
 -- tap.other_user() (admin_users below), both platform_admin with aal2 claims via tap.login.
 -- refund_execute_enabled is switched on INSIDE this transaction (setting_set, founder A).
@@ -40,7 +51,7 @@
 -- or by a writer that bypasses execute_action; every other row comes from the RPCs.
 -- ============================================================================
 BEGIN;
-SELECT plan(120);
+SELECT plan(140);
 SELECT tap.seed_core();
 
 INSERT INTO public.admin_users (user_id, label) VALUES (tap.other_user(), 'FOUNDER B') ON CONFLICT (user_id) DO NOTHING;
@@ -116,22 +127,22 @@ CREATE FUNCTION tap._msg224(p_type text, p_scope text, p_state text, p_label tex
 CREATE FUNCTION tap._hint224(p_blocker uuid) RETURNS text LANGUAGE sql IMMUTABLE AS $f$
   SELECT format('Decide it (System → Approvals), resume it (/actions/%s), or wait. A new request is accepted once it is succeeded, failed or rejected. An expired approval is cleared automatically on your next request.', p_blocker) $f$;
 
--- eight orders: listing + succeeded payment + seller_sent transfer (as postgres, the seed_core way)
+-- ten orders: listing + succeeded payment + seller_sent transfer (as postgres, the seed_core way)
 INSERT INTO public.listings
   (id, seller_id, event_name, venue, neighborhood, event_date, event_time, ticket_type, quantity, transfer_method,
    starting_bid, buy_now_enabled, buy_now_price, duration_hours, starts_at, ends_at, current_bid, cover_image_path, auction_status)
 SELECT tap._l224(n), tap.seller(), 'Fixture 224 #' || n, 'Club 224', 'wynwood', current_date + 30, '21:00', 'GA', 2, 'mobile_transfer',
        100, true, 200, 24, now(), now() + interval '24 hours', 100, 'fixtures/224.jpg', 'active'
-  FROM generate_series(1, 8) n;
+  FROM generate_series(1, 10) n;
 INSERT INTO public.payments
   (id, listing_id, buyer_id, seller_id, amount, buyer_fee, seller_fee, total, stripe_payment_intent_id, status, mode, paid_at)
 SELECT tap._p224(n), tap._l224(n), tap.buyer(), tap.seller(), 10000, 1000, 1000, 11000, 'pi_fixture_224_' || n, 'succeeded', 'buy_now', now()
-  FROM generate_series(1, 8) n;
+  FROM generate_series(1, 10) n;
 INSERT INTO public.transfers
   (id, listing_id, payment_id, seller_id, buyer_id, transfer_method, status, seller_sent_at, auto_release_at, transfer_evidence_path, expires_at)
 SELECT tap._t224(n), tap._l224(n), tap._p224(n), tap.seller(), tap.buyer(), 'mobile_transfer', 'seller_sent', now(), now() + interval '72 hours',
        'fixtures/evidence-224.jpg', now() + interval '24 hours'
-  FROM generate_series(1, 8) n;
+  FROM generate_series(1, 10) n;
 
 -- refund execution ON for this transaction only (the real path: setting_set by a founder)
 SELECT tap._s224('set_on', tap._ex224(tap.admin_user(), 'k224-set-refund-on', 'setting_set', 'setting', NULL,
@@ -199,6 +210,9 @@ SELECT is((SELECT count(*)::int FROM ops.action WHERE action_type = 'payout_rele
   'T2.6: exactly one unsettled payout_release on T2');
 SELECT is((SELECT count(*)::int FROM ops.audit WHERE action_id = tap._id224('t2b') AND action = 'action.payout_release' AND outcome = 'rejected'), 1,
   'T2.7: the refusal is audited (action.payout_release, rejected)');
+-- Only T2.1 / T2.2 (payout_release on T2) have touched order 2, and a transaction-level advisory lock is held until
+-- this test's ROLLBACK: the ORDER key being held proves the payout requests locked on P2, not on the transfer id.
+SELECT is(tap._orderlock224(tap._p224(2)), 1, 'T2.8: payout_release on T2 took the ORDER lock (ops_money_order:<P2>), not a lock on the transfer id');
 
 -- ── T4 — cross-type, both directions (order 3) ──────────────────────────────
 SELECT tap._s224('t4a', tap._ex224(tap.admin_user(), 'k224-t4-refund-a01', 'refund_execute', 'payment', tap._p224(3)));
@@ -298,11 +312,27 @@ SELECT is((SELECT (a.state, a.reject_reason, a.completed_at IS NOT NULL, a.versi
                    ap.state, ap.decided_by IS NULL, ap.decided_at IS NULL, ap.reason IS NULL)
              FROM ops.action a JOIN ops.approval ap ON ap.id = a.approval_id WHERE a.id = tap._id224('t8x')),
   'T6.10: the swept row and approval equal an approve_action-expired one field by field');
-SELECT is((SELECT (au.action, au.outcome, au.before IS NULL, au.after IS NULL, au.subject_kind, au.correlation_id = a.correlation_id)
+SELECT is((SELECT (au.action, au.outcome, au.before IS NULL, au.after IS NULL, au.subject_kind, au.correlation_id = a.correlation_id,
+                   au.subject_id = a.subject_id, au.subject_ref IS NOT DISTINCT FROM a.subject_ref)
              FROM ops.audit au JOIN ops.action a ON a.id = au.action_id WHERE au.action_id = tap._id224('t6a') AND au.action = 'approval.expired'),
-          (SELECT (au.action, au.outcome, au.before IS NULL, au.after IS NULL, au.subject_kind, au.correlation_id = a.correlation_id)
+          (SELECT (au.action, au.outcome, au.before IS NULL, au.after IS NULL, au.subject_kind, au.correlation_id = a.correlation_id,
+                   au.subject_id = a.subject_id, au.subject_ref IS NOT DISTINCT FROM a.subject_ref)
              FROM ops.audit au JOIN ops.action a ON a.id = au.action_id WHERE au.action_id = tap._id224('t8x') AND au.action = 'approval.expired'),
-  'T6.11: the sweep''s audit row has the same shape as approve_action''s');
+  'T6.11: the sweep''s audit row has the same shape as approve_action''s, subject = the action''s own subject_id / subject_ref');
+SELECT is((SELECT (au.subject_kind, au.subject_id) FROM ops.audit au
+            WHERE au.action_id = tap._id224('t6a') AND au.action = 'approval.expired'),
+          ('transfer'::text, tap._t224(4)),
+  'T6.12: ...the swept payout''s audit names transfer T4 (its own subject), not the order''s payment P4');
+-- boundary: an approval whose expires_at = now() can no longer be decided (ops.action_detail.can_decide needs
+-- expires_at > now()), so the sweep clears it (<=). Order 8's first payout was expired by approve_action in T6.9.
+SELECT tap._s224('t6d', tap._ex224(tap.admin_user(), 'k224-t6-payout-o8b', 'payout_release', 'transfer', tap._t224(8)));
+UPDATE ops.approval SET expires_at = now() WHERE id = (tap._g224('t6d') ->> 'approval_id')::uuid;
+SELECT tap._s224('t6e', tap._ex224(tap.other_user(), 'k224-t6-refund-o8', 'refund_execute', 'payment', tap._p224(8)));
+SELECT is((tap._g224('t6d') ->> 'status', tap._g224('t6e') ->> 'status'), ('awaiting_approval'::text, 'awaiting_approval'::text),
+  'T6.13: boundary expires_at = now(): a refund on P8 sweeps the payout whose approval expires exactly now (<=) and is accepted');
+SELECT is((SELECT (a.state, a.reject_reason, ap.state) FROM ops.action a JOIN ops.approval ap ON ap.id = a.approval_id WHERE a.id = tap._id224('t6d')),
+          ('rejected'::text, 'approval_expired'::text, 'expired'::text),
+  'T6.14: ...the boundary payout is rejected / approval_expired, its approval expired');
 
 -- ── T7 — the backstop index and the constraint-aware handler (order 5) ──────
 SELECT tap._s224('t7a', tap._ex224(tap.admin_user(), 'k224-t7-refund-a01', 'refund_execute', 'payment', tap._p224(5)));
@@ -385,6 +415,82 @@ SELECT is((SELECT count(*)::int FROM ops.audit WHERE action_id = tap._id224('l2'
 SELECT is(tap._out224(tap._id224('l1'), 'failed') ->> 'status', 'ok', 'T8.10: #1 fails at the provider (terminal)');
 SELECT tap._s224('t8ap3', tap._ap224(tap.other_user(), tap._id224('l2'), 'approve'));
 SELECT is(tap._g224('t8ap3') ->> 'status', 'succeeded', 'T8.11: the pending approval of #2 is still decidable: approved => succeeded');
+-- No execute_action call has touched order 6 (T8 only approves and reports outcomes), and a transaction-level
+-- advisory lock is held until this test's ROLLBACK: the order key being held proves approve_action took it.
+SELECT is(tap._orderlock224(tap._p224(6)), 1, 'T8.12: approve_action took the order advisory lock (ops_money_order:<P6>)');
+
+-- orders 9 and 10: the same legacy pair, the refund requested a day earlier (approval TTL 72 h from then). #1 (the
+-- refund) is approved and the executor reports unknown (order 9) / succeeded_at_provider (order 10) through
+-- ops.record_action_outcome; approving #2 (the payout) must then be refused without any state change.
+CREATE FUNCTION tap._legacy224(n int) RETURNS void LANGUAGE plpgsql AS $f$
+DECLARE v_a uuid; v_ap uuid;
+BEGIN
+  INSERT INTO ops.action (idempotency_key, action_type, subject_kind, subject_id, params, reason, requested_by, requested_at, state)
+  VALUES ('k224-t8-legacy-ref-' || n, 'refund_execute', 'payment', tap._p224(n), '{}'::jsonb, 'legacy refund', tap.admin_user(),
+          now() - interval '1 day', 'awaiting_approval') RETURNING id INTO v_a;
+  INSERT INTO ops.approval (action_id, action_hash, requested_by, created_at, expires_at)
+  VALUES (v_a, ops.action_hash('refund_execute', 'payment', tap._p224(n), NULL, '{}'::jsonb), tap.admin_user(),
+          now() - interval '1 day', now() - interval '1 day' + interval '72 hours') RETURNING id INTO v_ap;
+  UPDATE ops.action SET approval_id = v_ap, version = version + 1 WHERE id = v_a;
+  INSERT INTO ops.action (idempotency_key, action_type, subject_kind, subject_id, params, reason, requested_by, state)
+  VALUES ('k224-t8-legacy-pay-' || n, 'payout_release', 'transfer', tap._t224(n), '{}'::jsonb, 'legacy payout', tap.admin_user(),
+          'awaiting_approval') RETURNING id INTO v_a;
+  INSERT INTO ops.approval (action_id, action_hash, requested_by, expires_at)
+  VALUES (v_a, ops.action_hash('payout_release', 'transfer', tap._t224(n), NULL, '{}'::jsonb), tap.admin_user(), now() + interval '72 hours')
+  RETURNING id INTO v_ap;
+  UPDATE ops.action SET approval_id = v_ap, version = version + 1 WHERE id = v_a;
+END $f$;
+SELECT tap._legacy224(9);
+SELECT tap._legacy224(10);
+SELECT tap._s224('l9r',  jsonb_build_object('action_id', (SELECT id FROM ops.action WHERE idempotency_key = 'k224-t8-legacy-ref-9')));
+SELECT tap._s224('l10r', jsonb_build_object('action_id', (SELECT id FROM ops.action WHERE idempotency_key = 'k224-t8-legacy-ref-10')));
+SELECT tap._s224('l9p',  (SELECT jsonb_build_object('action_id', id, 'approval_id', approval_id, 'version', version)
+                            FROM ops.action WHERE idempotency_key = 'k224-t8-legacy-pay-9'));
+SELECT tap._s224('l10p', (SELECT jsonb_build_object('action_id', id, 'approval_id', approval_id, 'version', version)
+                            FROM ops.action WHERE idempotency_key = 'k224-t8-legacy-pay-10'));
+-- order 9: refund approved -> processing -> unknown
+SELECT is(tap._ap224(tap.other_user(), tap._id224('l9r'), 'approve') ->> 'status', 'processing', 'T8.13: order 9: approving the legacy refund hands off (processing)');
+SELECT is(tap._out224(tap._id224('l9r'), 'unknown') ->> 'status', 'ok', 'T8.14: ...the executor reports unknown');
+SELECT tap._s224('l9ap2', tap._ap224(tap.other_user(), tap._id224('l9p'), 'approve'));
+SELECT is((tap._g224('l9ap2') ->> 'status', tap._g224('l9ap2') ->> 'reject_reason', tap._g224('l9ap2') #>> '{blocking,action_id}',
+           tap._g224('l9ap2') #>> '{blocking,state}', tap._g224('l9ap2') #>> '{blocking,conflict}'),
+          ('rejected'::text, 'duplicate_unsettled'::text, tap._g224('l9r') ->> 'action_id', 'unknown'::text, 'cross_type'::text),
+  'T8.15: approving the payout while the refund is UNKNOWN => rejected / duplicate_unsettled, blocking = the refund (unknown)');
+SELECT is(tap._g224('l9ap2') ->> 'message',
+          format('A refund_execute for this order is already outcome unknown (requested %s by TEST ADMIN). This approval is refused until it settles; the approval stays pending.',
+                 to_char((now() - interval '1 day') AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI "UTC"')),
+  'T8.16: ...the approve-time message stamps the BLOCKER''s requested_at (a day old), not now()');
+SELECT is((SELECT (a.state, a.version, a.approval_id::text, ap.state, ap.decided_by IS NULL)
+             FROM ops.action a JOIN ops.approval ap ON ap.action_id = a.id WHERE a.id = tap._id224('l9p')),
+          ('awaiting_approval'::text, (tap._g224('l9p') ->> 'version')::int, tap._g224('l9p') ->> 'approval_id', 'pending'::text, true),
+  'T8.17: ...NO state change: the payout is still awaiting_approval (same version), its approval pending, undecided');
+SELECT is((SELECT (status, payout_released_at IS NULL) FROM public.transfers WHERE id = tap._t224(9)), ('seller_sent'::text, true),
+  'T8.18: ...T9 is not released');
+SELECT is((SELECT array_agg(e ->> 'state' ORDER BY e ->> 'state') FROM jsonb_array_elements(tap._od224(tap._p224(9)) -> 'unsettled_money_actions') e),
+          ARRAY['awaiting_approval','unknown'],
+  'T8.19: order_detail.unsettled_money_actions lists the UNKNOWN refund next to the awaiting payout');
+SELECT tap._s224('l9deny', tap._ap224(tap.other_user(), tap._id224('l9p'), 'deny'));
+SELECT is((tap._g224('l9deny') ->> 'status', tap._g224('l9deny') ->> 'reject_reason',
+           (SELECT ap.state FROM ops.approval ap WHERE ap.id = (tap._g224('l9p') ->> 'approval_id')::uuid)),
+          ('rejected'::text, 'denied'::text, 'denied'::text),
+  'T8.20: a deny is never blocked: denying the payout while the refund is unknown => rejected / denied');
+-- order 10: refund approved -> processing -> succeeded_at_provider (the buyer's money has moved at Stripe)
+SELECT is(tap._ap224(tap.other_user(), tap._id224('l10r'), 'approve') ->> 'status', 'processing', 'T8.21: order 10: approving the legacy refund hands off (processing)');
+SELECT is(tap._out224(tap._id224('l10r'), 'succeeded_at_provider', 're_224_t8_10') ->> 'status', 'ok', 'T8.22: ...the executor reports succeeded_at_provider');
+SELECT tap._s224('l10ap2', tap._ap224(tap.other_user(), tap._id224('l10p'), 'approve'));
+SELECT is((tap._g224('l10ap2') ->> 'status', tap._g224('l10ap2') ->> 'reject_reason', tap._g224('l10ap2') #>> '{blocking,action_id}',
+           tap._g224('l10ap2') #>> '{blocking,state}'),
+          ('rejected'::text, 'duplicate_unsettled'::text, tap._g224('l10r') ->> 'action_id', 'succeeded_at_provider'::text),
+  'T8.23: approving the payout while the refund SUCCEEDED AT STRIPE => rejected / duplicate_unsettled, blocking = the refund');
+SELECT is((SELECT (a.state, a.version, a.approval_id::text, ap.state, ap.decided_by IS NULL)
+             FROM ops.action a JOIN ops.approval ap ON ap.action_id = a.id WHERE a.id = tap._id224('l10p')),
+          ('awaiting_approval'::text, (tap._g224('l10p') ->> 'version')::int, tap._g224('l10p') ->> 'approval_id', 'pending'::text, true),
+  'T8.24: ...NO state change: the payout is still awaiting_approval (same version), its approval pending, undecided');
+SELECT is((SELECT (status, payout_released_at IS NULL) FROM public.transfers WHERE id = tap._t224(10)), ('seller_sent'::text, true),
+  'T8.25: ...T10 is not released (the seller is not paid after the buyer was refunded)');
+SELECT is((SELECT array_agg(e ->> 'state' ORDER BY e ->> 'state') FROM jsonb_array_elements(tap._od224(tap._p224(10)) -> 'unsettled_money_actions') e),
+          ARRAY['awaiting_approval','succeeded_at_provider'],
+  'T8.26: order_detail.unsettled_money_actions lists the SUCCEEDED_AT_PROVIDER refund next to the awaiting payout');
 
 -- ── T9 — non-money action types are unchanged ───────────────────────────────
 SELECT tap._s224('adv0', jsonb_build_object('n', tap._advisory224()));
@@ -442,11 +548,19 @@ SELECT is((SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(tap._g224('od7'
           ARRAY['actions','bank_payout','buyer','cases','dispute_resolutions','disputes','evidence','listing','payment','payout_decisions',
                 'refund','seller','seller_funds_state','transfer','unsettled_money_actions'],
   'T10.8: order_detail keys = production keys + unsettled_money_actions');
+-- now() is frozen in this transaction and every other blocker here was requested in it: only a blocker requested
+-- earlier (t10a, 2 days ago) can tell the blocker's requested_at from the current time in the message
+SELECT tap._s224('t10x', tap._ex224(tap.admin_user(), 'k224-t10-refund-a02', 'refund_execute', 'payment', tap._p224(7)));
+SELECT is((tap._g224('t10x') ->> 'reject_reason', tap._g224('t10x') #>> '{blocking,action_id}', tap._g224('t10x') ->> 'message'),
+          ('duplicate_unsettled'::text, tap._g224('t10a') ->> 'action_id',
+           format('A payout_release for this order is already awaiting approval (requested %s by TEST ADMIN). A new request is refused until it settles.',
+                  to_char((now() - interval '2 days') AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI "UTC"'))),
+  'T10.9: a refund on P7 is refused by t10a; the message stamps the BLOCKER''s requested_at (2 days ago), not now()');
 UPDATE ops.approval SET expires_at = now() - interval '1 minute' WHERE id = (tap._g224('t10a') ->> 'approval_id')::uuid;
 SELECT tap._s224('od7b', tap._od224(tap._p224(7)));
 SELECT is((tap._g224('od7b') #>> '{unsettled_money_actions,0,id}', tap._g224('od7b') #>> '{unsettled_money_actions,0,approval_expired}'),
-          (tap._g224('t10a') ->> 'action_id', 'true'::text), 'T10.9: an expired approval shows approval_expired=true');
-SELECT is((SELECT state FROM ops.action WHERE id = tap._id224('t10a')), 'awaiting_approval', 'T10.10: reading order_detail sweeps nothing');
+          (tap._g224('t10a') ->> 'action_id', 'true'::text), 'T10.10: an expired approval shows approval_expired=true');
+SELECT is((SELECT state FROM ops.action WHERE id = tap._id224('t10a')), 'awaiting_approval', 'T10.11: reading order_detail sweeps nothing');
 
 -- ── T11 — ACLs ──────────────────────────────────────────────────────────────
 SELECT is((SELECT array_to_string(proacl, ',') FROM pg_proc WHERE oid = to_regprocedure('ops.money_order_id(text,uuid)')),
@@ -576,21 +690,32 @@ SELECT is((
     ('user_detail', 'p_user_id uuid', '2efcb5a57b60d5b3d28a17d3e37a00b4'),
     ('user_summary', 'p_user uuid', '795f00abd87286c86c182690a3ad6848'),
     ('uuid_prefix_range', 'p_q text, OUT lo uuid, OUT hi uuid', '89f99d340abd1725879ffcb70350d984'),
-    ('whoami', '', 'e3de6980a9b8c5c172627acbb256d2bb')
+    ('whoami', '', 'e3de6980a9b8c5c172627acbb256d2bb'),
+    -- in production with a body that differs from the repo chain's (126 refund metrics): production md5 here,
+    -- the chain md5 in chain_alt below (replay/fp_chain/functions.json); any third value fails
+    ('build_daily_summary', 'p_date date', 'cc2e6085528cb74e0c233bded189dedf'),
+    ('money_overview', 'p_from date, p_to date', '2903d6deb3a9949cb317ba9d05b860ab'),
+    ('refresh_metrics', '', '60ee7526afd18e411744492c4ccae0f7')
+  ), chain_alt(fn, args, md5) AS (VALUES
+    ('build_daily_summary', 'p_date date', '0b5eefaea2b976c46cbd906e1703695f'),
+    ('money_overview', 'p_from date, p_to date', '895b0fa065d7fbdae1cd192d92219b0e'),
+    ('refresh_metrics', '', '97be33e2546438353533ec75d0eaa52f')
   ), live AS (
     SELECT p.proname::text AS fn, pg_get_function_identity_arguments(p.oid) AS args, md5(pg_get_functiondef(p.oid)) AS md5
       FROM pg_proc p WHERE p.pronamespace = 'ops'::regnamespace AND p.prokind IN ('f','p'))
   SELECT coalesce(array_agg(x ORDER BY x), '{}'::text[]) FROM (
-    SELECT 'changed or missing: ' || fn || '(' || args || ')' AS x FROM prod
-     WHERE (fn, args, md5) NOT IN (SELECT fn, args, md5 FROM live)
+    SELECT 'changed or missing: ' || pr.fn || '(' || pr.args || ')' AS x FROM prod pr
+     WHERE (pr.fn, pr.args, pr.md5) NOT IN (SELECT fn, args, md5 FROM live)
+       AND NOT EXISTS (SELECT 1 FROM chain_alt c JOIN live l ON (l.fn, l.args, l.md5) = (c.fn, c.args, c.md5)
+                        WHERE (c.fn, c.args) = (pr.fn, pr.args))
     UNION ALL
     SELECT 'not in production: ' || fn || '(' || args || ')' FROM live
      WHERE (fn, args) NOT IN (SELECT fn, args FROM prod)
        AND fn NOT IN ('execute_action','approve_action','order_detail',
                       'money_order_id','money_unsettled_blocker','expire_stale_money_approvals',
-                      'build_daily_summary','money_overview','refresh_metrics','refund_facts')) d),
+                      'refund_facts')) d),
   '{}'::text[],
-  'T12.1: every other ops function keeps its production md5 (prod_functions.json 2026-10-21)');
+  'T12.1: every other ops function keeps its production md5 (prod_functions.json 2026-10-21; the 3 metric bodies: production or chain md5)');
 SELECT is((SELECT count(*)::int FROM (VALUES
              ('ops.execute_action(text,text,text,uuid,jsonb,text,jsonb,text)', 'e59c158453adabc662431cac9dca1040'),
              ('ops.approve_action(uuid,text,text)', '5de6235288b38792c31dca3e6b3f89af'),
