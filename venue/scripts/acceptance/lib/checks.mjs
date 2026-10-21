@@ -20,12 +20,16 @@ export async function waitSettled(page, selector, timeoutMs) {
 }
 
 // ---------------------------------------------------------------- P1: no role claimed without a grant
-// Role labels the app shows only once it has verified a grant (capabilities strip, account card). Case-sensitive on
-// purpose: v2's denial itself says "A venue manager or an organization owner can give you access", which claims nothing.
-export const ROLE_LABEL_CLAIMED = /Capabilities come from your grants: (Venue|Org)|\bVenue manager\b|\bOrg owner\b/;
+// Role labels the app shows only once it has verified a grant (capabilities strip, account card), matched in any case:
+// the kit reads innerText, which applies CSS text-transform, so a leak inside an uppercase-styled element reads
+// "VENUE MANAGER". v2's grant-less denial names roles without claiming one (components/ui/State.tsx DeniedState,
+// grantedBy): that one sentence is removed first, in any case and any whitespace, and nothing else is exempt.
+export const DENIAL_ROLE_SENTENCE = "A venue manager or an organization owner can give you access";
+export const ROLE_LABEL_CLAIMED = /Venue manager|Org owner|Capabilities come from your grants: (Venue|Org)/i;
+const DENIAL_ROLE_SENTENCE_RE = new RegExp(DENIAL_ROLE_SENTENCE.split(" ").join("\\s+"), "gi");
 /** true when the page text claims a role (P1 FAILs on true for a grant-less caller). */
 export function roleLabelClaimed(text) {
-  return ROLE_LABEL_CLAIMED.test(String(text));
+  return ROLE_LABEL_CLAIMED.test(String(text).replace(DENIAL_ROLE_SENTENCE_RE, " "));
 }
 
 // ---------------------------------------------------------------- migration ledger

@@ -107,6 +107,29 @@ describe("the kit waits out the route loading state before reading a page", () =
     expect(roleLabelClaimed("Capabilities come from your grants: Venue manager")).toBe(true);
     expect(roleLabelClaimed("Signed in as x · Venue manager")).toBe(true);
   });
+  // The kit reads innerText, which applies CSS text-transform (.eyebrow-caps, .col-head, table heads are
+  // uppercase), so a leaked label can arrive as "VENUE MANAGER". Only the denial's own sentence is exempt.
+  it("P1 matches a role label in any case, and exempts only the denial's own sentence", () => {
+    expect(roleLabelClaimed("VENUE MANAGER")).toBe(true);
+    expect(roleLabelClaimed("org owner")).toBe(true);
+    expect(roleLabelClaimed("CAPABILITIES COME FROM YOUR GRANTS: VENUE FINANCE")).toBe(true);
+    const denial = text(<EntryGate entry={{ kind: "denied" }} loginHref="/login" retryHref="/" />);
+    expect(roleLabelClaimed(denial.toUpperCase())).toBe(false);
+    expect(roleLabelClaimed(`${denial} Signed in as x · VENUE MANAGER`)).toBe(true);
+    expect(roleLabelClaimed(`${denial.toUpperCase()} Org owner`)).toBe(true);
+    expect(kit.match(/!roleLabelClaimed\(t\)|!roleLabelClaimed\(to\)/g)).toHaveLength(2);
+  });
+  it("P1 catches a planted verifiedRole leak on a grant-less database-mode page", () => {
+    const page = (verifiedRole: boolean) =>
+      text(
+        <Shell ctx={{ role: "venue_manager", state: "live", source: "database", countersAvailable: false, writesEnabled: false, verifiedRole, scope: { orgId: "5a4d0b0e-0000-4000-8000-00000000000a", venueId: "5a4d0b0e-0000-4000-8000-0000000000aa" } }} event={null} active="events" signedInAs="outsider@example.com">
+          <EntryGate entry={{ kind: "denied" }} loginHref="/login" retryHref="/" />
+        </Shell>,
+      );
+    expect(roleLabelClaimed(page(false))).toBe(false);
+    expect(roleLabelClaimed(page(true))).toBe(true);
+    expect(roleLabelClaimed(page(true).toUpperCase())).toBe(true);
+  });
 });
 
 describe("the kit's database-mode events checks match the v2 list", () => {

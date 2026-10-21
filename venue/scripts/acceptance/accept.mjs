@@ -381,7 +381,7 @@ async function browser() {
     const anon = await br.newPage();
     let t = await visit(anon, `${A}/events`);
     check(P, "H1 signed out -> Sign in to continue (database mode)", t.includes(SIGN_IN), t.slice(0, 200));
-    check(P, "P1 signed out: no role label, no sample fixture names, no phantom role switch", !/Venue manager|Org owner|\(sample\)|role switch/i.test(t), t.slice(0, 300));
+    check(P, "P1 signed out: no role label, no sample fixture names, no phantom role switch", !roleLabelClaimed(t) && !/\(sample\)|role switch/i.test(t), t.slice(0, 300));
     await anon.close();
 
     // Manager: real login, page content, projection, no write controls.
