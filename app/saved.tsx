@@ -19,13 +19,17 @@
  * (its own words and a way to browse), and the list. A failed QUIET refresh keeps the rows already on
  * screen and says so above them (F-BIDS-1).
  *
+ * A SAVE THAT FAILS AFTER ITS LISTING HAS CLOSED (unsave, then straight back here) puts the row back
+ * through the shared state; this screen then says so in the listing's own words (item 11: restore and
+ * explain briefly). Only while this screen is focused: when the listing is on top, its own note says it.
+ *
  * "Browse live listings" goes back to the tabs already underneath (dismissTo), never a second copy of
  * them: a NAVIGATE from this root-Stack route to '(tabs)' pushes a new tabs navigator.
  */
 
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 
 import { useAuth } from '@/src/hooks/useAuth';
@@ -40,8 +44,14 @@ import { stageCardHandoff } from '@/src/lib/listing/cardHandoff';
 import { allInFromDollarsV3 } from '@/src/lib/money';
 import { classifyLoadFailure } from '@/src/lib/ui/loadState';
 import { readSavedList, watchSavedSignOut } from '@/src/lib/saved/savedListings';
-import { SAVED_COPY, savedView, type SavedLoad, type SavedRow } from '@/src/lib/saved/savedState';
-import { bindSavedOwner, primeSavedList, savedShownFor, subscribeSaved } from '@/src/lib/saved/savedStore';
+import { rollbackNote, SAVED_COPY, savedView, type SavedLoad, type SavedRow } from '@/src/lib/saved/savedState';
+import {
+  bindSavedOwner,
+  primeSavedList,
+  savedShownFor,
+  subscribeSaved,
+  subscribeSavedRollback,
+} from '@/src/lib/saved/savedStore';
 import { textStyle } from '@/src/theme/typography';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
@@ -70,6 +80,10 @@ export default function SavedScreen() {
   const requestRef = useRef(0);
   // The account whose first read has finished; focus re-reads only after it.
   const loadedFor = useRef<string | null>(null);
+  // A screen is focused when it mounts; blur (a listing pushed on top) clears it until focus returns.
+  const focusedRef = useRef(true);
+  // A save made on a listing that has since closed, which failed: its note, shown until blur.
+  const [rollbackText, setRollbackText] = useState<string | null>(null);
 
   useEffect(() => { watchSavedSignOut(); }, []);
   useEffect(() => subscribeSaved(() => setVersion((v) => v + 1)), []);
@@ -88,7 +102,7 @@ export default function SavedScreen() {
     const result = await readSavedList(userId);
     if (request !== requestRef.current) return;
     if (result.ok) {
-      primeSavedList(userId, result.savedIds);
+      primeSavedList(userId, result.savedIds, result.stamp);
       setLoad({ phase: 'ready', rows: result.rows, unavailableCount: result.unavailableCount, refreshFailure: null });
       return;
     }
@@ -109,10 +123,25 @@ export default function SavedScreen() {
   // Back on this screen (from a listing, say): re-read quietly.
   useFocusEffect(
     useCallback(() => {
-      if (!userId || loadedFor.current !== userId) return;
-      fetchSaved();
+      focusedRef.current = true;
+      if (userId && loadedFor.current === userId) fetchSaved();
+      return () => {
+        focusedRef.current = false;
+        setRollbackText(null);
+      };
     }, [fetchSaved, userId]),
   );
+
+  // A failed save for this account while this screen is the one on show: say so here, once.
+  useEffect(() => {
+    if (!userId) return;
+    return subscribeSavedRollback((e) => {
+      if (e.userId !== userId || !focusedRef.current) return;
+      const text = rollbackNote(e.failed);
+      setRollbackText(text);
+      AccessibilityInfo.announceForAccessibility(text);
+    });
+  }, [userId]);
 
   async function onRefresh() {
     setRefreshing(true);
@@ -167,6 +196,9 @@ export default function SavedScreen() {
   return (
     <View style={s.root}>
       <SettingsHeader title={SAVED_COPY.screenTitle} />
+      {rollbackText && (view.kind === 'list' || view.kind === 'empty') ? (
+        <Text style={[textStyle('bodySm'), s.rollback]} accessibilityRole="alert">{rollbackText}</Text>
+      ) : null}
       {view.kind === 'auth-loading' || view.kind === 'loading' ? (
         <DiscoveryGridSkeleton rows={3} shape="rows" />
       ) : view.kind === 'signed-out' ? (
@@ -221,6 +253,8 @@ function makeStyles(p: Palette) {
     backgroundColor: p.border.default,
   },
   notice: { color: p.text.muted, paddingHorizontal: v2.space.lg, paddingBottom: v2.space.md },
+  // The error ink every rollback notice uses (SaveNote on the listing).
+  rollback: { color: p.status.error, paddingHorizontal: v2.space.lg, paddingTop: v2.space.md },
   unavailable: { color: p.text.muted, paddingHorizontal: v2.space.lg, paddingTop: v2.space.lg },
   });
 }

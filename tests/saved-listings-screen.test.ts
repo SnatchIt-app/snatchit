@@ -34,6 +34,7 @@ const h = vi.hoisted(() => ({
   replaced: [] as unknown[],
   navigated: [] as unknown[],
   dismissedTo: [] as unknown[],
+  announced: [] as string[],
 }));
 
 vi.mock('@/src/lib/supabase', () => ({
@@ -53,7 +54,7 @@ vi.mock('@/src/lib/supabase', () => ({
   },
 }));
 vi.mock('react-native', () => ({
-  AccessibilityInfo: { announceForAccessibility: () => {} },
+  AccessibilityInfo: { announceForAccessibility: (m: string) => { h.announced.push(m); } },
   FlatList: 'FlatList', RefreshControl: 'RefreshControl', Text: 'Text', View: 'View',
   StyleSheet: { create: <T,>(s: T) => s },
 }));
@@ -66,6 +67,7 @@ vi.mock('expo-router', () => ({
     back: () => {},
   },
 }));
+// The screen's focus callback; calling it is a focus, and the function it returns is the blur.
 vi.mock('@react-navigation/native', () => ({ useFocusEffect: (cb: () => void) => { h.focus.current = cb; } }));
 vi.mock('@/src/hooks/useAuth', () => ({ useAuth: () => ({ user: h.auth.user, session: h.auth.user ? { user: h.auth.user } : null, loading: h.auth.loading }) }));
 vi.mock('@/src/hooks/useNetworkStatus', () => ({ useNetworkStatus: () => h.network }));
@@ -139,8 +141,14 @@ beforeEach(() => {
   h.auth = { user: { id: USER }, loading: false };
   h.network = { isOffline: false };
   h.focus.current = null;
-  h.pushed = []; h.replaced = []; h.navigated = []; h.dismissedTo = [];
+  h.pushed = []; h.replaced = []; h.navigated = []; h.dismissedTo = []; h.announced = [];
 });
+
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => { resolve = r; });
+  return { promise, resolve };
+}
 
 // ── The pure decisions ──────────────────────────────────────────────────────
 
@@ -298,6 +306,69 @@ describe('screen — app/saved.tsx', () => {
     expect(store.savedShownFor(USER, 'L3'), 'the list primed the shared state').toBe(true);
     store.toggleSaved(USER, 'L3', async () => true); // unsaved on the detail screen
     expect(renderedRows(host).map((r) => r.props.eventName)).toEqual(['Older Night']);
+  });
+
+  it('SC8: while auth is loading the screen binds nobody, so the shared state survives', async () => {
+    const store = await import('@/src/lib/saved/savedStore');
+    store.bindSavedOwner(USER);
+    store.primeSaved(USER, 'L1', true, store.savedReadStamp());
+    h.auth = { user: null, loading: true };
+    await mountScreen();
+    await tick();
+    expect(store._savedStoreState()).toEqual({ owner: USER, shown: { L1: true } });
+    expect(h.calls).toHaveLength(0);
+  });
+
+  it('SC9: a remove that fails after its listing has closed puts the row back and says so here, once, only while this screen is on show', async () => {
+    h.reply = () => ({ data: ROWS, error: null });
+    const host = await mountScreen();
+    await tick();
+    const store = await import('@/src/lib/saved/savedStore');
+    const focus = () => h.focus.current!() as unknown as () => void;
+    const names = () => renderedRows(host).map((r) => r.props.eventName);
+    const NOTE = "Couldn't remove this listing. Try again.";
+
+    let blur = focus();
+    await tick();
+    blur(); // the listing is pushed on top
+    const gate = deferred<boolean>();
+    store.toggleSaved(USER, 'L3', () => gate.promise); // unsaved there...
+    blur = focus(); // ...and straight back here, before the remove has answered
+    await tick();
+    expect(names()).toEqual(['Older Night']);
+    gate.resolve(false);
+    await tick();
+    expect(names(), 'the row is back').toEqual(['Newest Night', 'Older Night']);
+    expect(texts(host)).toContain(NOTE);
+    expect(h.announced).toEqual([NOTE]);
+
+    // Leaving clears it; a failure while a listing is on top is that listing's to tell.
+    blur();
+    expect(texts(host)).not.toContain(NOTE);
+    store.toggleSaved(USER, 'L1', async () => false);
+    await tick();
+    expect(h.announced).toHaveLength(1);
+    focus();
+    await tick();
+    expect(texts(host)).not.toContain(NOTE);
+  });
+
+  it('SC11: a list read sent before a tap never undoes it, even when it answers after the tap has committed', async () => {
+    h.reply = () => ({ data: ROWS, error: null });
+    const host = await mountScreen();
+    await tick();
+    const store = await import('@/src/lib/saved/savedStore');
+    const names = () => renderedRows(host).map((r) => r.props.eventName);
+    const slow = deferred<Reply>();
+    h.reply = () => slow.promise;
+    h.focus.current!(); // a quiet re-read goes out...
+    store.toggleSaved(USER, 'L3', async () => true); // ...then L3 is unsaved on its listing, and the DELETE commits
+    await tick();
+    expect(names()).toEqual(['Older Night']);
+    slow.resolve({ data: ROWS, error: null }); // the older read, still listing L3, lands last
+    await tick();
+    expect(store.savedShownFor(USER, 'L3'), 'the committed remove stands').toBe(false);
+    expect(names()).toEqual(['Older Night']);
   });
 
   it('SC10: dismissTo pops the root Stack back to the existing (tabs) route and hands it Home (installed routers)', async () => {

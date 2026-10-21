@@ -146,13 +146,14 @@ describe('data — public.saved_listings exactly as migration 040 shaped it', ()
   it('D4: one listing\'s state: a row is saved, no row is not, a failed read says it failed (never throws)', async () => {
     const { readListingSaved } = await import('@/src/lib/saved/savedListings');
     h.reply = () => ({ data: { id: 'row-1' }, error: null });
-    expect(await readListingSaved(USER_A, LISTING)).toEqual({ ok: true, saved: true });
+    // `stamp` is the store's read stamp taken when the request went out (0: no tap yet).
+    expect(await readListingSaved(USER_A, LISTING)).toEqual({ ok: true, saved: true, stamp: 0 });
     expect(h.calls[0].table).toBe('saved_listings');
     expect(h.calls[0].columns).toBe('id');
     expect(h.calls[0].filters).toEqual(expect.arrayContaining([['eq', 'user_id', USER_A], ['eq', 'listing_id', LISTING]]));
     expect(h.calls[0].single).toBe(true);
     h.reply = () => ({ data: null, error: null });
-    expect(await readListingSaved(USER_A, LISTING)).toEqual({ ok: true, saved: false });
+    expect(await readListingSaved(USER_A, LISTING)).toEqual({ ok: true, saved: false, stamp: 0 });
     h.reply = () => ({ data: null, error: { code: 'PGRST301', message: 'JWT expired' } });
     expect(await readListingSaved(USER_A, LISTING)).toEqual({ ok: false });
     h.reply = () => { throw new Error('Network request failed'); };
@@ -166,7 +167,7 @@ describe('store — instant toggle, latest tap wins, rollback to the confirmed s
   it('S1: the tap shows at once, before the server has answered', async () => {
     const store = await import('@/src/lib/saved/savedStore');
     store.bindSavedOwner(USER_A);
-    store.primeSaved(USER_A, LISTING, false);
+    store.primeSaved(USER_A, LISTING, false, store.savedReadStamp());
     const gate = deferred<boolean>();
     const write = vi.fn(() => gate.promise);
     store.toggleSaved(USER_A, LISTING, write);
@@ -182,7 +183,7 @@ describe('store — instant toggle, latest tap wins, rollback to the confirmed s
     const events: { listingId: string; failed: boolean; committed: boolean }[] = [];
     store.subscribeSavedRollback((e) => events.push({ listingId: e.listingId, failed: e.failed, committed: e.committed }));
     store.bindSavedOwner(USER_A);
-    store.primeSaved(USER_A, LISTING, false);
+    store.primeSaved(USER_A, LISTING, false, store.savedReadStamp());
     store.toggleSaved(USER_A, LISTING, async () => false);
     expect(store.savedShownFor(USER_A, LISTING)).toBe(true);
     await tick();
@@ -190,7 +191,7 @@ describe('store — instant toggle, latest tap wins, rollback to the confirmed s
     expect(events).toEqual([{ listingId: LISTING, failed: true, committed: false }]);
 
     // The other direction: a failed REMOVE puts the bookmark back.
-    store.primeSaved(USER_A, LISTING, true);
+    store.primeSaved(USER_A, LISTING, true, store.savedReadStamp());
     store.toggleSaved(USER_A, LISTING, async () => { throw new Error('offline'); });
     expect(store.savedShownFor(USER_A, LISTING)).toBe(false);
     await tick();
@@ -210,7 +211,7 @@ describe('store — instant toggle, latest tap wins, rollback to the confirmed s
     const rollbacks: unknown[] = [];
     store.subscribeSavedRollback((e) => rollbacks.push(e));
     store.bindSavedOwner(USER_A);
-    store.primeSaved(USER_A, LISTING, false);
+    store.primeSaved(USER_A, LISTING, false, store.savedReadStamp());
     const first = deferred<boolean>();
     const second = deferred<boolean>();
     const gates = [first, second];
@@ -236,7 +237,7 @@ describe('store — instant toggle, latest tap wins, rollback to the confirmed s
     const rollbacks: unknown[] = [];
     store.subscribeSavedRollback((e) => rollbacks.push(e));
     store.bindSavedOwner(USER_A);
-    store.primeSaved(USER_A, LISTING, true);
+    store.primeSaved(USER_A, LISTING, true, store.savedReadStamp());
     const gate = deferred<boolean>();
     store.toggleSaved(USER_A, LISTING, () => gate.promise); // A removes, in flight
     store.bindSavedOwner(USER_B);
@@ -259,15 +260,17 @@ describe('store — instant toggle, latest tap wins, rollback to the confirmed s
   it('S5: a server read never overwrites a tap in flight; an idle saver is refreshed by a newer read', async () => {
     const store = await import('@/src/lib/saved/savedStore');
     store.bindSavedOwner(USER_A);
-    store.primeSaved(USER_A, LISTING, false);
+    store.primeSaved(USER_A, LISTING, false, store.savedReadStamp());
     const gate = deferred<boolean>();
     store.toggleSaved(USER_A, LISTING, () => gate.promise); // -> true, in flight
-    store.primeSaved(USER_A, LISTING, false); // a stale read lands mid-save
+    // A read sent after the tap but answered while its write is still out may have seen the row
+    // before the write: the pending tap decides.
+    store.primeSaved(USER_A, LISTING, false, store.savedReadStamp());
     expect(store.savedShownFor(USER_A, LISTING), 'the tap decides, not the stale read').toBe(true);
     gate.resolve(true);
     await tick();
     // Later the row is removed elsewhere (web) and a fresh read says so.
-    store.primeSaved(USER_A, LISTING, false);
+    store.primeSaved(USER_A, LISTING, false, store.savedReadStamp());
     expect(store.savedShownFor(USER_A, LISTING)).toBe(false);
     // A save that now fails returns to what the fresh read said, not to the old committed `true`.
     store.toggleSaved(USER_A, LISTING, async () => false);
@@ -278,13 +281,71 @@ describe('store — instant toggle, latest tap wins, rollback to the confirmed s
   it('S6: the Saved list is authoritative: listed ids are saved, a remembered save missing from it is not', async () => {
     const store = await import('@/src/lib/saved/savedStore');
     store.bindSavedOwner(USER_A);
-    store.primeSaved(USER_A, 'gone', true);
-    store.primeSavedList(USER_A, [LISTING]);
+    store.primeSaved(USER_A, 'gone', true, store.savedReadStamp());
+    store.primeSavedList(USER_A, [LISTING], store.savedReadStamp());
     expect(store.savedShownFor(USER_A, LISTING)).toBe(true);
     expect(store.savedShownFor(USER_A, 'gone')).toBe(false);
     // Another account's list is ignored.
-    store.primeSavedList(USER_B, ['x']);
+    store.primeSavedList(USER_B, ['x'], store.savedReadStamp());
     expect(store.savedShownFor(USER_A, 'x')).toBeUndefined();
+  });
+
+  it('S7: a write still queued when the account changes is never sent for the old account', async () => {
+    const store = await import('@/src/lib/saved/savedStore');
+    store.bindSavedOwner(USER_A);
+    store.primeSaved(USER_A, LISTING, false, store.savedReadStamp());
+    const first = deferred<boolean>();
+    const write = vi.fn((_u: string, _l: string, _v: boolean) => first.promise);
+    store.toggleSaved(USER_A, LISTING, write); // -> true, in flight
+    store.toggleSaved(USER_A, LISTING, write); // -> false, queued behind it
+    expect(write).toHaveBeenCalledTimes(1);
+    store.bindSavedOwner(USER_B);
+    first.resolve(true); // A's save lands after the switch; the queue would send A's remove next
+    await tick();
+    await tick();
+    expect(write, "A's queued remove is dropped, not sent").toHaveBeenCalledTimes(1);
+    expect(store._savedStoreState()).toEqual({ owner: USER_B, shown: {} });
+  });
+
+  it('S8: a read sent before a tap never undoes it, even when it answers after the tap has committed', async () => {
+    const store = await import('@/src/lib/saved/savedStore');
+    store.bindSavedOwner(USER_A);
+    store.primeSaved(USER_A, LISTING, true, store.savedReadStamp()); // the Saved list said saved
+    const sentBefore = store.savedReadStamp(); // the detail screen's mount read goes out now
+    store.toggleSaved(USER_A, LISTING, async () => true); // a quick unsave; the DELETE commits
+    await tick();
+    expect(store.savedShownFor(USER_A, LISTING)).toBe(false);
+    store.primeSaved(USER_A, LISTING, true, sentBefore); // the older SELECT answers last
+    expect(store.savedShownFor(USER_A, LISTING), 'the committed remove stands').toBe(false);
+    store.primeSavedList(USER_A, [LISTING], sentBefore); // so does an older Saved-list read
+    expect(store.savedShownFor(USER_A, LISTING)).toBe(false);
+    // A read sent after the tap is believed (saved again on web, say).
+    store.primeSaved(USER_A, LISTING, true, store.savedReadStamp());
+    expect(store.savedShownFor(USER_A, LISTING)).toBe(true);
+    // One listing's tap holds back nothing about another.
+    store.primeSaved(USER_A, 'other', true, sentBefore);
+    expect(store.savedShownFor(USER_A, 'other')).toBe(true);
+  });
+
+  it('S9: a failure whose value the server already holds is not a rollback (offline double tap, either way)', async () => {
+    const store = await import('@/src/lib/saved/savedStore');
+    const rollbacks: unknown[] = [];
+    store.subscribeSavedRollback((e) => rollbacks.push(e));
+    store.bindSavedOwner(USER_A);
+    for (const start of [false, true]) {
+      store.primeSaved(USER_A, LISTING, start, store.savedReadStamp());
+      const first = deferred<boolean>();
+      const replies = [first.promise, Promise.resolve(false)];
+      const write = vi.fn((_u: string, _l: string, _v: boolean) => replies.shift()!);
+      store.toggleSaved(USER_A, LISTING, write); // in flight
+      store.toggleSaved(USER_A, LISTING, write); // back to `start`, queued
+      first.resolve(false); // superseded: no rollback, the queued value is tried
+      await tick();
+      await tick();
+      expect(write).toHaveBeenCalledTimes(2);
+      expect(store.savedShownFor(USER_A, LISTING), 'shows what the server holds').toBe(start);
+      expect(rollbacks, 'nothing to undo or explain').toEqual([]);
+    }
   });
 });
 
@@ -373,19 +434,122 @@ describe('hook — the control exists only when it can be true', () => {
     expect(store.savedShownFor(USER_A, LISTING)).toBeUndefined();
   });
 
-  it('H5: signing out anywhere clears the in-memory store (nothing is ever written to disk)', async () => {
+  it('H5: signing out anywhere clears the in-memory store inside the auth callback, synchronously (nothing is ever written to disk)', async () => {
     h.reply = () => ({ data: { id: 'row-1' }, error: null });
+    const store = await import('@/src/lib/saved/savedStore');
     const m = await mountHook({ userId: USER_A, listingId: LISTING, enabled: true });
     await tick();
     expect(m.value?.saved).toBe(true);
     expect(h.authCb, 'the store watches for a sign-out').toBeTypeOf('function');
-    h.authCb!('SIGNED_OUT', null);
-    const store = await import('@/src/lib/saved/savedStore');
+    // auth-js awaits every listener while it holds its lock (the Build 17 sign-out deadlock): the
+    // callback returns nothing to await, and the store is already empty when it returns.
+    const ret: unknown = h.authCb!('SIGNED_OUT', null);
+    expect(ret).toBeUndefined();
     expect(store._savedStoreState()).toEqual({ owner: null, shown: {} });
+    // The auth-signout-deadlock convention: no async auth listener.
+    expect(code('src/lib/saved/savedListings.ts')).not.toMatch(/onAuthStateChange\(\s*async/);
     // No storage module anywhere in the feature.
     for (const rel of ['src/lib/saved/savedStore.ts', 'src/lib/saved/savedListings.ts', 'src/lib/saved/savedState.ts', 'src/hooks/useSavedListing.ts']) {
       expect(code(rel), rel).not.toMatch(/AsyncStorage|SecureStore|localStorage|sessionStore|secureStorage/);
     }
+  });
+});
+
+describe('hook — auth events, owner changes and late answers', () => {
+  it('H6: INITIAL_SESSION with no session (token expired, refresh failed offline) is not a sign-out; the control keeps working', async () => {
+    h.reply = () => ({ data: { id: 'row-1' }, error: null });
+    const store = await import('@/src/lib/saved/savedStore');
+    const m = await mountHook({ userId: USER_A, listingId: LISTING, enabled: true });
+    await tick();
+    expect(m.value?.saved).toBe(true);
+    // What auth-js hands a NEW subscriber in that case, while useAuth (subscribed earlier) keeps A.
+    h.authCb!('INITIAL_SESSION', null);
+    expect(store._savedStoreState(), 'still bound to A, still knows the save').toEqual({ owner: USER_A, shown: { [LISTING]: true } });
+    expect(m.value?.saved).toBe(true);
+    // The refresh succeeds later: same account, nothing emptied, nothing to read again.
+    h.authCb!('TOKEN_REFRESHED', { user: { id: USER_A } });
+    expect(m.value?.saved).toBe(true);
+    expect(h.calls.filter((c) => c.op === 'select')).toHaveLength(1);
+    // And a tap still writes, with nothing rolled back or announced.
+    m.value!.onToggle();
+    await tick();
+    expect(h.calls.filter((c) => c.op === 'delete')).toHaveLength(1);
+    expect(m.value?.saved).toBe(false);
+    expect(h.announced).toEqual([]);
+    // A session for a different account replaces the store; a real sign-out empties it.
+    h.authCb!('SIGNED_IN', { user: { id: USER_B } });
+    expect(store._savedStoreState()).toEqual({ owner: USER_B, shown: {} });
+    expect(m.value, 'no dead control for A on B\'s store').toBeNull();
+    h.authCb!('SIGNED_OUT', null);
+    expect(store._savedStoreState()).toEqual({ owner: null, shown: {} });
+  });
+
+  it('H7: any owner rebind — even back to the same account — hides the control and reads this listing again', async () => {
+    // Counted when the request is built (synchronous), not when the mock answers.
+    const reads = () => h.calls.filter((c) => c.op === 'select').length;
+    h.reply = () => ({ data: { id: 'row-1' }, error: null });
+    const store = await import('@/src/lib/saved/savedStore');
+    const m = await mountHook({ userId: USER_A, listingId: LISTING, enabled: true });
+    await tick();
+    expect(m.value?.saved).toBe(true);
+    expect(reads()).toBe(1);
+    const again = deferred<Reply>();
+    h.reply = () => again.promise;
+    store.bindSavedOwner(null);
+    expect(m.value, 'no control on a store that is not A\'s').toBeNull();
+    expect(reads(), 'nothing read for a store that could not record it').toBe(1);
+    store.bindSavedOwner(USER_A); // emptied, then A again
+    expect(m.value, 'hidden until the new read answers').toBeNull();
+    expect(reads(), 'one new read, for A').toBe(2);
+    expect(h.calls.at(-1)?.filters).toEqual(expect.arrayContaining([['eq', 'user_id', USER_A], ['eq', 'listing_id', LISTING]]));
+    again.resolve({ data: { id: 'row-1' }, error: null });
+    await tick();
+    expect(m.value?.saved, 'the saved listing shows saved again').toBe(true);
+  });
+
+  it('H8: while auth or the row is loading (enabled false) the hook binds nobody, so another screen\'s state survives', async () => {
+    const store = await import('@/src/lib/saved/savedStore');
+    store.bindSavedOwner(USER_A);
+    store.primeSaved(USER_A, LISTING, true, store.savedReadStamp());
+    const m = await mountHook({ userId: undefined, listingId: LISTING, enabled: false });
+    expect(m.value).toBeNull();
+    expect(store._savedStoreState()).toEqual({ owner: USER_A, shown: { [LISTING]: true } });
+    m.set({ userId: USER_B }); // still not enabled
+    expect(store._savedStoreState()).toEqual({ owner: USER_A, shown: { [LISTING]: true } });
+    expect(h.calls).toHaveLength(0);
+  });
+
+  it('H9: the mount read answering after a quick tap has committed does not undo the tap', async () => {
+    const store = await import('@/src/lib/saved/savedStore');
+    // The Saved list already told the store, so the control shows before the mount read answers.
+    store.bindSavedOwner(USER_A);
+    store.primeSaved(USER_A, LISTING, true, store.savedReadStamp());
+    const mountRead = deferred<Reply>();
+    h.reply = (c) => (c.op === 'select' ? mountRead.promise : { data: null, error: null });
+    const m = await mountHook({ userId: USER_A, listingId: LISTING, enabled: true });
+    expect(m.value?.saved).toBe(true);
+    m.value!.onToggle(); // unsave; the DELETE answers first
+    await tick();
+    expect(h.calls.filter((c) => c.op === 'delete')).toHaveLength(1);
+    mountRead.resolve({ data: { id: 'row-1' }, error: null }); // the older SELECT lands last
+    await tick();
+    expect(m.value?.saved).toBe(false);
+  });
+
+  it('H10: an offline double tap (save fails, then the remove fails) shows "not saved" with no note and no announcement', async () => {
+    h.reply = () => ({ data: null, error: null });
+    const m = await mountHook({ userId: USER_A, listingId: LISTING, enabled: true });
+    await tick();
+    expect(m.value?.saved).toBe(false);
+    h.reply = (c) => (c.op === 'select' ? { data: null, error: null } : { data: null, error: { code: '08006', message: 'connection failure' } });
+    m.value!.onToggle();
+    m.value!.onToggle();
+    await tick();
+    await tick();
+    expect(h.calls.filter((c) => c.op !== 'select')).toHaveLength(2);
+    expect(m.value?.saved).toBe(false);
+    expect(m.value?.note).toBeNull();
+    expect(h.announced).toEqual([]);
   });
 });
 

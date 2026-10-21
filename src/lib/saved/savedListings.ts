@@ -18,16 +18,18 @@
 
 import { supabase } from '@/src/lib/supabase';
 
-import { bindSavedOwner } from './savedStore';
+import { bindSavedOwner, savedOwner, savedReadStamp } from './savedStore';
 import { partitionSaved, type SavedPartition } from './savedState';
 
 /** The Saved screen's one read: the saved row's own columns and the listing, embedded by PostgREST. */
 export const SAVED_LIST_SELECT = 'id, listing_id, created_at, listing:listings(*)';
 
-export type SavedOneRead = { ok: true; saved: boolean } | { ok: false };
-export type SavedListRead = ({ ok: true } & SavedPartition) | { ok: false; error: unknown };
+/** `stamp` is savedReadStamp() taken as the request was sent; hand it to primeSaved / primeSavedList. */
+export type SavedOneRead = { ok: true; saved: boolean; stamp: number } | { ok: false };
+export type SavedListRead = ({ ok: true; stamp: number } & SavedPartition) | { ok: false; error: unknown };
 
 export async function readListingSaved(userId: string, listingId: string): Promise<SavedOneRead> {
+  const stamp = savedReadStamp();
   try {
     const { data, error } = await supabase
       .from('saved_listings')
@@ -36,7 +38,7 @@ export async function readListingSaved(userId: string, listingId: string): Promi
       .eq('listing_id', listingId)
       .maybeSingle();
     if (error) return { ok: false };
-    return { ok: true, saved: data != null };
+    return { ok: true, saved: data != null, stamp };
   } catch {
     return { ok: false };
   }
@@ -72,6 +74,7 @@ export async function writeListingSaved(userId: string, listingId: string, saved
 
 /** The signed-in user's saved rows, newest first (ties broken by id so the order is stable). */
 export async function readSavedList(userId: string): Promise<SavedListRead> {
+  const stamp = savedReadStamp();
   try {
     const { data, error } = await supabase
       .from('saved_listings')
@@ -80,13 +83,32 @@ export async function readSavedList(userId: string): Promise<SavedListRead> {
       .order('created_at', { ascending: false })
       .order('id', { ascending: false });
     if (error) return { ok: false, error };
-    return { ok: true, ...partitionSaved(data) };
+    return { ok: true, stamp, ...partitionSaved(data) };
   } catch (error) {
     return { ok: false, error };
   }
 }
 
 let watching = false;
+
+/**
+ * What one auth event does to the store: a real sign-out empties it, a session for a different account
+ * replaces it, and anything else leaves it alone.
+ *
+ * ONLY `SIGNED_OUT` MEANS SIGNED OUT (the authStateHandler / clearDockAvatar rule). auth-js hands each
+ * NEW subscriber an `INITIAL_SESSION` with a null session when the stored token has expired and the
+ * refresh failed — offline, say — while the session stays in storage and useAuth (subscribed earlier)
+ * keeps the user. Treating that null as a sign-out would unbind the store under a signed-in screen.
+ * The same goes for any other event that arrives without a session.
+ */
+export function savedAuthEvent(event: string, session: { user?: { id?: string | null } | null } | null): void {
+  if (event === 'SIGNED_OUT' && session === null) {
+    bindSavedOwner(null);
+    return;
+  }
+  const id = session?.user?.id;
+  if (id && id !== savedOwner()) bindSavedOwner(id);
+}
 
 /**
  * Keeps the in-memory store bound to whoever is signed in: a sign-out empties it and a different
@@ -98,8 +120,8 @@ let watching = false;
 export function watchSavedSignOut(): void {
   if (watching) return;
   try {
-    supabase.auth.onAuthStateChange((_event, session) => {
-      bindSavedOwner(session?.user?.id ?? null);
+    supabase.auth.onAuthStateChange((event, session) => {
+      savedAuthEvent(event, session);
     });
     watching = true;
   } catch {

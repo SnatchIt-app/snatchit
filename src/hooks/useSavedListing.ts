@@ -6,7 +6,10 @@
  *  - `enabled` is false: the caller passes false while auth or the listing is still loading, and on a
  *    listing this viewer cannot read (migration 154: a saver who is not a party gets nothing back);
  *  - nobody is signed in (saved_listings is per account; RLS would refuse a write anyway);
+ *  - the store is not bound to this account (a tap could not be saved, so no dead control is drawn);
  *  - the first read for this listing has not answered yet and nothing else has told the store.
+ * Any owner change in the store (a sign-out, another account, a rebind after either) starts that
+ * over: the control hides and this listing is read again, because the store emptied.
  * A failed first read shows the control UNSAVED (fails closed, as web does); saving from there is safe
  * because an insert that finds the row already there counts as saved.
  *
@@ -23,6 +26,8 @@ import { rollbackNote } from '@/src/lib/saved/savedState';
 import {
   bindSavedOwner,
   primeSaved,
+  savedGeneration,
+  savedOwner,
   savedShownFor,
   subscribeSaved,
   subscribeSavedRollback,
@@ -46,7 +51,11 @@ export interface UseSavedListingArgs {
 export function useSavedListing({ userId, listingId, enabled }: UseSavedListingArgs): SavedListingControl | null {
   const key = userId && listingId ? `${userId}:${listingId}` : null;
   const [, setVersion] = useState(0);
-  // The key whose first read has answered (either way).
+  // The store's owner generation at this render; every owner change re-renders (subscribeSaved).
+  const gen = savedGeneration();
+  // Read state and the note belong to one owner generation: a rebind empties the store, so both reset.
+  const genKey = key ? `${gen}:${key}` : null;
+  // The genKey whose first read has answered (either way).
   const [checked, setChecked] = useState<string | null>(null);
   const [note, setNote] = useState<{ key: string; text: string } | null>(null);
 
@@ -59,23 +68,29 @@ export function useSavedListing({ userId, listingId, enabled }: UseSavedListingA
     if (enabled) bindSavedOwner(userId ?? null);
   }, [enabled, userId]);
 
+  // One read per (owner generation, account, listing).
   useEffect(() => {
     if (!enabled || !userId || !listingId) return;
+    // The bind above (or an auth event) moved the store on since this render: read for the new
+    // generation on the render that follows, not twice.
+    if (gen !== savedGeneration()) { setVersion((v) => v + 1); return; }
+    // Not this account's store (signed out under us, say): its answer could not be recorded.
+    if (savedOwner() !== userId) return;
     let live = true;
     readListingSaved(userId, listingId).then((r) => {
       if (!live) return;
-      if (r.ok) primeSaved(userId, listingId, r.saved);
-      setChecked(`${userId}:${listingId}`);
+      if (r.ok) primeSaved(userId, listingId, r.saved, r.stamp);
+      setChecked(`${gen}:${userId}:${listingId}`);
     });
     return () => { live = false; };
-  }, [enabled, userId, listingId]);
+  }, [enabled, userId, listingId, gen]);
 
   useEffect(() => {
     if (!key) return;
     return subscribeSavedRollback((e) => {
       if (`${e.userId}:${e.listingId}` !== key) return;
       const text = rollbackNote(e.failed);
-      setNote({ key, text });
+      setNote({ key: `${savedGeneration()}:${key}`, text });
       AccessibilityInfo.announceForAccessibility(text);
     });
   }, [key]);
@@ -86,8 +101,11 @@ export function useSavedListing({ userId, listingId, enabled }: UseSavedListingA
     toggleSaved(userId, listingId, writeListingSaved);
   }, [userId, listingId]);
 
+  // No dead control on a store that is not this account's: `checked` only ever holds a generation in
+  // which this account owned the store (the read is skipped otherwise), and every owner change moves
+  // the generation on.
   if (!enabled || !key) return null;
   const shown = savedShownFor(userId, listingId);
-  if (shown === undefined && checked !== key) return null;
-  return { saved: shown ?? false, note: note?.key === key ? note.text : null, onToggle };
+  if (shown === undefined && checked !== genKey) return null;
+  return { saved: shown ?? false, note: note?.key === genKey ? note.text : null, onToggle };
 }
