@@ -2,8 +2,9 @@
 
 Redirect-only deployment package for the retired Expo web export at
 https://snatchitwebapp.vercel.app. **Nothing here is deployed.** The owner runs
-the single production deploy below; merging this directory deploys nothing (no
-Vercel project builds from `ops/`).
+the single production deploy below. The snatchitwebapp project has no Git
+link, so no merge or push can deploy this directory; it takes effect only
+through that command.
 
 | | |
 |---|---|
