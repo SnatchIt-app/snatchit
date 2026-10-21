@@ -5,10 +5,18 @@
  * Every read and mutation the console performs is an `ops.*` RPC executed
  * with the operator's own JWT; the database re-checks role + aal2 itself.
  */
-import { sampleDataLabel } from "@/lib/env-policy";
+import { anonKeyProblem, sampleDataLabel } from "@/lib/env-policy";
 
 export const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? null;
 export const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? null;
+
+// In every environment: this value is inlined into the browser bundle, so a
+// service_role JWT or an sb_secret_ key here would be published. Refuse to
+// start; the message names the variable and the kind, never the key.
+{
+  const keyProblem = anonKeyProblem(SUPABASE_ANON_KEY);
+  if (keyProblem) throw new Error(`Refusing to start: ${keyProblem}`);
+}
 
 /** Canonical console origin (used for absolute links only; no email flows here). */
 export const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3200";
