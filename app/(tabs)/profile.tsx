@@ -110,7 +110,8 @@ export default function ProfileScreen({ fixture }: { fixture?: ProfileFixture } 
   const { onScroll: onDockScroll, expand: expandDock } = useDockScroll('profile');
 
   const [profile,         setProfile]         = useState<Profile | null>(null);
-  const [stats,           setStats]           = useState<SellerStats>({ active: 0, sold: 0, revenue: 0 });
+  // null = not known yet. A failed read never becomes zeros: "Sold 0" is a claim about the seller.
+  const [stats,           setStats]           = useState<SellerStats | null>(null);
   const [pageLoading,     setPageLoading]     = useState(true);
   const { isOffline } = useNetworkStatus();
   const offlineRef = useRef(false);
@@ -145,20 +146,21 @@ export default function ProfileScreen({ fixture }: { fixture?: ProfileFixture } 
     }
 
     // 2. Active listings
-    const { count: activeCount } = await supabase
+    const { count: activeCount, error: activeErr } = await supabase
       .from('listings')
       .select('id', { count: 'exact', head: true })
       .eq('seller_id', user.id)
       .eq('auction_status', 'active');
 
     // 3. Sold / ended listings + amounts for proceeds
-    const { data: soldData } = await supabase
+    const { data: soldData, error: soldErr } = await supabase
       .from('listings')
       .select('winning_bid_amount, current_bid, buy_now_enabled, buy_now_price, status, auction_status')
       .eq('seller_id', user.id)
       .or('status.eq.sold,auction_status.eq.ended');
 
     const soldCount = soldData?.length ?? 0;
+    const statsRead = !activeErr && !soldErr && activeCount != null;
 
     // Proceeds: seller net per transaction via the canonical money util.
     const totalRevenue = (soldData ?? []).reduce((sum, row) => {
@@ -172,7 +174,8 @@ export default function ProfileScreen({ fixture }: { fixture?: ProfileFixture } 
       return sum;
     }, 0);
 
-    setStats({ active: activeCount ?? 0, sold: soldCount, revenue: totalRevenue });
+    // A failed read keeps the last known counts (null on a cold launch) instead of reporting none.
+    if (statsRead) setStats({ active: activeCount, sold: soldCount, revenue: totalRevenue });
 
     // 4. Payout status — non-blocking, 6s timeout so a slow Stripe call can never
     //    wedge the tab. A failed read or probe leaves the row "checking"/"unavailable", never "Not set up".
@@ -273,8 +276,9 @@ export default function ProfileScreen({ fixture }: { fixture?: ProfileFixture } 
   const displayName = profile?.display_name ?? user?.email?.split('@')[0] ?? 'User';
   const initials    = getInitials(displayName);
   const maskedPhone = maskPhone(profile?.phone_number ?? null);
-  const totalListings = stats.active + stats.sold;
-  const showPayouts = stats.sold > 0 || stats.active > 0;
+  const totalListings = stats ? stats.active + stats.sold : null;
+  // Unknown counts don't hide Payouts: the row carries its own checking/unavailable state.
+  const showPayouts = !stats || stats.sold > 0 || stats.active > 0;
   const payout = PAYOUT_ROW_COPY[payoutView];
 
   return (
@@ -326,15 +330,15 @@ export default function ProfileScreen({ fixture }: { fixture?: ProfileFixture } 
 
         {/* ── Seller — the board's stacked label/value rows, not the V2 stat strip ── */}
         <AccountSection title="Seller">
-          <StatRow s={s} label="Active" value={String(stats.active)} onPress={() => router.push({ pathname: '/my-listings', params: { filter: 'active' } })} />
-          <StatRow s={s} label="Sold" value={String(stats.sold)} onPress={() => router.push({ pathname: '/my-listings', params: { filter: 'sold' } })} />
+          <StatRow s={s} label="Active" value={stats ? String(stats.active) : '—'} onPress={() => router.push({ pathname: '/my-listings', params: { filter: 'active' } })} />
+          <StatRow s={s} label="Sold" value={stats ? String(stats.sold) : '—'} onPress={() => router.push({ pathname: '/my-listings', params: { filter: 'sold' } })} />
           {/* Proceeds: "—" when zero keeps unknown distinct from a real $0. */}
           {/* V3 money display: 2dp, like every other figure in the app (E, 2026-09-24). Display only —
               the value and every calculation behind it are unchanged. */}
-          <StatRow s={s} label="Proceeds" value={stats.revenue > 0 ? formatDollarsV3(stats.revenue) : '—'} />
+          <StatRow s={s} label="Proceeds" value={stats && stats.revenue > 0 ? formatDollarsV3(stats.revenue) : '—'} />
           <SettingsRow
             label="My listings"
-            value={`${totalListings} total`}
+            value={totalListings == null ? '—' : `${totalListings} total`}
             onPress={() => router.push('/my-listings')}
           />
         </AccountSection>
