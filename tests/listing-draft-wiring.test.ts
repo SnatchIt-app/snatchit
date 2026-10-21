@@ -33,7 +33,7 @@ const h = vi.hoisted(() => ({
   alerts: [] as string[],
   alertCalls: [] as { title: string; body?: string; buttons?: { text: string; style?: string; onPress?: () => void }[] }[],
   inserts: [] as Record<string, unknown>[],
-  insertResult: { data: { id: 'L1' } as { id: string } | null, error: null as null | { message: string; code?: string } },
+  insertResult: { data: { id: 'L1' } as { id: string } | null, error: null as null | { message: string; code?: string; hint?: string } },
   uploads: {
     covers: { localUri: null as string | null, restored: [] as string[], resets: 0 },
     proofs: { localUri: null as string | null, restored: [] as string[], resets: 0 },
