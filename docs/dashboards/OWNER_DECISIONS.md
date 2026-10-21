@@ -48,7 +48,7 @@ Prepared 2026-10-21 (read-only evidence; nothing executed). Each row lists what 
 - Vercel holds an **expired** `*.snatchitapp.com` cert (Let's Encrypt, expired 2026-10-07 13:48Z). It is not in `/v8/certs`, and Vercel serves it for any un-certified subdomain. Hence the order **issue the cert → verify with `--resolve 76.76.21.21` → only then DNS only**.
 - `snatchitapp.com` is registered **at Vercel** (bought 2026-05-08, auto-renew, expires 2027-05-08) with Cloudflare nameservers. Never use account-level `vercel domains rm` on anything under it.
 - The Vercel team also hosts non-Snatch It projects (4), which is relevant to H-08 billing.
-- PRs are listed in section F below.
+- PRs: #116 (console Next patch), #120 (this package), #121 (admin v2), #122 (venue readiness), #123 (venue_api 159), #124 (manual refund SOP). All drafts.
 
 
 ## E. Venue product scope — owner decisions (recorded with D; F and D build none of these)

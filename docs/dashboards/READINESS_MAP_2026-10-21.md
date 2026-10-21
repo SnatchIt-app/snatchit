@@ -18,7 +18,7 @@ This map comes from read-only evidence: git refs, Vercel API GETs, public `curl`
 | Schemas and migrations | Production has 115–120 (ops), 143–146, 150–152, 154–156. 121, 125 and 126 are unapplied (records) | 076–120 are in production. Missing: the `venue_api` views (registry **159**, `20261021120000`, pgTAP **226**; applied nowhere) and `venue_api` exposure |
 | Missing server logic | A's 157 (duplicate unsettled refund/payout guard) and 158 (relist expected check) are in progress. Alert delivery is unscheduled with no channel. No payout-hold action. `setting_set` is single-founder | Not wired in database mode: Today, Guest list, Check-in, Create event, writes, box office lookup, tenant onboarding. All are owner-deferred (`OWNER_DECISIONS.md` §E) |
 | Money safety | Refunds are disabled end to end: `refund_execute_enabled=false` and the executor is undeployed. A duplicate unsettled action is possible server-side until 157 (the UI guard on the v2 branch fails closed). Refund-after-payout is not blocked server-side. The manual refund SOP was stale; a replacement draft is pending A | No money path |
-| Tests (CI) | Live: 17 files / 119 tests. v2 integration branch: see its PR. CI job "Admin console (Next.js)" is required | v2: 11 files / 157 tests. Readiness branch: see its PR. pgTAP 226 on the migration branch |
+| Tests (CI) | Live: 17 files / 119 tests. #121: 38 files / 353 tests. CI job "Admin console (Next.js)" is required | v2: 11 files / 157 tests. #122: 18 files / 294 tests. #123: pgTAP 226 72/72 |
 | Acceptance proof | G1, G3, G4, G5 (operator), G6, G7 and G8 PASS (2026-09-08 record). G2, G5-unrelated and the signed-in suspension render are open | Kit 138/138 on a LOCAL replay only. The sandbox window (V1–V10) never ran past the read-only preflight |
 
 ## 2. Branches and draft PRs (this pass)
@@ -26,11 +26,11 @@ This map comes from read-only evidence: git refs, Vercel API GETs, public `curl`
 | PR | Branch → base | What |
 |---|---|---|
 | #116 | `admin/console-next-16.3.8` → `admin/operating-console` | Next.js 16.3.3 → 16.3.8 on the live console (7 advisories, 1 critical) |
-| (see PR list) | `admin/console-v2-integration` → `admin/operating-console` | Dashboard v2 (admin/ only) on the live console with RC5 suspension, the #89 refund-classification and alert-acknowledge port, the money-form guard via `ops.list_actions` (fails closed), env/cookie/MFA hardening, and Next 16.3.8 |
-| (see PR list) | `venue/production-readiness` → `venue/dashboard-v2` | Acceptance kit merged and re-pinned to 159, secret-key refusal, loading state, mode-aware copy, fail-closed entry, resale scope, Secure/HttpOnly own-name cookies, HSTS, `.vercelignore`, Next 16.3.8 |
-| (see PR list) | `venue/api-read-views-provisional` → `fix/154-listing-visibility-20261015` | `venue_api` views as registry 159 / pgTAP 226 (A allocated them in PR #115), four-file rule, local replay evidence. Comes to A before it leaves draft |
-| (see PR list) | `admin/manual-refund-sop` → `admin/operating-console` | A current manual refund procedure (DRAFT until A reviews the money wording) |
-| (see PR list) | `docs/dashboards-hosting-package` → `admin/operating-console` | This map, both hosting runbooks and the owner decision list |
+| #121 | `admin/console-v2-integration` → `admin/operating-console` | Dashboard v2 (admin/ only) on the live console with RC5 suspension, the #89 refund-classification and alert-acknowledge port, the money-form guard via `ops.list_actions` (fails closed), env/cookie/MFA hardening, and Next 16.3.8 |
+| #122 | `venue/production-readiness` → `venue/dashboard-v2` | Acceptance kit merged and re-pinned to 159, secret-key refusal, loading state, mode-aware copy, fail-closed entry, resale scope, Secure/HttpOnly own-name cookies, HSTS, `.vercelignore`, Next 16.3.8 |
+| #123 | `venue/api-read-views-provisional` → `fix/154-listing-visibility-20261015` | `venue_api` views as registry 159 / pgTAP 226 (A allocated them in PR #115), four-file rule, local replay evidence. Comes to A before it leaves draft |
+| #124 | `admin/manual-refund-sop` → `admin/operating-console` | A current manual refund procedure (DRAFT until A reviews the money wording) |
+| #120 | `docs/dashboards-hosting-package` → `admin/operating-console` | This map, both hosting runbooks and the owner decision list |
 
 Never merge a venue branch, or the old admin v2 branch, wholesale: they inherit non-dashboard `supabase/`, `app/` and `src/` content. Each ships its own app folder only, and never through `main`.
 
