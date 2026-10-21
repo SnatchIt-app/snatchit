@@ -16,28 +16,41 @@
 --        A12-A22 live hold (buyer's own reserve_buy_now): seller and service_role refused (LISTING_HELD), the
 --                hold intact; an expired hold (reserved_until < now() and = now(), cleanup_expired_
 --                reservations' <= boundary) stays cancellable; a hold with one second left is refused.
+--                A13a/A13b: a NON-OWNER (passing their own id or the seller's) still gets the existing
+--                NOT_LISTING_OWNER refusal, byte for byte, never the hold state (ownership answers first).
 --        A23-A27 ended auction with a winner: seller and service_role refused (LISTING_HAS_WINNER), intact.
+--                A24a/A24b: a non-owner still gets NOT_LISTING_OWNER, never the winner state.
 --        A28-A39 the four existing refusals keep their text byte for byte and gain a HINT (LISTING_ALREADY_
 --                SOLD, LISTING_NOT_FOUND, NOT_LISTING_OWNER, CALLER_UNKNOWN); anon stays 42501; an OPEN
 --                auction with bids (no winner yet) is still voidable (web cancelSellerListing); an already-
 --                cancelled listing, including the cancelled-with-winner state pre-170 cancels left behind,
 --                returns silently; the function keeps its definer, search_path and ACL.
+--                A29a/A29b: a SOLD AUCTION keeps winner_user_id (settle_listing_for_payment does not clear it)
+--                and still gets the sold refusal (web mapSellerError matches "already been sold"), not the
+--                winner one: sold answers before winner.
 --   B. guard_listing_edit_lock (BEFORE UPDATE OF the 17 content columns): once a listing has a bid, a
 --      Buy Now hold or a sale, an untrusted change of any of them is refused (LISTING_LOCKED_FOR_EDIT),
 --      one assertion per column, and the shipped edit request too. Unchanged values (the app re-sends all
 --      four fields), the excluded proof path (suite 223 L2 keeps it seller-replaceable), the bid RPC,
 --      service_role and claims-less postgres pass; postgres or service_role WITH authenticated claims do
 --      not. A listing with no activity stays fully editable. B36: sold_at alone locks (2 legacy production rows).
+--      B19b/B19c: on a locked listing whose three NULLABLE content columns (buy_now_price, restrictions,
+--      seller_commitment_accepted_at) are all NULL, re-sending all 17 unchanged still passes (IS NOT DISTINCT
+--      FROM, never '=': NULL = NULL would refuse an unchanged edit of every auction-only listing).
 --   C. firing order: guard_listing_state < trg_guard_listing_content < trg_guard_listing_edit_lock: the existing
 --      refusals (state columns, PROHIBITED_CONTENT, ACCOUNT_SUSPENDED) keep answering first, unchanged.
 --   D. wiring: SECURITY DEFINER, search_path '', no client EXECUTE, the exact column list, and the
 --      derivation from the grants (every client-UPDATE-able column is locked, guarded elsewhere, or the
 --      one documented exclusion), so a new client-updatable column fails here until it is classified.
+--      D5: cancel_listing still reads the row FOR UPDATE, as the production body does: without the row lock a
+--      seller's cancel that waited on a buyer's uncommitted reserve_buy_now clears the just-committed hold
+--      (two-session race, private-evidence/A-sprint-20261021/a2/p1/review/R06_race.out). D6: the 170 body's md5
+--      (the migration's VERIFY line), so any later redefinition re-reads this suite.
 -- Helpers are version-agnostic (dynamic SQL, errors caught), so the file runs to completion on a database
 -- without 170 and reports each gap as its own failure (RED).
 -- ============================================================================
 BEGIN;
-SELECT plan(85);
+SELECT plan(95);
 SELECT tap.seed_core();
 
 -- ── helpers ─────────────────────────────────────────────────────────────────
@@ -103,14 +116,15 @@ END $f$;
 -- ── fixtures (as postgres; seller S unless noted; all open for 24 h, start 100, Buy Now 300) ─────────
 -- 1 HELD, 2 EXPIRED, 3 BOUNDARY, 4 ONE SECOND LEFT, 5 AUCTION WON, 6 RELIST shape (admin, waived), 7 SOLD,
 -- 8 OPEN WITH A BID, 9 PLAIN, 10 LEGACY CANCELLED-WITH-WINNER, 11 HELD (service path), 12 WON (service path),
--- 20 LOCKED BY A BID, 21 NO ACTIVITY, 22 HELD (B), 23 ONCE SOLD (legacy shape).
+-- 13 AUCTION SOLD (won, paid, complete_auction_payment), 20 LOCKED BY A BID, 21 NO ACTIVITY, 22 HELD (B),
+-- 23 ONCE SOLD (legacy shape). 5, 12 and 13 are auction-only (Buy Now off, buy_now_price NULL).
 INSERT INTO public.listings (id, seller_id, event_name, venue, neighborhood, event_date, event_time, ticket_type, quantity,
   transfer_method, restrictions, starting_bid, buy_now_enabled, buy_now_price, duration_hours, starts_at, ends_at, current_bid,
   cover_image_path, proof_of_ownership_path, auction_status)
 SELECT tap._l240(n), tap.seller(), 'Fixture 240 #' || n, 'Club 240', 'wynwood', current_date + 30, '21:00', 'GA', 2,
        'mobile_transfer', NULL, 100, true, 300, 24, now(), now() + interval '24 hours', 100,
        'covers/240.jpg', 'proofs/240.png', 'active'
-  FROM unnest(ARRAY[1,2,3,4,5,7,8,9,10,11,12,20,21,22,23]) AS n;
+  FROM unnest(ARRAY[1,2,3,4,5,7,8,9,10,11,12,13,20,21,22,23]) AS n;
 -- 6: the four relisted production rows' shape (sprint-control/RELIST_FOUR_LISTINGS_7D_20261021.sql): owner-admin
 -- inventory with an owner proof waiver and no proof path, qty 1, GA, mobile_transfer, Buy Now on.
 INSERT INTO public.listings (id, seller_id, event_name, venue, neighborhood, event_date, event_time, ticket_type, quantity,
@@ -119,7 +133,7 @@ INSERT INTO public.listings (id, seller_id, event_name, venue, neighborhood, eve
 VALUES (tap._l240(6), tap.admin_user(), 'Fixture 240 #6 relist', 'Club 240', 'wynwood', current_date + 30, '21:00', 'GA', 1,
         'mobile_transfer', 70, true, 150, 24, now(), now() + interval '24 hours', 70,
         'covers/240-6.jpg', 'active', now(), tap.admin_user(), 'Owner inventory (240 fixture)');
-UPDATE public.listings SET buy_now_enabled = false, buy_now_price = NULL WHERE id IN (tap._l240(5), tap._l240(12));
+UPDATE public.listings SET buy_now_enabled = false, buy_now_price = NULL WHERE id IN (tap._l240(5), tap._l240(12), tap._l240(13));
 
 -- ═══ A. cancel_listing ══════════════════════════════════════════════════════
 -- A1-A11: request.jwt.claims has never been set in this session: the SQL editor / ops-script shape.
@@ -170,6 +184,16 @@ SELECT is(tap._try240(tap._reserve240(tap._l240(1), tap.buyer())), '{"ok": true}
 SELECT tap.logout();
 SELECT is(tap._st240(tap._l240(1)), 'reserved|active|by=buyer|until=live|winner=null|bids=0',
   'A13: reachable state: reserved, held by the buyer, reserved_until in the future');
+-- A non-owner gets the existing ownership refusal, byte for byte, before any hold check: the hold state is not
+-- revealed to an arbitrary authenticated caller, and the refusal text clients already show does not change.
+SELECT tap.login(tap.other_user());
+SELECT is(tap._try240(tap._cancel240(tap._l240(1), tap.other_user())),
+  tap._no240('You can only cancel your own listings.', 'NOT_LISTING_OWNER'),
+  'A13a: a non-owner cancelling a HELD listing still gets NOT_LISTING_OWNER (ownership is checked before the hold)');
+SELECT is(tap._try240(tap._cancel240(tap._l240(1), tap.seller())),
+  tap._no240('You can only cancel your own listings.', 'NOT_LISTING_OWNER'),
+  'A13b: ...also when passing the seller''s id as p_user_id');
+SELECT tap.logout();
 SELECT tap.login(tap.seller());
 SELECT is(tap._try240(tap._cancel240(tap._l240(1), tap.seller())),
   tap._no240('This listing has a buyer checking out right now and can''t be cancelled.', 'LISTING_HELD'),
@@ -221,6 +245,14 @@ SELECT tap._try240(format('SELECT public.finalize_auction(%L)', tap._l240(5)));
 SELECT tap.logout();
 SELECT is(tap._st240(tap._l240(5)), 'active|ended|by=null|until=null|winner=buyer|bids=1',
   'A24: reachable state: ended, winner = the buyer (finalize_auction)');
+SELECT tap.login(tap.other_user());
+SELECT is(tap._try240(tap._cancel240(tap._l240(5), tap.other_user())),
+  tap._no240('You can only cancel your own listings.', 'NOT_LISTING_OWNER'),
+  'A24a: a non-owner cancelling a WON auction still gets NOT_LISTING_OWNER (ownership is checked before the winner)');
+SELECT is(tap._try240(tap._cancel240(tap._l240(5), tap.seller())),
+  tap._no240('You can only cancel your own listings.', 'NOT_LISTING_OWNER'),
+  'A24b: ...also when passing the seller''s id as p_user_id');
+SELECT tap.logout();
 SELECT tap.login(tap.seller());
 SELECT is(tap._try240(tap._cancel240(tap._l240(5), tap.seller())),
   tap._no240('This auction already has a winner and can''t be cancelled.', 'LISTING_HAS_WINNER'),
@@ -248,6 +280,30 @@ SELECT tap.login(tap.seller());
 SELECT is(tap._try240(tap._cancel240(tap._l240(7), tap.seller())),
   tap._no240('This listing has already been sold and cannot be cancelled.', 'LISTING_ALREADY_SOLD'),
   'A29: sold: the existing message, byte for byte, now with HINT LISTING_ALREADY_SOLD');
+-- A SOLD AUCTION (listing 13): the buyer's real bid, the clock runs out, finalize_auction, a succeeded auction
+-- payment, complete_auction_payment as the buyer. settle_listing_for_payment keeps winner_user_id, so the sold
+-- refusal must answer before the winner refusal.
+SELECT tap.logout();
+SELECT tap.login(tap.buyer());
+SELECT tap._try240(tap._bid240(tap._l240(13), tap.buyer(), 150));
+SELECT tap.logout();
+UPDATE public.listings SET ends_at = now() - interval '1 minute' WHERE id = tap._l240(13);
+SELECT tap.login(tap.buyer());
+SELECT tap._try240(format('SELECT public.finalize_auction(%L)', tap._l240(13)));
+SELECT tap.logout();
+SELECT tap.reset_guards();
+INSERT INTO public.payments (listing_id, buyer_id, seller_id, amount, buyer_fee, seller_fee, total,
+                             stripe_payment_intent_id, status, mode, paid_at)
+VALUES (tap._l240(13), tap.buyer(), tap.seller(), 15000, 1500, 1500, 16500, 'pi_fixture_240_auction_sold', 'succeeded', 'auction', now());
+SELECT tap.login(tap.buyer());
+SELECT tap._try240(format('SELECT public.complete_auction_payment(%L, %L)', tap._l240(13), tap.buyer()));
+SELECT tap.logout();
+SELECT is(tap._st240(tap._l240(13)), 'sold|sold|by=null|until=null|winner=buyer|bids=1',
+  'A29a: reachable state: an auction sold to its winner (complete_auction_payment), winner_user_id kept');
+SELECT tap.login(tap.seller());
+SELECT is(tap._try240(tap._cancel240(tap._l240(13), tap.seller())),
+  tap._no240('This listing has already been sold and cannot be cancelled.', 'LISTING_ALREADY_SOLD'),
+  'A29b: a sold AUCTION still gets the existing sold refusal, byte for byte (sold is checked before the winner)');
 SELECT is(tap._try240(tap._cancel240(tap._l240(9999), tap.seller())),
   tap._no240('Listing not found.', 'LISTING_NOT_FOUND'),
   'A30: not found: the existing message with HINT LISTING_NOT_FOUND');
@@ -330,6 +386,28 @@ SELECT is(tap._dml240(tap._appedit240(tap._l240(20), 'Stale form 240')), -1::big
 SELECT is(tap._dml240(format($u$UPDATE public.listings SET event_name = event_name, venue = venue, restrictions = restrictions,
                                   ticket_platform = ticket_platform WHERE id = %L AND seller_id = %L RETURNING id$u$, tap._l240(20), tap.seller())),
   1::bigint, 'B19: re-sending the same values (no change) still passes');
+-- Listing 20 has buy_now_price 300; the unchanged path must also hold where the nullable content columns are NULL
+-- (listing 5: auction-only, won, locked by its bid).
+SELECT is((SELECT string_agg(c.col, ',' ORDER BY c.col)
+             FROM unnest(ARRAY['event_name','venue','neighborhood','event_date','event_time','ticket_type','quantity',
+                               'transfer_method','restrictions','starting_bid','buy_now_enabled','buy_now_price',
+                               'starts_at','cover_image_path','ticket_platform','seller_commitment_accepted_at',
+                               'category']) AS c(col)
+             JOIN pg_attribute a ON a.attrelid = 'public.listings'::regclass AND a.attname = c.col
+            WHERE NOT a.attnotnull AND tap._val240(tap._l240(5), c.col) IS NULL)
+          || '|' || tap._st240(tap._l240(5)),
+  'buy_now_price,restrictions,seller_commitment_accepted_at|active|ended|by=null|until=null|winner=buyer|bids=1',
+  'B19b: reachable state: listing 5 is locked (a bid, won) and every nullable content column is NULL');
+SELECT is(tap._dml240(format($u$UPDATE public.listings
+                                  SET event_name = event_name, venue = venue, neighborhood = neighborhood,
+                                      event_date = event_date, event_time = event_time, ticket_type = ticket_type,
+                                      quantity = quantity, transfer_method = transfer_method, restrictions = restrictions,
+                                      starting_bid = starting_bid, buy_now_enabled = buy_now_enabled,
+                                      buy_now_price = buy_now_price, starts_at = starts_at, cover_image_path = cover_image_path,
+                                      ticket_platform = ticket_platform,
+                                      seller_commitment_accepted_at = seller_commitment_accepted_at, category = category
+                                WHERE id = %L AND seller_id = %L RETURNING id$u$, tap._l240(5), tap.seller())),
+  1::bigint, 'B19c: re-sending all 17 unchanged, NULLs included, on a locked listing still passes');
 SELECT is(tap._dml240(format($u$UPDATE public.listings SET proof_of_ownership_path = 'proofs/240-replaced.png'
                                   WHERE id = %L AND seller_id = %L RETURNING id$u$, tap._l240(20), tap.seller())),
   1::bigint, 'B20: the proof path is not locked (documented exclusion; suite 223 L2)');
@@ -453,6 +531,12 @@ SELECT is((SELECT string_agg(a.attname::text, ',' ORDER BY a.attname) FROM pg_at
   || 'updated_at,winner_user_id,winning_bid_amount',
   'D4: derived from the grants: every other client-UPDATE-able column is guarded elsewhere (state, identity, end time, '
   || 'proof status, waiver), server-set (updated_at) or the documented proof-path exclusion');
+SELECT ok(coalesce(pg_get_functiondef(to_regprocedure('public.cancel_listing(uuid,uuid)'))
+                   ~ 'FROM public\.listings WHERE id = p_listing_id FOR UPDATE;', false),
+  'D5: cancel_listing reads the listing FOR UPDATE (the production row lock; a concurrent reserve_buy_now is waited on, '
+  || 'then refused as a live hold)');
+SELECT is(md5(pg_get_functiondef(to_regprocedure('public.cancel_listing(uuid,uuid)'))), '137f680cff0d54d6c07af2bf49975b6c',
+  'D6: cancel_listing is exactly the 170 body (md5 of pg_get_functiondef; the migration''s VERIFY value)');
 
 SELECT * FROM finish();
 ROLLBACK;
