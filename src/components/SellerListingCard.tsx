@@ -5,7 +5,9 @@
  * A hairline-separated list row, not a boxed card: cover on the left, the event name in the
  * display voice with the status Badge at the row's right edge, one meta line ("6 bids · $90.00",
  * or "Sold Fri 17 Oct" once sold), and a contextual bottom line — the live countdown in the
- * status's own colour, "Winner selected", or "Action needed — send the tickets".
+ * status's own colour, "Winner selected", or the sold row's ONE next action (item 39 / CFT-408:
+ * "Send by <time>", "Add proof", the neutral past-window line or the do-not-send line), decided by
+ * src/lib/seller/nextAction.ts and handed in by the screen.
  *
  * The status and the edit/delete/cancel gates come from src/lib/listing/sellerListing.ts,
  * which mirrors the server rule: a listing with bids or a non-active auction can only be
@@ -45,6 +47,7 @@ import {
   type SellerBadge,
 } from '@/src/lib/listing/sellerListing';
 import { MEDIA_SLOTS } from '@/src/lib/media/slots';
+import type { SellerNextAction } from '@/src/lib/seller/nextAction';
 import { formatDollars } from '@/src/lib/money';
 import { textStyle } from '@/src/theme/typography';
 import { useTheme } from '@/src/theme/appearance';
@@ -78,8 +81,8 @@ type Props = {
   busy?: boolean;
   onEdit?: () => void;
   isVerifiedSeller?: boolean;
-  /** Sold but tickets not sent yet — surfaces the "send the tickets" line. */
-  needsTicketSend?: boolean;
+  /** The sold row's one next action (sellerNextAction), or null when there is nothing to do. */
+  nextAction?: SellerNextAction | null;
 };
 
 /** Whole-dollar bid display through the one formatter (CFT-207). */
@@ -114,7 +117,7 @@ export function soldOnLabel(iso: string): string {
   return `Sold ${WEEKDAY[d.getDay()]} ${d.getDate()} ${MONTH[d.getMonth()]}`;
 }
 
-export default function SellerListingCard({ listing, onPress, onDelete, onEdit, isVerifiedSeller, needsTicketSend, busy }: Props) {
+export default function SellerListingCard({ listing, onPress, onDelete, onEdit, isVerifiedSeller, nextAction, busy }: Props) {
   const { palette } = useTheme();
   const s = useMemo(() => makeStyles(palette), [palette]);
   const badge = sellerBadge(listing);
@@ -129,9 +132,14 @@ export default function SellerListingCard({ listing, onPress, onDelete, onEdit, 
   // Board meta line: the sale date once sold, otherwise the bid activity.
   const metaLine = badge === 'sold' && listing.sold_at ? soldOnLabel(listing.sold_at) : bidMeta;
 
+  // The next action is shown only on a sold row (the badge says why there is one).
+  const actionLine = badge === 'sold' && nextAction ? nextAction.line : null;
+
   // Compose one spoken label: the grouped Pressable otherwise announces only the
-  // event name, dropping the status badge and bid/price a sighted user sees.
-  const a11yLabel = `${listing.event_name}. ${sellerBadgeLabel(badge)}. ${metaLine}.`;
+  // event name, dropping the status badge and bid/price a sighted user sees. The next
+  // action is part of it — it is the one thing on the row the seller has to do.
+  const a11yLabel = `${listing.event_name}. ${sellerBadgeLabel(badge)}. ${metaLine}.`
+    + (actionLine ? ` ${/[.!?]$/.test(actionLine) ? actionLine : `${actionLine}.`}` : '');
 
   return (
     // The row carries the product's press response like every other tappable (CFT-201).
@@ -170,8 +178,8 @@ export default function SellerListingCard({ listing, onPress, onDelete, onEdit, 
               <Text style={[textStyle('bodySm'), badge === 'ending_soon' ? s.urgent : s.live]}>{timeLeftLabel(listing.ends_at)}</Text>
             ) : badge === 'ended' && listing.winner_user_id ? (
               <Text style={[textStyle('bodySm'), s.ok]}>Winner selected</Text>
-            ) : badge === 'sold' && needsTicketSend ? (
-              <Text style={[textStyle('bodySm'), s.action]}>Action needed — send the tickets</Text>
+            ) : actionLine && nextAction ? (
+              <Text style={[textStyle('bodySm'), nextAction.tone === 'neutral' ? s.note : s.action]}>{nextAction.line}</Text>
             ) : null}
           </View>
 
@@ -225,6 +233,8 @@ function makeStyles(p: Palette) {
   urgent: { color: p.status.warning },
   ok: { color: p.status.success },
   action: { color: p.status.warning },
+  // The neutral next-action lines (past-window): secondary ink, not the action amber.
+  note: { color: p.text.secondary },
 
   actions: { flexDirection: 'row', gap: v2.space.md },
   edit: { color: p.brand.redText },

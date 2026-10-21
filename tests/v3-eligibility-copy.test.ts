@@ -101,7 +101,11 @@ describe("B's two remaining findings at 404bce38", () => {
     // The other branches of the same slot are untouched: each adds something the badge does not say.
     expect(slot).toMatch(/timeLeftLabel/);
     expect(slot).toMatch(/Winner selected/);
-    expect(slot).toMatch(/Action needed — send the tickets/);
+    // RETARGETED 2026-10-21 (item 39 / CFT-408): the sold row's generic "Action needed — send the
+    // tickets" became its ONE next action from src/lib/seller/nextAction.ts, rendered in this same
+    // slot (tests/seller-next-action*.test.ts hold the words and the states).
+    expect(slot).toMatch(/nextAction\.line/);
+    expect(slot).not.toMatch(/Action needed — send the tickets/);
     // RETARGETED 2026-09-24 (V3 my-listings): the sale date moved from this slot to the board's
     // meta line, through the locale-fixed soldOnLabel — it still renders exactly once.
     expect(slot).not.toMatch(/soldOnLabel|Sold \{new Date/);

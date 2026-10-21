@@ -107,7 +107,8 @@ function myListingsFixtureFor(variant: string | undefined, art: string | undefin
     default:
       return {
         listings: withSellerArt(SELLER_LISTINGS, art),
-        // The sold row's pending transfer — drives "Action needed — send the tickets".
+        // The sold row's pending transfer — drives its next-action line (no expires_at here, so
+        // the row reads "Send the tickets"; sellerNextAction never invents a time).
         transfers: [{ listing_id: 'fixture-sl3', transferId: 'fixture-tr1', status: 'pending' }],
       };
   }

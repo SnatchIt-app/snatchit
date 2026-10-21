@@ -8,10 +8,13 @@
  * body says "Tap the Create tab…" — stale against the owner's Create → "Sell" dock
  * rename, so the Sell wording stays.
  *
- * The DATA LAYER is unchanged: the same listings fetch, the per-listing transfer
- * map that drives "send the tickets", hard-load + focus refetch + pull-to-refresh,
- * and the exact delete/cancel rules (no bids → delete; has bids → cancel via
- * `cancel_listing`, both confirmed).
+ * The DATA LAYER keeps the same listings fetch, the per-listing transfer
+ * map, hard-load + focus refetch + pull-to-refresh, and the exact delete/cancel
+ * rules (no bids → delete; has bids → cancel via `cancel_listing`, both confirmed).
+ * The transfer read also carries `expires_at` and `transfer_evidence_path` (both
+ * deployed, seller-readable on their own rows): each sold row's ONE next action
+ * comes from src/lib/seller/nextAction.ts (item 39 / CFT-408), and the send and
+ * proof actions open the order screen, which re-reads the transfer.
  *
  * The `fixture` prop exists for the `_dev/v3-mylistings-bids` rendering harness
  * only: it short-circuits ONLY the network read (rows supplied as literals), and it
@@ -36,15 +39,22 @@ import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 import type { Listing } from '@/src/types';
 import { useTopInset } from '@/src/lib/nav/navInsets';
+import { sellerActionOpensOrder, sellerNextAction } from '@/src/lib/seller/nextAction';
 
 type FilterKey = 'all' | 'active' | 'needs_action' | 'ended' | 'sold';
 const VALID_FILTERS: FilterKey[] = ['all', 'active', 'needs_action', 'ended', 'sold'];
 
-type TransferInfo = { transferId: string; status: string };
+type TransferInfo = { transferId: string; status: string; expiresAt: string | null; evidencePath: string | null };
 
 /** Harness-only literals in place of the network reads: rows (+ transfer states), or a first-load failure. */
 export type MyListingsFixture =
-  | { listings: Listing[]; transfers?: { listing_id: string; transferId: string; status: string }[] }
+  | {
+      listings: Listing[];
+      transfers?: {
+        listing_id: string; transferId: string; status: string;
+        expires_at?: string | null; transfer_evidence_path?: string | null;
+      }[];
+    }
   | { failure: 'offline' | 'error' };
 
 export default function MyListingsScreen({ fixture }: { fixture?: MyListingsFixture } = {}) {
@@ -63,7 +73,12 @@ export default function MyListingsScreen({ fixture }: { fixture?: MyListingsFixt
   const [transfers, setTransfers] = useState<Map<string, TransferInfo>>(() => {
     const map = new Map<string, TransferInfo>();
     if (fixture && 'listings' in fixture) {
-      for (const t of fixture.transfers ?? []) map.set(t.listing_id, { transferId: t.transferId, status: t.status });
+      for (const t of fixture.transfers ?? []) {
+        map.set(t.listing_id, {
+          transferId: t.transferId, status: t.status,
+          expiresAt: t.expires_at ?? null, evidencePath: t.transfer_evidence_path ?? null,
+        });
+      }
     }
     return map;
   });
@@ -115,14 +130,19 @@ export default function MyListingsScreen({ fixture }: { fixture?: MyListingsFixt
     // caches it; nothing is pre-resolved into a full-size URL here any more.
     setListings(data as Listing[]);
 
-    // Transfer state per listing — drives the "send the tickets" CTA. Read-only.
+    // Transfer state per listing — drives the row's one next action. Read-only. No buyer
+    // contact detail is read here: the order screen owns those.
     const { data: txData } = await supabase
       .from('transfers')
-      .select('id, listing_id, status')
+      .select('id, listing_id, status, expires_at, transfer_evidence_path')
       .eq('seller_id', userId);
     const map = new Map<string, TransferInfo>();
-    for (const t of (txData ?? []) as { id: string; listing_id: string; status: string }[]) {
-      map.set(t.listing_id, { transferId: t.id, status: t.status });
+    type TxRow = { id: string; listing_id: string; status: string; expires_at: string | null; transfer_evidence_path: string | null };
+    for (const t of (txData ?? []) as TxRow[]) {
+      map.set(t.listing_id, {
+        transferId: t.id, status: t.status,
+        expiresAt: t.expires_at ?? null, evidencePath: t.transfer_evidence_path ?? null,
+      });
     }
     setTransfers(map);
   }, [userId, fixture]);
@@ -298,14 +318,23 @@ export default function MyListingsScreen({ fixture }: { fixture?: MyListingsFixt
             />
           }
           renderItem={({ item }) => {
-            const sendPending = needsTicketSend(item);
-            const transferId = transfers.get(item.id)?.transferId;
+            const tx = transfers.get(item.id);
+            // The device clock only picks between "Send by <time>" and the neutral past-window
+            // line; the time itself is the server's expires_at (sellerNextAction).
+            const nextAction = sellerNextAction(
+              {
+                listingStatus: item.status,
+                transfer: tx ? { status: tx.status, expires_at: tx.expiresAt, transfer_evidence_path: tx.evidencePath } : null,
+              },
+              Date.now(),
+            );
+            const transferId = tx?.transferId;
             return (
               <SellerListingCard
                 listing={item}
-                needsTicketSend={sendPending}
+                nextAction={nextAction}
                 onPress={() =>
-                  sendPending && transferId
+                  sellerActionOpensOrder(nextAction) && transferId
                     ? router.push(`/transfer/send/${transferId}` as never)
                     : router.push(`/listing/${item.id}`)
                 }
