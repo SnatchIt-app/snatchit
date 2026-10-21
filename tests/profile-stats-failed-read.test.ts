@@ -104,8 +104,8 @@ describe('Profile seller counts on a failed read', () => {
     const tree = view(host);
     expect(byLabel(tree, 'Active, 0')).toBeUndefined();
     expect(byLabel(tree, 'Sold, 0')).toBeUndefined();
-    expect(byLabel(tree, 'Active, —')).toBeDefined();
-    expect(byLabel(tree, 'Sold, —')).toBeDefined();
+    expect(byLabel(tree, 'Active, unknown')).toBeDefined();
+    expect(byLabel(tree, 'Sold, unknown')).toBeDefined();
   });
 
   it('S2: one failed read of the two is enough to keep the counts unknown', async () => {
@@ -113,7 +113,7 @@ describe('Profile seller counts on a failed read', () => {
     const host = await mountProfile();
     const tree = view(host);
     expect(byLabel(tree, 'Sold, 0')).toBeUndefined();
-    expect(byLabel(tree, 'Sold, —')).toBeDefined();
+    expect(byLabel(tree, 'Sold, unknown')).toBeDefined();
   });
 
   it('S3: unknown counts do not hide the Payouts row', async () => {
@@ -145,5 +145,11 @@ describe('Profile seller counts on a failed read', () => {
     expect(byLabel(tree, 'Active, 2')).toBeDefined();
     expect(byLabel(tree, 'Sold, 1')).toBeDefined();
     expect(byLabel(tree, 'Active, 0')).toBeUndefined();
+  });
+
+  it('S6: a user change resets the counts to unknown before the new read (review m8)', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync('app/(tabs)/profile.tsx', 'utf8');
+    expect(src).toMatch(/setStats\(null\);\s*loadData\(\)\.finally\(\(\) => setPageLoading\(false\)\);\s*\}, \[user\?\.id\]\);/);
   });
 });

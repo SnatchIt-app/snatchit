@@ -206,6 +206,8 @@ export default function ProfileScreen({ fixture }: { fixture?: ProfileFixture } 
       setPageLoading(false);
       return;
     }
+    // Another account's counts are not this one's (review m8): unknown until this user's read lands.
+    setStats(null);
     loadData().finally(() => setPageLoading(false));
   }, [user?.id]);
 
@@ -373,7 +375,7 @@ function StatRow({ s, label, value, onPress }: { s: Styles; label: string; value
   );
   if (!onPress) return <View style={s.statRow}>{body}</View>;
   return (
-    <Pressable style={s.statRow} onPress={onPress} accessibilityRole="button" accessibilityLabel={`${label}, ${value}`}>
+    <Pressable style={s.statRow} onPress={onPress} accessibilityRole="button" accessibilityLabel={`${label}, ${value === '—' ? 'unknown' : value}`}>
       {body}
     </Pressable>
   );
