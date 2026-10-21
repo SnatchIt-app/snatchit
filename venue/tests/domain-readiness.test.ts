@@ -243,4 +243,8 @@ describe("transport headers", () => {
   it("Permissions-Policy turns off the browser features the dashboard never uses (as admin)", async () => {
     expect(await header("Permissions-Policy")).toBe("camera=(), microphone=(), geolocation=(), payment=(), usb=()");
   });
+  it("Permissions-Policy is sent under next dev too: only HSTS is gated on the mode", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    expect(await header("Permissions-Policy")).toBe("camera=(), microphone=(), geolocation=(), payment=(), usb=()");
+  });
 });
