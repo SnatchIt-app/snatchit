@@ -44,12 +44,6 @@ export const SUPPORT_EMAIL = 'support@snatchitapp.com';
 export const ORDER_SUPPORT_COPY = {
   action: 'Contact support about this order',
   hint: "Opens your email app with this order's ID and status filled in. It doesn't change the order.",
-  /**
-   * Buyer, order "Marked sent" only — the one state with a Report a problem control beside this one.
-   * A report freezes the seller's payout (buyer_dispute_transfer → 'disputed'; the receive screen's
-   * own dialog says so); an email changes nothing on the order, so the auto-release clock keeps running.
-   */
-  buyerSentNote: "Emailing support doesn't freeze the seller's payout. Report a problem does.",
   /** The mail app did not open: the address and the order ID as text, so the user can still write. */
   couldNotOpen: (orderId: string) =>
     `Couldn't open your email app. Email ${SUPPORT_EMAIL} and include this order ID: ${orderId}`,
@@ -77,6 +71,8 @@ export interface OrderSupportDraft {
 }
 
 const EVENT_NAME_MAX = 200;
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Lone UTF-16 surrogates become U+FFFD: encodeURIComponent throws URIError on them. */
 function wellFormed(s: string): string {
@@ -131,8 +127,9 @@ export function mailtoUrl(to: string, subject: string, body: string): string {
 /** The prefilled support email for this order, or null when the row has no usable order id. */
 export function orderSupportDraft(row: OrderSupportRow, role: TransferRole): OrderSupportDraft | null {
   const orderId = String(row.id ?? '').trim();
-  // A server transfer id is a uuid; anything else is not composed into an email at all.
-  if (!/^[0-9A-Za-z-]+$/.test(orderId)) return null;
+  // A server transfer id is a uuid; anything else — including the dev/sandbox harness's
+  // 'fixture-order' — is not composed into an email at all.
+  if (!UUID.test(orderId)) return null;
   const shortRef = orderId.slice(0, 8);
   const word = orderSupportStatusWord(row, role);
   const event = capped(oneLine(row.listing?.event_name), EVENT_NAME_MAX);
@@ -149,11 +146,6 @@ export function orderSupportDraft(row: OrderSupportRow, role: TransferRole): Ord
   ].join('\r\n');
 
   return { subject, body, orderId, shortRef, url: mailtoUrl(SUPPORT_EMAIL, subject, body) };
-}
-
-/** Only the buyer, only on a "Marked sent" order (see ORDER_SUPPORT_COPY.buyerSentNote). */
-export function showsBuyerSentNote(status: string, role: TransferRole): boolean {
-  return role === 'buyer' && status === 'seller_sent';
 }
 
 /**

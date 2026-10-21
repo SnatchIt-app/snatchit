@@ -23,7 +23,6 @@ import {
   ORDER_SUPPORT_COPY,
   orderSupportDraft,
   orderSupportStatusWord,
-  showsBuyerSentNote,
   SUPPORT_EMAIL,
   type OrderSupportRow,
 } from '@/src/lib/support/orderSupport';
@@ -91,6 +90,21 @@ describe('OS2 · subject and body', () => {
     expect(orderSupportDraft(row({ id: '   ' }), 'buyer')).toBeNull();
     expect(orderSupportDraft(row({ id: 'abc def' }), 'buyer')).toBeNull();
     expect(orderSupportDraft(row({ id: `${ID}\r\nBcc: x@example.test` }), 'buyer')).toBeNull();
+  });
+
+  it('only a uuid is an order ID: harness fixture IDs and other non-uuid strings get no email', () => {
+    // The dev/sandbox harness mounts the order screens with id 'fixture-order' (app/_dev/v3-tickets.tsx);
+    // a live draft to the production inbox about an order that does not exist is the side effect the
+    // screens' fixture mode avoids elsewhere (write: !fixture).
+    for (const id of [
+      'fixture-order', 'fixture-listing', '3f2a9c1b', ID.replace(/-/g, ''), `${ID}-0`, `x${ID}`,
+      ID.slice(0, -1), ID.replace('3f2a9c1b', '3f2a9c1g'), `{${ID}}`,
+    ]) {
+      expect(orderSupportDraft(row({ id }), 'buyer'), id).toBeNull();
+    }
+    // Case-insensitive, and surrounding whitespace is still trimmed before the check.
+    expect(orderSupportDraft(row({ id: ID.toUpperCase() }), 'buyer')?.orderId).toBe(ID.toUpperCase());
+    expect(orderSupportDraft(row({ id: ` ${ID} ` }), 'buyer')?.orderId).toBe(ID);
   });
 
   it('an event name is one line: CR/LF, tabs and Unicode line separators collapse to single spaces', () => {
@@ -267,18 +281,5 @@ describe('OS6 · opening the email, and the copy around it', () => {
     expect(ORDER_SUPPORT_COPY.action).toBe('Contact support about this order');
     expect(ORDER_SUPPORT_COPY.hint).toMatch(/email/i);
     expect(ORDER_SUPPORT_COPY.hint).toMatch(/doesn't change the order/);
-  });
-
-  it('only the buyer, only while the order is "Marked sent", is told an email does not freeze the payout', () => {
-    expect(showsBuyerSentNote('seller_sent', 'buyer')).toBe(true);
-    for (const status of ['pending', 'buyer_confirmed', 'auto_released', 'disputed', 'expired', 'reversed']) {
-      expect(showsBuyerSentNote(status, 'buyer'), status).toBe(false);
-    }
-    expect(showsBuyerSentNote('seller_sent', 'seller')).toBe(false);
-    // The words the receive screen already uses for what a report does (handleDispute's dialog).
-    expect(ORDER_SUPPORT_COPY.buyerSentNote).toContain("freeze the seller's payout");
-    expect(ORDER_SUPPORT_COPY.buyerSentNote).toContain('Report a problem');
-    // No promise about what support will do, or when.
-    expect(ORDER_SUPPORT_COPY.buyerSentNote).not.toMatch(/within|hours|will (review|reply|respond)/i);
   });
 });

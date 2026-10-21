@@ -25,7 +25,6 @@ import {
   openOrderSupportMail,
   ORDER_SUPPORT_COPY,
   orderSupportDraft,
-  showsBuyerSentNote,
   type OrderSupportRow,
 } from '@/src/lib/support/orderSupport';
 
@@ -61,9 +60,6 @@ export function OrderSupportAction({ role, transfer }: { role: TransferRole; tra
         block
         accessibilityHint={ORDER_SUPPORT_COPY.hint}
       />
-      {showsBuyerSentNote(transfer.status, role) ? (
-        <Text style={[textStyle('bodySm'), s.note]}>{ORDER_SUPPORT_COPY.buyerSentNote}</Text>
-      ) : null}
       {couldNotOpen ? (
         <Text style={[textStyle('bodySm'), s.fallback]} selectable accessibilityLiveRegion="polite">
           {ORDER_SUPPORT_COPY.couldNotOpen(orderId)}
@@ -76,7 +72,6 @@ export function OrderSupportAction({ role, transfer }: { role: TransferRole; tra
 function makeStyles(p: Palette) {
   return StyleSheet.create({
     wrap: { marginTop: v2.space.lg, gap: v2.space.xs },
-    note: { color: p.text.muted, textAlign: 'center' },
     fallback: { color: p.text.secondary, textAlign: 'center' },
   });
 }

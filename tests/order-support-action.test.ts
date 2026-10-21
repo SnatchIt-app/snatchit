@@ -109,6 +109,22 @@ describe('OA1 · the control', () => {
     expect(button(host)).toBeUndefined();
     expect(host.output).toBeNull();
   });
+
+  it('renders nothing for a harness fixture order (not a uuid), so a sandbox tap cannot draft to the real inbox', async () => {
+    const host = await mount({ role: 'buyer', transfer: { ...TRANSFER, id: 'fixture-order' } });
+    expect(button(host)).toBeUndefined();
+    expect(host.output).toBeNull();
+  });
+
+  it('until an open fails, the control is its button alone: no text beside it, in any state or role', async () => {
+    for (const role of ['buyer', 'seller'] as const) {
+      for (const status of ['pending', 'seller_sent', 'buyer_confirmed', 'auto_released', 'disputed', 'expired', 'reversed']) {
+        const host = await mount({ role, transfer: { ...TRANSFER, status } });
+        expect(button(host), `${role} ${status}`).toBeDefined();
+        expect(texts(tree(host)), `${role} ${status}`).toEqual([]);
+      }
+    }
+  });
 });
 
 describe('OA2 · when the mail app cannot open', () => {
@@ -138,21 +154,5 @@ describe('OA2 · when the mail app cannot open', () => {
     (button(host)!.props.onPress as () => void)();
     await flush(); host.flush();
     expect(textElement(host, "Couldn't open")).toBeUndefined();
-  });
-});
-
-describe('OA3 · the buyer\'s "Marked sent" note', () => {
-  it('the buyer on a "Marked sent" order is told an email does not freeze the payout', async () => {
-    const host = await mount({ role: 'buyer', transfer: TRANSFER });
-    expect(texts(tree(host)).join(' | ')).toContain("Emailing support doesn't freeze the seller's payout.");
-  });
-
-  it('the seller, and the buyer in any other state, see no note', async () => {
-    const seller = await mount({ role: 'seller', transfer: TRANSFER });
-    expect(texts(tree(seller)).join(' | ')).not.toContain('Emailing support');
-    for (const status of ['pending', 'buyer_confirmed', 'auto_released', 'disputed', 'expired', 'reversed']) {
-      const buyer = await mount({ role: 'buyer', transfer: { ...TRANSFER, status } });
-      expect(texts(tree(buyer)).join(' | '), status).not.toContain('Emailing support');
-    }
   });
 });
