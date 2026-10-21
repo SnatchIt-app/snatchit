@@ -197,7 +197,46 @@ it with `HARNESS_MFA_MODE=totp HARNESS_QR_ENCODER=<repo>/snatchit/node_modules/q
 3. A15: relist's expected state is not compared server-side (A/D, needs a migration; parked).
 4. A 429 at sign-in reads as a credentials error (A: stays as written).
 5. Box office has no lookup surface: the role matrix allows manual lookup but the door screen denies the role (D's roles spec).
-6. Venue database mode has no route loading state (a route `loading.tsx` would blank each screen's own frame on every navigation, including the demo); database-mode error screens keep pre-v4 styling.
+6. ~~Venue database mode has no route loading state~~ — added on `venue/production-readiness` as a frame-shaped skeleton (see below), so a navigation no longer blanks the frame. Database-mode error screens still keep pre-v4 styling.
 7. Small phone targets meet WCAG AA 2.5.8 (24px), not the 44px AAA guideline; MetricTile definitions on /system are hover-only.
 8. Screen reader (VoiceOver) not exercised; real event photography needs storage work — both optional.
 9. The private rehearsal copy keeps the harness's append-only audit rows (labelled "harness:"); state was restored.
+
+## Production-readiness branch (`venue/production-readiness`, 2026-10-21)
+
+Branch off `venue/dashboard-v2` @ `ee1d90b7` (code `bb94b1f2`) for a hosted preview now and a
+database-mode host at `https://venue.snatchitapp.com` later. No new features (box office lookup,
+database-mode guest list/door and writes stay with D). Not pushed, not deployed; one commit per fix.
+
+| Fix | What changed |
+|---|---|
+| Acceptance kit | `venue/slice1-acceptance-kit` @ `62ec887d` merged (clean). Kit markers aligned to v2 copy: `DENIED` = "… isn't open to you.", case-sensitive role-label check (v2's denial says "A venue manager … can give you access"), "174 still available", Sign out found in the DOM (it sits in a closed popover), and every page read waits for the route loading state to go. App/kit pins in the window manifest and runbook now name this branch (sha pinned when the window is named). |
+| Secret key guard | `keyLooksPrivileged` also refuses `sb_secret_…` keys (trimmed, any case), not only legacy `service_role` JWTs. |
+| Loading state | `src/app/o/[org]/v/[venue]/loading.tsx`: Shell-shaped skeleton (sidebar, top line, content), mode-neutral, `data-route-loading` for the kit. |
+| Mode-aware copy | Root metadata says DEMO / sample data only in the fixture build ("Venue dashboard · Snatch It" in database mode). Events eyebrow shows the venue's own name (`venue_api.venues.name`). Stale comments fixed (CSP note, package description, "eight views"). The empty events list no longer offers Create event in database mode. |
+| Entry default | Database mode starts from `{kind: "denied"}`; a non-UUID route can never come back as the fixture entry. |
+| Resale policy | Venue-scope policies are read for the route venue; in-force policy = event scope first, then highest version (the rule in 088 `create_native_listing` / `buy_now`). Draft events' own policies and unapproved venues' policies are still hidden by RLS and read as absent. |
+| `.vercelignore` | A CLI deploy from `venue/` never uploads `.env*`, key files, `.vercel`, `.next`, `node_modules`, `*.tsbuildinfo`, `next-env.d.ts`, kit `.runs/`, harness state, logs or `.f-handoff`. |
+| Domain readiness | `POST /logout` answers 303 with a relative `Location: /login`. Confirmed host-agnostic: no absolute URL in `src/`, CSP and headers carry no host (`connect-src 'self'`, every Supabase call is server-side), sign-in `next=` is relative-only, and the `@supabase/ssr` cookies are host-only (no Domain), `Path=/`, `SameSite=Lax`. |
+| Next.js | `next` 16.3.3 → 16.3.8 exact (clears the critical advisory for 16.0.0–16.3.7). |
+
+Verification (Node 24.13.1): typecheck and lint clean; vitest 16 files / 235 tests; `next build`
+in fixture mode and in database mode with the CI placeholder env. Each fix has a test that failed
+on the unfixed code and a planted regression the test catches. Acceptance kit `--phase all` on a
+local replay of this branch (136/136 migrations, PostgREST exposing `venue_api`, auth stub):
+**138/138**; with `venueInRouteOrg` planted to always pass, the three C6 checks fail (135/138).
+
+Hosting notes for `venue.snatchitapp.com` (code side; nothing configured):
+
+- Env (all inlined at build, so a change needs a rebuild): `NEXT_PUBLIC_VENUE_DATA_SOURCE=database`,
+  `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (anon or `sb_publishable_…`, never a
+  secret key: the app refuses one), `NEXT_PUBLIC_ENV_LABEL`. The production project still needs
+  `20260910120000_venue_api_read_views` applied and `venue_api` exposed (owner-gated).
+- Sign-in is password-only through a server action, so no Supabase Auth redirect URL is used
+  today. Adding reset or magic-link sign-in later would need `https://venue.snatchitapp.com/**` in
+  the Auth redirect allow-list.
+- Session cookies are host-only, so the venue session is never shared with `admin.snatchitapp.com`
+  or `snatchitapp.com`. They are not `HttpOnly` and not `Secure` (`@supabase/ssr` defaults); setting
+  `cookieOptions: { secure: true, httpOnly: true }` for the production host is a reasonable
+  hardening step, to be checked against the kit's H2/H3 cookie handling first.
+- No CORS is involved: the browser only talks to its own origin.
