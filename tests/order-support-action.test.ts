@@ -85,8 +85,10 @@ describe('OA1 · the control', () => {
     const url = h.opened[0];
     expect(url.startsWith('mailto:support@snatchitapp.com?subject=Order%203f2a9c1b%20%C2%B7%20Expired&body=')).toBe(true);
     expect(decodeURIComponent(url)).toContain('Role: Seller');
-    // No PII from the row reaches the URL.
-    for (const secret of ['buyer.private', '3055554417', 'Sam', 'Lantern']) expect(decodeURIComponent(url)).not.toContain(secret);
+    // The body is the order reference, its status and the role — nothing else (C review M1).
+    expect(decodeURIComponent(url.slice(url.indexOf('&body=') + '&body='.length)).startsWith(`Order ID: ${ID}\r\n`)).toBe(true);
+    // No PII from the row reaches the URL, and neither does the event name (seller free text).
+    for (const secret of ['buyer.private', '3055554417', 'Sam', 'Lantern', 'Neon', 'Choir', 'Event']) expect(decodeURIComponent(url)).not.toContain(secret);
     // Success shows no fallback and announces nothing.
     expect(textElement(host, "Couldn't open")).toBeUndefined();
     expect(h.announced).toEqual([]);

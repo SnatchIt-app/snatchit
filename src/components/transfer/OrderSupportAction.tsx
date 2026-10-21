@@ -2,8 +2,9 @@
  * src/components/transfer/OrderSupportAction.tsx — "Contact support about this order" (CFT-406, slice 1).
  *
  * One secondary action for the two order screens (buyer receive, seller send), in every transfer
- * state. It opens the support email prefilled with this order's ID, status word, event and the
- * viewer's role (src/lib/support/orderSupport.ts — no PII, built from an allowlist of fields).
+ * state. It opens the support email prefilled with this order's ID, its status word and the viewer's
+ * role — nothing else, not even the event name (src/lib/support/orderSupport.ts — no PII, no seller
+ * free text, built from an allowlist of fields).
  *
  * If the mail app cannot open, the address and the order ID appear as selectable text and are
  * announced, so the user can still write — the Support screen likewise keeps the address visible on

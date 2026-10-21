@@ -140,8 +140,9 @@ for (const [which, role] of [['receive', 'Buyer'], ['send', 'Seller']] as const)
         expect(body).toContain(`Order ID: ${ID}\r\n`);
         expect(body).toContain(`Status: ${badge!.props.label as string}\r\n`);
         expect(body).toContain(`Role: ${role}\r\n`);
-        expect(body.startsWith('Event: Neon Choir\r\n')).toBe(true);
-        for (const secret of ['buyer.private', '3055554417', 'Sam', 'Bea', 'Lantern', 'fixture-seller', 'fixture-buyer', 'fixture-listing']) {
+        // Only the order reference, its status and the role (C review M1): no event name — it is seller free text.
+        expect(body.startsWith(`Order ID: ${ID}\r\n`)).toBe(true);
+        for (const secret of ['Event', 'Neon', 'Choir', 'buyer.private', '3055554417', 'Sam', 'Bea', 'Lantern', 'fixture-seller', 'fixture-buyer', 'fixture-listing']) {
           expect(`${subject}\n${body}`, secret).not.toContain(secret);
         }
       });

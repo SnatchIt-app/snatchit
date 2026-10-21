@@ -6,27 +6,30 @@
  * channel is the support inbox (app/settings/support.tsx opens a mailto), so slice 1 prefills one:
  *
  *   Subject  Order <short ref> · <status word>
- *   Body     Event: <event name>
- *            Order ID: <full transfer id>
+ *   Body     Order ID: <full transfer id>
  *            Status: <status word>
  *            Role: Buyer | Seller
  *
  *            What happened:
  *
- * WHAT IS IN IT, and why. The full transfer id is what the admin console searches (ops.search, 116:
- * a uuid or any 8+ hex prefix of one); the short ref is that id's first 8 characters, the console's
- * own short form (admin/src/lib/format.ts `shortId`). The status word is the badge's word, from the
- * SAME derivation both order screens use for their badge, so the email never says something the screen
- * does not. Every field is one the order's own buyer or seller can already read under RLS.
+ * WHAT IS IN IT, and why: the order reference and its status, plus the viewer's role — nothing else
+ * (C review M1). The full transfer id is what the admin console searches (ops.search, 116: a uuid or
+ * any 8+ hex prefix of one); the short ref is that id's first 8 characters, the console's own short
+ * form (admin/src/lib/format.ts `shortId`). The status word is the badge's word, from the SAME selector
+ * both order screens use for their badge (orderBadgeMeta), so the email never says something the
+ * screen does not. Every field is one the order's own buyer or seller can already read under RLS.
  *
- * WHAT IS NOT. No delivery email or phone, no names, no payment or Stripe ids, no proof paths: the
- * draft is built from an explicit allowlist of fields, never by spreading the row, so whatever else
- * the caller's row carries cannot reach the URL. No dispute reason and no server intake either — the
- * reason writes into A's dispute lane and an intake needs a migration; both are out of slice 1.
+ * WHAT IS NOT. No event name — it is seller free text, and the order ID already identifies the order.
+ * No delivery email or phone, no names, no payment or Stripe ids, no proof paths: the draft is built
+ * from an explicit allowlist of fields, never by spreading the row, so whatever else the caller's row
+ * carries (the joined listing included) cannot reach the URL. No dispute reason and no server intake
+ * either — the reason writes into A's dispute lane and an intake needs a migration; both are out of
+ * slice 1.
  *
  * ENCODING (RFC 6068). Each value is percent-encoded as UTF-8 (encodeURIComponent: a space is %20,
- * never '+'), body line breaks are CRLF (%0D%0A), and single-line fields are collapsed to one line so a
- * seller-typed event name cannot add a header or end the subject early.
+ * never '+'), body line breaks are CRLF (%0D%0A), and the status word is collapsed to one line: a
+ * status this build does not know reaches the email as the badge's fallback word, and it must not add
+ * a header or end the subject early.
  *
  * Pure: no React Native, no network, no storage. Nothing here is persisted anywhere.
  */
@@ -57,7 +60,6 @@ export interface OrderSupportRow {
   buyer_confirmed_at?: string | null;
   /** A decided dispute's badge reads "Resolved". */
   dispute_resolution?: string | null;
-  listing?: { event_name?: string | null } | null;
 }
 
 export interface OrderSupportDraft {
@@ -69,8 +71,6 @@ export interface OrderSupportDraft {
   shortRef: string;
   url: string;
 }
-
-const EVENT_NAME_MAX = 200;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -94,12 +94,6 @@ function wellFormed(s: string): string {
 function oneLine(s: string | null | undefined): string {
   if (s == null) return '';
   return wellFormed(String(s)).replace(/[\u0000-\u001F\u007F-\u009F\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim();
-}
-
-/** Capped by code point, so a surrogate pair is never split. */
-function capped(s: string, max: number): string {
-  const chars = Array.from(s);
-  return chars.length <= max ? s : `${chars.slice(0, max - 1).join('')}…`;
 }
 
 /**
@@ -129,11 +123,10 @@ export function orderSupportDraft(row: OrderSupportRow, role: TransferRole): Ord
   if (!UUID.test(orderId)) return null;
   const shortRef = orderId.slice(0, 8);
   const word = orderSupportStatusWord(row, role);
-  const event = capped(oneLine(row.listing?.event_name), EVENT_NAME_MAX);
 
+  // Only the order reference, its status and the role (C review M1) — never the event name.
   const subject = word ? `Order ${shortRef} · ${word}` : `Order ${shortRef}`;
   const body = [
-    ...(event ? [`Event: ${event}`] : []),
     `Order ID: ${orderId}`,
     ...(word ? [`Status: ${word}`] : []),
     `Role: ${role === 'seller' ? 'Seller' : 'Buyer'}`,
