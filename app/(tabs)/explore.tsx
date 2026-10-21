@@ -46,6 +46,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
+import { TEXT_LINK_HIT_SLOP } from '@/src/lib/a11y/touch';
 import { allInFromDollarsV3 } from '@/src/lib/money';
 import { applyBlockedSellerFilter, useBlockedUserIds } from '@/src/hooks/useBlockedUserIds';
 import { useAnnounceOnce } from '@/src/hooks/useAnnounceOnce';
@@ -98,7 +99,7 @@ function SearchFailureNotice({ s, kind, onRetry }: { s: Styles; kind: 'offline' 
       <Text style={[textStyle('bodySm'), s.noticeText]}>
         {text}
       </Text>
-      <Pressable onPress={onRetry} hitSlop={8} accessibilityRole="button" accessibilityLabel="Retry search">
+      <Pressable onPress={onRetry} hitSlop={TEXT_LINK_HIT_SLOP} accessibilityRole="button" accessibilityLabel="Retry search">
         <Text style={[textStyle('label'), s.noticeAction]}>Retry</Text>
       </Pressable>
     </View>

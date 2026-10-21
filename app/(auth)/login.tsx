@@ -29,6 +29,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useAnnounceOnce } from '@/src/hooks/useAnnounceOnce';
+import { TEXT_LINK_HIT_SLOP } from '@/src/lib/a11y/touch';
 import { supabase } from '@/src/lib/supabase';
 import { Button, Input } from '@/src/components/ui';
 import { friendlyAuthError, validateLogin } from '@/src/lib/auth/authForms';
@@ -299,7 +300,7 @@ export default function LoginScreen() {
             />
           </View>
 
-          <Pressable onPress={handleForgotPassword} style={s.forgot} hitSlop={8} accessibilityRole="button">
+          <Pressable onPress={handleForgotPassword} style={s.forgot} hitSlop={TEXT_LINK_HIT_SLOP} accessibilityRole="button">
             <Text style={[textStyle('bodySm'), s.forgotText]}>Forgot password?</Text>
           </Pressable>
 

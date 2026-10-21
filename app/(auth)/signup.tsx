@@ -42,6 +42,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useAnnounceOnce } from '@/src/hooks/useAnnounceOnce';
+import { TEXT_LINK_HIT_SLOP } from '@/src/lib/a11y/touch';
 import { supabase } from '@/src/lib/supabase';
 import { Button, Input } from '@/src/components/ui';
 import { friendlyAuthError } from '@/src/lib/auth/authForms';
@@ -265,7 +266,7 @@ export default function SignUpScreen() {
   ) : null;
 
   const backRow = canGoBack(step) ? (
-    <Pressable onPress={() => { setMessage(null); setStep(prevStep(step)); }} style={s.alt} hitSlop={8} accessibilityRole="button">
+    <Pressable onPress={() => { setMessage(null); setStep(prevStep(step)); }} style={s.alt} hitSlop={TEXT_LINK_HIT_SLOP} accessibilityRole="button">
       <Text style={[textStyle('action'), s.altText]}>Back</Text>
     </Pressable>
   ) : null;

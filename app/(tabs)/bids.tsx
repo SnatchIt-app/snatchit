@@ -38,6 +38,7 @@ import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'rea
 import { useFocusEffect } from '@react-navigation/native';
 
 import { supabase } from '@/src/lib/supabase';
+import { TEXT_LINK_HIT_SLOP } from '@/src/lib/a11y/touch';
 import { useAuth } from '@/src/hooks/useAuth';
 import { finalSoldPrice } from '@/src/lib/salePrice';
 import { allInFromDollarsV3 } from '@/src/lib/money';
@@ -388,7 +389,7 @@ export default function BidsScreen({ fixture }: { fixture?: BidsFixture } = {}) 
               <View style={s.notice} accessibilityRole="alert">
                 <View style={s.noticeEdge} />
                 <Text style={[textStyle('bodySm'), s.noticeText]}>{BIDS_REFRESH_FAILED_COPY[loadError]}</Text>
-                <Pressable onPress={() => fetchMyBids(true)} hitSlop={8} accessibilityRole="button" accessibilityLabel="Retry loading bids and purchases">
+                <Pressable onPress={() => fetchMyBids(true)} hitSlop={TEXT_LINK_HIT_SLOP} accessibilityRole="button" accessibilityLabel="Retry loading bids and purchases">
                   <Text style={[textStyle('action'), s.noticeAction]}>Retry</Text>
                 </Pressable>
               </View>

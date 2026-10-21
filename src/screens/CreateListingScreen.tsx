@@ -946,7 +946,7 @@ export default function CreateListingScreen({ fixture }: { fixture?: CreateFixtu
             accessibilityLabel="I confirm I own these tickets and will transfer them within 24 hours of sale."
           >
             <View style={[sx.checkbox, sellerCommitmentAccepted && sx.checkboxOn]}>
-              {sellerCommitmentAccepted ? <Text style={sx.checkMark}>{'✓'}</Text> : null}
+              {sellerCommitmentAccepted ? <Text style={sx.checkMark} accessibilityElementsHidden importantForAccessibility="no">{'✓'}</Text> : null}
             </View>
             <Text style={[textStyle('bodySm'), sx.commitText]}>
               I confirm I own these tickets and will transfer them within 24 hours of sale.
@@ -1085,7 +1085,7 @@ export default function CreateListingScreen({ fixture }: { fixture?: CreateFixtu
                       <Text style={[textStyle('body'), on ? sx.sheetRowTextOn : sx.sheetRowText]}>
                         {NEIGHBORHOOD_LABELS[n]}
                       </Text>
-                      {on ? <Text style={sx.sheetCheck}>{'✓'}</Text> : null}
+                      {on ? <Text style={sx.sheetCheck} accessibilityElementsHidden importantForAccessibility="no">{'✓'}</Text> : null}
                     </Pressable>
                   );
                 })}
@@ -1125,7 +1125,7 @@ export default function CreateListingScreen({ fixture }: { fixture?: CreateFixtu
                   accessibilityState={{ selected: on }}
                 >
                   <Text style={[textStyle('body'), on ? sx.sheetRowTextOn : sx.sheetRowText]}>{label}</Text>
-                  {on ? <Text style={sx.sheetCheck}>{'✓'}</Text> : null}
+                  {on ? <Text style={sx.sheetCheck} accessibilityElementsHidden importantForAccessibility="no">{'✓'}</Text> : null}
                 </Pressable>
               );
             })}
@@ -1150,7 +1150,7 @@ export default function CreateListingScreen({ fixture }: { fixture?: CreateFixtu
                 accessibilityState={{ selected: on }}
               >
                 <Text style={[textStyle('body'), on ? sx.sheetRowTextOn : sx.sheetRowText]}>{label}</Text>
-                {on ? <Text style={sx.sheetCheck}>{'✓'}</Text> : null}
+                {on ? <Text style={sx.sheetCheck} accessibilityElementsHidden importantForAccessibility="no">{'✓'}</Text> : null}
               </Pressable>
             );
           })}

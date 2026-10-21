@@ -110,7 +110,7 @@ export function ProofImageViewer({ uri, onClose }: Props) {
           phase === 'error' ? (
             <View style={s.center}>
               <Text style={s.errorText}>{"Couldn't load the image."}</Text>
-              <Pressable style={s.retryBtn} onPress={() => setRetryKey((k) => k + 1)}>
+              <Pressable style={s.retryBtn} onPress={() => setRetryKey((k) => k + 1)} accessibilityRole="button" accessibilityLabel="Try loading the image again">
                 <Text style={s.retryText}>Try again</Text>
               </Pressable>
             </View>

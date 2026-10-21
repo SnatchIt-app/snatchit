@@ -15,6 +15,7 @@ import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-na
 
 import { EmptyState } from '@/src/components/ui';
 import { useAnnounceOnce } from '@/src/hooks/useAnnounceOnce';
+import { TEXT_LINK_HIT_SLOP } from '@/src/lib/a11y/touch';
 import { identityStacks } from '@/src/lib/design/featureMetrics';
 import { AMOUNT_MIN_FONT_SCALE, MAX_DISPLAY_FONT_SCALE, textStyle } from '@/src/theme/typography';
 import { useTheme } from '@/src/theme/appearance';
@@ -74,7 +75,7 @@ export function BidActivity({ bids, amountFor, timeFor, viewerId, highlightTop, 
           <View style={styles.noticeEdge} />
           <Text style={[textStyle('bodySm'), styles.noticeText]}>{BIDS_LOAD_FAILED_COPY}</Text>
           {onRetry ? (
-            <Pressable onPress={onRetry} hitSlop={8} accessibilityRole="button" accessibilityLabel="Retry loading bids">
+            <Pressable onPress={onRetry} hitSlop={TEXT_LINK_HIT_SLOP} accessibilityRole="button" accessibilityLabel="Retry loading bids">
               <Text style={[textStyle('action'), styles.noticeAction]}>Retry</Text>
             </Pressable>
           ) : null}

@@ -302,7 +302,7 @@ export default function ProfileScreen({ fixture }: { fixture?: ProfileFixture } 
       >
         {/* ── Identity — the board's avatar-left row: name in the display face, number beneath ── */}
         <View style={s.identity}>
-          <Pressable style={s.avatarPress} onPress={handleAvatarPress} disabled={avatarUploading} accessibilityRole="button" accessibilityLabel="Change profile photo">
+          <Pressable style={s.avatarPress} onPress={handleAvatarPress} disabled={avatarUploading} accessibilityRole="button" accessibilityLabel="Change profile photo" accessibilityState={{ disabled: avatarUploading, busy: avatarUploading }}>
             {avatarUrl ? (
               <Image source={{ uri: avatarUrl }} style={s.avatarImage} contentFit="cover" />
             ) : (
