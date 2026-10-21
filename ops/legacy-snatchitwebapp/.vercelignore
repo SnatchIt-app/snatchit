@@ -1,0 +1,7 @@
+# Upload only vercel.json and index.html. Everything below is runbook,
+# check tooling or local noise, and must never be part of the deployment.
+README.md
+verify.sh
+*.test.mjs
+.vercel
+.DS_Store
