@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { callOps } from "@/lib/ops";
 import { isIdempotencyKey, IDEMPOTENCY_FIELD } from "@/lib/idempotency";
-import { isRecord, parseApprovalDecision, toActionOutcome, type ActionOutcome, type ActionType, type ApprovalDecision } from "@/lib/types";
+import { isRecord, parseApprovalDecision, pick, str, toActionOutcome, type ActionOutcome, type ActionType, type ApprovalDecision } from "@/lib/types";
 import { coerceParam, parseParamField } from "@/lib/form-params";
 import type { OpsFailure } from "@/lib/ops-errors";
 
@@ -32,6 +32,25 @@ export type ActionFormState = {
   invalid?: string;
 };
 
+/**
+ * A mutation answer with a status the console does not know (a status added
+ * server-side after this build). Shown as a generic failure that keeps the
+ * database's own words: the status, its code and its message. No code is
+ * special-cased, so a refusal code added later renders the same way.
+ */
+function unrecognisedResponse(fn: "execute_action" | "approve_action", data: unknown): OpsFailure {
+  const r = isRecord(data) ? data : null;
+  const status = str(r?.status);
+  const code = str(pick(r, "reject_reason", "reason", "code"));
+  const message = str(pick(r, "message", "detail", "error"));
+  return {
+    ok: false,
+    kind: "error",
+    ...(code ? { code } : {}),
+    message: `Unrecognised response from ${fn}${status ? ` (status ${status})` : ""}${message ? `: ${message}` : ""}`,
+  };
+}
+
 export async function executeAction(input: ExecuteActionInput): Promise<ActionFormState> {
   if (!isIdempotencyKey(input.idempotencyKey)) {
     return { submitted: true, invalid: "Missing idempotency key — reload the page and try again." };
@@ -48,12 +67,7 @@ export async function executeAction(input: ExecuteActionInput): Promise<ActionFo
   });
   if (!res.ok) return { submitted: true, failure: res };
   const outcome = toActionOutcome(res.data);
-  if (!outcome) {
-    return {
-      submitted: true,
-      failure: { ok: false, kind: "error", message: "Unrecognised response from execute_action" },
-    };
-  }
+  if (!outcome) return { submitted: true, failure: unrecognisedResponse("execute_action", res.data) };
   return { submitted: true, outcome };
 }
 
@@ -74,12 +88,7 @@ export async function approveAction(input: {
   });
   if (!res.ok) return { submitted: true, failure: res };
   const outcome = toActionOutcome(res.data);
-  if (!outcome) {
-    return {
-      submitted: true,
-      failure: { ok: false, kind: "error", message: "Unrecognised response from approve_action" },
-    };
-  }
+  if (!outcome) return { submitted: true, failure: unrecognisedResponse("approve_action", res.data) };
   return { submitted: true, outcome };
 }
 
