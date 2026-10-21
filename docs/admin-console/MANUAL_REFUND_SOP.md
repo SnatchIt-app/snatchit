@@ -74,7 +74,7 @@ subject link.
 
 | # | Check | Where | If it fails |
 |---|---|---|---|
-| 1 | Console refund execution is off **on the server** | **System → Settings** → `refund_execute_enabled` reads **`Current: false (boolean)`**, and the Settings panel shows no failure alert [SYS:231-240], [SYS:428], [116:1593-1601]. The order page's "Disabled…" warning does **not** prove this. The page shows it whenever its own settings read fails, and it treats every value except the boolean `true` as off [ORDER:73-79]. The server also treats the text `"true"` as on [118:252]. | Settings shows an error, the key is missing, or the value is anything other than `false`: stop and escalate to A. It reads `true`: use the console refund (`OPERATING_GUIDE.md` → Taking a safe action → Execute refund) instead of this SOP. Never use both on one order. |
+| 1 | Console refund execution is off **on the server** | **System → Settings** → `refund_execute_enabled` reads **`Current: false (boolean)`**, and the Settings panel shows no failure alert [SYS:231-240], [SYS:428], [116:1593-1601]. The order page's "Disabled…" warning does **not** prove this. The page shows it whenever its own settings read fails, and it treats every value except the boolean `true` as off [ORDER:73-79]. The server also treats the text `"true"` as on [118:252]. | It reads **`Current: true (boolean)`**: use the console refund (`OPERATING_GUIDE.md` → Taking a safe action → Execute refund) instead of this SOP. Never use both on one order. **Any other result:** stop and escalate to A. That covers a Settings error, a missing key, and every value that is neither the boolean `false` nor the boolean `true`, for example the text `"true"` or `"false"` (shown as `(string)`). |
 | 2 | The order is a resale order | **Payment** panel → `mode` is `buy_now` or `auction`. | `native_primary`: stop and escalate to A. |
 | 3 | Live mode: the payment's `stripe_livemode` is `true` | The console does **not** show this. The header's "stripe test mode" badge appears only when the value is `false` [ORDER:122], so no badge means `true` **or** unclassified (`NULL`) [045:17]. Every automated money path refuses `NULL` [PL:144-152], [ETE:615-625], [ETE:780-799], [148:125-134]. | Unless A has written on the case that this payment's `stripe_livemode` is `true`, stop and escalate to A. A "stripe test mode" badge: stop and escalate to A. |
 | 4 | The decision to refund is on record | **Buyer win:** Disputes panel → In-app dispute → `dispute_resolution` reads "Resolved — buyer (refund required)" [FMT:207-211]. If the dispute is still open, record it first: **Resolve dispute** → outcome **Buyer win** (founder or risk role [115:521]). That records the decision, moves no money, and leads to the "Refund owed to buyer" case [MSE:528-546], [065:130-142]. **Expired:** Transfer status reads "Expired (seller did not send)". **Anything else:** the owner's decision, written on a case (§3). | No recorded decision means no refund. |
@@ -282,7 +282,7 @@ Leave every metadata field empty. These are the keys our code reads:
 | "Refund still pending at Stripe" (`refund_pending`, P1, keyed by `re_…`) | Still *pending*/*requires_action* after `refund_state_pending_hours` (120). Same switch [150:377-398] | Same as above [150:384-386] |
 | "Reconciliation mismatch" (`reconciliation_mismatch`, P1) | A refunded payment whose transfer has a Stripe transfer id and is not reversed [117:706-749] | When the transfer shows *Reversed* (§9) |
 | "Stripe webhook not processed" (`webhook_stuck`, P2) | A received event is still unprocessed after 15 minutes, or failed [117:535-574], [115:150] | When the event is processed |
-| Refund resolution (`refund_resolution`, P2) | When its detector is on (seeded off [144:155], [144:349]): every **expired + refunded** order [144:44-48] | Only by a person, after classifying it: close is refused without a classification [MSE:386-408]. It depends on the console build. **If the case page shows *Classify* and *Obligation* controls** (console v2 with the #89 port [CW2:241-331], not merged when this was written), classify there. For each obligation, pick *State* yourself: *Settled* only once the money has moved. **Otherwise** escalate to A. The console @ `07100a35` has no classify control (none in `admin/src`) |
+| Refund resolution (`refund_resolution`, P2) | When its detector is on (seeded off [144:155], [144:349]): every **expired + refunded** order [144:44-48] | Only by a person, after classifying it: close is refused without a classification, and while any obligation the classification raised is not recorded settled [MSE:386-408]. It depends on the console build. **If the case page shows a *Classify* control** (console v2 with the #89 port, on an open case [CW2:168], [CW2:241-331], not merged when this was written), classify there. The *Obligation* control is not there on a new case: it appears only once a classification has raised an obligation, so it never appears while none has been raised [CW2:245-246], [CW2:297-328]. For each obligation, pick *State* yourself: *Settled* only once the money has moved. **If there is no *Classify* control,** escalate to A. The console @ `07100a35` has no classify control (none in `admin/src`) |
 
 The two cases keyed by `re_…` have no payment id, so they appear in the
 **Cases** queue but not under "Cases on this order" [150:346-349],
@@ -443,7 +443,7 @@ personal data.
 | Stripe shows the refund *Failed* or *Canceled* | A + owner | Stripe asks the platform to arrange another way to refund [150:366-367]. Record it on the case |
 | *Pending* for more than 5 days (120 h, the detector's threshold [150:260]) | A | Note it on the case |
 | A refund already listed in Stripe before you acted (§2 row 10), or the expiry job missed an expired order | A | Do not refund |
-| A refund-resolution case when the case page has no *Classify* control, or one you cannot close after classifying (§5.4) | A | Leave it open |
+| A refund-resolution case whose page has no *Classify* control, or one you cannot classify, or cannot close after classifying (§5.4) | A | Leave it open |
 | `native_primary` order, a test-mode order, a payment whose live mode A has not confirmed (§2 row 3), or a PaymentIntent the live-mode Dashboard cannot find (§2 row 10) | A | Nothing in Stripe |
 | Any check in §2 is unclear | A | Do not refund |
 
@@ -491,8 +491,8 @@ guards that keep the money records consistent.
   2 at `6f982f36`).
 - Each payment's `stripe_livemode`. The console shows only `false`, so A
   confirms `true` per order (§2 row 3).
-- Which console build is deployed: `07100a35`, or console v2 with the
-  *Classify* and *Obligation* controls (§5.4).
+- Which console build is deployed: `07100a35`, or console v2 with the #89
+  port, whose open refund-resolution cases show a *Classify* control (§5.4).
 - The current values of `refund_execute_enabled`,
   `refund_state_detection_enabled`, `refund_resolution_detector_enabled` and
   `detectors_enabled` in production. Founders can read them under System →
