@@ -41,7 +41,10 @@
 --       with different bodies than the repo chain (126 refund metrics): each must carry its
 --       production md5 or its chain md5 (replay/fp_chain/functions.json), nothing else.
 --       refund_facts is the one ops function production lacks (chain only) and the only exclusion.
---       The three redefined bodies are live; the index definition is exact.
+--       The three redefined bodies are live; the index definition is exact. T12.4 pins approve_action's LOCK
+--       ORDER statically (no single-session test can observe it): in its live definition, comments stripped, the
+--       first pg_advisory_xact_lock comes before the first FOR UPDATE (an approve_action that locks the row first
+--       could deadlock against execute_action's sweep).
 --
 -- Fixtures: ten orders (listing + succeeded payment + seller_sent transfer) under fixed ids
 -- aaaaaaaa/bbbbbbbb/cccccccc-0224-...; founders A = tap.admin_user() (seed_core), B =
@@ -51,7 +54,7 @@
 -- or by a writer that bypasses execute_action; every other row comes from the RPCs.
 -- ============================================================================
 BEGIN;
-SELECT plan(140);
+SELECT plan(141);
 SELECT tap.seed_core();
 
 INSERT INTO public.admin_users (user_id, label) VALUES (tap.other_user(), 'FOUNDER B') ON CONFLICT (user_id) DO NOTHING;
@@ -725,6 +728,15 @@ SELECT is((SELECT count(*)::int FROM (VALUES
 SELECT is((SELECT pg_get_indexdef(to_regclass('ops.action_money_unsettled_uidx'))),
           'CREATE UNIQUE INDEX action_money_unsettled_uidx ON ops.action USING btree (action_type, subject_kind, subject_id) WHERE ((action_type = ANY (ARRAY[''refund_execute''::text, ''payout_release''::text])) AND (state = ANY (ARRAY[''requested''::text, ''awaiting_approval''::text, ''processing''::text, ''unknown''::text, ''succeeded_at_provider''::text])))',
   'T12.3: action_money_unsettled_uidx has the exact definition');
+-- T12.4: static lock order. Comments are stripped first (the 157 comment above the lock says "FOR UPDATE" in prose)
+-- and whitespace is collapsed, so "for update" matches however the clause is wrapped.
+SELECT is((SELECT CASE WHEN lk = 0 THEN 'no pg_advisory_xact_lock' WHEN fu = 0 THEN 'no FOR UPDATE'
+                       WHEN lk < fu THEN 'advisory lock first' ELSE 'FOR UPDATE first' END
+             FROM (SELECT position('pg_advisory_xact_lock(' IN d) AS lk, position('for update' IN d) AS fu
+                     FROM (SELECT regexp_replace(regexp_replace(lower(pg_get_functiondef('ops.approve_action(uuid,text,text)'::regprocedure)),
+                                                                '--[^\n]*', '', 'g'), '\s+', ' ', 'g') AS d) x) y),
+          'advisory lock first',
+  'T12.4: approve_action takes the order advisory lock before its first FOR UPDATE (static lock order, comments stripped)');
 
 SELECT * FROM finish();
 ROLLBACK;

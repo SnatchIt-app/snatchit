@@ -5,20 +5,37 @@
 --   ops.approve_action  md5 5de6235288b38792c31dca3e6b3f89af
 --   ops.order_detail    md5 04d4e05f6c533fa428c4f7123d20eba8
 --   no ops.action_money_unsettled_uidx; no ops.money_order_id / money_unsettled_blocker / expire_stale_money_approvals.
+-- STACKING GUARD (first statement): 158 (20261021110000_ops_listing_relist_expected.sql) is written on 157's bodies and
+--   redefines ops.action_dispatch. Unless ops.action_dispatch still has production's md5 bfb8b9dcfaace5ff04009f96b6de7bef
+--   this file RAISEs 'roll back 158 (20261021110000) first' before it changes anything: restoring the production
+--   bodies under 158 would silently discard 158's change, and the md5 verification below would still pass.
 -- WHAT: drops the index; restores the three bodies VERBATIM (the production pg_get_functiondef text, byte for byte —
 --   not an older repo migration: the repo chain differs from production in 17 functions); re-states their production
 --   ACL (postgres + authenticated EXECUTE); drops the three helpers; then VERIFIES inside the same transaction that
---   md5(pg_get_functiondef(...)) equals the production md5s and that the helpers and the index are gone. Any
---   mismatch RAISEs, so a partial or drifted rollback changes nothing.
+--   md5(pg_get_functiondef(...)) equals the production md5s, that each ACL equals production's, and that the helpers
+--   and the index are gone. Any mismatch RAISEs (the message names, per function, which of md5 / ACL differs, with
+--   the live value), so a partial or drifted rollback changes nothing.
 -- KEEPS: every ops.action row. 'rejected' / reject_reason 'duplicate_unsettled' refusals stay as history (valid
 --   rejected rows; reject_reason has no check constraint), and approvals expired by the 157 sweep stay expired
 --   (exactly what approve_action would have recorded).
 -- AFTER ROLLBACK: duplicate unsettled refund/payout requests are accepted again (the pre-157 defect), and
 --   ops.order_detail no longer returns 'unsettled_money_actions' — a console that reads it must fall back to the
 --   capped 'actions' list or ops.list_actions (F's documented fallback). The refusal envelope simply stops occurring.
--- ORDER: independent of the 154–156 rollbacks (157 touches only ops.*). Run only under owner approval.
+-- ORDER: independent of the 154–156 rollbacks (157 touches only ops.*). If 158 is applied, roll 158 back FIRST (the
+--   stacking guard refuses otherwise). Run only under owner approval.
 -- ============================================================================
 BEGIN;
+-- ── stacking guard: refuse (nothing changed) while 158 is applied ───────────
+DO $stack157$
+DECLARE
+  v_md5 text := md5(pg_get_functiondef(to_regprocedure('ops.action_dispatch(ops.action)')));
+BEGIN
+  IF v_md5 IS DISTINCT FROM 'bfb8b9dcfaace5ff04009f96b6de7bef' THEN
+    RAISE EXCEPTION '157 rollback refused (nothing changed): ops.action_dispatch md5 % is not production''s bfb8b9dcfaace5ff04009f96b6de7bef; roll back 158 (20261021110000) first', coalesce(v_md5, '<missing>')
+      USING ERRCODE = 'P0001';
+  END IF;
+END
+$stack157$;
 SET LOCAL lock_timeout = '3s';
 
 DROP INDEX IF EXISTS ops.action_money_unsettled_uidx;
@@ -273,16 +290,25 @@ DO $verify157$
 DECLARE
   v_bad text;
 BEGIN
-  SELECT string_agg(v.sig || ' md5 ' || coalesce(md5(pg_get_functiondef(to_regprocedure(v.sig))), '<missing>') || ' <> production ' || v.prod_md5, '; ')
+  SELECT string_agg(c.sig || ': '
+                    || CASE WHEN c.live_md5 IS DISTINCT FROM c.prod_md5
+                            THEN 'md5 ' || coalesce(c.live_md5, '<missing>') || ' <> production ' || c.prod_md5
+                            ELSE 'md5 ok' END
+                    || ', '
+                    || CASE WHEN c.live_acl IS DISTINCT FROM c.prod_acl
+                            THEN 'ACL ' || coalesce(c.live_acl, '<default>') || ' <> production ' || c.prod_acl
+                            ELSE 'ACL ok' END, '; ' ORDER BY c.sig)
     INTO v_bad
-    FROM (VALUES ('ops.execute_action(text,text,text,uuid,jsonb,text,jsonb,text)', 'e59c158453adabc662431cac9dca1040'),
-                 ('ops.approve_action(uuid,text,text)',                             '5de6235288b38792c31dca3e6b3f89af'),
-                 ('ops.order_detail(uuid)',                                         '04d4e05f6c533fa428c4f7123d20eba8')) v(sig, prod_md5)
-   WHERE md5(pg_get_functiondef(to_regprocedure(v.sig))) IS DISTINCT FROM v.prod_md5
-      OR (SELECT array_to_string(proacl, ',') FROM pg_proc WHERE oid = to_regprocedure(v.sig))
-         IS DISTINCT FROM 'postgres=X/postgres,authenticated=X/postgres';
+    FROM (SELECT v.sig, v.prod_md5, 'postgres=X/postgres,authenticated=X/postgres'::text AS prod_acl,
+                 md5(pg_get_functiondef(to_regprocedure(v.sig))) AS live_md5,
+                 (SELECT array_to_string(p.proacl, ',') FROM pg_proc p WHERE p.oid = to_regprocedure(v.sig)) AS live_acl
+            FROM (VALUES ('ops.execute_action(text,text,text,uuid,jsonb,text,jsonb,text)', 'e59c158453adabc662431cac9dca1040'),
+                         ('ops.approve_action(uuid,text,text)',                             '5de6235288b38792c31dca3e6b3f89af'),
+                         ('ops.order_detail(uuid)',                                         '04d4e05f6c533fa428c4f7123d20eba8')) v(sig, prod_md5)) c
+   WHERE c.live_md5 IS DISTINCT FROM c.prod_md5
+      OR c.live_acl IS DISTINCT FROM c.prod_acl;
   IF v_bad IS NOT NULL THEN
-    RAISE EXCEPTION '157 rollback verification failed (nothing changed): %', v_bad USING ERRCODE = 'P0001';
+    RAISE EXCEPTION '157 rollback verification failed (nothing changed): md5 or ACL mismatch: %', v_bad USING ERRCODE = 'P0001';
   END IF;
   IF to_regclass('ops.action_money_unsettled_uidx') IS NOT NULL
      OR to_regprocedure('ops.money_order_id(text,uuid)') IS NOT NULL

@@ -14,13 +14,17 @@
 --   (result.duplicate_action); F's evidence: F_EVIDENCE_20261021.md.
 --
 -- STATES (ops.action_state_check). Unsettled: requested, awaiting_approval, processing, unknown,
---   succeeded_at_provider. Terminal: succeeded, failed, rejected ('denied', 'approval_expired', 'stale' and
---   'duplicate_unsettled' are reject_reasons of 'rejected', not states).
+--   succeeded_at_provider. Terminal: succeeded, failed, rejected ('denied', 'approval_expired', 'approval_stale'
+--   and 'duplicate_unsettled' are reject_reasons of 'rejected', not states; 'stale' is an ops.approval state).
 --
 -- WHAT.
---   1. Pre-flight (read-only DO block, first): RAISEs, listing the action ids, if any order already holds two
---      unsettled money actions (same type and subject, or refund on P plus payout_release on P's transfer), or
---      if two unsettled rows share the index key below. Nothing changes when it raises. Expected 0.
+--   1. Apply lock, then pre-flight. Right after SET LOCAL lock_timeout: LOCK TABLE ops.action IN SHARE ROW
+--      EXCLUSIVE MODE, held to COMMIT (the brief write block in ROLLOUT 2). It waits for open ops.action writers,
+--      so the pre-flight sees their rows, and keeps every new ops.action write out, so nothing lands between the
+--      pre-flight and the index build. Then the pre-flight (read-only DO block): RAISEs, listing the action ids,
+--      if any order already holds two unsettled money actions (same type and subject, or refund on P plus
+--      payout_release on P's transfer), or if two unsettled rows share the index key below. Nothing changes when
+--      it raises. Expected 0.
 --   2. Internal helpers (SECURITY DEFINER, search_path '', EXECUTE revoked from PUBLIC/anon/authenticated:
 --      the ops.action_precheck ACL, postgres=X/postgres):
 --        ops.money_order_id(p_subject_kind, p_subject_id) -> uuid: the payment id for a 'payment' subject (the
@@ -65,12 +69,23 @@
 --      unsettled states, as ops.action_row(a) plus approval_id, approval_expires_at, approval_expired. The capped
 --      'actions' key (50) is unchanged.
 --
--- LOCK ORDER. execute_action (money): order advisory lock -> its own new row -> the sweep's rows (action, then
---   approval). approve_action (money): order advisory lock -> action row FOR UPDATE -> approval FOR UPDATE ->
---   action_run / action_dispatch (payments or transfers FOR UPDATE, as before). Both take the advisory lock first,
+-- LOCK ORDER. execute_action (money), in code order: order advisory lock -> idempotency-key re-check (a plain
+--   read) -> sweep (ops.expire_stale_money_approvals: the order's expired awaiting_approval action rows and their
+--   pending approval rows, FOR UPDATE OF both) -> blocker read (plain) -> INSERT of its own row (accepted, or
+--   directly 'rejected'); the new row is invisible to other sessions until COMMIT. approve_action (money): order
+--   advisory lock -> action row FOR UPDATE -> approval FOR UPDATE -> action_run / action_dispatch (payments or
+--   transfers FOR UPDATE, as before); pgTAP 224 T12.4 pins this order statically. Both take the advisory lock first,
 --   so they serialize per order and cannot form a cycle. executor_claim, record_action_outcome and
 --   detect_refunds take no advisory lock and only touch processing / unknown / succeeded_at_provider rows, which
 --   the sweep never updates. Non-money types take no new lock.
+--
+-- ISOLATION. The lock-then-check assumes READ COMMITTED (the server default, and what PostgREST runs an RPC in):
+--   every statement after pg_advisory_xact_lock takes a fresh snapshot, so the sweep and the blocker read see the
+--   money action that the previous lock holder committed. A direct caller in REPEATABLE READ or SERIALIZABLE reads
+--   with a snapshot taken before the lock and is OUTSIDE the cross-type guarantee (refund on P vs payout_release on
+--   P's transfer can both park). The backstop index still refuses a same-type duplicate for every caller and
+--   isolation level (there it surfaces as the raised 23505 on action_money_unsettled_uidx: the blocker re-read
+--   cannot see the colliding row in that snapshot).
 --
 -- NOT COVERED (by design).
 --   - A refund AFTER a SETTLED (succeeded) payout is not blocked: a succeeded payout_release is terminal. It
@@ -85,14 +100,25 @@
 -- ROLLOUT (each step an owner decision).
 --   1. Read-only pre-flight count in production (the DO block's query, as SELECT). Expected 0 rows; at
 --      2026-10-15 ops.action held 5 rows, none refund/payout, and 0 approvals.
---   2. Apply this file (one transaction; lock_timeout 3s; ACCESS EXCLUSIVE only for the function swaps and a
---      SHARE lock on ops.action while the index builds over a handful of rows).
+--   2. Apply this file (one transaction; lock_timeout 3s). Locks (pg_locks on a clone before COMMIT, private-evidence
+--      a157/polish/p01_lockprobe.out; the window it closes and the residual below: p02_preflight_race.out):
+--      SHARE ROW EXCLUSIVE on ops.action from the LOCK (section 0) to COMMIT, a BRIEF WRITE BLOCK: every ops.action
+--      INSERT / UPDATE / DELETE (execute_action, approve_action, executor_claim, record_action_outcome,
+--      detect_refunds) waits until COMMIT; reads (order_detail, list_actions, the console's lists) do not. The LOCK
+--      waits at most 3 s for an open ops.action writer, else the apply fails and nothing changes. CREATE INDEX adds
+--      a SHARE lock on ops.action inside that hold and ACCESS EXCLUSIVE on the new index only. CREATE OR REPLACE
+--      FUNCTION takes no table lock (it rewrites its pg_proc row; ACCESS SHARE object locks on the schema, language
+--      and owner role). The pre-flight and the SQL helpers' validation take ACCESS SHARE on payments, transfers and
+--      ops.approval. No existing table is locked ACCESS EXCLUSIVE. Not closable here: a pre-157 execute_action that
+--      is already waiting on the lock at COMMIT resumes with the body it started with (the pre-157 logic), after
+--      the pre-flight; hence the post-apply pre-flight re-run in VERIFY.
 --   3. Console: no deploy needed. The refusal is the existing 'rejected' envelope, which the live console
 --      renders as "Rejected: duplicate_unsettled" plus the message. F may later read unsettled_money_actions.
 -- ROLLBACK: supabase/rollbacks/20261021100000_ops_money_action_unsettled_guard_rollback.sql. Drops the index,
 --   restores the three bodies VERBATIM from production (prod_ops_action_defs.json), drops the helpers, and
 --   verifies md5(pg_get_functiondef) = the production md5s. 'rejected' / duplicate_unsettled rows stay as
---   history (valid rejected rows; reject_reason has no check constraint).
+--   history (valid rejected rows; reject_reason has no check constraint). It refuses, changing nothing, while 158
+--   (20261021110000, stacked on these bodies) is applied: roll back 158 first.
 -- CI (four-file rule): no change. Gate-2 census and the grant manifests cover schema public only
 --   (.github/workflows/ci.yml:605-608, :723, :730; supabase/ci/assert_public_table_grant_decisions.sql:315, :601);
 --   ci.yml:638 records that the ops migrations add nothing to public. This file adds nothing to public.
@@ -101,12 +127,18 @@
 --   -- 0da9bc63acb58f1d76a86f8039c0c877
 --   select md5(pg_get_functiondef('ops.approve_action(uuid,text,text)'::regprocedure));  -- 60fb8ce43d5ff1b051e379ac6affb53f
 --   select md5(pg_get_functiondef('ops.order_detail(uuid)'::regprocedure));               -- 4358f577291f84b25986b8904b38ab36
--- FAILURE BEHAVIOUR: one transaction. The pre-flight RAISE, a lock timeout or any error leaves production exactly
---   as it was.
+--   Then re-run the pre-flight query (section 1's WITH ... as a plain SELECT): expected 0 rows (see ROLLOUT 2).
+-- FAILURE BEHAVIOUR: one transaction. The pre-flight RAISE, a lock timeout (the apply LOCK or any later lock) or
+--   any error leaves production exactly as it was.
 -- OWNER APPROVAL POINT: prepared and tested locally only; applying it is a separate owner approval.
 -- ============================================================================
 BEGIN;
 SET LOCAL lock_timeout = '3s';
+
+-- ── 0. apply lock, held to COMMIT (a brief write block on ops.action; see ROLLOUT 2) ─
+-- Waits (at most lock_timeout) for open ops.action writers to finish, so the pre-flight sees their rows, and keeps
+-- every new ops.action write out until COMMIT, so nothing lands between the pre-flight and the index build.
+LOCK TABLE ops.action IN SHARE ROW EXCLUSIVE MODE;
 
 -- ── 1. pre-flight (read-only) ───────────────────────────────────────────────
 DO $pre157$

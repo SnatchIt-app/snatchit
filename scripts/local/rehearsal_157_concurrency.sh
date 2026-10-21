@@ -16,7 +16,10 @@
 #   G3 cross pair: session 1 refund_execute on P, session 2 payout_release on T(P) -> waits, then
 #      duplicate_unsettled (cross_type). G3R the reverse order (payout first, then refund).
 #   G4 CONTROL — G1 against the clone WITHOUT 157: session 2 does not wait and both requests park:
-#      two unsettled rows (the defect, reproduced on the same fixture).
+#      two unsettled rows (the defect, reproduced on the same fixture). "Does not wait" is a lock-wait
+#      indicator, not a wall-clock bound (a < 1000 ms check flaked at 1018 ms under load): session 2 runs under
+#      lock_timeout 500ms, so any wait on session 1's locks (which it holds 3 s) errors, and pg_stat_activity,
+#      polled while session 2 runs, must never show it in a Lock wait (wait_event 'advisory' under 157).
 #   G5 same-key race: session 2 reuses session 1's key -> waits, then idempotent_replay of session 1's
 #      action (never duplicate_unsettled, never a second row).
 #   G6 approve race on a LEGACY cross pair (two awaiting rows written directly, as before 157): session 1
@@ -106,18 +109,30 @@ report() { if [ "$2" = "PASS" ]; then echo "  PASS $1 — $3"; else echo "  FAIL
 
 # race <db> <session-1 sql> <session-2 sql> : runs s1 in the background and starts s2 only once s1 is inside its
 # 3 s hold (pg_stat_activity: application_name r157_s1, wait_event PgSleep), so s1 has made its call and holds
-# its locks; sets R1, R2, W (ms s2 took). Fixed sleeps proved flaky under load (a first run started s2 first).
+# its locks; sets R1, R2, W (ms s2 took) and LW: the heavyweight-lock waits pg_stat_activity showed for s2
+# (application_name r157_s2, wait_event_type Lock, e.g. 'advisory'), polled while s2 runs; 'none' if never seen.
+# Fixed sleeps proved flaky under load (a first run started s2 first).
 race() {
   ( PGAPPNAME=r157_s1 psql -X -At -d "$1" -c "$2" > "$TMP/s1" 2>&1 ) &
-  local i=0
+  local p1=$! i=0
   until [ "$(q "$1" "select count(*) from pg_stat_activity where application_name = 'r157_s1' and wait_event = 'PgSleep'")" = "1" ] || [ $i -ge 200 ]; do
     sleep 0.05; i=$((i + 1))
   done
   [ $i -ge 200 ] && echo "  (warning: session 1 never reached its hold; the result below is not a race)"
   local t0; t0=$(ms)
-  R2=$(psql -X -At -d "$1" -c "$3" 2>&1 | grep '^R=' | sed 's/^R=//'); local t1; t1=$(ms); wait
-  W=$((t1 - t0)); R1=$(grep '^R=' "$TMP/s1" | sed 's/^R=//')
+  ( PGAPPNAME=r157_s2 psql -X -At -d "$1" -c "$3" > "$TMP/s2" 2>&1 ) &
+  local p2=$! w
+  : > "$TMP/lw"
+  while kill -0 "$p2" 2>/dev/null; do
+    w=$(q "$1" "select coalesce(string_agg(distinct wait_event, ','), '') from pg_stat_activity where application_name = 'r157_s2' and wait_event_type = 'Lock'")
+    [ -n "$w" ] && echo "$w" >> "$TMP/lw"
+    sleep 0.02
+  done
+  wait "$p2"; local t1; t1=$(ms); wait "$p1"
+  W=$((t1 - t0)); R1=$(grep '^R=' "$TMP/s1" | sed 's/^R=//'); R2=$(grep '^R=' "$TMP/s2" | sed 's/^R=//')
   grep -qi 'deadlock\|ERROR' "$TMP/s1" && R1="ERROR:$(grep -i error "$TMP/s1" | head -1)"
+  grep -qi 'ERROR' "$TMP/s2" && R2="ERROR:$(grep -i error "$TMP/s2" | head -1)"
+  LW=$(sort -u "$TMP/lw" | tr '\n' ' ' | sed 's/ $//'); [ -n "$LW" ] || LW=none
 }
 
 echo "157 concurrency rehearsal: db=$DB control=$CDB $(date -u +%FT%TZ)"
@@ -150,12 +165,15 @@ n=$(unsettled "$DB" 4)
   && report G3R PASS "payout s1=$(field "$R1" 1); refund s2 waited ${W}ms then $(field "$R2" 2) ($(field "$R2" 5)); unsettled rows=$n" \
   || report G3R FAIL "s1=$R1 s2=$R2 waited=${W}ms unsettled=$n"
 
-# G4: CONTROL — G1 on the clone without 157
-race "$CDB" "$(hold_ex "$CDB" $A k157-g4-a refund_execute payment "$(P 1)")" "$(ex "$CDB" $B k157-g4-b refund_execute payment "$(P 1)")"
+# G4: CONTROL — G1 on the clone without 157. "s2 did not wait" = no lock wait, not a wall-clock bound: s2 runs
+# under lock_timeout 500ms (a wait on s1's 3 s hold would raise) and pg_stat_activity never showed it in a Lock wait.
+s2=$(ex "$CDB" $B k157-g4-b refund_execute payment "$(P 1)" | sed "s/^begin; /begin; set local lock_timeout = '500ms'; /")
+case "$s2" in "begin; set local lock_timeout = '500ms'; "*) ;; *) echo "  FAIL G4 — could not build session 2's SQL"; fail=1 ;; esac
+race "$CDB" "$(hold_ex "$CDB" $A k157-g4-a refund_execute payment "$(P 1)")" "$s2"
 n=$(unsettled "$CDB" 1)
-[ "$(field "$R1" 1)" = "awaiting_approval" ] && [ "$(field "$R2" 1)" = "awaiting_approval" ] && [ $W -lt 1000 ] && [ "$n" = "2" ] \
-  && report G4 PASS "CONTROL without 157: s2 did not wait (${W}ms), both parked ($(field "$R1" 1) / $(field "$R2" 1)): $n unsettled refund rows on one payment — the defect" \
-  || report G4 FAIL "control did not reproduce the defect: s1=$R1 s2=$R2 waited=${W}ms unsettled=$n"
+[ "$(field "$R1" 1)" = "awaiting_approval" ] && [ "$(field "$R2" 1)" = "awaiting_approval" ] && [ "$LW" = "none" ] && [ "$n" = "2" ] \
+  && report G4 PASS "CONTROL without 157: s2 never waited on a lock (Lock waits seen: $LW; lock_timeout 500ms not hit; ${W}ms, informational) while s1 held its transaction; both parked ($(field "$R1" 1) / $(field "$R2" 1)): $n unsettled refund rows on one payment — the defect" \
+  || report G4 FAIL "control did not reproduce the defect: s1=$R1 s2=$R2 s2 Lock waits=$LW (${W}ms) unsettled=$n"
 
 # G5: same-key race, order 5
 race "$DB" "$(hold_ex "$DB" $A k157-g5-same refund_execute payment "$(P 5)")" "$(ex "$DB" $B k157-g5-same refund_execute payment "$(P 5)")"
