@@ -287,3 +287,12 @@ Hosting notes for `venue.snatchitapp.com` (code side; nothing configured):
   cover `*.venue.snatchitapp.com` only, never `admin.snatchitapp.com` or the apex; it is omitted
   because nothing is served under this host (admin sends it from its own host).
 - No CORS is involved: the browser only talks to its own origin.
+
+### Full gates run 2026-10-21 (wave 4, local, Node 24.13.1; CI on Node 22 runs on the PR)
+Supersedes the "still owed (heavy slot)" notes above.
+- `npm ci`, typecheck, lint: exit 0. `npm test`: **18 files / 294 tests**.
+- `next build` in fixtures mode (title "Venue dashboard · DEMO") and in database mode with placeholder env (title "Venue dashboard · Snatch It"): both exit 0.
+- `next start` headers: HSTS `max-age=63072000` outside dev, Permissions-Policy, self-only CSP with `frame-ancestors 'none'`.
+- Acceptance kit `--phase all`, LOCAL target, on a clone of the production-chain replay with registry 159 applied: **140/140**. That includes H2/H3/H6 with the new `sb-venue-auth-token` cookie (Secure, HttpOnly, SameSite=Lax, host-only).
+- Planted negative control (venue-in-route-org forced true): 137/140, exit 1 (3 C6 checks fail). After restore: 140/140.
+- Not run: the sandbox window, and any hosted environment. The kit's apply phase needs a ledger and the migration file from branch `venue/api-read-views-provisional`; the window run uses the ref A merges.
