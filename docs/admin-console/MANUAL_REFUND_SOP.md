@@ -61,7 +61,11 @@ opens one for any payment that is not `refunded` and either [150:277-302],
 
 Any other refund is an **owner decision**: a goodwill refund, a cancelled
 event, or a refund on an order the buyer confirmed. Record that decision on a
-case first (§3), then run every check in §2, especially row 8.
+case first (§3), then run every check in §2, especially row 8. On a transfer
+that is neither *Disputed* nor *Expired*, the seller can still be paid while
+you refund. A must first check the payout attempts (confirmed or
+auto-released transfers) or freeze the payout (any other status) before the
+money step (§2, "Row 8: the seller payout").
 
 ## 2. Prerequisites (all read-only, all in the console unless marked)
 
@@ -77,9 +81,37 @@ subject link.
 | 5 | The payment is captured | The header badge reads **"payment: Captured"** (`succeeded`) [FMT:65-73]. The Execute refund panel only renders in this state [ORDER:83]. | "Refund recorded (not confirmed settled)": a refund already exists, so do not refund. Go to §7. Pending, Processing or Failed: the payment is not captured. Stop and escalate to A. |
 | 6 | No Stripe chargeback **of any status** | Disputes panel → **Stripe disputes (chargebacks)** reads "No Stripe disputes (chargebacks) on this payment." [ORDER:262-265], [ORDER:521]. | **Any row, whatever its status** (still open, won, lost or otherwise closed): do not refund; stop and escalate to A. A lost chargeback reaches the payment row only through the `charge.dispute.closed` webhook, as a `dispute_lost` refund record [WH:680-698]; if that webhook was missed, the payment still reads *Captured*. While a chargeback is open, Stripe refuses a refund on the charge (Stripe behaviour, not verified; the console executor treats it as a definite error [ORE:110]). A chargeback has its own process (`OPERATING_GUIDE.md`, "Evidence due"). |
 | 7 | No console refund attempt in flight or parked | Refund panel → **Refund execution attempts** is absent or lists only *Rejected* rows [ORDER:295-302]. A row can read *Requested*, *Awaiting approval*, *Processing — …*, *Outcome unknown*, *Succeeded at provider*, *Succeeded*, *Failed* or *Rejected* [FMT:115-124], [FMT:140-149]. | *Awaiting approval*: the request is parked, and it still runs if the setting is later turned on and the other founder approves it [118:217-220]. Before the money step, the founder who did **not** request it opens **System → Approvals** and presses **Deny**, with a reason. The requester cannot decide their own request [SYS:395-396], [SYS:404]. A denied action reads *Rejected* [118:209-214]; re-check this row. If the deny is refused, escalate to A. **Any other state except *Rejected***: stop. `RUNBOOK.md` §5.3 forbids a hand refund while a console attempt is in flight [RUNBOOK:129-133]. Escalate to A with the action id. |
-| 8 | The seller has not been paid | **Seller funds state** panel [ORDER:216-243]: "Release recorded at" is empty, **and** "Stripe Transfer (connected account)" reads "none — funds not released", **and** the funds state is not "Release scheduled". | Either field set: this is a refund after payout (§9), an owner decision. "Release scheduled": stop and escalate, because the payout worker may be about to create the transfer. |
+| 8 | The seller has not been paid, and cannot be paid while you refund | **Transfer** panel status and **Seller funds state** panel [ORDER:178-243]: "Release recorded at" is empty, **and** "Stripe Transfer (connected account)" reads "none — funds not released", **and** the transfer status passes "Row 8: the seller payout" below. **Re-check this row immediately before you click Refund.** | Either release field set: this is a refund after payout (§9), an owner decision. Otherwise do what "Row 8: the seller payout" says for the transfer's status. |
 | 9 | Full amount | You will refund exactly the Payment panel's **"Total charged to buyer"**. | Anything less is a partial refund (§8), an owner decision. |
 | 10 | *(In Stripe, read-only)* Nothing refunded yet | Stripe Dashboard in **live mode** → the PaymentIntent (`pi_…`, copied from the Payment panel): it is found, the amount equals the console's total, **no refund is listed** and **no dispute is listed**. | The PaymentIntent is not found in live mode: stop and escalate to A. Never switch the Dashboard to test mode to look for it or refund it there. A dispute is listed: stop and escalate to A, because the console may have missed its webhook (row 6). A refund is already listed, in any status: do not refund again. Escalate to A, because the console has not recorded it yet. The amount differs: stop and escalate. |
+
+**Row 8: the seller payout.** A payout can be claimed only for a transfer
+that is *Buyer confirmed* or *Auto-released*, and only while the payment is
+`succeeded` [148:99-101], [148:121-124].
+
+- ***Disputed*** (a buyer win) or ***Expired (seller did not send)***: the
+  claim refuses it [148:96-101]. Row 8 passes once both release fields are
+  empty.
+- ***Buyer confirmed***, ***Auto-released***, ***Resolved — seller (no buyer
+  confirmation)*** or ***Confirmed status, no confirmation record***
+  [FMT:266-276], or funds state "Release scheduled", or a Transfer panel
+  `buyer_confirmed_at` with a "Payout state" other than exactly "Not
+  released": stop and escalate to A to check the payout attempts, whatever
+  the other fields say. The payout sweep picks these transfers up
+  [ETE:1292-1308], [ETE:1328-1357]. After a genuine buyer confirmation,
+  neither manual review nor a hold stops the claim [148:102-119], and the
+  funds state then reads "Manual payout review" or "Held" instead of
+  "Release scheduled" [116:231-235]. An attempt whose outcome is unknown
+  leaves both release fields empty while Stripe may already have created the
+  transfer [149:65-75]. The console has no payout-attempts view.
+- **Any other status** (*Awaiting seller delivery*, *Seller marked sent*;
+  funds "Awaiting buyer confirmation / auto-release", "Held" or "Manual
+  payout review"). Only an owner-decided refund reaches here. Before the
+  money step, A freezes the payout so that it cannot be claimed, and writes
+  on the case how. A buyer confirmation releases the payout straight away
+  [CAR:4-8], and neither manual review nor a hold stops a genuine
+  confirmation [148:102-119], so A chooses the freeze. Then re-check row 8
+  immediately before you click Refund.
 
 **Expired orders only.** The expiry job refunds expired orders on its own.
 Phase 1 refunds each newly expired order once and skips any payment already
@@ -396,6 +428,7 @@ personal data.
 |---|---|---|
 | A refund-after-payout, a partial refund, a reversal, a goodwill refund, or any refund not covered by §1 | Owner | Nothing in Stripe until the decision is on the case |
 | A partial refund on an **expired** order (§8) | A + owner | Nothing in Stripe: the expiry job would refund the rest |
+| A confirmed or auto-released transfer, or an owner-decided refund that needs the payout frozen first (§2, "Row 8: the seller payout") | A | Nothing in Stripe until A has written on the case that the payout cannot be claimed |
 | Stripe shows the refund *Succeeded*, but after 30 minutes the console still shows *Captured* | A | Check **System → Webhook backlog** and any "Stripe webhook not processed" case. Do not refund again, and do not edit the database. Webhooks are re-sent from the Stripe Dashboard, never replayed from the console (`OPERATING_GUIDE.md`) |
 | Stripe shows the refund *Failed* or *Canceled* | A + owner | Stripe asks the platform to arrange another way to refund [150:366-367]. Record it on the case |
 | *Pending* for more than 5 days (120 h, the detector's threshold [150:260]) | A | Note it on the case |
@@ -475,6 +508,7 @@ Gate = `origin/release/production-gate-20260918` @ `6f982f36`. Console =
 | WH | `supabase/functions/stripe-webhook/index.ts` | gate; `WH@037092f0` = the same file before 150 (parent of `98ccf6da`) |
 | ETE | `supabase/functions/enforce-transfer-expiry/index.ts` | gate |
 | PL | `supabase/functions/_shared/payout-logic.ts` | gate |
+| CAR | `supabase/functions/confirm-and-release/index.ts` | gate |
 | ORE | `supabase/functions/ops-refund-execute/README.md` | gate |
 | RUNBOOK | `docs/admin-console/RUNBOOK.md` | console |
 | DAY5 | `docs/operations/DAY5_MANUAL_REFUND_PLAYBOOK.md` | gate |
