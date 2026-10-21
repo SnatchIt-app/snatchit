@@ -85,33 +85,37 @@ subject link.
 | 9 | Full amount | You will refund exactly the Payment panel's **"Total charged to buyer"**. | Anything less is a partial refund (§8), an owner decision. |
 | 10 | *(In Stripe, read-only)* Nothing refunded yet | Stripe Dashboard in **live mode** → the PaymentIntent (`pi_…`, copied from the Payment panel): it is found, the amount equals the console's total, **no refund is listed** and **no dispute is listed**. | The PaymentIntent is not found in live mode: stop and escalate to A. Never switch the Dashboard to test mode to look for it or refund it there. A dispute is listed: stop and escalate to A, because the console may have missed its webhook (row 6). A refund is already listed, in any status: do not refund again. Escalate to A, because the console has not recorded it yet. The amount differs: stop and escalate. |
 
-**Row 8: the seller payout.** A payout can be claimed only for a transfer
-that is *Buyer confirmed* or *Auto-released*, and only while the payment is
-`succeeded` [148:99-101], [148:121-124].
+**Row 8: the seller payout.** A new payout can be claimed only for a
+transfer that is *Buyer confirmed* or *Auto-released*, and only while the
+payment is `succeeded` [148:99-101], [148:121-124]. A payout attempt that was
+already open is reconciled first, whatever the transfer's status is now
+[148:72-89]. Go by the **Transfer** panel, in this order:
 
-- ***Disputed*** (a buyer win) or ***Expired (seller did not send)***: the
-  claim refuses it [148:96-101]. Row 8 passes once both release fields are
-  empty.
-- ***Buyer confirmed***, ***Auto-released***, ***Resolved — seller (no buyer
-  confirmation)*** or ***Confirmed status, no confirmation record***
-  [FMT:266-276], or funds state "Release scheduled", or a Transfer panel
-  `buyer_confirmed_at` with a "Payout state" other than exactly "Not
-  released": stop and escalate to A to check the payout attempts, whatever
-  the other fields say. The payout sweep picks these transfers up
-  [ETE:1292-1308], [ETE:1328-1357]. After a genuine buyer confirmation,
-  neither manual review nor a hold stops the claim [148:102-119], and the
-  funds state then reads "Manual payout review" or "Held" instead of
-  "Release scheduled" [116:231-235]. An attempt whose outcome is unknown
-  leaves both release fields empty while Stripe may already have created the
-  transfer [149:65-75]. The console has no payout-attempts view.
-- **Any other status** (*Awaiting seller delivery*, *Seller marked sent*;
-  funds "Awaiting buyer confirmation / auto-release", "Held" or "Manual
-  payout review"). Only an owner-decided refund reaches here. Before the
-  money step, A freezes the payout so that it cannot be claimed, and writes
-  on the case how. A buyer confirmation releases the payout straight away
-  [CAR:4-8], and neither manual review nor a hold stops a genuine
-  confirmation [148:102-119], so A chooses the freeze. Then re-check row 8
-  immediately before you click Refund.
+1. **Ever confirmed or released.** The status is *Buyer confirmed*,
+   *Auto-released*, *Resolved — seller (no buyer confirmation)* or
+   *Confirmed status, no confirmation record* [FMT:266-276]. Or
+   `buyer_confirmed_at` is set, whatever the status and the "Payout state".
+   Or the funds state is "Release scheduled". Stop and escalate to A to check
+   the payout attempts, whatever the other fields say:
+   - the payout sweep picks these transfers up [ETE:1292-1308],
+     [ETE:1328-1357];
+   - after a genuine buyer confirmation, neither manual review nor a hold
+     stops the claim [148:102-119], and the funds state then reads "Manual
+     payout review" or "Held" instead of "Release scheduled" [116:231-235];
+   - an attempt whose outcome is unknown leaves both release fields empty
+     while Stripe may already have created the transfer [149:65-75];
+   - the console has no payout-attempts view.
+2. ***Disputed*** **(a buyer win) or** ***Expired (seller did not send)***,
+   never confirmed. The claim refuses a new payout [148:96-101]. Row 8
+   passes once both release fields are empty.
+3. **Any other status** (*Awaiting seller delivery*, *Seller marked sent*;
+   funds "Awaiting buyer confirmation / auto-release", "Held" or "Manual
+   payout review"). Only an owner-decided refund reaches here. Before the
+   money step, A freezes the payout so that it cannot be claimed, and writes
+   on the case how. A buyer confirmation releases the payout straight away
+   [CAR:4-8], and neither manual review nor a hold stops a genuine
+   confirmation [148:102-119], so A chooses the freeze. Then re-check row 8
+   immediately before you click Refund.
 
 **Expired orders only.** The expiry job refunds expired orders on its own.
 Phase 1 refunds each newly expired order once and skips any payment already
