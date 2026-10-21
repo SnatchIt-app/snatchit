@@ -60,6 +60,15 @@ no PR, no CI run, not deployed.**
 | P1 | `cc713640` | Refund resolution on a case (migration 144): Classify, Obligation and the Status warning in `CaseWork` (the split pane and the full page), plus the `CaseRefundResolution` panel. Includes #89's `refund-resolution.ts` and its tests. | 14 failed / 40 passed, and #89's suite fails to load → 65/65 | 17/17, including #89's 4 negative controls at #89's counts (3, 3, 2, 1) |
 | P2 | `dd91280f` | Alerts on /system (migration 146): the delivery and acknowledgement fields parsed, `AlertList` and `AlertAckForm`, `ops.alert_ack(p_alert_key, p_note)`, and owner-decision help for both switches. | 2 failed / 7 passed, and alert-ack fails to load → 27/27 | 18/18 |
 
+- **Review follow-ups to the port** (2026-10-21). Same rule: one commit each, a test that failed on the parent, planted mutants:
+
+| | Commit | Fix | RED → GREEN | Mutants caught |
+|---|---|---|---|---|
+| P1b | `e5beb6a4` | The Obligation control's State defaulted to *Settled*, the value that unlocks closing under 144's guard, so a progress note recorded untouched made a case closable over money still owed. It now has no preselected value (disabled "Choose…" option, `required`); an unchosen post goes as null, which 144 records as not settled. | 2 failed / 12 passed → 15/15 | 4/4 |
+| P1c | `09f9d72b` | Classify's owner select defaulted to the operator, and 144 assigns on every classify, so an unassigned case was silently assigned. It now defaults to *Leave as is*, which posts no `assignee` (new `param.<key>:optional` type: empty is left out, not sent as null), and is labelled "Assign the case to" with help saying classifying assigns. | 6 failed / 19 passed → 25/25 | 5/5 |
+| P2b | `17f6da80` | Acknowledge posted only `alert_key`, so a re-fire after the page loaded was acknowledged unseen. The form now posts the rendered `incident_seq`; a different incident in `alert_ack`'s answer returns a warning naming both; `AlertList` keeps the control mounted for acknowledged rows so the result survives the refresh. | 7 failed / 18 passed → 25/25 | 7/7 |
+| F8b | `32781df3` | `unrecognisedResponse` used `pick`, which stops at a present null, so `reject_reason: null` hid a real `code` (and `message: null` a `detail`). Now the first non-empty string. | 2 failed / 12 passed → 14/14 | 3/3 |
+
 - **Gates at `cd54a3dc`** (npm ci, local Node v24.13.1):
   - typecheck 0, lint 0;
   - vitest **33 files / 262 tests**, against 26 / 211 after the import;
@@ -75,8 +84,8 @@ no PR, no CI run, not deployed.**
 - **Deploy note (server actions):** every console form posts to a Next.js server action, and server-action ids are build artifacts. They change on any Next version change (F6 is one), on a build without the build cache, and on a rollback to another build; Next also rotates them at most every 14 days, even when the source is unchanged. A console tab loaded before a promote or rollback then posts an id the serving deployment does not have ("Failed to find Server Action"), and the submit fails without reaching the database. Operators reload every open console tab after any promote or rollback (a reload also mints a fresh idempotency key), or the owner enables Vercel Skew Protection on the project so an old tab keeps reaching the deployment it was loaded from.
 - **Not done here:**
   - push, draft PR and CI on Node 22;
-  - the full gates after F2b–F8 and P1–P2 (npm ci, full vitest, typecheck, `next build`): the shared machine slot was held, so only the touched test files and eslint on the touched files ran. The gate figures above are for `cd54a3dc`;
-  - P1–P2 against a local replay with 144 and 146 applied. The flows are listed in `OPS_CONSOLE_OPERATOR_GAPS.md` §3.2: classify, record obligation, resolve refused then allowed, and `alert_ack`;
+  - the full gates after F2b–F8, P1–P2 and P1b–F8b (npm ci, full vitest, typecheck, `next build`): the shared machine slot was held, so only the touched test files and eslint on the touched files ran. The gate figures above are for `cd54a3dc`;
+  - P1–P2 (with P1b–P2b) against a local replay with 144 and 146 applied. The flows are listed in `OPS_CONSOLE_OPERATOR_GAPS.md` §3.2: classify, record obligation, resolve refused then allowed, `alert_ack`, and an acknowledgement from a stale page across a re-fire;
   - any browser, signed-in or aal2 render;
   - Vercel domain, DNS, TLS and env changes (owner);
   - the server-side duplicate refund/payout rule and relist expected-version (A's migrations; F1 stays a UI guard);

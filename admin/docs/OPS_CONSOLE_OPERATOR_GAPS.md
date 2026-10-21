@@ -9,7 +9,9 @@ corrected where they had gone stale. Section 2 says where each piece lives in v2
 classification, obligation resolution and alert acknowledgement. **Do not describe database RPC availability as a
 completed operator workflow.**"
 
-Nothing here is deployed. The port is two local commits on the integration branch: not pushed, no PR, no CI run.
+Nothing here is deployed. The port is two code commits (`cc713640`, `dd91280f`) plus this record (`d614b0d0`), and
+then four review fixes (`e5beb6a4`, `09f9d72b`, `17f6da80`, `32781df3`) plus this update, all local on the integration
+branch: not pushed, no PR, no CI run.
 
 ## 1. What was missing (#89's measurement, 2026-09-20)
 
@@ -53,11 +55,15 @@ For `refund_resolution` cases only:
 - **`CaseRefundResolution`** shows the classification as recorded (with what Stripe showed), each obligation as
   *Recorded settled* or *Unsettled* with its note, and, while the case is open, the close refusal in the database's
   own words. The full page shows it as a panel and the pane as a section.
-- **Classify** (`case_refund_classify`). Open cases only. A / B / C, the owner for any obligation, and a mandatory
-  reason ("What the Stripe Dashboard shows").
+- **Classify** (`case_refund_classify`). Open cases only. A / B / C, a mandatory reason ("What the Stripe Dashboard
+  shows"), and "Assign the case to", which defaults to *Leave as is*. 144 sets `assignee = coalesce(chosen, current)`
+  on every classify, whatever the classification and without changing the status, so the control says that
+  classifying assigns, and *Leave as is* posts no `assignee` at all (`param.assignee:optional`). 144 still refuses a
+  classification that would leave an obligation with nobody assigned.
 - **Obligation** (`case_refund_obligation`). Shown only once an obligation has been raised, because the dispatcher
-  refuses a kind that was never raised. It offers exactly the raised kinds. The note is required and doubles as the
-  audit reason.
+  refuses a kind that was never raised. It offers exactly the raised kinds. Its State has no default: *Settled* or
+  *Still outstanding* must be chosen, because Settled is the value that unlocks closing under 144's guard. The note is
+  required and doubles as the audit reason.
 - The existing **Status** control warns that resolve/dismiss will be refused, *before* the operator tries.
 
 **System (`/system`), Alerts.** `src/components/system/AlertList.tsx` (new) and `AlertAckForm.tsx`:
@@ -73,6 +79,11 @@ For `refund_resolution` cases only:
 - An **Acknowledge** disclosure (`ops.alert_ack(p_alert_key, p_note)`) with an optional note that goes to the audit
   log. 146's own refusals (P0002 *no alert*, P0001 *nothing to acknowledge*) show as "Not acknowledged" in its words.
   Any other error is shown the generic way, with the database's message and code.
+- The form posts the incident it shows (`incident_seq`). `alert_ack` acknowledges whatever incident the row holds
+  when the call arrives, so if the condition re-fired after the page loaded, the answer names another incident. The
+  console then shows a warning naming both ("A new incident #3 opened since you loaded this page, which showed
+  incident #2; it is now acknowledged"). The control stays mounted for acknowledged rows, so that result survives
+  the refresh that hides the form.
 - A standing note: 146 sends nothing by itself, and turning delivery on and scheduling a caller are both owner
   decisions.
 
@@ -89,14 +100,20 @@ decisions. Their setting help says so and tells nobody to switch them on, and th
 
 **Evidence (targeted only; the shared machine slot was held):**
 - vitest on the touched files only. #89's 11 derivation tests and its labels and payload-guard additions, plus
-  `refund-case-work.test.ts` (13: which forms render where, and what each posts through the real `submitActionForm`
-  path) and `alert-ack.test.ts` (18).
+  `refund-case-work.test.ts` (17 after the review fixes: which forms render where, what each preselects, and what
+  each posts through the real `submitActionForm` path) and `alert-ack.test.ts` (25 after the review fixes).
 - #89's **4 negative controls**, re-planted on the ported module. Each fails the same number of tests as in #89:
   - an unclassified case treated as closable: 3;
   - unsettled obligations ignored: 3;
   - the earliest obligation record winning over the latest: 2;
   - the text form of `settled` unrecognised: 1.
 - 31 further planted mutants in the port's own wiring and wording, all caught.
+- Review fixes (2026-10-21), each RED on its parent, then GREEN, with planted mutants:
+  - `e5beb6a4` the obligation State preselects nothing (was *Settled*): 4 mutants caught;
+  - `09f9d72b` Classify's assignee defaults to *Leave as is*, posts no key when left, and is relabelled: 5;
+  - `17f6da80` Acknowledge posts the rendered incident and warns on a different one, and the result survives the
+    refresh: 7;
+  - `32781df3` an unrecognised answer keeps its code and message behind a null earlier field: 3.
 - eslint on the changed files.
 - **Not run here:** full typecheck, full test suite, lint across the project and `next build` (see the handoff's
   gates owed).
@@ -118,7 +135,11 @@ decisions. Their setting help says so and tells nobody to switch them on, and th
    - resolve refused (unclassified, then with an unsettled obligation), then allowed once everything is recorded
      settled, with the `[class]` prefix on the resolution note;
    - `alert_ack` on a firing alert, the two refusals (unknown key; recovered alert), and a recurrence opening
-     incident #2 with its own acknowledgement.
+     incident #2 with its own acknowledgement;
+   - a stale page: load /system on incident #N, let the condition clear and re-fire, then acknowledge. Expect the
+     warning naming #N+1, still on screen after the refresh;
+   - classify an unassigned case A on an unpaid transfer with *Leave as is*: no obligation, and the case stays
+     unassigned.
 
    Treat section 2 as *built and statically verified*, not as *proven in use*.
 3. **No alert reaches a person unless an owner makes two separate decisions:** turn `alert_delivery_enabled` on,
@@ -138,6 +159,9 @@ decisions. Their setting help says so and tells nobody to switch them on, and th
    acknowledged. It re-stamps `acknowledged_at` and `acknowledged_by` on the row, so if two tabs or two operators
    acknowledge the same alert, the row keeps only the second. `ops.audit` keeps both. The console hides the button
    once the row is acknowledged, but a stale tab can still send it. Changing this is a server rule (A).
+   Relatedly, `alert_ack` takes no expected incident, so the console can only *report* that a different incident was
+   acknowledged (the warning above), after the fact. Refusing that case needs an expected-incident parameter on
+   `alert_ack`, also A's.
 8. **Not attempted, and outside D's area:** #89 recorded that the `notify-report` edge function's `ops_alert` branch
    was not deployed (not re-checked here). While that holds, even with everything switched on a post is answered
    200 with no delivery count, which 146 correctly records as *not* delivered.
