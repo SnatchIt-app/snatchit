@@ -49,6 +49,7 @@ import { useListingRealtime } from '@/src/hooks/useListingRealtime';
 import { finalSoldPrice } from '@/src/lib/salePrice';
 import { allInFromDollars, buyerTotalCents, dollarsToCents } from '@/src/lib/money';
 import { clockLabel } from '@/src/lib/listing/feedRowState';
+import { Announce } from '@/src/hooks/useAnnounceOnce';
 import { PLATFORM_INSTRUCTIONS } from '@/src/lib/platformInstructions';
 import { APP_CONFIG } from '@/src/config/app';
 import { sendLocalNotification } from '@/src/utils/notifications';
@@ -1387,6 +1388,7 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
           onOverflow={openListingActions}
         />
 
+        <Announce text={liveNotice} />
         {liveNotice ? (
           <View style={s.liveNotice} accessibilityRole="alert" accessibilityLiveRegion="polite">
             <Text style={[textStyle('label'), s.liveNoticeText]} numberOfLines={1}>{liveNotice}</Text>

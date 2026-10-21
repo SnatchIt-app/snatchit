@@ -48,6 +48,7 @@ import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-na
 import { supabase } from '@/src/lib/supabase';
 import { allInFromDollarsV3 } from '@/src/lib/money';
 import { applyBlockedSellerFilter, useBlockedUserIds } from '@/src/hooks/useBlockedUserIds';
+import { useAnnounceOnce } from '@/src/hooks/useAnnounceOnce';
 import { useNetworkStatus } from '@/src/hooks/useNetworkStatus';
 import { classifyLoadFailure } from '@/src/lib/ui/loadState';
 import ScreenState from '@/src/components/ScreenState';
@@ -88,12 +89,14 @@ function sanitize(term: string): string {
  * the same two states ScreenState distinguishes. Never carries server text.
  */
 function SearchFailureNotice({ s, kind, onRetry }: { s: Styles; kind: 'offline' | 'error'; onRetry: () => void }) {
+  const text = kind === 'offline'
+    ? "You're offline. Showing earlier results."
+    : 'Search did not go through. Showing earlier results.';
+  useAnnounceOnce(text);
   return (
     <View style={s.notice} accessibilityRole="alert">
       <Text style={[textStyle('bodySm'), s.noticeText]}>
-        {kind === 'offline'
-          ? "You're offline. Showing earlier results."
-          : 'Search did not go through. Showing earlier results.'}
+        {text}
       </Text>
       <Pressable onPress={onRetry} hitSlop={8} accessibilityRole="button" accessibilityLabel="Retry search">
         <Text style={[textStyle('label'), s.noticeAction]}>Retry</Text>
@@ -190,6 +193,12 @@ export default function SearchScreen({ fixture }: { fixture?: SearchFixture } = 
 
   // Client-side narrowing of rows already fetched — no second query, no excluded count.
   const shown = results.filter((r) => matchesSearchFilters(r as never, filters, now));
+  // Results re-render silently: say what settled, once per change — the count on screen, or the empty title.
+  useAnnounceOnce(
+    !searched || searching ? null
+      : shown.length > 0 ? searchResultsHeader(shown.length)
+      : searchEmptyState(query.trim(), filters)?.title ?? null,
+  );
 
   // Debounced so a four-letter word is one query, not four.
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
