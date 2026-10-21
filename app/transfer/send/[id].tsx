@@ -230,8 +230,10 @@ export default function TransferSendScreen({ fixture }: { fixture?: SendFixture 
         });
         if (outcome.kind === 'sent') {
           setLastFailed(false);
-          evidenceUpload.reset();
+          // Clear the chosen photo only once the read-back has replaced the row: cleared first, the
+          // proof row showed "ADD" under a running spinner, as if the proof had been dropped.
           await fetchTransfer(true);
+          evidenceUpload.reset();
           // F-28 (owner 2026-09-23): the screen's own "Marked as sent" block IS the confirmation;
           // a dialog repeating it said the same thing twice. Assistive tech still hears the
           // change. Failure dialogs below are untouched.
@@ -295,8 +297,9 @@ export default function TransferSendScreen({ fixture }: { fixture?: SendFixture 
         });
         if (outcome.kind === 'attached') {
           setLastFailed(false);
-          evidenceUpload.reset();
+          // Read back before clearing, as Mark as sent does: the proof row never shows empty mid-save.
           await fetchTransfer(true);
+          evidenceUpload.reset();
           Alert.alert('Proof added', ATTACH_COPY.added);
           return;
         }
