@@ -26,6 +26,8 @@
  * event to decide where a flow should go.
  */
 
+import { classifyReturnPath, type ReturnToPath } from '@/src/lib/auth/returnTo';
+
 export type AuthPhase = 'signed_out' | `signed_in:${string}`;
 
 /** The phase a session represents. Object identity is deliberately ignored. */
@@ -35,7 +37,8 @@ export function authPhase(session: { user?: { id?: string | null } | null } | nu
   return `signed_in:${id}`;
 }
 
-export type RootRouteTarget = '/(tabs)/home' | '/(auth)/login';
+/** Home and login, or — after a sign-in only — an allowlisted screen remembered by returnTo.ts (CFT-603). */
+export type RootRouteTarget = '/(tabs)/home' | '/(auth)/login' | ReturnToPath;
 
 export type RootRouteDecision =
   | { navigate: false; reason: 'loading' | 'navigator' | 'recovery' | 'onboarding' | 'same_phase' }
@@ -62,6 +65,12 @@ export interface RootRouteInput {
    * layout (production T1, 2026-10-16), so the rule waits. Omitted means ready, as before.
    */
   navigatorReady?: boolean;
+  /**
+   * CFT-603: the screen a sign-in returns to (returnTo.ts), already matched to the user signing in. Read only
+   * when this decision takes the person INTO the signed-in area, after every hold, and only if it is still an
+   * allowlisted screen; otherwise Home, as before. Omitted means Home.
+   */
+  returnTo?: string | null;
 }
 
 /**
@@ -85,7 +94,10 @@ export function rootRouteDecision(input: RootRouteInput): RootRouteDecision {
     return { navigate: false, reason: 'same_phase' };
   }
 
-  return { navigate: true, to: input.phase === 'signed_out' ? '/(auth)/login' : '/(tabs)/home' };
+  if (input.phase === 'signed_out') return { navigate: true, to: '/(auth)/login' };
+  // CFT-603: a remembered screen, re-checked against the allowlist here so nothing else can ever be a target.
+  const back = classifyReturnPath(input.returnTo);
+  return { navigate: true, to: back ? back.path : '/(tabs)/home' };
 }
 
 /** N7: whether the current route is the reset screen, app/(auth)/reset-password.tsx. */

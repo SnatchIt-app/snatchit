@@ -35,6 +35,9 @@ import { supabase } from '@/src/lib/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { clearRecoveryPending, markRecoveryPending, recoveryPendingFor } from '@/src/lib/auth/recoveryMarker';
 import { useRecoveryHold } from '@/src/lib/auth/recoveryHold';
+import { clearReturnTo, peekReturnTo, settleReturnToOnRoute, userIdOfPhase } from '@/src/lib/auth/returnTo';
+import { peekSessionEnd } from '@/src/lib/auth/sessionEnd';
+import { useReturnToCapture } from '@/src/hooks/useReturnToCapture';
 import ErrorBoundary from '@/src/components/ErrorBoundary';
 // Imported from the leaf module (not the ui barrel) so the web-safe root layout
 // pulls in no native-only siblings. Spinner's own deps are all platform-safe.
@@ -174,10 +177,20 @@ function RootLayout() {
   useEffect(() => {
     if (isRecovery && userId) void markRecoveryPending(AsyncStorage, userId);
   }, [isRecovery, userId]);
+  // CFT-603: recovery always wins. A recovery link discards any remembered screen, so finishing or cancelling
+  // "New password" is never followed by a jump to an earlier screen.
+  useEffect(() => {
+    if (isRecovery) clearReturnTo();
+  }, [isRecovery]);
   const routingLoading = loading || !recoveryChecked;
 
   // K-2: whether the current route is inside the signed-in area (the tabs).
   const inSignedInArea = (segments as string[])[0] === '(tabs)';
+
+  // CFT-603: where the person is, for return after sign-in. The routing effect reads it through this ref, so its
+  // dependency list stays as pinned (K6); the hook also remembers a public screen a signed-out person enters.
+  const pathnameRef = useRef<string | null>(null);
+  useReturnToCapture({ phase: authPhase(session), held: isRecovery || onboarding, routedPhaseRef, pathnameRef });
 
   // Navigation is a separate concern and runs only on a real phase boundary — and, while signed out,
   // whenever a deep link has put the person inside the signed-in area.
@@ -194,8 +207,12 @@ function RootLayout() {
       // The Stack renders once fonts are ready and AppearanceProvider has read the stored choice; that read is
       // queued on AsyncStorage's serial queue before useAuth's first session read, so it always lands first.
       navigatorReady: fontsReady,
+      returnTo: peekReturnTo(userIdOfPhase(phase)),
     });
     if (!decision.navigate) return;
+    // CFT-603: only a navigation settles the remembered screen (a hold never does). Into the signed-in area it is
+    // consumed; a first signed-out route remembers the screen login replaces; an expiry remembers it for its user.
+    settleReturnToOnRoute({ phase, lastRoutedPhase: routedPhaseRef.current, pathname: pathnameRef.current, sessionEnd: peekSessionEnd() });
     routedPhaseRef.current = phase;
     router.replace(decision.to);
   }, [session, routingLoading, isRecovery, onboarding, inDevHarness, inSignedInArea, fontsReady]);
