@@ -86,8 +86,29 @@ describe("a refund-resolution case offers 144's controls, and only where they ca
     expect(f).toMatch(/<textarea[^>]*name="reason"[^>]*required/);
     expect(options(f, "param.classification")).toEqual(["", "A", "B", "C"]);
     expect(f).toMatch(/<select[^>]*name="param.classification"[^>]*required/);
-    expect(options(f, "param.assignee")).toEqual(["", ME]);
+    expect(options(f, "param.assignee:optional")).toEqual(["", ME]);
     expect(formFor(html, "case_status")).toContain("Resolving or dismissing will be refused: classify this case first (case_refund_classify: A, B or C)");
+  });
+
+  it("Classify's assignee defaults to Leave as is, and says that classifying assigns the case", () => {
+    // 144's case_refund_classify always runs `assignee = coalesce(v_assignee, assignee)`, whatever the
+    // classification and whether or not it raises an obligation, and never moves the case to in_progress.
+    // A default of "me" would silently assign an unassigned case to whoever classified it.
+    const OTHER = "bbbbbbbb-0000-4000-8000-000000000002";
+    for (const [c, current] of [
+      [refundCase, "unassigned"],
+      [{ ...refundCase, assignee: ME }, "assigned to me"],
+      [{ ...refundCase, assignee: OTHER, assignee_label: "r***@example.test" }, "assigned to r***@example.test"],
+    ] as [OpsCase, string][]) {
+      const f = formFor(controls(c, []), "case_refund_classify")!;
+      const chosen = preselected(f, "param.assignee:optional");
+      expect(chosen, current).toHaveLength(1);
+      expect(chosen[0], current).toMatch(/value=""/);
+      expect(f).toContain(`Leave as is (${current})`);
+      expect(f).toContain("Assign the case to");
+      expect(f).toContain("Classifying assigns the case to whoever is chosen here, whatever the classification");
+      expect(f).not.toContain("Owner, if this leaves money owed");
+    }
   });
 
   it("once B raised payout_owed, Record an obligation offers exactly the raised kind, as a note-carrying form", () => {
@@ -159,7 +180,7 @@ describe("a refund-resolution case offers 144's controls, and only where they ca
 describe("what the forms post is what migration 144 reads", () => {
   it("classify sends classification, assignee and the reason, with the rendered version", async () => {
     const f = formFor(controls(refundCase, []), "case_refund_classify")!;
-    const state = await submitActionForm({}, post(f, { "param.classification": "B", "param.assignee": ME, reason: "Stripe shows 40.00 of 75.00 refunded" }));
+    const state = await submitActionForm({}, post(f, { "param.classification": "B", "param.assignee:optional": ME, reason: "Stripe shows 40.00 of 75.00 refunded" }));
     expect(state.outcome?.status).toBe("succeeded");
     expect(rpc.calls).toHaveLength(1);
     expect(rpc.calls[0].fn).toBe("execute_action");
@@ -171,6 +192,13 @@ describe("what the forms post is what migration 144 reads", () => {
       p_reason: "Stripe shows 40.00 of 75.00 refunded",
       p_expected: { version: 7 },
     });
+  });
+
+  it("classify with Leave as is sends no assignee at all, not a null that reads as 'unassign'", async () => {
+    const f = formFor(controls(refundCase, []), "case_refund_classify")!;
+    await submitActionForm({}, post(f, { "param.classification": "A", "param.assignee:optional": "", reason: "Stripe shows 75.00 of 75.00 refunded" }));
+    expect(rpc.calls).toHaveLength(1);
+    expect(Object.keys(rpc.calls[0].args.p_params as Record<string, unknown>)).toEqual(["classification"]);
   });
 
   it("record-settled sends kind, a JSON boolean and the note, and the note doubles as the audit reason", async () => {
@@ -203,8 +231,8 @@ describe("what the forms post is what migration 144 reads", () => {
     const message = "classification B leaves payout_owed outstanding: an assignee is required";
     rpc.reply = { data: { status: "rejected", reject_reason: "precondition", message }, error: null };
     const f = formFor(controls(refundCase, []), "case_refund_classify")!;
-    const state = await submitActionForm({}, post(f, { "param.classification": "B", "param.assignee": "", reason: "Stripe shows a partial refund" }));
-    expect((rpc.calls[0].args.p_params as Record<string, unknown>).assignee).toBeNull();
+    const state = await submitActionForm({}, post(f, { "param.classification": "B", "param.assignee:optional": "", reason: "Stripe shows a partial refund" }));
+    expect(Object.keys(rpc.calls[0].args.p_params as Record<string, unknown>)).toEqual(["classification"]);
     const html = renderToStaticMarkup(createElement(OutcomeText, { outcome: state.outcome! }));
     expect(html).toContain("Rejected: precondition");
     expect(html).toContain(message);

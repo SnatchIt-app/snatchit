@@ -106,7 +106,8 @@ function parseJsonRecord(raw: FormDataEntryValue | null): Record<string, unknown
  * Generic form-post adapter for ConfirmForm. Hidden inputs carry the action
  * envelope; visible inputs named `param.<key>` (or `param.<key>:<type>` for
  * boolean/number/integer/json coercion) become `p_params` entries (empty
- * string -> null so "unassign"/"clear due" work). `reason` is the operator's
+ * string -> null so "unassign"/"clear due" work; an empty `:optional` field
+ * is left out, for "leave as is"). `reason` is the operator's
  * justification (required unless the form opts out, in which case the note
  * body doubles as the reason).
  */
@@ -125,6 +126,7 @@ export async function submitActionForm(_prev: ActionFormState, formData: FormDat
     if (!field || typeof v !== "string") continue;
     const coerced = coerceParam(field.type, v);
     if (!coerced.ok) return { submitted: true, invalid: `${field.key}: ${coerced.error}` };
+    if (coerced.value === undefined) continue; // `:optional` left empty: no change, so no key at all
     params[field.key] = coerced.value;
   }
   const expected = parseJsonRecord(formData.get("expected"));

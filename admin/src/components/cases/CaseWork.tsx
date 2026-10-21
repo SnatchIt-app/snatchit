@@ -247,6 +247,7 @@ export function CaseControls({ c, detail, me, envelope, idPrefix }: { c: OpsCase
  */
 function RefundControls({ c, detail, me, envelope, refund, id }: { c: OpsCase; detail: CaseDetail; me: Me; envelope: CaseEnvelope; refund: RefundResolutionState; id: (s: string) => string }) {
   const unsettled = refund.unsettled.length;
+  const current = assigneeName(c, me.id);
   return (
     <>
       <Control title="Classify" current={refund.classification ? `Recorded ${refund.classification}` : <span className="text-warning">Not classified</span>}>
@@ -273,10 +274,11 @@ function RefundControls({ c, detail, me, envelope, refund, id }: { c: OpsCase; d
               ))}
             </ul>
             <label htmlFor={id("classify-assignee")} className="eyebrow block text-dim">
-              Owner, if this leaves money owed
+              Assign the case to
             </label>
-            <select id={id("classify-assignee")} name="param.assignee" defaultValue={c.assignee ?? me.id} className="field mt-1">
-              <option value="">Leave as is</option>
+            {/* 144 sets assignee = coalesce(chosen, current) on every classify, so the default is "Leave as is" and it posts no assignee at all. */}
+            <select id={id("classify-assignee")} name="param.assignee:optional" defaultValue="" className="field mt-1">
+              <option value="">Leave as is ({current ? `assigned to ${current}` : "unassigned"})</option>
               <option value={me.id}>Me ({me.label})</option>
               {detail.operators
                 .filter((o) => o.user_id && o.user_id !== me.id)
@@ -287,8 +289,8 @@ function RefundControls({ c, detail, me, envelope, refund, id }: { c: OpsCase; d
                 ))}
             </select>
             <p className="mt-1 text-[0.6875rem] text-dim">
-              B and C always raise an obligation, and A does when the payout was already released. The database refuses a classification that would leave an obligation
-              with nobody named.
+              Classifying assigns the case to whoever is chosen here, whatever the classification; it does not change the status. B and C always raise an obligation, and A
+              does when the payout was already released. The database refuses a classification that would leave an obligation with nobody assigned.
             </p>
           </ConfirmForm>
         </OutcomeHost>
