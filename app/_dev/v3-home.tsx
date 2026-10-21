@@ -36,6 +36,7 @@
  *                     yet". The copy is still gated on `mayShowEmptyCopy`, so what it proves is that
  *                     the read RAN and came back empty — not that a read was skipped.
  *   • `ended-empty` — the same for "Ended": "No ended auctions".
+ *   • `week-out`    — the feed with its second row ending 7 days out: the dated clock form (C-1).
  *   • `error` /
  *     `offline`     — a FIRST-LOAD failure of the live feed, through the screen's own `setLoadError`,
  *                     so what paints is ScreenState with its retry, exactly as a real failure would.
@@ -259,6 +260,10 @@ function fixtureFor(variant: string | undefined): HomeFixture | null {
       return { failure: 'error' };
     case 'offline':
       return { failure: 'offline' };
+    case 'week-out':
+      // C-1 (E's render condition): the second row ends 7 days and 30 minutes from now, so its clock
+      // takes the dated form ("Ends 28 Oct 19:32") that a weekday would have made read as today.
+      return { rows: HOME_FIXTURE.map((r, i) => (i === 1 ? { ...r, ends_at: endsIn(7 * 24 + 0.5) } : r)) };
     default:
       return { rows: HOME_FIXTURE };
   }

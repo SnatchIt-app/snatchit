@@ -322,6 +322,9 @@ function fixtureFor(variant: string | undefined, viewerId: string | undefined): 
             listing: { ...LISTING_FIXTURE, seller_id: viewerId } as Listing,
           }
         : null;
+    case 'week-out':
+      // C-1: the live listing ending 7 days and 30 minutes from now (the panel's dated clock form).
+      return { ...LIVE, listing: { ...LISTING_FIXTURE, ends_at: minutesFromNow(7 * 24 * 60 + 30) } as Listing };
     default:
       return LIVE;
   }
