@@ -1,9 +1,10 @@
 /**
  * app/settings/support.tsx — Help & support (V2).
  *
- * PRESENTATION rebuilt on the V2 system; content and behaviour are unchanged: the
- * same FAQ entries (verbatim), the same `support@snatchitapp.com` mailto, and the
- * same expand/collapse. No support chat or SLA invented.
+ * PRESENTATION rebuilt on the V2 system; behaviour is unchanged: the same
+ * `support@snatchitapp.com` mailto and the same expand/collapse. The FAQ entries were
+ * carried over verbatim; CFT-406 slice 1 (below) later changed the FAQ and contact
+ * copy that asked for a listing ID. No support chat or SLA invented.
  *
  * CFT-406 (slice 1): no screen shows a listing ID, so the copy that asked for one now points at the
  * order screens' "Contact support about this order", which fills in the order ID and status.
