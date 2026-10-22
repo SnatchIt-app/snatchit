@@ -41,7 +41,7 @@ const h = vi.hoisted(() => ({
   reply: null as null | { data: unknown; error: null | { message: string } },
   pending: [] as ((r: { data: unknown; error: null | { message: string } }) => void)[],
   // F2: what the UPDATE's `.select('id')` answers — the written rows. Default: the row was written.
-  updateReply: { data: [{ id: 'listing-1' }], error: null } as { data: unknown; error: null | { message: string } },
+  updateReply: { data: [{ id: 'listing-1' }], error: null } as { data: unknown; error: null | { message: string; code?: string; hint?: string | null } },
 }));
 
 vi.mock('@/src/theme/appearance', async () => {
@@ -205,10 +205,11 @@ describe('EL2 · a refusal stops the spinner and gives the seller a way out', ()
     h.reply = { data: null, error: { message: 'No rows returned' } };
     const host = await mountEdit();
     expect(h.alerts[0]!.title).toBe(EDIT_REFUSAL_COPY['not-found'].title);
-    // The server's own sentence is kept, as before.
-    expect(h.alerts[0]!.message).toBe('No rows returned');
+    // RETARGETED (CFT-703): the server's own sentence used to be kept as the body; it is a raw
+    // server string, so it now goes to the log and both the alert and the refusal hold the copy.
+    expect(h.alerts[0]!.message).toBe(EDIT_REFUSAL_COPY['not-found'].body);
     expect(screen(host)).toBe('refusal');
-    expect(refusal(host)!.props.body).toBe('No rows returned');
+    expect(refusal(host)!.props.body).toBe(EDIT_REFUSAL_COPY['not-found'].body);
   });
 
   it('EL2e: the session resolved to signed out — refused without a read, and without a new dialog', async () => {
@@ -241,7 +242,9 @@ describe('EL3 · who may edit is unchanged', () => {
 
   it('EL3b: a missing row and a missing viewer are refusals of their own', () => {
     expect(editRefusal({ listing: null, viewerId: viewer })?.kind).toBe('not-found');
-    expect(editRefusal({ listing: null, viewerId: viewer, readError: 'boom' })?.body).toBe('boom');
+    // RETARGETED (CFT-703): the read error's own text used to replace the body ('boom' was shown).
+    // It now goes to the log only; the body is always the held not-found sentence.
+    expect(editRefusal({ listing: null, viewerId: viewer })?.body).toBe(EDIT_REFUSAL_COPY['not-found'].body);
     expect(editRefusal({ listing: OWNED, viewerId: null })?.kind).toBe('signed-out');
   });
 });
@@ -329,6 +332,14 @@ describe('EL6 · the fixture seeds the read, and nothing else', () => {
       // The visible recovery action, which is the point of rendering these at all.
       expect((refusal(host)!.props.action as { label: string }).label.length).toBeGreaterThan(0);
     }
+  });
+
+  it('EL6a2 (CFT-703): a failed read shows the held sentence, never the read error\u2019s text', async () => {
+    h.alerts.length = 0;
+    const host = await mountWith({ row: null, readError: 'relation "listings" does not exist' });
+    expect(screen(host)).toBe('refusal');
+    expect(refusal(host)!.props.body).toBe(EDIT_REFUSAL_COPY['not-found'].body);
+    expect(h.alerts.map((a) => a.message)).not.toContain('relation "listings" does not exist');
   });
 
   it('EL6b: and the form opens on a row the viewer may edit — so EL6a is not a broken mount', async () => {
@@ -430,5 +441,41 @@ describe('EL7 · F2: "Saved" is said only when a row was written', () => {
     await pressSave(host);
     expect(h.alerts.map((a) => a.title)).not.toContain('Saved');
     expect(h.back).toBe(0);
+  });
+});
+
+describe('EL8 · CFT-703: a refused save says calm words, never the server text', () => {
+  async function pressSave(host: HookHost) {
+    const save = findElement(host.output, (el) => el.type === 'Button' && el.props.label === 'Save changes');
+    await (save!.props.onPress as () => Promise<void>)();
+    await flush();
+  }
+
+  it('EL8a (EDT-3): a 23514 on the event-name length check → the length sentence', async () => {
+    h.reply = { data: OWNED, error: null };
+    h.updateReply = { data: null, error: { code: '23514', hint: null, message: 'new row for relation "listings" violates check constraint "listings_event_name_len_check"' } };
+    const host = await mountEdit();
+    await pressSave(host);
+    expect(h.alerts).toHaveLength(1);
+    expect(h.alerts[0].title).toBe('Save failed');
+    expect(h.alerts[0].message).toBe('Event name can be up to 120 characters.');
+  });
+
+  it('EL8b: an unmatched error → the generic line, not the raw message', async () => {
+    h.reply = { data: OWNED, error: null };
+    h.updateReply = { data: null, error: { code: 'P0001', hint: null, message: 'Cannot directly modify auction state columns. Use the appropriate RPC.' } };
+    const host = await mountEdit();
+    await pressSave(host);
+    expect(h.alerts[0].title).toBe('Save failed');
+    expect(h.alerts[0].message).toBe("Your changes weren't saved. Please try again.");
+  });
+
+  it('EL8c: the Event name and Venue inputs are capped at 120', async () => {
+    h.reply = { data: OWNED, error: null };
+    const host = await mountEdit();
+    for (const label of ['Event name', 'Venue']) {
+      const input = findElement(host.output, (el) => el.type === 'Input' && el.props.label === label);
+      expect(input?.props.maxLength, label).toBe(120);
+    }
   });
 });

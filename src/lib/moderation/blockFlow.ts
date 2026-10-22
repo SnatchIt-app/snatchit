@@ -11,6 +11,7 @@
 import { ActionSheetIOS, Alert, Platform } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
+import { ACTION_FAILED_COPY } from '@/src/lib/ui/errorCopy';
 import { blockConfirmMessage, blockConfirmTitle } from '@/src/lib/moderation/blockCopy';
 
 export type MoreAction = { label: string; destructive?: boolean; handler: () => void };
@@ -58,7 +59,8 @@ export function confirmBlock(i: {
         const { error } = await supabase.from('user_blocks').insert({ blocker_id: i.viewerId, blocked_id: i.targetId });
         // 23505 = unique_violation → already blocked. Treat as success, as the other two surfaces do.
         if (error && error.code !== '23505') {
-          Alert.alert('Could not block', error.message);
+          console.warn('[block]', error.message);
+          Alert.alert(ACTION_FAILED_COPY.block.title, ACTION_FAILED_COPY.block.body);
           return;
         }
         Alert.alert('Blocked', `${i.targetName} is hidden from your feed. Unblock anytime in Settings.`);

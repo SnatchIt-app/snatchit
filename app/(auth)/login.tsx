@@ -28,6 +28,8 @@ import { Link, router } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { useAnnounceOnce } from '@/src/hooks/useAnnounceOnce';
+import { TEXT_LINK_HIT_SLOP } from '@/src/lib/a11y/touch';
 import { supabase } from '@/src/lib/supabase';
 import { Button, Input } from '@/src/components/ui';
 import { friendlyAuthError, validateLogin } from '@/src/lib/auth/authForms';
@@ -75,6 +77,9 @@ export default function LoginScreen() {
   // Why the user is on this screen, if the app knows (session expiry). Read
   // once on mount; a later visit says nothing stale.
   const [sessionNotice] = useState<string | null>(() => sessionEndNotice(consumeSessionEnd()));
+  // role="alert" doesn't speak on iOS: a failed sign-in was silent once the button went back to rest.
+  useAnnounceOnce(error);
+  useAnnounceOnce(sessionNotice);
 
   useEffect(() => () => { if (cooldownRef.current) clearInterval(cooldownRef.current); }, []);
 
@@ -295,7 +300,7 @@ export default function LoginScreen() {
             />
           </View>
 
-          <Pressable onPress={handleForgotPassword} style={s.forgot} hitSlop={8} accessibilityRole="button">
+          <Pressable onPress={handleForgotPassword} style={s.forgot} hitSlop={TEXT_LINK_HIT_SLOP} accessibilityRole="button">
             <Text style={[textStyle('bodySm'), s.forgotText]}>Forgot password?</Text>
           </Pressable>
 

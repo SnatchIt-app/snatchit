@@ -34,6 +34,7 @@ import { ROW_ART } from '@/src/lib/design/featureMetrics';
 import {
   formatCountdown,
   sellerAlreadySent,
+  sellerSendHalted,
   sellerDeliveryMissing,
   sellerWindowView,
   sellerHoldLine,
@@ -230,8 +231,10 @@ export default function TransferSendScreen({ fixture }: { fixture?: SendFixture 
         });
         if (outcome.kind === 'sent') {
           setLastFailed(false);
-          evidenceUpload.reset();
+          // Clear the chosen photo only once the read-back has replaced the row: cleared first, the
+          // proof row showed "ADD" under a running spinner, as if the proof had been dropped.
           await fetchTransfer(true);
+          evidenceUpload.reset();
           // F-28 (owner 2026-09-23): the screen's own "Marked as sent" block IS the confirmation;
           // a dialog repeating it said the same thing twice. Assistive tech still hears the
           // change. Failure dialogs below are untouched.
@@ -295,8 +298,9 @@ export default function TransferSendScreen({ fixture }: { fixture?: SendFixture 
         });
         if (outcome.kind === 'attached') {
           setLastFailed(false);
-          evidenceUpload.reset();
+          // Read back before clearing, as Mark as sent does: the proof row never shows empty mid-save.
           await fetchTransfer(true);
+          evidenceUpload.reset();
           Alert.alert('Proof added', ATTACH_COPY.added);
           return;
         }
@@ -330,6 +334,7 @@ export default function TransferSendScreen({ fixture }: { fixture?: SendFixture 
 
   const platform: TicketPlatform = transfer?.listing?.ticket_platform ?? 'other';
   const alreadySent = transfer ? sellerAlreadySent(transfer.status) : false;
+  const sendHalted = transfer ? sellerSendHalted(transfer.status) : false;
   const busy = submitting || evidenceUpload.busy;
   const buyerDeliveryMissing = transfer ? sellerDeliveryMissing(transfer) : false;
   const windowView = transfer
@@ -460,7 +465,7 @@ export default function TransferSendScreen({ fixture }: { fixture?: SendFixture 
             follows the final fulfilment policy (owner, 2026-09-19). On a closed order the heading is neutral, because
             "Send tickets to" would instruct the opposite of the block above it (owner, via D). */}
         <View style={[s.section, s.sendToPanel]}>
-          <Text style={[textStyle('title'), s.sendToTitle]}>{orderClosed ? "Buyer's delivery details" : 'Send tickets to'}</Text>
+          <Text style={[textStyle('title'), s.sendToTitle]}>{orderClosed || sendHalted ? "Buyer's delivery details" : 'Send tickets to'}</Text>
           {(transfer.delivery_email || transfer.delivery_phone) ? (
             <Text style={[textStyle('body'), s.sendToValue]}>
               {[
@@ -481,7 +486,7 @@ export default function TransferSendScreen({ fixture }: { fixture?: SendFixture 
           ) : null}
         </View>
 
-        {!alreadySent && !orderClosed ? (
+        {!alreadySent && !orderClosed && !sendHalted ? (
           <PlatformInstructions platform={platform} role="seller" buyerEmail={transfer.delivery_email} buyerPhone={transfer.delivery_phone} />
         ) : null}
 

@@ -121,7 +121,10 @@ describe('CFT-502 — the amount moves in place', () => {
 
   it('the minimum next bid still derives from the live current bid and the unchanged increment', () => {
     const screen = stripComments(read('src/screens/ListingDetailScreen.tsx'));
-    expect(screen).toContain('const nextBidAllIn = allInFromDollars(currentHighest + APP_CONFIG.MIN_BID_INCREMENT);');
+    // RETARGETED (C, 2026-10-21, B-D1 per A): the live current bid is the displayed floor, max(listing row,
+    // bids list), so a failed list read no longer prices from starting_bid. Same increment.
+    expect(screen).toContain('const nextBidAllIn = allInFromDollars(priceFloor + APP_CONFIG.MIN_BID_INCREMENT);');
+    expect(screen).toContain('const priceFloor = displayedBidFloor(listing?.current_bid ?? 0, rt.currentBid);');
   });
 });
 
@@ -173,7 +176,7 @@ describe('CFT-306 — progress copy names real states (payControl, for A)', () =
 
   it('nothing else in checkout changed: handlers, decision, gated files', () => {
     const screen = read('src/screens/checkout/CheckoutNative.tsx');
-    for (const marker of ["pay.action === 'pay' ? payHandler", "pay.action === 'retry' ? () => setupPaymentRef.current?.()", "pay.action === 'back' ? () => router.back()"]) {
+    for (const marker of ["pay.action === 'pay' ? payHandler", "pay.action === 'retry' ? retrySetup" /* RETARGETED (C, 2026-10-21, B-D2): Retry is latched; retrySetup still runs setupPaymentRef. */, "pay.action === 'back' ? () => router.back()"]) {
       expect(screen).toContain(marker);
     }
   });

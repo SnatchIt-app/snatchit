@@ -32,6 +32,7 @@ import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/dat
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
 import {
+  AccessibilityInfo,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -59,6 +60,7 @@ import { useCtaDockOffset, useTopInset } from '@/src/lib/nav/navInsets';
 import {
   digitsOnly,
   findBannedContent,
+  invalidSellSummary,
   isSellValid,
   parseAmount,
   parseRiskCheckResponse,
@@ -500,6 +502,10 @@ export default function CreateListingScreen({ fixture }: { fixture?: CreateFixtu
      */
     const block = publishBlock({ valid: isValid, signedIn: user != null });
     if (block || !user) {
+      // a11y finding 2: the fields show their errors, but on iOS nothing said so. Every press speaks.
+      if (block?.kind === 'invalid' && Platform.OS === 'ios') {
+        AccessibilityInfo.announceForAccessibility(invalidSellSummary(errors));
+      }
       if (block?.kind === 'signed-out') {
         if (Platform.OS === 'web') {
           window.alert(`${block.title}\n\n${block.body}`);
@@ -761,7 +767,22 @@ export default function CreateListingScreen({ fixture }: { fixture?: CreateFixtu
               >
                 <Text style={sx.stepGlyph}>{'−'}</Text>
               </Pressable>
-              <Text style={[textStyle('price'), sx.stepVal]} accessibilityLabel={`Quantity ${quantity}`}>{quantity}</Text>
+              <Text
+                style={[textStyle('price'), sx.stepVal]}
+                // One adjustable control for VoiceOver, as the bid amount: swipe up/down steps it by the
+                // buttons' own rules (never below 1), and the number is read as its value.
+                accessible
+                accessibilityRole="adjustable"
+                accessibilityLabel="Quantity"
+                accessibilityValue={{ text: String(quantity) }}
+                accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
+                onAccessibilityAction={(e) => {
+                  if (e.nativeEvent.actionName === 'increment') setQuantity((q) => q + 1);
+                  else if (e.nativeEvent.actionName === 'decrement') setQuantity((q) => Math.max(1, q - 1));
+                }}
+              >
+                {quantity}
+              </Text>
               <Pressable
                 style={sx.stepBtn}
                 onPress={() => setQuantity((q) => q + 1)}
@@ -925,7 +946,7 @@ export default function CreateListingScreen({ fixture }: { fixture?: CreateFixtu
             accessibilityLabel="I confirm I own these tickets and will transfer them within 24 hours of sale."
           >
             <View style={[sx.checkbox, sellerCommitmentAccepted && sx.checkboxOn]}>
-              {sellerCommitmentAccepted ? <Text style={sx.checkMark}>{'✓'}</Text> : null}
+              {sellerCommitmentAccepted ? <Text style={sx.checkMark} accessibilityElementsHidden importantForAccessibility="no">{'✓'}</Text> : null}
             </View>
             <Text style={[textStyle('bodySm'), sx.commitText]}>
               I confirm I own these tickets and will transfer them within 24 hours of sale.
@@ -1064,7 +1085,7 @@ export default function CreateListingScreen({ fixture }: { fixture?: CreateFixtu
                       <Text style={[textStyle('body'), on ? sx.sheetRowTextOn : sx.sheetRowText]}>
                         {NEIGHBORHOOD_LABELS[n]}
                       </Text>
-                      {on ? <Text style={sx.sheetCheck}>{'✓'}</Text> : null}
+                      {on ? <Text style={sx.sheetCheck} accessibilityElementsHidden importantForAccessibility="no">{'✓'}</Text> : null}
                     </Pressable>
                   );
                 })}
@@ -1104,7 +1125,7 @@ export default function CreateListingScreen({ fixture }: { fixture?: CreateFixtu
                   accessibilityState={{ selected: on }}
                 >
                   <Text style={[textStyle('body'), on ? sx.sheetRowTextOn : sx.sheetRowText]}>{label}</Text>
-                  {on ? <Text style={sx.sheetCheck}>{'✓'}</Text> : null}
+                  {on ? <Text style={sx.sheetCheck} accessibilityElementsHidden importantForAccessibility="no">{'✓'}</Text> : null}
                 </Pressable>
               );
             })}
@@ -1129,7 +1150,7 @@ export default function CreateListingScreen({ fixture }: { fixture?: CreateFixtu
                 accessibilityState={{ selected: on }}
               >
                 <Text style={[textStyle('body'), on ? sx.sheetRowTextOn : sx.sheetRowText]}>{label}</Text>
-                {on ? <Text style={sx.sheetCheck}>{'✓'}</Text> : null}
+                {on ? <Text style={sx.sheetCheck} accessibilityElementsHidden importantForAccessibility="no">{'✓'}</Text> : null}
               </Pressable>
             );
           })}

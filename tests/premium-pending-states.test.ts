@@ -119,7 +119,7 @@ describe('Checkout — pay control and completion (display only; for A)', () => 
     for (const marker of [
       'const pay = payControl({',
       "pay.action === 'pay' ? payHandler",
-      "pay.action === 'retry' ? () => setupPaymentRef.current?.()",
+      "pay.action === 'retry' ? retrySetup" /* RETARGETED (C, 2026-10-21, B-D2): Retry is latched; retrySetup still runs setupPaymentRef. */,
       "pay.action === 'back' ? () => router.back()",
     ]) {
       expect(screen).toContain(marker);

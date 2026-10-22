@@ -158,9 +158,9 @@ export function BarAction({
         loading={loading}
         pendingLabel={pendingLabel}
         onPress={onPress}
-        // The sub-line is read as the control's hint, so a screen reader hears the minimum or
-        // the consequence without the sentence becoming a second focusable element.
-        accessibilityHint={subLabel}
+        // The sub-line is read WITH the label, not as a hint: with hints off (a common VoiceOver
+        // setting) the minimum or the consequence was never heard. Still one focusable element.
+        accessibilityLabel={subLabel ? `${label}. ${subLabel}` : undefined}
         style={subLabel ? styles.actionTall : undefined}
         testID={testID}
       />
