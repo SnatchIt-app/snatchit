@@ -185,3 +185,12 @@ select version, name from supabase_migrations.schema_migrations where version = 
 | M6: the type arm `TO anon, authenticated` | A2 |
 | M7: the batch arm resolved through `event_session_id` instead of the type | P2 only (the same event by invariant; the pin is what catches it) |
 | M8: a stray change to `venue_ticket_type_sel_venue` (e.g. the `visibility <> 'hidden'` tier dropped) | P3, E5, E6, E7, E10 |
+
+## Local rehearsal (2026-10-22, Homebrew PostgreSQL 17, localhost:5432)
+Base: a fresh replay of `venue/api-read-views-provisional` @ 8ccb26e1 (172 migrations, through 159), built as `postgres` so the 156 proof-guard bypass fires in the seed. Logs: `private-evidence/F-web-redesign/logs/round2-gates/mig176/` (SSD, private).
+- Control: pgTAP 226 on the base, 72/72.
+- RED, base without 176: 246 plan 50, ok 35, not_ok 15 — exactly A4 B1 B2 B7 B8 B9 B10 B11 B12 D1 D2 E8 E11 P1 P2 (the predicted set).
+- Apply 176: exit 0. GREEN: 50/50.
+- Mutants M1–M8 (restore.sql between runs): every one fails 246 (not_ok 2 / 4 / 7 / 3 / 19 / 1 / 1 / 5). Restored: 50/50 again.
+- Rollback: exit 0; `pg_policies` md5(qual) for both public arms returns to the 081 values (`c2960bb8…` ticket_type, `898e6aa6…` inventory_batch), the same md5s the base showed before apply.
+- Harness note: a base replayed as the OS user has `postgres`-only bypasses in definer bodies that never fire, so even 226 fails at `tap.seed_core` with "Upload proof of ownership." Replay as `postgres`.
