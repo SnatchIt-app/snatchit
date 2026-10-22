@@ -130,6 +130,25 @@ describe('feedRowState — §5 vocabulary', () => {
     expect(clockLabel(new Date(now - 1000).toISOString(), now)).toBeNull();
   });
 
+  it('K4: a weekday alone is unambiguous only inside the next six days', () => {
+    const now = Date.parse('2026-10-20T23:47:00');   // Tuesday
+    // Six days out: "Mon" can only mean next Monday.
+    expect(clockLabel('2026-10-26T20:30:00', now)).toEqual({ text: 'Ends Mon 20:30', urgent: false });
+    // A 7-day listing published tonight ends next Tuesday: "Ends Tue 23:47" read as tonight.
+    expect(clockLabel('2026-10-27T23:47:00', now)).toEqual({ text: 'Ends 27 Oct 23:47', urgent: false });
+    // Beyond a week the weekday names a day the reader can't place either.
+    expect(clockLabel('2026-11-02T09:05:00', now)).toEqual({ text: 'Ends 2 Nov 09:05', urgent: false });
+  });
+
+  it('K5: the six-day boundary counts calendar days, not 24-hour blocks', () => {
+    const now = Date.parse('2026-10-20T23:50:00');   // Tuesday, late
+    // Under 7×24h away but on the same weekday next week: still dated.
+    expect(clockLabel('2026-10-27T08:00:00', now)).toEqual({ text: 'Ends 27 Oct 08:00', urgent: false });
+    // Across the month and year ends.
+    expect(clockLabel('2027-01-05T10:00:00', Date.parse('2026-12-29T10:00:00')))
+      .toEqual({ text: 'Ends 5 Jan 10:00', urgent: false });
+  });
+
   it('P1: the price caption is the presentation label, lowercased, with the §5 "all-in"', () => {
     expect(priceCaption('Current bid')).toBe('current bid, all-in');
     expect(priceCaption('Buy now')).toBe('buy now, all-in');

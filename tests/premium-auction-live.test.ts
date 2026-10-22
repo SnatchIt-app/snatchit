@@ -173,7 +173,7 @@ describe('CFT-306 — progress copy names real states (payControl, for A)', () =
 
   it('nothing else in checkout changed: handlers, decision, gated files', () => {
     const screen = read('src/screens/checkout/CheckoutNative.tsx');
-    for (const marker of ["pay.action === 'pay' ? payHandler", "pay.action === 'retry' ? () => setupPaymentRef.current?.()", "pay.action === 'back' ? () => router.back()"]) {
+    for (const marker of ["pay.action === 'pay' ? payHandler", "pay.action === 'retry' ? retrySetup" /* RETARGETED (C, 2026-10-21, B-D2): Retry is latched; retrySetup still runs setupPaymentRef. */, "pay.action === 'back' ? () => router.back()"]) {
       expect(screen).toContain(marker);
     }
   });
