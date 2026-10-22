@@ -40,8 +40,9 @@
 --          pending approval has expires_at <= now(), EXACTLY approve_action's expiry transition (production body
 --          L31-35): approval 'expired'; action 'rejected' / 'approval_expired', completed_at now(), version + 1;
 --          audit 'approval.expired' (before/after NULL, outcome 'expired', the action's correlation id). The only
---          differences: the audit reason is fixed text (there is no decider's reason), and the boundary is <=
---          (an approval is decidable only while expires_at > now(), ops.action_detail.can_decide).
+--          difference: the audit reason is fixed text (there is no decider's reason). The boundary is <= in both
+--          (an approval is decidable only while expires_at > now(), ops.action_detail.can_decide): approve_action's
+--          redefinition in (4) aligns production's `<` to `<=` for exactly that reason.
 --   3. ops.execute_action, from the PRODUCTION body (md5 e59c158453adabc662431cac9dca1040). For refund_execute
 --      and payout_release only, after the existing validation, key lookup, role and reason checks: take
 --      pg_advisory_xact_lock(hashtextextended('ops_money_order:' || <payment id>, 0)); re-check the key (a
@@ -60,6 +61,9 @@
 --      NON-DESTRUCTIVE recheck: another money action on the order in processing / unknown /
 --      succeeded_at_provider -> {status:'rejected', reject_reason:'duplicate_unsettled', action_id, state,
 --      message, hint, blocking} with NO state change (the approval stays pending). Deny is never blocked.
+--      Its expiry comparison is `<=` where production has `<`: a deliberate match to the sweep (2) and to
+--      ops.action_detail.can_decide (decidable only while expires_at > now()). The one-microsecond boundary instant
+--      expires_at = now() is now expired instead of decided; every other instant answers as before.
 --   5. Backstop: UNIQUE INDEX ops.action_money_unsettled_uidx ON ops.action (action_type, subject_kind,
 --      subject_id) WHERE action_type IN (refund_execute, payout_release) AND state IN (unsettled). It enforces
 --      the SAME-TYPE rule against every writer. The CROSS-TYPE rule (refund on P vs payout on T(P): different
@@ -118,14 +122,16 @@
 --   restores the three bodies VERBATIM from production (prod_ops_action_defs.json), drops the helpers, and
 --   verifies md5(pg_get_functiondef) = the production md5s. 'rejected' / duplicate_unsettled rows stay as
 --   history (valid rejected rows; reject_reason has no check constraint). It refuses, changing nothing, while 158
---   (20261021110000, stacked on these bodies) is applied: roll back 158 first.
+--   (20261021110000, stacked on these bodies) is applied (roll back 158 first), when any of the three bodies is
+--   neither 157's nor production's (another change sits on top), or when a routine other than 157's own references
+--   the three helpers it drops.
 -- CI (four-file rule): no change. Gate-2 census and the grant manifests cover schema public only
 --   (.github/workflows/ci.yml:605-608, :723, :730; supabase/ci/assert_public_table_grant_decisions.sql:315, :601);
 --   ci.yml:638 records that the ops migrations add nothing to public. This file adds nothing to public.
 -- VERIFY (read-only): select indexrelid::regclass from pg_index where indexrelid = 'ops.action_money_unsettled_uidx'::regclass;
 --   select md5(pg_get_functiondef('ops.execute_action(text,text,text,uuid,jsonb,text,jsonb,text)'::regprocedure));
 --   -- 0da9bc63acb58f1d76a86f8039c0c877
---   select md5(pg_get_functiondef('ops.approve_action(uuid,text,text)'::regprocedure));  -- 60fb8ce43d5ff1b051e379ac6affb53f
+--   select md5(pg_get_functiondef('ops.approve_action(uuid,text,text)'::regprocedure));  -- ddcdcd1401839910726d20ddd206e40d
 --   select md5(pg_get_functiondef('ops.order_detail(uuid)'::regprocedure));               -- 4358f577291f84b25986b8904b38ab36
 --   Then re-run the pre-flight query (section 1's WITH ... as a plain SELECT): expected 0 rows (see ROLLOUT 2).
 -- FAILURE BEHAVIOUR: one transaction. The pre-flight RAISE, a lock timeout (the apply LOCK or any later lock) or
@@ -513,7 +519,10 @@ begin
   if ap.requested_by = v_uid then
     raise exception 'precondition_failed: self_approval — the requester cannot approve their own action';
   end if;
-  if ap.expires_at < now() then
+  -- 157: `<=` where production has `<`: ops.expire_stale_money_approvals sweeps at expires_at <= now(), and an
+  -- approval is decidable only while expires_at > now() (ops.action_detail.can_decide); the three now agree on the
+  -- boundary. The only behavioural change is the instant expires_at = now() (one microsecond): expired, not decided.
+  if ap.expires_at <= now() then
     update ops.approval set state = 'expired' where id = ap.id;
     update ops.action set state = 'rejected', reject_reason = 'approval_expired', completed_at = now(), version = version + 1 where id = a.id;
     perform ops.audit_write('approval.expired', a.subject_kind, a.subject_id, a.subject_ref, p_reason, null, null, 'expired', a.correlation_id, a.id);
