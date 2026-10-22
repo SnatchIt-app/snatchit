@@ -13,13 +13,19 @@
  */
 
 import { Tabs } from 'expo-router';
+import { useEffect } from 'react';
 import { View } from 'react-native';
 
 import { AdaptiveDock } from '@/src/components/nav/AdaptiveDock';
 import { NavDockProvider } from '@/src/components/nav/dockContext';
 import { SecurityNoticeBanner } from '@/src/components/SecurityNoticeBanner';
+import { armListingDraftPurge } from '@/src/lib/sell/listingDraftStore';
 
 export default function TabLayout() {
+  // CFT-608: sell drafts are purged on sign-out and on a change of account by the draft store's own
+  // auth listener. Armed here, on the first signed-in render, so a sign-out clears a draft even when
+  // the Sell tab was never opened in this session. Idempotent; the listener never unsubscribes.
+  useEffect(() => { armListingDraftPurge(); }, []);
   return (
     <NavDockProvider>
       {/* Batch 1 (owner ruling 2026-09-17): an unread account-security notice sits above
