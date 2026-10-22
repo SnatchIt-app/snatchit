@@ -87,7 +87,7 @@ describe('the classification is exhaustive — a new slot cannot slip past the d
     for (const n of Object.keys(SQUARE_FITTED)) expect(NOT_A_POSTER[n]).toBeUndefined();
     // Every exemption states a reason rather than existing silently.
     for (const [n, why] of Object.entries(NOT_A_POSTER)) expect(why.length).toBeGreaterThan(20);
-    for (const [n, why] of Object.entries(SQUARE_FITTED)) expect(why.length).toBeGreaterThan(20);
+    for (const why of Object.values(SQUARE_FITTED)) expect(why.length).toBeGreaterThan(20);
   });
 });
 
