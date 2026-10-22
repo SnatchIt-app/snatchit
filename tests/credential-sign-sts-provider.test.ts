@@ -60,7 +60,7 @@ import {
 
 // ── Fixtures ─────────────────────────────────────────────────────────────
 
-const ACCOUNT = '652872010073';
+const ACCOUNT = '000000000000';
 const REGION = 'us-east-1';
 const ROLE_ARN = `arn:aws:iam::${ACCOUNT}:role/SnatchIt-CredentialSign-Runtime`;
 const KEY_ARN = `arn:aws:kms:${REGION}:${ACCOUNT}:key/1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b`;
