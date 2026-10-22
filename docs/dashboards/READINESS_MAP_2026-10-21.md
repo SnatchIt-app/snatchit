@@ -27,10 +27,11 @@ This map comes from read-only evidence: git refs, Vercel API GETs, public `curl`
 |---|---|---|
 | #116 | `admin/console-next-16.3.8` → `admin/operating-console` | Next.js 16.3.3 → 16.3.8 on the live console (7 advisories, 1 critical) |
 | #121 | `admin/console-v2-integration` → `admin/operating-console` | Dashboard v2 (admin/ only) on the live console with RC5 suspension, the #89 refund-classification and alert-acknowledge port, the money-form guard via `ops.list_actions` (fails closed), env/cookie/MFA hardening, and Next 16.3.8 |
-| #122 | `venue/production-readiness` → `venue/dashboard-v2` | Acceptance kit merged and re-pinned to 159, secret-key refusal, loading state, mode-aware copy, fail-closed entry, resale scope, Secure/HttpOnly own-name cookies, HSTS, `.vercelignore`, Next 16.3.8 |
+| #122 | `venue/production-readiness` → `venue/dashboard-v2` | Acceptance kit merged and re-pinned to 159, secret-key refusal, loading state, mode-aware copy, fail-closed entry, resale scope, Secure/HttpOnly own-name cookies, HSTS, `.vercelignore`, Next 16.3.8; **DC-3**: a production deployment refuses an unset or unknown data source |
 | #123 | `venue/api-read-views-provisional` → `fix/154-listing-visibility-20261015` | `venue_api` views as registry 159 / pgTAP 226 (A allocated them in PR #115), four-file rule, local replay evidence. Comes to A before it leaves draft |
 | #124 | `admin/manual-refund-sop` → `admin/operating-console` | A current manual refund procedure (DRAFT until A reviews the money wording) |
 | #134 | `admin/console-relist-expected` → `admin/operating-console` | The live console sends the listing version for relist (A's 158 contract). Must deploy **before** 158 |
+| #158 | `admin/console-v2-visual` → `admin/console-v2-integration` (stacked on #121) | V-1 visual hierarchy: labels and states on every figure, real-read comparisons and breakdowns, sortable tables, two workflow diagrams, reduced motion. The DC-2 test-row notice hook is in place and empty until A's 180 |
 | #120 | `docs/dashboards-hosting-package` → `admin/operating-console` | This map, both hosting runbooks and the owner decision list |
 
 Never merge a venue branch, or the old admin v2 branch, wholesale: they inherit non-dashboard `supabase/`, `app/` and `src/` content. Each ships its own app folder only, and never through `main`.
