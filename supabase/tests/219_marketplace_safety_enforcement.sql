@@ -44,9 +44,9 @@ CREATE FUNCTION tap._create219(p_seller uuid, p_name text, p_venue text DEFAULT 
   SELECT format($i$ INSERT INTO public.listings
        (seller_id, event_name, venue, neighborhood, event_date, event_time,
         ticket_type, quantity, transfer_method, restrictions, starting_bid, buy_now_enabled,
-        duration_hours, ends_at, current_bid, cover_image_path)
+        duration_hours, ends_at, current_bid, cover_image_path, proof_of_ownership_path)
      VALUES (%L, %L, %L, 'wynwood', current_date + 7, '21:00',
-             'GA', 2, 'mobile_transfer', %L, 60, false, 24, now() + interval '24 hours', 60, 'covers/219.jpg') $i$,
+             'GA', 2, 'mobile_transfer', %L, 60, false, 24, now() + interval '24 hours', 60, 'covers/219.jpg', 'proofs/219.png') $i$,
      p_seller, p_name, p_venue, p_restrictions) $f$;
 -- The exact client edit shape (app/listing/edit/[id].tsx).
 CREATE FUNCTION tap._edit219(p_listing uuid, p_seller uuid, p_name text) RETURNS text LANGUAGE sql AS $f$

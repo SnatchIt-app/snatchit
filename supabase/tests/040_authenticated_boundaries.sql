@@ -53,9 +53,9 @@ SELECT throws_ok(
   $$ INSERT INTO public.listings
        (seller_id, event_name, venue, neighborhood, event_date, event_time,
         ticket_type, quantity, transfer_method, starting_bid, duration_hours,
-        ends_at, current_bid, cover_image_path)
+        ends_at, current_bid, cover_image_path, proof_of_ownership_path)
      VALUES (tap.buyer(), 'Nope', 'X', 'wynwood', current_date + 1, '20:00',
-             'GA', 1, 'email', 50, 24, now() + interval '1 day', 50, 'x.jpg') $$,
+             'GA', 1, 'email', 50, 24, now() + interval '1 day', 50, 'x.jpg', 'proofs/x.png') $$,
   '42501', NULL, 'listing INSERT denied without onboarding + verified phone');
 
 -- seller: onboarded + phone_confirmed_at set in fixtures -> allowed.
@@ -65,9 +65,9 @@ SELECT lives_ok(
   $$ INSERT INTO public.listings
        (seller_id, event_name, venue, neighborhood, event_date, event_time,
         ticket_type, quantity, transfer_method, starting_bid, duration_hours,
-        ends_at, current_bid, cover_image_path)
+        ends_at, current_bid, cover_image_path, proof_of_ownership_path)
      VALUES (tap.seller(), 'Legit', 'X', 'wynwood', current_date + 1, '20:00',
-             'GA', 1, 'email', 50, 24, now() + interval '1 day', 50, 'x.jpg') $$,
+             'GA', 1, 'email', 50, 24, now() + interval '1 day', 50, 'x.jpg', 'proofs/x.png') $$,
   'onboarded seller with verified phone CAN create a listing');
 
 -- ── Listing state guard (000/046) — before any bid arms the bypass GUC ─────
@@ -188,18 +188,18 @@ SELECT throws_ok(
   $$ INSERT INTO public.listings
        (seller_id, event_name, venue, neighborhood, event_date, event_time,
         ticket_type, quantity, transfer_method, starting_bid, duration_hours,
-        ends_at, current_bid, cover_image_path, proof_status)
+        ends_at, current_bid, cover_image_path, proof_of_ownership_path, proof_status)
      VALUES (tap.seller(), 'Self approved', 'X', 'wynwood', current_date + 1, '20:00',
-             'GA', 1, 'email', 50, 24, now() + interval '1 day', 50, 'x.jpg', 'approved') $$,
+             'GA', 1, 'email', 50, 24, now() + interval '1 day', 50, 'x.jpg', 'proofs/x.png', 'approved') $$,
   'proof_status can only be changed by Snatch It review',
   'seller cannot CREATE a listing pre-stamped approved (INSERT path)');
 SELECT throws_ok(
   $$ INSERT INTO public.listings
        (seller_id, event_name, venue, neighborhood, event_date, event_time,
         ticket_type, quantity, transfer_method, starting_bid, duration_hours,
-        ends_at, current_bid, cover_image_path, proof_status)
+        ends_at, current_bid, cover_image_path, proof_of_ownership_path, proof_status)
      VALUES (tap.seller(), 'Self rejected', 'X', 'wynwood', current_date + 1, '20:00',
-             'GA', 1, 'email', 50, 24, now() + interval '1 day', 50, 'x.jpg', 'rejected') $$,
+             'GA', 1, 'email', 50, 24, now() + interval '1 day', 50, 'x.jpg', 'proofs/x.png', 'rejected') $$,
   'proof_status can only be changed by Snatch It review',
   'seller cannot CREATE a listing pre-stamped rejected (INSERT path)');
 
@@ -210,9 +210,9 @@ SELECT lives_ok(
   $$ INSERT INTO public.listings
        (seller_id, event_name, venue, neighborhood, event_date, event_time,
         ticket_type, quantity, transfer_method, starting_bid, duration_hours,
-        ends_at, current_bid, cover_image_path)
+        ends_at, current_bid, cover_image_path, proof_of_ownership_path)
      VALUES (tap.seller(), 'Normal create', 'X', 'wynwood', current_date + 1, '20:00',
-             'GA', 1, 'email', 50, 24, now() + interval '1 day', 50, 'x.jpg') $$,
+             'GA', 1, 'email', 50, 24, now() + interval '1 day', 50, 'x.jpg', 'proofs/x.png') $$,
   'seller can still create an ordinary listing (defaults to pending_review)');
 
 -- Positive 5: the review path may still seed a status on INSERT.
