@@ -33,6 +33,14 @@ export function markSessionEndIfUnmarked(reason: SessionEndReason): void {
   if (pending === null) pending = reason;
 }
 
+/**
+ * Read WITHOUT clearing (CFT-603): the root layout asks whether a sign-out was an expiry, to decide whether to
+ * remember the screen, and must leave the mark for the login screen's notice.
+ */
+export function peekSessionEnd(): SessionEndReason | null {
+  return pending;
+}
+
 /** Read and clear. Null when nothing was marked (a normal first visit). */
 export function consumeSessionEnd(): SessionEndReason | null {
   const r = pending;
