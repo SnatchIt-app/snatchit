@@ -78,31 +78,36 @@ GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON public.us
 GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON public.venue_partnership_inquiries TO service_role;
 GRANT DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON public.webhook_retries TO service_role;
 
--- anon — 18 of 27 tables. Withheld: admin_users, auth_audit_sweep_state,
+-- anon — 17 of 27 tables. Withheld: admin_users, auth_audit_sweep_state,
 -- dispute_resolutions, notifications, profiles, rate_limits,
 -- stripe_webhook_events, transfer_notifications, and webhook_retries (DRIFT-1:
--- production grants it, migration 069 revokes it, source wins here).
+-- production grants it, migration 069 revokes it, source wins here), and
+-- push_tokens (174).
+-- 174 (20261021134000_revoke_anon_dml.sql) revokes anon's INSERT/UPDATE/DELETE on
+-- 14 tables no signed-out client writes, so anon keeps SELECT only on 13 of them
+-- and nothing on push_tokens. This file runs AFTER the chain, so it must state
+-- post-174 production or it silently re-grants what 174 revoked. Only the three
+-- signed-out website forms (ambassador_applications, investor_leads,
+-- venue_partnership_inquiries) keep anon DML; supabase/ci/
+-- assert_public_table_grant_decisions.sql A4 fails on any other anon write grant.
 GRANT DELETE, INSERT, SELECT, UPDATE ON public.ambassador_applications TO anon;
-GRANT DELETE, INSERT, SELECT, UPDATE ON public.bids TO anon;
-GRANT DELETE, INSERT, SELECT, UPDATE ON public.disputes TO anon;
+GRANT SELECT ON public.bids TO anon;
+GRANT SELECT ON public.disputes TO anon;
 GRANT DELETE, INSERT, SELECT, UPDATE ON public.investor_leads TO anon;
-GRANT DELETE, INSERT, SELECT, UPDATE ON public.listings TO anon;
-GRANT DELETE, INSERT, SELECT, UPDATE ON public.notification_preferences TO anon;
-GRANT DELETE, INSERT, SELECT, UPDATE ON public.payments TO anon;
-GRANT DELETE, INSERT, SELECT, UPDATE ON public.payout_decisions TO anon;
-GRANT DELETE, INSERT, SELECT, UPDATE ON public.payout_policy TO anon;
--- push_tokens: 128 withdraws table-level SELECT and UPDATE from the client
--- roles (both column-scoped for authenticated, granted by 128 itself). This
--- file runs AFTER the chain, so it must state post-128 production or it
--- silently re-grants what 128 revoked (D review G-1: fresh order ended arwdm).
-GRANT DELETE, INSERT ON public.push_tokens TO anon;
-GRANT DELETE, INSERT, SELECT, UPDATE ON public.reports TO anon;
-GRANT DELETE, INSERT, SELECT, UPDATE ON public.saved_listings TO anon;
-GRANT DELETE, INSERT, SELECT, UPDATE ON public.seller_flags TO anon;
-GRANT DELETE, INSERT, SELECT, UPDATE ON public.seller_risk_scores TO anon;
-GRANT DELETE, INSERT, SELECT, UPDATE ON public.stripe_connect_archive TO anon;
+GRANT SELECT ON public.listings TO anon;
+GRANT SELECT ON public.notification_preferences TO anon;
+GRANT SELECT ON public.payments TO anon;
+GRANT SELECT ON public.payout_decisions TO anon;
+GRANT SELECT ON public.payout_policy TO anon;
+-- push_tokens: 128 withdrew anon's table-level SELECT and UPDATE; 174 withdraws
+-- its remaining DELETE, INSERT, so anon gets no line here at all.
+GRANT SELECT ON public.reports TO anon;
+GRANT SELECT ON public.saved_listings TO anon;
+GRANT SELECT ON public.seller_flags TO anon;
+GRANT SELECT ON public.seller_risk_scores TO anon;
+GRANT SELECT ON public.stripe_connect_archive TO anon;
 GRANT SELECT ON public.transfers TO anon;
-GRANT DELETE, INSERT, SELECT, UPDATE ON public.user_blocks TO anon;
+GRANT SELECT ON public.user_blocks TO anon;
 GRANT DELETE, INSERT, SELECT, UPDATE ON public.venue_partnership_inquiries TO anon;
 
 -- authenticated — 19 of 27 tables. Withheld: admin_users,
