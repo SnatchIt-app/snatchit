@@ -39,8 +39,9 @@
 --       ef4c9ba0a832230db6752c069e467ca4.
 --   R12 ACLs of execute_action / action_dispatch / admin_relist_listing = 157 / production; execute_action minus
 --       the marked 158 block = 157's body (md5 0da9bc63acb58f1d76a86f8039c0c877); action_dispatch with the
---       production listing_relist branch put back = production (md5 bfb8b9dcfaace5ff04009f96b6de7bef); the
---       neighbouring functions keep their md5s; static: the listing_relist branch locks the listing FOR UPDATE
+--       production listing_relist branch put back = production (md5 bfb8b9dcfaace5ff04009f96b6de7bef; 177's marked
+--       refund_execute block, 20261022001000, is stripped first when present); the neighbouring functions keep their
+--       md5s (action_precheck: production's or 177's); static: the listing_relist branch locks the listing FOR UPDATE
 --       before it calls admin_relist_listing (a single session cannot observe a missing lock; the two-session
 --       proof is scripts/local/rehearsal_158_concurrency.sh).
 --   R13 157's money guard still works with 158 applied (a duplicate refund_execute is refused).
@@ -511,13 +512,18 @@ SELECT is((SELECT md5(substr(d, 1, s - 1) || substr(d, e + length('  -- 158 end'
             WHERE s > 0 AND e > s),
           '0da9bc63acb58f1d76a86f8039c0c877',
   'R12.5: execute_action without the marked 158 block is 157''s body byte for byte (md5 0da9bc63)');
+-- 177 (20261022001000, stacked on 158) adds one block, marked '-- 177 begin' / '-- 177 end', to the refund_execute
+-- branch; it is stripped first when present (pgTAP 247 P9.6 proves the rest is 158's body).
 SELECT is((SELECT md5(substr(d, 1, s - 1)
                       || E'  when ''listing_relist'' then\n'
                       || E'    v_res := public.admin_relist_listing(a.subject_id, (a.params ->> ''new_ends_at'')::timestamptz, v_uid);\n'
                       || E'    return jsonb_build_object(''status'',''succeeded'',''result'', v_res);\n\n'
                       || substr(d, e))
              FROM (SELECT d, position(E'  when ''listing_relist'' then\n' IN d) AS s, position(E'  when ''report_resolve'' then\n' IN d) AS e
-                     FROM (SELECT pg_get_functiondef('ops.action_dispatch(ops.action)'::regprocedure) AS d) x) y
+                     FROM (SELECT CASE WHEN b177 > 0 AND e177 > b177 THEN substr(d0, 1, b177 - 1) || substr(d0, e177 + length('    -- 177 end') + 1)
+                                       ELSE d0 END AS d
+                             FROM (SELECT d0, position('    -- 177 begin' IN d0) AS b177, position('    -- 177 end' IN d0) AS e177
+                                     FROM (SELECT pg_get_functiondef('ops.action_dispatch(ops.action)'::regprocedure) AS d0) x0) x1) x) y
             WHERE s > 0 AND e > s),
           'bfb8b9dcfaace5ff04009f96b6de7bef',
   'R12.6: action_dispatch with the production listing_relist branch put back is production''s body (md5 bfb8b9dc): no other branch changed');
@@ -537,7 +543,10 @@ SELECT is((SELECT coalesce(array_agg(v.sig ORDER BY v.sig), '{}'::text[]) FROM (
              ('ops.approve_action(uuid,text,text)', '60fb8ce43d5ff1b051e379ac6affb53f'),
              ('ops.order_detail(uuid)', '4358f577291f84b25986b8904b38ab36'),
              ('public.cancel_listing(uuid,uuid)', 'ba31642267e65fefbf9485a144efc753')) v(sig, md5)
-            WHERE md5(pg_get_functiondef(to_regprocedure(v.sig))) IS DISTINCT FROM v.md5),
+            WHERE md5(pg_get_functiondef(to_regprocedure(v.sig))) IS DISTINCT FROM v.md5
+              -- 177 (20261022001000, stacked on 158) redefines action_precheck: its md5 is the one alternative
+              AND NOT (v.sig = 'ops.action_precheck(ops.action)'
+                       AND md5(pg_get_functiondef(to_regprocedure(v.sig))) = '20a5ae0386be0644293f5230fad84dde')),
           '{}'::text[],
   'R12.8: neighbours unchanged: action_run, requires_approval, allowed_roles, precheck, action_hash, listing_detail (production); approve_action, order_detail (157); cancel_listing');
 -- static lock check (M1): a single session cannot observe a missing FOR UPDATE. In the listing_relist branch of the
