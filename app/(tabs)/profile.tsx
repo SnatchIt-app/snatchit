@@ -326,7 +326,7 @@ export default function ProfileScreen({ fixture }: { fixture?: ProfileFixture } 
 
         {/* ── Buyer — saved listings are a buying feature, so they are not read out under "Seller" ── */}
         <AccountSection title="Buyer">
-          <SettingsRow label="Saved" onPress={() => router.push('/saved')} />
+          <SettingsRow label="Saved listings" onPress={() => router.push('/saved')} />
         </AccountSection>
 
         {/* ── Seller — the board's stacked label/value rows, not the V2 stat strip ── */}
