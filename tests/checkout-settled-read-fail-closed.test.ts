@@ -242,7 +242,8 @@ describe('the screen applies both decisions fail-closed', () => {
 
   it('W5: the retry re-runs setup (the check), never the pay handler; a new setup clears the unknown state', () => {
     const s = src();
-    expect(s).toContain("pay.action === 'retry' ? () => setupPaymentRef.current?.()");
+    expect(s).toContain("pay.action === 'retry' ? retrySetup" /* RETARGETED (C, 2026-10-21, B-D2): Retry is latched; retrySetup still runs setupPaymentRef. */);
+    expect(s).toMatch(/function retrySetup\(\) \{[\s\S]{0,120}setupPaymentRef\.current\?\.\(\)/);
     const setupStart = between(s, 'async function setupPayment() {', 'const decision = await decideCheckoutSetup(');
     expect(setupStart).toContain('setStatusUnknown(false);');
     expect(s).toContain('statusUnknown,');   // fed to payControl

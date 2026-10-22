@@ -11,15 +11,18 @@
  */
 
 import { useMemo } from 'react';
-import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { EmptyState } from '@/src/components/ui';
+import { useAnnounceOnce } from '@/src/hooks/useAnnounceOnce';
 import { identityStacks } from '@/src/lib/design/featureMetrics';
 import { AMOUNT_MIN_FONT_SCALE, MAX_DISPLAY_FONT_SCALE, textStyle } from '@/src/theme/typography';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 import type { Bid } from '@/src/types';
+
+export const BIDS_LOAD_FAILED_COPY = "Couldn't load bids.";
 
 export interface BidActivityProps {
   bids: Bid[];
@@ -31,9 +34,16 @@ export interface BidActivityProps {
   viewerId?: string;
   /** Live auction: the top row is the one to beat. */
   highlightTop: boolean;
+  /** The bids read failed: the list is unknown, so it is never painted as "No bids yet" (B-D1). */
+  loadFailed?: boolean;
+  onRetry?: () => void;
+  /** A read is in flight: an empty list is not yet a fact, so "No bids yet" waits (A's B-D1 rule). */
+  loading?: boolean;
 }
 
-export function BidActivity({ bids, amountFor, timeFor, viewerId, highlightTop }: BidActivityProps) {
+export function BidActivity({ bids, amountFor, timeFor, viewerId, highlightTop, loadFailed, onRetry, loading }: BidActivityProps) {
+  // Spoken on iOS like the other failure notices (useAnnounceOnce).
+  useAnnounceOnce(loadFailed && bids.length === 0 ? BIDS_LOAD_FAILED_COPY : null);
   const { palette } = useTheme();
   const styles = useMemo(() => makeStyles(palette), [palette]);
   /*
@@ -58,7 +68,21 @@ export function BidActivity({ bids, amountFor, timeFor, viewerId, highlightTop }
         Bid activity
       </Text>
 
-      {bids.length === 0 ? (
+      {loadFailed && bids.length === 0 ? (
+        // The Bids tab's inline notice, not an empty state: an unread list is not an empty one.
+        <View style={styles.notice} accessibilityRole="alert">
+          <View style={styles.noticeEdge} />
+          <Text style={[textStyle('bodySm'), styles.noticeText]}>{BIDS_LOAD_FAILED_COPY}</Text>
+          {onRetry ? (
+            <Pressable onPress={onRetry} hitSlop={8} accessibilityRole="button" accessibilityLabel="Retry loading bids">
+              <Text style={[textStyle('action'), styles.noticeAction]}>Retry</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : bids.length === 0 && loading ? (
+        // In flight: nothing is claimed yet, neither empty nor failed.
+        null
+      ) : bids.length === 0 ? (
         <EmptyState title="No bids yet" body="Be the first to bid on this one." />
       ) : (
         bids.map((bid, i) => {
@@ -112,6 +136,19 @@ export function BidActivity({ bids, amountFor, timeFor, viewerId, highlightTop }
 function makeStyles(p: Palette) {
   return StyleSheet.create({
   wrap: { paddingHorizontal: v2.space.lg, paddingTop: v2.space.xl },
+  notice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: v2.space.md,
+    backgroundColor: p.surface.surface,
+    borderRadius: v2.radius.sm,
+    paddingVertical: v2.space.md,
+    paddingRight: v2.space.md,
+    overflow: 'hidden',
+  },
+  noticeEdge: { alignSelf: 'stretch', width: 3, backgroundColor: p.status.warning },
+  noticeText: { color: p.text.secondary, flex: 1 },
+  noticeAction: { color: p.text.primary },
   head: { color: p.text.primary, marginBottom: v2.space.sm },
   row: {
     flexDirection: 'row',

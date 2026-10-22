@@ -349,8 +349,8 @@ export default function PublicProfileScreen({ fixture }: { fixture?: PublicProfi
           )}
         </AccountSection>
 
-        {/* Safety actions (hidden on your own profile) */}
-        {!isSelf ? (
+        {/* Safety actions: hidden on your own profile, and for a signed-out viewer — both refuse without a session. */}
+        {user && !isSelf ? (
           <View style={s.actions}>
             <Button label="Report user" variant="secondary" onPress={handleReport} block />
             <Button label="Block user" variant="destructive" onPress={handleBlock} disabled={working} block />
