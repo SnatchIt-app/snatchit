@@ -49,6 +49,8 @@ export const LISTING_REFUSAL_COPY = {
     generic: "We couldn't delete this listing. Please try again.",
     /** DEL-1, DEL-4 and any other 23503. */
     checkout: "This listing has had checkout activity, so it can't be deleted. You can cancel it instead.",
+    /** The same, for a listing that is no longer active (ended or cancelled): there is nothing to cancel. */
+    checkoutNoCancel: "This listing has had checkout activity, so it can't be deleted.",
     /** DEL-2. */
     hidden: "This listing is no longer shown to buyers and can't be deleted. Contact support@snatchitapp.com if you need it removed.",
     /** DEL-3. */
@@ -119,16 +121,20 @@ const DELETE_BY_CONSTRAINT: Record<string, { id: string; body: string; refresh: 
 };
 
 /** A delete that returned an error (catalogue §1 DEL-1 to DEL-4, §6). */
-export function listingDeleteFailure(error: unknown): ListingActionFailure {
+export function listingDeleteFailure(error: unknown, opts: { canCancel?: boolean } = {}): ListingActionFailure {
   const { title } = LISTING_REFUSAL_COPY.delete;
+  // "You can cancel it instead" is only true of an active listing; ListingDetail's gate also lets an
+  // ended or cancelled no-bid listing reach the delete (delta review m2).
+  const noCancel = (body: string) =>
+    opts.canCancel === false && body === LISTING_REFUSAL_COPY.delete.checkout ? LISTING_REFUSAL_COPY.delete.checkoutNoCancel : body;
   const hinted = fromHint(error);
   if (hinted) return hinted;
   const f = fields(error);
   if (f.code === '23503') {
     const hit = DELETE_BY_CONSTRAINT[constraintName(f.message) ?? ''];
     return hit
-      ? fail(hit.id, title, hit.body, hit.refresh)
-      : fail('DEL-1', title, LISTING_REFUSAL_COPY.delete.checkout);
+      ? fail(hit.id, title, noCancel(hit.body), hit.refresh)
+      : fail('DEL-1', title, noCancel(LISTING_REFUSAL_COPY.delete.checkout));
   }
   if (isExpiredSession(f)) return fail('session', title, LISTING_REFUSAL_COPY.signIn);
   return fallback(error, title, LISTING_REFUSAL_COPY.delete.generic);

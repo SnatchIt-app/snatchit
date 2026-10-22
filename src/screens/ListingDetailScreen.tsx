@@ -941,7 +941,7 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
               .eq('seller_id', user.id)
               .select('id');
             if (error || !Array.isArray(deleted) || deleted.length === 0) {
-              const failure = error ? listingDeleteFailure(error) : listingDeleteNoRows();
+              const failure = error ? listingDeleteFailure(error, { canCancel: listing.auction_status === 'active' }) : listingDeleteNoRows();
               if (error) console.warn('[ListingDetail] delete failed:', failure.id, error);
               Alert.alert(failure.title, failure.body);
               if (failure.refresh) void fetchData(true);
