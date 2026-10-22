@@ -140,7 +140,7 @@ export function ListingHero({
           listing it is, and build 28 cut "Adiel & Yu Su with JOVIGIBS at Jolene Sound…" at two lines.
           The name wraps; the page scrolls.
         */}
-        <NameText token="nameDetail" maxLines={null} style={styles.title}>
+        <NameText token="nameDetail" maxLines={null} style={styles.title} accessibilityRole="header">
           {eventName}
         </NameText>
       </View>

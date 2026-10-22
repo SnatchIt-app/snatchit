@@ -50,8 +50,10 @@ import type { AppStateStatus } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 
 import { supabase } from '@/src/lib/supabase';
+import { TEXT_LINK_HIT_SLOP } from '@/src/lib/a11y/touch';
 import { allInFromDollarsV3 } from '@/src/lib/money';
 import ScreenState from '@/src/components/ScreenState';
+import { useAnnounceOnce } from '@/src/hooks/useAnnounceOnce';
 import { useNetworkStatus } from '@/src/hooks/useNetworkStatus';
 import { classifyLoadFailure } from '@/src/lib/ui/loadState';
 import {
@@ -558,6 +560,7 @@ export default function HomeScreen({ fixture: rawFixture }: HomeScreenProps = {}
   const datasetFailure = datasetState
     ? failureSurface(filteredListings.length, datasetState.error !== null)
     : 'none';
+  useAnnounceOnce(datasetFailure === 'inline' && datasetState?.error ? HOME_FILTER_REFRESH_FAILED_COPY[datasetState.error] : null);
   const retryDataset = () => {
     if (activeDataset === 'recently_sold') void fetchSoldListings();
     if (activeDataset === 'ended')         void fetchEndedListings();
@@ -621,7 +624,7 @@ export default function HomeScreen({ fixture: rawFixture }: HomeScreenProps = {}
               <Text style={[textStyle('bodySm'), s.noticeText]}>
                 {HOME_FILTER_REFRESH_FAILED_COPY[datasetState.error]}
               </Text>
-              <Pressable onPress={retryDataset} hitSlop={8} accessibilityRole="button" accessibilityLabel="Retry loading this filter">
+              <Pressable onPress={retryDataset} hitSlop={TEXT_LINK_HIT_SLOP} accessibilityRole="button" accessibilityLabel="Retry loading this filter">
                 <Text style={[textStyle('label'), s.noticeAction]}>Retry</Text>
               </Pressable>
             </View>

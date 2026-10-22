@@ -15,6 +15,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextStyle } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
+import { ACTION_FAILED_COPY } from '@/src/lib/ui/errorCopy';
+import { TEXT_LINK_HIT_SLOP } from '@/src/lib/a11y/touch';
 import type { MyProfileRPC } from '@/src/types';
 import { useAuth } from '@/src/hooks/useAuth';
 import { getAvatarUrl, pickAndUploadAvatar } from '@/src/lib/avatarImage';
@@ -91,7 +93,8 @@ export default function EditProfileScreen() {
       }
       const { error: dbError } = await supabase.from('profiles').update({ avatar_path: result.storagePath }).eq('id', user.id);
       if (dbError) {
-        if (Platform.OS === 'web') window.alert(dbError.message); else Alert.alert('Save failed', dbError.message);
+        console.warn('[avatar save]', dbError.message);
+        if (Platform.OS === 'web') window.alert(ACTION_FAILED_COPY.photo.body); else Alert.alert(ACTION_FAILED_COPY.photo.title, ACTION_FAILED_COPY.photo.body);
         return;
       }
       setAvatarUrl(result.publicUrl);
@@ -159,7 +162,7 @@ export default function EditProfileScreen() {
         onScrollBeginDrag={Platform.OS !== 'web' ? Keyboard.dismiss : undefined}
       >
         <View style={s.avatarSection}>
-          <Pressable style={s.avatarRing} onPress={handleAvatarPress} disabled={avatarUploading} accessibilityRole="button" accessibilityLabel="Change profile photo">
+          <Pressable style={s.avatarRing} onPress={handleAvatarPress} disabled={avatarUploading} accessibilityRole="button" accessibilityLabel="Change profile photo" accessibilityState={{ disabled: avatarUploading, busy: avatarUploading }}>
             {avatarUrl ? (
               <Image source={{ uri: avatarUrl }} style={s.avatarImage} contentFit="cover" />
             ) : (
@@ -167,7 +170,7 @@ export default function EditProfileScreen() {
             )}
             {avatarUploading ? <View style={s.avatarOverlay}><Spinner color={palette.text.primary} /></View> : null}
           </Pressable>
-          <Pressable onPress={handleAvatarPress} disabled={avatarUploading} hitSlop={8}>
+          <Pressable onPress={handleAvatarPress} disabled={avatarUploading} hitSlop={TEXT_LINK_HIT_SLOP} accessibilityRole="button" accessibilityState={{ disabled: avatarUploading, busy: avatarUploading }}>
             <Text style={[textStyle('label'), s.changePhoto]}>{avatarUploading ? 'Uploading' : 'Change photo'}</Text>
           </Pressable>
         </View>

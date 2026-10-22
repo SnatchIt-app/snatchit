@@ -41,6 +41,8 @@ import { Link, router } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { useAnnounceOnce } from '@/src/hooks/useAnnounceOnce';
+import { TEXT_LINK_HIT_SLOP } from '@/src/lib/a11y/touch';
 import { supabase } from '@/src/lib/supabase';
 import { Button, Input } from '@/src/components/ui';
 import { friendlyAuthError } from '@/src/lib/auth/authForms';
@@ -94,6 +96,7 @@ export default function SignUpScreen() {
 
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: 'error' | 'success' } | null>(null);
+  useAnnounceOnce(message?.text);
   // F3: set when the number verified but the profile write failed; the next press retries the
   // write only (the OTP is single-use and already consumed).
   const profileRetryRef = useRef(false);
@@ -263,7 +266,7 @@ export default function SignUpScreen() {
   ) : null;
 
   const backRow = canGoBack(step) ? (
-    <Pressable onPress={() => { setMessage(null); setStep(prevStep(step)); }} style={s.alt} hitSlop={8} accessibilityRole="button">
+    <Pressable onPress={() => { setMessage(null); setStep(prevStep(step)); }} style={s.alt} hitSlop={TEXT_LINK_HIT_SLOP} accessibilityRole="button">
       <Text style={[textStyle('action'), s.altText]}>Back</Text>
     </Pressable>
   ) : null;

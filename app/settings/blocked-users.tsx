@@ -14,6 +14,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Alert, FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
+import { ACTION_FAILED_COPY } from '@/src/lib/ui/errorCopy';
 import { useAuth } from '@/src/hooks/useAuth';
 import { Button, EmptyState, Spinner } from '@/src/components/ui';
 import { SettingsHeader } from '@/src/components/account/SettingsHeader';
@@ -104,7 +105,7 @@ export default function BlockedUsersScreen() {
         style: 'destructive',
         onPress: async () => {
           const { error } = await supabase.from('user_blocks').delete().eq('blocker_id', user!.id).eq('blocked_id', blockedId);
-          if (error) { Alert.alert('Could not unblock', error.message); return; }
+          if (error) { console.warn('[unblock]', error.message); Alert.alert(ACTION_FAILED_COPY.unblock.title, ACTION_FAILED_COPY.unblock.body); return; }
           setRows((prev) => prev.filter((r) => r.blocked_id !== blockedId));
           fetchRows();
         },

@@ -405,7 +405,18 @@ export default function PlaceBidScreen({ id, fixture }: Props) {
               adjustsFontSizeToFit
               minimumFontScale={0.6}
               maxFontSizeMultiplier={MAX_DISPLAY_FONT_SCALE}
-              accessibilityLabel={`Your bid ${fmt$(selectedBid)}`}
+              // One adjustable control for VoiceOver: swipe up/down steps the bid through the buttons'
+              // own handlers, under the same freezes, and the new figure is read as its value.
+              accessible
+              accessibilityRole="adjustable"
+              accessibilityLabel="Your bid"
+              accessibilityValue={{ text: fmt$(selectedBid) }}
+              accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
+              onAccessibilityAction={(e) => {
+                if (submitting) return;
+                if (e.nativeEvent.actionName === 'increment') increase();
+                else if (e.nativeEvent.actionName === 'decrement' && !atFloor) decrease();
+              }}
             >
               {fmt$(selectedBid)}
             </Text>

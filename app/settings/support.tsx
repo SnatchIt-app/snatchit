@@ -44,7 +44,7 @@ function FaqItem({ q, a, s }: { q: string; a: string; s: ReturnType<typeof makeS
     <View style={s.faqItem}>
       <Pressable style={s.faqHeader} onPress={() => setOpen((v) => !v)} hitSlop={4} accessibilityRole="button" accessibilityState={{ expanded: open }}>
         <Text style={[textStyle('title'), s.faqQ]}>{q}</Text>
-        <Text style={s.faqChevron}>{open ? '–' : '+'}</Text>
+        <Text style={s.faqChevron} accessibilityElementsHidden importantForAccessibility="no">{open ? '–' : '+'}</Text>
       </Pressable>
       {open ? <Text style={[textStyle('bodySm'), s.faqA]}>{a}</Text> : null}
     </View>
