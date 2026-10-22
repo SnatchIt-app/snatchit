@@ -36,6 +36,7 @@ import { ActionTable } from "@/components/actions/ActionTable";
 import { AuditTable } from "@/components/system/AuditTable";
 import { SummaryView } from "@/components/system/SummaryView";
 import { AlertList } from "@/components/system/AlertList";
+import { AlertDeliveryChannel, type SettingsRead } from "@/components/system/AlertChannel";
 import { ReportFreshness } from "@/components/shell/Freshness";
 
 export const metadata: Metadata = { title: "System" };
@@ -84,6 +85,8 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
   const health = healthRes.ok ? toJobHealth(healthRes.data) : null;
   const approvals: Approval[] = approvalsRes.ok ? toListPage(approvalsRes.data).items.map(toApproval).filter((a): a is Approval => a !== null) : [];
   const settings: Setting[] = settingsRes && settingsRes.ok ? toSettings(settingsRes.data) : [];
+  // The Delivery channel block reads the same settings result; it makes no call of its own.
+  const settingsRead: SettingsRead = !isAdmin ? { status: "not_admin" } : settingsRes && settingsRes.ok ? { status: "ok", settings } : { status: "failed" };
   const auditPage = auditRes.ok ? toListPage(auditRes.data) : null;
   const audit: AuditRow[] = auditPage ? auditPage.items.map(toAuditRow).filter((a): a is AuditRow => a !== null) : [];
   const actionsPage = actionsRes.ok ? toListPage(actionsRes.data) : null;
@@ -187,6 +190,7 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
 
             <Panel eyebrow={`${health.alerts.length} firing`} title="Alerts">
               <div id="alerts" />
+              <AlertDeliveryChannel settings={settingsRead} />
               <AlertList alerts={health.alerts} meId={me.id} />
             </Panel>
           </>
