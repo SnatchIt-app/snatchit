@@ -574,8 +574,8 @@ describe('HomeFeature frame — the owner\'s 2026-10-22 reference (Home only)', 
     const src = readFileSync('src/components/discovery/DiscoveryGridSkeleton.tsx', 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
     expect(src).toContain('MEDIA_SLOTS.HOME_FEATURE_V4.aspectRatio');
-    expect(src).toMatch(/featureArt: \{[^}]*borderRadius: MEDIA_SLOTS\.HOME_FEATURE_V4\.radius/);
-    expect(src).toMatch(/featureArt: \{[^}]*marginHorizontal: ROW_GUTTER/);
+    expect(src).toMatch(/featureArt: \{[^}]*paddingHorizontal: ROW_GUTTER/);
+    expect(src).toMatch(/featureArtFrame: \{[^}]*borderRadius: MEDIA_SLOTS\.HOME_FEATURE_V4\.radius/);
     expect(src).not.toContain('HOME_FEATURE_V3');
   });
 });
