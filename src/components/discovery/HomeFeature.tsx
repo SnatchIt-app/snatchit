@@ -1,8 +1,14 @@
 /**
- * src/components/discovery/HomeFeature.tsx — the full-bleed home feature.
+ * src/components/discovery/HomeFeature.tsx — the home feature.
  *
- * One listing: the complete event poster in a 4:5 frame, and the app's own words in a separate
- * block BENEATH it.
+ * One listing: the complete event poster in a prominent frame, and the app's own words in a
+ * separate block BENEATH it.
+ *
+ * OWNER REFERENCE 2026-10-22 (Home only). The artwork is a nearly SQUARE, rounded frame inside the
+ * row gutters — slot HOME_FEATURE_V4 — instead of the full-bleed 4:5 poster. Only the frame moved:
+ * the identity block beneath it, its inks, the stacking rule and the spoken label are unchanged,
+ * and the 4:5 slot still exists untouched for the listing hero. The paragraphs below are kept as
+ * the history of the block they describe; "4:5" there refers to the frame this one replaced.
  *
  * OWNER RULING 2026-09-25, which is why this file no longer overlays anything: "show the complete
  * event poster in a 4:5 frame. Fit other image shapes inside it without cropping or stretching,
@@ -130,14 +136,19 @@ function HomeFeatureImpl({
         accessibilityHint={presentation.actionHint}
       >
         {/* The poster, and nothing else. No children: a child of EventMedia draws INSIDE the
-            frame, which is exactly what the owner ruled out. */}
-        <EventMedia
-          asset={{ path: coverPath, contract: 'legacy', bucket: 'auction-media' }}
-          slot="HOME_FEATURE_V3"
-          title={eventName}
-          fluid
-          decorative
-        />
+            frame, which is exactly what the owner ruled out. The frame is the V4 square at the
+            media radius, inside the same gutter the identity block below already keeps, so the
+            artwork's edges and the text line up. The ratio and the radius are the slot's; the
+            fluid frame measures this wrapper's width, so nothing here types a size. */}
+        <View style={s.artFrame}>
+          <EventMedia
+            asset={{ path: coverPath, contract: 'legacy', bucket: 'auction-media' }}
+            slot="HOME_FEATURE_V4"
+            title={eventName}
+            fluid
+            decorative
+          />
+        </View>
 
         {/* The app's words, in their own area beneath the poster. */}
         <View style={stacked ? s.contentStacked : s.content}>
@@ -184,6 +195,8 @@ function makeStyles(p: Palette) {
    * price against text — rather than inventing a second set of spacings for one block. `flex-start`
    * on the row so a two-line name does not drag the price down with it.
    */
+  /* The artwork's frame (owner reference 2026-10-22): the row gutter on both sides, nothing else. */
+  artFrame: { marginHorizontal: FEATURE_GUTTER },
   content: {
     flexDirection: 'row',
     alignItems: 'flex-start',

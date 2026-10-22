@@ -60,10 +60,11 @@ export function DiscoveryGridSkeleton({
   return (
     <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
       {shape === 'feature-then-rows' ? (
-        // Edge to edge, at the feature slot's ratio — so the placeholder is the poster the screen
-        // is about to paint, not the landscape band the retired formula used to give it. The radius
-        // is the slot's 0, which is what full-bleed means here.
-        <Skeleton aspectRatio={MEDIA_SLOTS.HOME_FEATURE_V3.aspectRatio} style={styles.featureArt} />
+        // The frame the screen is about to paint (owner reference 2026-10-22): the V4 square at
+        // the V4 radius, inside the row gutters — read from the slot, like every other box here.
+        <View style={styles.featureArt}>
+          <Skeleton aspectRatio={MEDIA_SLOTS.HOME_FEATURE_V4.aspectRatio} style={styles.featureArtFrame} />
+        </View>
       ) : null}
       {Array.from({ length: rows }).map((_, i) => (
         <View key={i} style={styles.row}>
@@ -95,9 +96,11 @@ const styles = StyleSheet.create({
   cell: { width: '47%' },
   line: { marginTop: v2.space.sm },
   lineTight: { marginTop: 6 },
-  // The frames' radii are their slots', read rather than typed — including the feature's 0.
+  // The frames' radii are their slots', read rather than typed — including the feature's.
   cardArt: { borderRadius: MEDIA_SLOTS.DISCOVERY_CARD.radius },
-  featureArt: { borderRadius: MEDIA_SLOTS.HOME_FEATURE_V3.radius, marginBottom: v2.space.md },
+  // The feature placeholder: the row gutter on both sides (as `row` below keeps it), then the frame.
+  featureArt: { paddingHorizontal: ROW_GUTTER, marginBottom: v2.space.md },
+  featureArtFrame: { borderRadius: MEDIA_SLOTS.HOME_FEATURE_V4.radius },
   rowArt: { borderRadius: MEDIA_SLOTS.FEED_ROW_ART.radius },
   /*
    * The §3 row as FeedRow composes it: the 20pt gutter, the poster, the 12pt gap, then the text
