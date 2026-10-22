@@ -1,3 +1,5 @@
+> **Redaction (2026-10-22, owner decision):** the AWS account id and the production KMS key id that this record originally quoted were replaced in place with `[redacted: account id]` / `[redacted: key id]`. Nothing else in the record changed; the unredacted original is preserved in private evidence on the encrypted SSD. The JSON artifacts in `pfa18c_artifacts/` carry the same in-place marker.
+
 ============================================================
 SNATCH IT — PRODUCTION KMS SIGNING CEREMONY EXECUTION
 ============================================================
@@ -322,7 +324,7 @@ Every "no key exists" / "TRUST ROOT: NOT ESTABLISHED" statement above was accura
 verbatim as the record of that session. It is superseded as of **2026-09-09**: the owner completed PFA-18C C2–C5 and
 an AWS ticket-signing key now exists —
 
-    arn:aws:kms:us-east-1:652872010073:key/45907419-8894-4582-ba79-71e9c29c549e
+    arn:aws:kms:us-east-1:[redacted: account id]:key/[redacted: key id]
     ECC_NIST_P256 · SIGN_VERIFY · ECDSA_SHA_256 · Enabled · created 2026-09-09
 
 The parts of this record that remain TRUE and unchanged:
