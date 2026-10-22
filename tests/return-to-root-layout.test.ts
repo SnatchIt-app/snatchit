@@ -17,7 +17,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // vi.mock calls below are hoisted above these imports by vitest, so these modules see the mocks.
 import { setOnboarding } from '@/src/lib/auth/onboardingGate';
 import { setRecoveryHold } from '@/src/lib/auth/recoveryHold';
-import { clearReturnTo, forgetReturnToForAuthLink, peekReturnTo, returnToStackRoute } from '@/src/lib/auth/returnTo';
+import { forgetReturnToForAuthLink, peekReturnTo, resetReturnToForTests, returnToStackRoute } from '@/src/lib/auth/returnTo';
 import { consumeSessionEnd, markSessionEnd, markSessionEndIfUnmarked } from '@/src/lib/auth/sessionEnd';
 import { HookHost } from './helpers/nav-stack-harness';
 
@@ -148,7 +148,7 @@ const signIn = (id: string) => act(() => { h.auth.session = { user: { id } }; })
 const confirmBidSignedOut = () => act(() => { h.queue.push('/(auth)/login'); });
 
 beforeEach(() => {
-  clearReturnTo(); consumeSessionEnd(); setRecoveryHold(false); setOnboarding(false);
+  resetReturnToForTests(); consumeSessionEnd(); setRecoveryHold(false); setOnboarding(false);
   h.routes = []; h.queue = []; h.replaced = []; h.resets = 0; h.auth = { session: null, loading: false };
 });
 

@@ -80,13 +80,21 @@ type ReturnToRoute = (typeof RETURN_TO_ROUTES)[number];
 /** The root Stack screen names the allowlist can open (each is a Stack.Screen in app/_layout.tsx). */
 export type ReturnToRouteName = ReturnToRoute['route'];
 
+/**
+ * Static route names that sit beside a dynamic `[id]` in app/ (app/listing/edit/…): `/listing/edit` is not
+ * a listing whose id is "edit", so it is never remembered (review C-nit).
+ */
+const STATIC_SIBLING_SEGMENTS: Partial<Record<string, readonly string[]>> = { 'listing/[id]': ['edit'] };
+
 function matchReturnRoute(segments: string[]): { entry: ReturnToRoute; id: string | null } | null {
   for (const entry of RETURN_TO_ROUTES) {
     const pattern = entry.route.split('/');
     if (pattern.length !== segments.length) continue;
     if (pattern.every((p, i) => p === '[id]' || p === segments[i])) {
       const at = pattern.indexOf('[id]');
-      return { entry, id: at === -1 ? null : segments[at] };
+      const id = at === -1 ? null : segments[at];
+      if (id !== null && STATIC_SIBLING_SEGMENTS[entry.route]?.includes(id)) return null;
+      return { entry, id };
     }
   }
   return null;
@@ -118,12 +126,21 @@ interface Entry extends ReturnTarget {
 }
 
 let entry: Entry | null = null;
+/**
+ * Review C-m1: after a link that can mint a session, nothing is remembered until that sign-in (or a sign-out)
+ * has settled at the root — so a capture during the code exchange (the cold-start capture, or a signed-out
+ * entry) cannot plant a screen for the session the link creates. Time-boxed like an entry, so a link that
+ * never signs anyone in cannot block return-to for good. clearReturnTo() leaves it alone (the recovery hold
+ * calls clearReturnTo and must not lift it).
+ */
+let authLinkLatchUntil = 0;
 
 /**
  * Remember a screen. Returns false, storing nothing and leaving any earlier screen as it was, when the path is
  * not allowlisted or is a private screen with no signed-in owner.
  */
 export function captureReturnTo(raw: unknown, ownerId: string | null, now: number = Date.now()): boolean {
+  if (now < authLinkLatchUntil) return false;
   const target = classifyReturnPath(raw);
   if (!target) return false;
   const owner = ownerId || null;
@@ -164,11 +181,18 @@ export function clearReturnTo(): void {
  * exchange has already notified SIGNED_IN (its late fallback, exchangeWasRecovery). Called by the native shell's
  * deep-link funnel; deepLinkDispatch itself (the H-5 contract) is unchanged. Returns whether it dropped anything.
  */
-export function forgetReturnToForAuthLink(url: string | null | undefined): boolean {
+export function forgetReturnToForAuthLink(url: string | null | undefined, now: number = Date.now()): boolean {
   if (!url || !carriesAuthCredential(url)) return false;
   const had = entry !== null;
   entry = null;
+  authLinkLatchUntil = now + RETURN_TO_TTL_MS;
   return had;
+}
+
+/** Test isolation only: drop the remembered screen AND the auth-link latch. App code never calls this. */
+export function resetReturnToForTests(): void {
+  entry = null;
+  authLinkLatchUntil = 0;
 }
 
 /** A `code` or `token_hash` in the query or the fragment, read the way deepLinkDispatch's parseDeepLink reads them. */
@@ -201,6 +225,7 @@ export function settleReturnToOnRoute(input: {
   const userId = userIdOfPhase(input.phase);
   if (userId) {
     consumeReturnTo(userId, now);
+    authLinkLatchUntil = 0;           // the sign-in a link may have started has now settled
     return 'consumed';
   }
   if (input.lastRoutedPhase === null) {
@@ -208,6 +233,7 @@ export function settleReturnToOnRoute(input: {
   }
   const endedFor = userIdOfPhase(input.lastRoutedPhase);
   if (endedFor) {
+    authLinkLatchUntil = 0;           // a sign-out settled: an expiry may be remembered again
     clearReturnTo();
     if (input.sessionEnd !== 'expired') return 'cleared';
     return captureReturnTo(input.pathname, endedFor, now) ? 'captured' : 'cleared';

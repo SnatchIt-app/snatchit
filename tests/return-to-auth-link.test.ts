@@ -16,12 +16,14 @@ import { createClient } from '@supabase/supabase-js';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { claimAuthParamOnce, dispatchDeepLink, parseDeepLink, type DeepLinkDeps } from '../src/lib/auth/deepLinkDispatch';
-import { captureReturnTo, clearReturnTo, forgetReturnToForAuthLink, peekReturnTo } from '../src/lib/auth/returnTo';
+import {
+  captureReturnTo, clearReturnTo, forgetReturnToForAuthLink, peekReturnTo, resetReturnToForTests, settleReturnToOnRoute, RETURN_TO_TTL_MS,
+} from '../src/lib/auth/returnTo';
 
 const LISTING = '/listing/4a1d2c3b-0000-4000-8000-00000000abcd';
 const USER = 'user-1';
 
-beforeEach(() => { clearReturnTo(); });
+beforeEach(() => { resetReturnToForTests(); });
 
 describe('forgetReturnToForAuthLink', () => {
   it('RA1: a link with a code or a token_hash drops the remembered screen', () => {
@@ -32,6 +34,7 @@ describe('forgetReturnToForAuthLink', () => {
       'snatchit://?token_hash=h1',
       'snatchit://listing/x?code=planted',     // an untrusted code on any path still means "a session may follow"
     ]) {
+      resetReturnToForTests();             // each link starts unlatched (C-m1: a forget latches captures)
       captureReturnTo(LISTING, null);
       expect({ url, dropped: forgetReturnToForAuthLink(url) }).toEqual({ url, dropped: true });
       expect(peekReturnTo(USER)).toBeNull();
@@ -62,8 +65,39 @@ describe('forgetReturnToForAuthLink', () => {
       captureReturnTo(LISTING, null);
       const dropped = forgetReturnToForAuthLink(url);
       expect({ url, dropped }).toEqual({ url, dropped: !!(p.get('code') || p.get('token_hash')) });
-      clearReturnTo();
+      resetReturnToForTests();
     }
+  });
+});
+
+describe('C-m1 · after an auth link, nothing is remembered until that sign-in (or a sign-out) settles', () => {
+  const T0 = 1_000_000;
+  it('RA9: a capture during the code exchange is refused — the link\'s session can never come back to a planted screen', () => {
+    forgetReturnToForAuthLink('snatchit://listing/4a1d2c3b-0000-4000-8000-00000000abcd?code=planted', T0);
+    expect(captureReturnTo(LISTING, null, T0 + 1)).toBe(false);            // e.g. the cold-start capture of that path
+    expect(peekReturnTo(USER, T0 + 2)).toBeNull();
+    // The sign-in settles at the root: the latch lifts, and return-to works again afterwards.
+    expect(settleReturnToOnRoute({ phase: `signed_in:${USER}` as never, lastRoutedPhase: null, pathname: null, sessionEnd: null, now: T0 + 3 })).toBe('consumed');
+    expect(captureReturnTo(LISTING, null, T0 + 4)).toBe(true);
+  });
+
+  it('RA10: a sign-out settling also lifts it (an expiry is remembered again), and so does the TTL for a link that signed no one in', () => {
+    forgetReturnToForAuthLink('snatchit://?token_hash=h1&type=recovery', T0);
+    expect(captureReturnTo(LISTING, null, T0 + 1)).toBe(false);
+    expect(settleReturnToOnRoute({ phase: 'signed_out' as never, lastRoutedPhase: `signed_in:${USER}` as never, pathname: LISTING, sessionEnd: 'expired', now: T0 + 2 })).toBe('captured');
+    resetReturnToForTests();
+    forgetReturnToForAuthLink('snatchit://?code=abc', T0);
+    expect(captureReturnTo(LISTING, null, T0 + RETURN_TO_TTL_MS - 1)).toBe(false);
+    expect(captureReturnTo(LISTING, null, T0 + RETURN_TO_TTL_MS)).toBe(true);
+  });
+
+  it('RA11: clearReturnTo (what the recovery hold calls) does NOT lift the latch; a non-auth link never sets it', () => {
+    forgetReturnToForAuthLink('snatchit://?code=abc', T0);
+    clearReturnTo();
+    expect(captureReturnTo(LISTING, null, T0 + 1)).toBe(false);
+    resetReturnToForTests();
+    forgetReturnToForAuthLink('snatchit://listing/4a1d2c3b-0000-4000-8000-00000000abcd', T0);
+    expect(captureReturnTo(LISTING, null, T0 + 1)).toBe(true);
   });
 });
 
