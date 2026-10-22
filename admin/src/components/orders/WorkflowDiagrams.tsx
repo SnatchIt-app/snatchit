@@ -210,7 +210,7 @@ export function HowThisWorks() {
   return (
     <details className="panel px-5 py-4 md:px-6">
       <summary className="inline-flex min-h-9 items-center gap-2 rounded-lg text-[0.9375rem] font-medium text-ink">How this works</summary>
-      <div className="mt-4 space-y-6">
+      <div className="reveal mt-4 space-y-6">
         <WorkflowDiagram id="refund-path" title="Refund path (today)" description="How a refund happens today: a founder's request, the other founder's approval, execution disabled in production, the manual Stripe Dashboard refund per the draft SOP, and the webhook recording the result." steps={REFUND_PATH} />
         <WorkflowDiagram id="payout-release-path" title="Payout release path" description="How a held payout is released: a transfer the seller marked sent, a founder's release request, the second founder's approval, and the payout worker's Stripe Transfer to the connected account." steps={PAYOUT_RELEASE_PATH} />
       </div>
