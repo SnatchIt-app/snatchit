@@ -50,3 +50,17 @@ Never merge a venue branch, or the old admin v2 branch, wholesale: they inherit 
 3. Owner authorises the production apply of 159 (single file plus ledger row), then exposes `venue_api` in production.
 4. Create the production venue project: git-linked, root `venue`, protected `venue/production` branch with a pin, Production env in database mode. Attach venue.snatchitapp.com, dark at first (SSO).
 5. Tenant bootstrap stays blocked by B's PFA-18C zero-data restriction until the owner and B lift it narrowly. Until then the hosted dashboard has no data to show.
+
+## 4. The one production venue (created 2026-10-22)
+A executed the owner-authorised minimum onboarding on 2026-10-22 03:51:44Z; A's read-back verified it. Draft, not approved, not exposed.
+
+| Item | Value |
+|---|---|
+| Organization | `24232848-0bcf-4fa9-8040-c8bd2dc38ed2` — legal name JDT LLC, display name Snatch It, status approved, no Connect ref |
+| Membership | the owner's account as `org_owner` (the only member) |
+| Venue | `5e8db24b-a0ac-440a-9f00-fa15ee3bbb75` — "Snatch It Venue", neighborhood wynwood (owner-confirmed), address and capacity NULL, **approval_status draft** |
+| Everything else | 0 staff roles, 0 events, 0 inventory, 0 door-plane rows. No issuance, scanning or payments. |
+
+**Dashboard URL, once hosted:** `https://venue.snatchitapp.com/o/24232848-0bcf-4fa9-8040-c8bd2dc38ed2/v/5e8db24b-a0ac-440a-9f00-fa15ee3bbb75`. Until then the same path on an SSO-protected preview in database mode.
+
+**What the owner will see there, and when:** nothing readable until **159 (#123) and 176 (#143) are applied and `venue_api` is exposed** (the order in `VENUE_HOSTING_venue.snatchitapp.com.md`). After that: the venue name, "No events yet" with no create link, and resale shown as "not readable yet" while the venue is draft. The venue stays **draft, not approved**: `approve_venue` is a separate owner step tied to exposure and sales, and the public arm (`catalog_venue_sel_anon`) exposes only approved venues, so draft is the smaller exposure.
