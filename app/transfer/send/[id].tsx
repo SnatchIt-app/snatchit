@@ -19,7 +19,7 @@ import { useAuth } from '@/src/hooks/useAuth';
 import { useImageUpload } from '@/src/hooks/useImageUpload';
 import { useSingleFlight } from '@/src/hooks/useSingleFlight';
 import { REQUEST_TIMEOUT_MS, UPLOAD_COPY, withUploadTimeout } from '@/src/lib/media/uploadFlow';
-import { ATTACH_COPY, MARK_SENT_COPY, runAttachEvidence, runMarkSent, type TransferSnapshot } from '@/src/lib/transfer/markSent';
+import { ATTACH_COPY, MARK_SENT_COPY, notPendingCopy, runAttachEvidence, runMarkSent, type TransferSnapshot } from '@/src/lib/transfer/markSent';
 import PlatformInstructions from '@/src/components/PlatformInstructions';
 import { NameText } from '@/src/components/NameText';
 import { providerLink } from '@/src/lib/transfer/providerHandoff';
@@ -226,6 +226,8 @@ export default function TransferSendScreen({ fixture }: { fixture?: SendFixture 
               supabase.rpc('mark_transfer_sent', { p_transfer_id: id, p_user_id: userId, p_transfer_evidence_path: path }),
               REQUEST_TIMEOUT_MS,
             );
+            // CFT-703: the raw refusal goes to the log; the seller reads the outcome's copy.
+            if (rpcErr) console.warn('[send] mark_transfer_sent failed:', rpcErr.message);
             return { data, error: rpcErr ? { message: rpcErr.message } : null };
           },
         });
@@ -253,7 +255,7 @@ export default function TransferSendScreen({ fixture }: { fixture?: SendFixture 
           Alert.alert("Couldn't upload the transfer proof", evidenceUpload.readError() ?? UPLOAD_COPY.uploadFailed);
         } else if (outcome.kind === 'not_pending') {
           await fetchTransfer(true);
-          Alert.alert('Transfer updated', MARK_SENT_COPY.notPending);
+          Alert.alert('Transfer updated', notPendingCopy(outcome.status));
         } else if (outcome.kind === 'failed') {
           Alert.alert("Couldn't mark as sent", outcome.message);
         } else {
@@ -293,6 +295,7 @@ export default function TransferSendScreen({ fixture }: { fixture?: SendFixture 
               supabase.rpc('attach_transfer_evidence', { p_transfer_id: id, p_transfer_evidence_path: path }),
               REQUEST_TIMEOUT_MS,
             );
+            if (rpcErr) console.warn('[send] attach_transfer_evidence failed:', rpcErr.message);
             return { data, error: rpcErr ? { message: rpcErr.message } : null };
           },
         });
