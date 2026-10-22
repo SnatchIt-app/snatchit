@@ -877,7 +877,7 @@ export default function CheckoutScreen() {
         holdCopy ? { title: holdCopy.title, body: holdCopy.body }
         : priceChange ? {
             title: 'The total changed',
-            body: `It was ${formatCents(priceChange.previousCents)} and is now ${formatCents(priceChange.nextCents)}, service fee included. Nothing has been charged. Accept the new total to continue.`,
+            body: `It was ${formatCentsV3(priceChange.previousCents)} and is now ${formatCentsV3(priceChange.nextCents)}, service fee included. Nothing has been charged. Accept the new total to continue.`,
           }
         : checkUnreachable ? {
             title: "We couldn't confirm your payment yet",
@@ -896,7 +896,7 @@ export default function CheckoutScreen() {
       pay={{ label: pay.label, loading: pay.loading, disabled: pay.disabled }}
       onPay={payOnPress}
       acceptTotal={priceChange
-        ? { label: `Accept ${formatCents(priceChange.nextCents)}`, onPress: acceptNewTotal }
+        ? { label: `Accept ${formatCentsV3(priceChange.nextCents)}`, onPress: acceptNewTotal }
         : null}
       onBack={() => router.back()}
     />
