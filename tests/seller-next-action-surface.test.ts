@@ -216,6 +216,7 @@ describe('each row gets exactly the helper\'s one action', () => {
 
   it('SA3: send / window-passed / proof / do-not-send / nothing — by server status first', async () => {
     const { sellerNextAction } = await import('@/src/lib/seller/nextAction');
+    const { SELLER_ORDER_CLOSED_COPY, transferStatusCopy } = await import('@/src/lib/transfer/transferState');
     const host = await mountMyListings();
     const r = rows(host);
     const kind = (id: string) => (r.get(id)!.nextAction as { kind: string } | null | undefined)?.kind ?? null;
@@ -230,6 +231,17 @@ describe('each row gets exactly the helper\'s one action', () => {
     // The row's line is the helper's line, not a second copy of the rule.
     const send = r.get('l-send')!.nextAction as { line: string };
     expect(send.line).toBe(sellerNextAction({ listingStatus: 'sold', transfer: { status: 'pending', expires_at: FUTURE } }, Date.now())?.line);
+    // ...and the words on screen are the signed-off ones, as literals (the zone is not pinned here, so
+    // "Send by <time>" is held to its shape; SN1/SN2 pin the exact time).
+    const line = (id: string) => (r.get(id)!.nextAction as { line: string }).line;
+    expect(send.line).toMatch(/^Send by (Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d{1,2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) · \d{2}:\d{2}$/);
+    expect(line('l-late')).toBe('Send window has passed — open this order to see its current status');
+    expect(line('l-proof')).toBe('Add proof');
+    // C-owned sentences (transferState.ts) stay reuse checks, with their structure held.
+    expect(line('l-nodate')).toBe(transferStatusCopy('pending', 'seller').title);
+    expect(line('l-nodate')).not.toMatch(/\d/);
+    expect(line('l-expired')).toBe(SELLER_ORDER_CLOSED_COPY.expired.body);
+    expect(line('l-expired')).toMatch(/don't transfer/i);
     // The old boolean prop is gone: one source for the line.
     expect(r.get('l-send')!.needsTicketSend).toBeUndefined();
   });
@@ -281,6 +293,8 @@ describe('each row gets exactly the helper\'s one action', () => {
 describe('the line follows the clock on an open screen (E, D-2.3)', () => {
   const kindOf = (host: HookHost, id: string) =>
     (rows(host).get(id)!.nextAction as { kind: string } | null | undefined)?.kind ?? null;
+  const lineOf = (host: HookHost, id: string) =>
+    (rows(host).get(id)!.nextAction as { line: string } | null | undefined)?.line ?? null;
 
   it('SA12: one timer to the soonest deadline redraws the rows — "Send by" turns neutral without a refocus, then the next deadline is armed', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
@@ -294,6 +308,7 @@ describe('the line follows the clock on an open screen (E, D-2.3)', () => {
       const host = await mountMyListings();
       const tick0 = list(host).props.extraData;
       expect(kindOf(host, 'l-soon')).toBe('send_by');
+      expect(lineOf(host, 'l-soon')).toMatch(/^Send by \S+ \d{1,2} \S+ · \d{2}:\d{2}$/);
 
       // Just before the deadline: no redraw yet.
       vi.advanceTimersByTime(119_000);
@@ -304,6 +319,7 @@ describe('the line follows the clock on an open screen (E, D-2.3)', () => {
       const tick1 = list(host).props.extraData;
       expect(tick1).not.toBe(tick0);
       expect(kindOf(host, 'l-soon')).toBe('window_passed');
+      expect(lineOf(host, 'l-soon')).toBe('Send window has passed — open this order to see its current status');
       expect(kindOf(host, 'l-later')).toBe('send_by');
 
       // The next deadline is armed after the first fires.
@@ -355,7 +371,7 @@ describe('SellerListingCard renders the one line', () => {
     const host = await renderCard({ nextAction: action });
     const all = texts(host.output);
     expect(all.filter((t) => t === action.line)).toHaveLength(1);
-    expect(all.some((t) => /Action needed/.test(t))).toBe(false);
+    expect(all.some((t) => /action needed/i.test(t))).toBe(false);
     const line = findElement(host.output, (el) => el.type === 'Text' && el.props.children === action.line) as Element;
     expect(JSON.stringify(line.props.style)).toContain(dark.status.warning);
     const row = findElement(host.output, (el) => typeof el.props.accessibilityLabel === 'string' && /Event l-1/.test(el.props.accessibilityLabel as string)) as Element;
@@ -382,8 +398,15 @@ describe('SellerListingCard renders the one line', () => {
   });
 
   it('SA9: no action → no line', async () => {
+    // Unanchored and case-insensitive: a send word anywhere in any rendered text counts.
+    const actionWords = /\bsend\b|add proof|action needed|window has passed/i;
     const none = await renderCard({ nextAction: null });
-    expect(texts(none.output).some((t) => /^Send |Add proof|Action needed/.test(t))).toBe(false);
+    expect(texts(none.output).filter((t) => actionWords.test(t))).toEqual([]);
+    // Witness: the same scan does see each line when an action is handed in.
+    for (const line of ['Send by Wed 21 Oct · 21:14', 'Add proof', 'Send window has passed — open this order to see its current status']) {
+      const some = await renderCard({ nextAction: { kind: 'send_by', line, tone: 'warning' } });
+      expect(texts(some.output).filter((t) => actionWords.test(t)), line).toEqual([line]);
+    }
   });
 
   it('SA9b: the line is only ever on a sold row — rows that reach the action slot without a sold badge show and say nothing', async () => {
