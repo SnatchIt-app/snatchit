@@ -50,6 +50,10 @@ type RealtimeResult = {
   highestBidderId: string | null;
   loading:         boolean;
   connection:      RealtimeConnection;
+  /** The initial (or retried) read failed: the list is unknown, not empty (B-D1). */
+  loadError:       boolean;
+  /** Re-run the full read. */
+  refetch:         () => void;
 };
 
 type Options = {
@@ -81,6 +85,13 @@ export function useListingRealtime(
 ): RealtimeResult {
   const [bids, setBids]       = useState<Bid[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  // Each full read takes a generation; only the newest may land (review m2: a double Retry, or the
+  // first read finishing after a Retry, wrote whichever came back last).
+  const readGenRef = useRef(0);
+  // The current subscription's list read, so Retry re-reads the list and leaves a healthy channel alone
+  // (review m1: re-running the effect tore the channel down, flashed "reconnecting" and emptied the list).
+  const readAllRef = useRef<() => void>(() => {});
   const [connection, setConnection] = useState<RealtimeConnection>('connecting');
 
   // Always-current list — prevents stale-closure reads in async callbacks.
@@ -122,7 +133,8 @@ export function useListingRealtime(
     // ── Fetch helper ────────────────────────────────────────────────────────
     // supabase-js v2: .select() must be called immediately after .from().
     // Filters (.eq, .gt, .order) chain after .select().
-    async function fetchBids(opts: { since?: string } = {}): Promise<Bid[]> {
+    // null = the read failed. Never [] for a failure: "no bids" is a claim (B-D1).
+    async function fetchBids(opts: { since?: string } = {}): Promise<Bid[] | null> {
       let q = supabase
         .from('bids')
         .select(BIDS_SELECT)
@@ -134,7 +146,7 @@ export function useListingRealtime(
 
       if (error) {
         console.warn('[bids fetch] error:', error.message);
-        return [];
+        return null;
       }
 
       const rows = (data as Bid[]) ?? [];
@@ -143,12 +155,30 @@ export function useListingRealtime(
 
     // ── 1. Initial full fetch ───────────────────────────────────────────────
     // onNewBid is NOT called here — only realtime INSERTs fire that callback.
-    fetchBids().then((rows) => {
-      bidsRef.current      = rows;
-      lastBidAtRef.current = rows[0]?.created_at ?? '';
-      setBids(rows);
-      setLoading(false);
-    });
+    let alive = true;
+    function readAll() {
+      const gen = ++readGenRef.current;
+      setLoading(true);
+      fetchBids().then((rows) => {
+        if (!alive || gen !== readGenRef.current) return;
+        if (rows === null) {
+          // Unknown, not empty: keep whatever the list already holds and say the read failed.
+          setLoadError(true);
+        } else {
+          // Keep any live INSERT that landed while this read was in flight.
+          const extra = bidsRef.current.filter((b) => !rows.some((r) => r.id === b.id));
+          const list = [...extra, ...rows].sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
+          bidsRef.current      = list;
+          lastBidAtRef.current = list[0]?.created_at ?? '';
+          setBids(list);
+          setLoadError(false);
+        }
+        setLoading(false);
+      });
+    }
+    readAllRef.current = readAll;
+    setLoadError(false);
+    readAll();
 
     // ── 2. Realtime subscription ────────────────────────────────────────────
     const channel = supabase
@@ -205,7 +235,7 @@ export function useListingRealtime(
           // onNewBid is intentionally NOT called for catch-up bids so haptics
           // do not re-fire after a reconnect.
           if (prev === 'CHANNEL_ERROR' || prev === 'TIMED_OUT') {
-            const missed = await fetchBids({ since: lastBidAtRef.current });
+            const missed = (await fetchBids({ since: lastBidAtRef.current })) ?? [];
             if (missed.length > 0) {
               const merged = [
                 ...missed.filter(m => !bidsRef.current.some(b => b.id === m.id)),
@@ -238,12 +268,15 @@ export function useListingRealtime(
     channelRef.current = channel;
 
     return () => {
+      alive = false;
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current);
         channelRef.current = null;
       }
     };
   }, [listingId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function refetch() { readAllRef.current(); }
 
   // ── Derived values ──────────────────────────────────────────────────────────
   // List order: newest first (never re-sorted by amount).
@@ -265,5 +298,7 @@ export function useListingRealtime(
     highestBidderId,
     loading,
     connection,
+    loadError,
+    refetch,
   };
 }

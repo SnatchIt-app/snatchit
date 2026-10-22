@@ -58,11 +58,14 @@ export function NameText({
   token,
   maxLines = 2,
   style,
+  accessibilityRole,
 }: {
   children: string;
   token: NameToken;
   maxLines?: number | null;
   style?: StyleProp<TextStyle>;
+  /** "header" where the name is the screen's heading (the listing), so the rotor finds it. */
+  accessibilityRole?: 'header';
 }) {
   const [display, setDisplay] = useState<string | null>(null);
   const cap = maxLines ?? undefined;
@@ -71,6 +74,7 @@ export function NameText({
     <Text
       style={[textStyle(token), style]}
       numberOfLines={cap}
+      accessibilityRole={accessibilityRole}
       onTextLayout={cap === undefined ? undefined : (e) => {
         if (display !== null) return;   // one corrective pass only
         const lines = e.nativeEvent.lines?.map((l) => l.text) ?? [];

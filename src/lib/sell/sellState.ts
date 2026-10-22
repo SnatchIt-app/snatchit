@@ -108,6 +108,18 @@ export function isSellValid(errors: SellErrors): boolean {
   return Object.values(errors).every((e) => !e);
 }
 
+/**
+ * What a screen reader hears when List is pressed on an incomplete form: how many fields need
+ * attention, then each field's own message, in form order (the SellErrors key order). Empty when
+ * the form is valid.
+ */
+export function invalidSellSummary(errors: SellErrors): string {
+  const messages = Object.values(errors).filter((e) => !!e);
+  if (messages.length === 0) return '';
+  const head = messages.length === 1 ? '1 field needs attention.' : `${messages.length} fields need attention.`;
+  return [head, ...messages].join(' ');
+}
+
 // ─── Selling method + CTA copy ─────────────────────────────────────────────────
 
 /** One truthful sentence describing how the sale works given the Buy Now toggle. */

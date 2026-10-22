@@ -129,8 +129,11 @@ describe('the editable bid and the three-row summary', () => {
   it('BE5: one labelled editable bid with minimum guidance; the old central-total copy is gone', async () => {
     const host = await mount(listing());
     expect(byText(host, 'Your bid')).toBeDefined();
-    const stepVal = findElement(host.output, (el) => String(el.props.accessibilityLabel ?? '').startsWith('Your bid '));
+    // RETARGETED (C, 2026-10-21): the amount is now an adjustable control labelled "Your bid" whose
+    // VALUE is the figure (a11y finding 4); the visible text is unchanged.
+    const stepVal = findElement(host.output, (el) => el.props.accessibilityRole === 'adjustable' && el.props.accessibilityLabel === 'Your bid');
     expect(stepVal?.props.children).toBe('$105.00');
+    expect(stepVal?.props.accessibilityValue).toEqual({ text: '$105.00' });
     // The board adds the step size to the guidance and shows cents on the floor.
     expect(byText(host, 'Minimum $105.00 · $5 steps')).toBeDefined();
     const texts = textsIn(host.output);

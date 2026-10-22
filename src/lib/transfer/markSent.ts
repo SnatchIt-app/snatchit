@@ -93,6 +93,11 @@ export const MARK_SENT_COPY = {
   notPending: 'This transfer can no longer be marked as sent. Pull down to refresh to see its current status.',
   failedFallback: "Couldn't mark this transfer as sent. Try again.",
   needsProof: 'This transfer was already marked as sent, without a screenshot. You can add the screenshot below.',
+  // CFT-703, A's refusal catalogue (2026-10-21) §4a: SNT-2 per status, SNT-3.
+  notPendingExpired: 'This order closed before it was marked as sent.',
+  notPendingDisputed: "This order is under review, so it can't be marked as sent.",
+  notPendingReversed: 'This order has been closed.',
+  notFound: "We couldn't find this order. Pull down to refresh.",
 } as const;
 
 export const ATTACH_COPY = {
@@ -104,11 +109,44 @@ export const ATTACH_COPY = {
   notEligible: "Proof can't be added to this transfer now. Pull down to refresh to see its current status.",
   unconfirmed: "We couldn't confirm the screenshot was added. Pull down to refresh before trying again.",
   failedFallback: "Couldn't add the screenshot. Try again.",
+  // PRF-3 (catalogue §4b).
+  notFound: "We couldn't find this order. Pull down to refresh.",
 } as const;
 
-/** Server texts that are contract plumbing, not something to show a seller. */
-function userFacing(message: string, fallback: string): string {
-  return !message || /^(precondition_failed|insufficient_privilege|not_authenticated)\b/.test(message) ? fallback : message;
+/** What a seller reads when the transfer is no longer pending (SNT-2, per status). */
+export function notPendingCopy(status: string | null): string {
+  if (status === 'expired') return MARK_SENT_COPY.notPendingExpired;
+  if (status === 'disputed') return MARK_SENT_COPY.notPendingDisputed;
+  if (status === 'reversed') return MARK_SENT_COPY.notPendingReversed;
+  return MARK_SENT_COPY.notPending;
+}
+
+/** SNT-3 / PRF-3, matched by text: the server gives no hint or code for it (catalogue §7). */
+const NOT_FOUND_RAISE = /^Transfer not found\.?$/;
+
+/** The status named by an SNT-2 raise, or null when the message is not one. */
+export function cannotMarkFromStatus(message: string | null | undefined): string | null {
+  // Anchored to the raise's own opening (catalogue recipe: a message PREFIX).
+  const m = /^Transfer cannot be marked as sent from current status:\s*([a-z_]+)/i.exec((message ?? '').trim());
+  return m ? m[1].toLowerCase() : null;
+}
+
+/**
+ * A refusal in the seller's words. The server's text is never shown (catalogue §8: it leaks status
+ * enums, column, function and bucket names); the caller logs it. Unmatched → the action's generic line.
+ */
+export function markSentFailureCopy(message: string, fallback: string, opts: { readBackPending?: boolean } = {}): string {
+  if (NOT_FOUND_RAISE.test(message.trim())) return MARK_SENT_COPY.notFound;
+  // When the read-back says pending, the read-back is the authority: a raise naming another status
+  // is not turned into "this order closed" (delta review nit 4).
+  if (opts.readBackPending) return fallback;
+  const status = cannotMarkFromStatus(message);
+  if (status && !SENT.has(status)) return notPendingCopy(status);
+  return fallback;
+}
+
+function attachFailureCopy(message: string): string {
+  return NOT_FOUND_RAISE.test(message.trim()) ? ATTACH_COPY.notFound : ATTACH_COPY.failedFallback;
 }
 
 async function safeRead(read: () => Promise<TransferSnapshot | null>): Promise<TransferSnapshot | null> {
@@ -146,8 +184,11 @@ export async function runMarkSent(deps: MarkSentDeps): Promise<MarkSentOutcome> 
   const after = await safeRead(() => deps.readTransfer());
   if (after) {
     if (SENT.has(after.status)) return sentOutcome({ status: after.status, path: after.evidencePath });
+    // CFT-703 SNT-2: the read-back is authoritative — expired, disputed, reversed (or any other
+    // non-pending status) is "no longer pending", never a failure carrying the server's text.
+    if (after.status !== 'pending') return { kind: 'not_pending', status: after.status };
     if (!uncertain && error && !isAlreadySentRaise(error.message)) {
-      return { kind: 'failed', message: userFacing(error.message, MARK_SENT_COPY.failedFallback) };
+      return { kind: 'failed', message: markSentFailureCopy(error.message, MARK_SENT_COPY.failedFallback, { readBackPending: true }) };
     }
     return { kind: 'unconfirmed' };   // includes a reply claiming "sent" that the read contradicts
   }
@@ -156,7 +197,9 @@ export async function runMarkSent(deps: MarkSentDeps): Promise<MarkSentOutcome> 
     return sentOutcome({ status: reply.status, path: reply.path });
   }
   if (!uncertain && error && !isAlreadySentRaise(error.message)) {
-    return { kind: 'failed', message: userFacing(error.message, MARK_SENT_COPY.failedFallback) };
+    const status = cannotMarkFromStatus(error.message);
+    if (status) return { kind: 'not_pending', status };   // the server named a non-sent status
+    return { kind: 'failed', message: markSentFailureCopy(error.message, MARK_SENT_COPY.failedFallback) };
   }
   return { kind: 'unconfirmed' };
 }
@@ -179,7 +222,7 @@ export async function runAttachEvidence(deps: AttachDeps): Promise<AttachOutcome
     if (after.evidencePath) return { kind: 'has_proof', path: after.evidencePath };
     if (after.status !== 'seller_sent') return { kind: 'not_eligible', status: after.status };
     if (!uncertain && error && !error.message.includes(PROOF_LITERALS.appendOnly)) {
-      return { kind: 'failed', message: userFacing(error.message, ATTACH_COPY.failedFallback) };
+      return { kind: 'failed', message: attachFailureCopy(error.message) };
     }
     return { kind: 'unconfirmed' };   // an append-only refusal the read contradicts, a claimed attach it doesn't show, or a throw
   }
@@ -188,7 +231,7 @@ export async function runAttachEvidence(deps: AttachDeps): Promise<AttachOutcome
   if (!uncertain && error) {
     if (error.message.includes(PROOF_LITERALS.appendOnly)) return { kind: 'has_proof', path: null };
     if (error.message.includes(PROOF_LITERALS.attachNotSent)) return { kind: 'not_eligible', status: null };
-    return { kind: 'failed', message: userFacing(error.message, ATTACH_COPY.failedFallback) };
+    return { kind: 'failed', message: attachFailureCopy(error.message) };
   }
   return { kind: 'unconfirmed' };
 }

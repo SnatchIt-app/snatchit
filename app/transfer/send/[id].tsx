@@ -19,7 +19,7 @@ import { useAuth } from '@/src/hooks/useAuth';
 import { useImageUpload } from '@/src/hooks/useImageUpload';
 import { useSingleFlight } from '@/src/hooks/useSingleFlight';
 import { REQUEST_TIMEOUT_MS, UPLOAD_COPY, withUploadTimeout } from '@/src/lib/media/uploadFlow';
-import { ATTACH_COPY, MARK_SENT_COPY, runAttachEvidence, runMarkSent, type TransferSnapshot } from '@/src/lib/transfer/markSent';
+import { ATTACH_COPY, MARK_SENT_COPY, notPendingCopy, runAttachEvidence, runMarkSent, type TransferSnapshot } from '@/src/lib/transfer/markSent';
 import PlatformInstructions from '@/src/components/PlatformInstructions';
 import { NameText } from '@/src/components/NameText';
 import { providerLink } from '@/src/lib/transfer/providerHandoff';
@@ -34,6 +34,7 @@ import { ROW_ART } from '@/src/lib/design/featureMetrics';
 import {
   formatCountdown,
   sellerAlreadySent,
+  sellerSendHalted,
   sellerDeliveryMissing,
   sellerWindowView,
   sellerHoldLine,
@@ -225,13 +226,17 @@ export default function TransferSendScreen({ fixture }: { fixture?: SendFixture 
               supabase.rpc('mark_transfer_sent', { p_transfer_id: id, p_user_id: userId, p_transfer_evidence_path: path }),
               REQUEST_TIMEOUT_MS,
             );
+            // CFT-703: the raw refusal goes to the log; the seller reads the outcome's copy.
+            if (rpcErr) console.warn('[send] mark_transfer_sent failed:', rpcErr.message);
             return { data, error: rpcErr ? { message: rpcErr.message } : null };
           },
         });
         if (outcome.kind === 'sent') {
           setLastFailed(false);
-          evidenceUpload.reset();
+          // Clear the chosen photo only once the read-back has replaced the row: cleared first, the
+          // proof row showed "ADD" under a running spinner, as if the proof had been dropped.
           await fetchTransfer(true);
+          evidenceUpload.reset();
           // F-28 (owner 2026-09-23): the screen's own "Marked as sent" block IS the confirmation;
           // a dialog repeating it said the same thing twice. Assistive tech still hears the
           // change. Failure dialogs below are untouched.
@@ -250,7 +255,7 @@ export default function TransferSendScreen({ fixture }: { fixture?: SendFixture 
           Alert.alert("Couldn't upload the transfer proof", evidenceUpload.readError() ?? UPLOAD_COPY.uploadFailed);
         } else if (outcome.kind === 'not_pending') {
           await fetchTransfer(true);
-          Alert.alert('Transfer updated', MARK_SENT_COPY.notPending);
+          Alert.alert('Transfer updated', notPendingCopy(outcome.status));
         } else if (outcome.kind === 'failed') {
           Alert.alert("Couldn't mark as sent", outcome.message);
         } else {
@@ -290,13 +295,15 @@ export default function TransferSendScreen({ fixture }: { fixture?: SendFixture 
               supabase.rpc('attach_transfer_evidence', { p_transfer_id: id, p_transfer_evidence_path: path }),
               REQUEST_TIMEOUT_MS,
             );
+            if (rpcErr) console.warn('[send] attach_transfer_evidence failed:', rpcErr.message);
             return { data, error: rpcErr ? { message: rpcErr.message } : null };
           },
         });
         if (outcome.kind === 'attached') {
           setLastFailed(false);
-          evidenceUpload.reset();
+          // Read back before clearing, as Mark as sent does: the proof row never shows empty mid-save.
           await fetchTransfer(true);
+          evidenceUpload.reset();
           Alert.alert('Proof added', ATTACH_COPY.added);
           return;
         }
@@ -330,6 +337,7 @@ export default function TransferSendScreen({ fixture }: { fixture?: SendFixture 
 
   const platform: TicketPlatform = transfer?.listing?.ticket_platform ?? 'other';
   const alreadySent = transfer ? sellerAlreadySent(transfer.status) : false;
+  const sendHalted = transfer ? sellerSendHalted(transfer.status) : false;
   const busy = submitting || evidenceUpload.busy;
   const buyerDeliveryMissing = transfer ? sellerDeliveryMissing(transfer) : false;
   const windowView = transfer
@@ -460,7 +468,7 @@ export default function TransferSendScreen({ fixture }: { fixture?: SendFixture 
             follows the final fulfilment policy (owner, 2026-09-19). On a closed order the heading is neutral, because
             "Send tickets to" would instruct the opposite of the block above it (owner, via D). */}
         <View style={[s.section, s.sendToPanel]}>
-          <Text style={[textStyle('title'), s.sendToTitle]}>{orderClosed ? "Buyer's delivery details" : 'Send tickets to'}</Text>
+          <Text style={[textStyle('title'), s.sendToTitle]}>{orderClosed || sendHalted ? "Buyer's delivery details" : 'Send tickets to'}</Text>
           {(transfer.delivery_email || transfer.delivery_phone) ? (
             <Text style={[textStyle('body'), s.sendToValue]}>
               {[
@@ -471,7 +479,9 @@ export default function TransferSendScreen({ fixture }: { fixture?: SendFixture 
               ].filter(Boolean).join(' · ')}
             </Text>
           ) : null}
-          {buyerDeliveryMissing ? (
+          {/* Only while the order can still be sent: a disputed order that was never sent, or a reversed or
+              closed one, must not tell the seller what the buyer has to do "before you can send tickets". */}
+          {buyerDeliveryMissing && !orderClosed && !sendHalted ? (
             <View style={s.warnBox}>
               <Text style={[textStyle('bodySm'), s.warnTitle]}>Delivery info not yet provided</Text>
               <Text style={[textStyle('bodySm'), s.warnText]}>
@@ -481,7 +491,7 @@ export default function TransferSendScreen({ fixture }: { fixture?: SendFixture 
           ) : null}
         </View>
 
-        {!alreadySent && !orderClosed ? (
+        {!alreadySent && !orderClosed && !sendHalted ? (
           <PlatformInstructions platform={platform} role="seller" buyerEmail={transfer.delivery_email} buyerPhone={transfer.delivery_phone} />
         ) : null}
 

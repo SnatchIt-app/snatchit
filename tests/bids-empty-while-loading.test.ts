@@ -51,6 +51,9 @@ vi.mock('@/src/theme/appearance', async () => {
 vi.mock('react-native', () => ({
   FlatList: 'FlatList', Pressable: 'Pressable', RefreshControl: 'RefreshControl', Text: 'Text', View: 'View',
   StyleSheet: { create: <T,>(s: T) => s },
+  // useAnnounceOnce: the refresh-failed notice is spoken on iOS.
+  AccessibilityInfo: { announceForAccessibility: () => {} },
+  Platform: { OS: 'ios', select: (o: Record<string, unknown>) => o.ios ?? o.default },
 }));
 vi.mock('expo-router', () => ({ router: { push: () => {} } }));
 vi.mock('@react-navigation/native', () => ({ useFocusEffect: (cb: () => void) => { h.focus.current = cb; } }));

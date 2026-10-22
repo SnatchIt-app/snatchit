@@ -39,6 +39,7 @@ import type { AppStateStatus } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 
 import { supabase } from '@/src/lib/supabase';
+import { ACTION_FAILED_COPY } from '@/src/lib/ui/errorCopy';
 import { readServerRefusal } from '@/src/lib/moderation/serverRefusal';
 import { blockConfirmMessage } from '@/src/lib/moderation/blockCopy';
 import { PriceDisplay } from '@/src/components/PriceDisplay';
@@ -49,6 +50,9 @@ import { useListingRealtime } from '@/src/hooks/useListingRealtime';
 import { finalSoldPrice } from '@/src/lib/salePrice';
 import { allInFromDollars, buyerTotalCents, dollarsToCents } from '@/src/lib/money';
 import { clockLabel } from '@/src/lib/listing/feedRowState';
+import { AnnounceWhenFocused } from '@/src/components/a11y/AnnounceWhenFocused';
+import { displayedBidFloor } from '@/src/lib/bid/bidEntry';
+import { spokenDuration } from '@/src/lib/a11y/spoken';
 import { PLATFORM_INSTRUCTIONS } from '@/src/lib/platformInstructions';
 import { APP_CONFIG } from '@/src/config/app';
 import { sendLocalNotification } from '@/src/utils/notifications';
@@ -375,6 +379,9 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
     : 0;
 
   const currentHighest = rt.currentBid;
+  // B-D1: what the minimum is priced from. A failed bids read leaves rt.currentBid at starting_bid;
+  // the listing row's current_bid is the server's. Outbid and "you're highest" stay on the list above.
+  const priceFloor = displayedBidFloor(listing?.current_bid ?? 0, rt.currentBid);
 
   const isOutbidNow =
     authReady &&
@@ -1077,7 +1084,8 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
             });
             // 23505 = unique_violation → already blocked. Treat as success.
             if (error && error.code !== '23505') {
-              Alert.alert('Could not block', error.message);
+              console.warn('[block]', error.message);
+              Alert.alert(ACTION_FAILED_COPY.block.title, ACTION_FAILED_COPY.block.body);
               return;
             }
             Alert.alert(
@@ -1220,7 +1228,7 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
     buyNowAllIn,
     // V3 (O-2): the informational minimum under "Place a bid" — same derivation as the breakdown
     // below, and never shown once the auction is closed (detailState guards mode).
-    nextBidAllIn:      listingAllInV3(currentHighest + APP_CONFIG.MIN_BID_INCREMENT),
+    nextBidAllIn:      listingAllInV3(priceFloor + APP_CONFIG.MIN_BID_INCREMENT),
   });
 
   // A frozen screen must not look live (CFT-504): say when the bids channel is
@@ -1238,12 +1246,12 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
   const needsTransferRefresh = isSold && isSeller && !transferId;
 
   const soldAllIn = isSold ? listingAllInV3(finalSoldPrice(listing)) : null;
-  const currentAllIn = listingAllInV3(currentHighest);
+  const currentAllIn = listingAllInV3(priceFloor);
   // The panel's breakdown GATE, in the legacy display form. The rows themselves are rendered
   // below in the board's list, so this value is never printed.
-  const nextBidAllIn = allInFromDollars(currentHighest + APP_CONFIG.MIN_BID_INCREMENT);
+  const nextBidAllIn = allInFromDollars(priceFloor + APP_CONFIG.MIN_BID_INCREMENT);
   // §5 breakdown rows for "If you bid the minimum" — same base, through the one money module.
-  const minBid = listingPriceLinesV3(currentHighest + APP_CONFIG.MIN_BID_INCREMENT);
+  const minBid = listingPriceLinesV3(priceFloor + APP_CONFIG.MIN_BID_INCREMENT);
   const minBidBase = minBid.base;
   const minBidFee = minBid.fee;
 
@@ -1387,6 +1395,7 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
           onOverflow={openListingActions}
         />
 
+        <AnnounceWhenFocused text={liveNotice} />
         {liveNotice ? (
           <View style={s.liveNotice} accessibilityRole="alert" accessibilityLiveRegion="polite">
             <Text style={[textStyle('label'), s.liveNoticeText]} numberOfLines={1}>{liveNotice}</Text>
@@ -1395,7 +1404,10 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
 
         {status ? (
           <View style={s.statusWrap}>
-            <ListingStatusBanner status={status} />
+            <ListingStatusBanner
+              status={status}
+              spokenDetail={status?.kind === 'reserved_by_you' ? `${spokenDuration(reservationMsLeft)} left to finish checkout.` : undefined}
+            />
             {needsTransferRefresh ? (
               <Pressable
                 onPress={() => fetchData(true)}
@@ -1486,6 +1498,9 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
         {state.showsBidActivity ? (
           <BidActivity
             bids={bids}
+            loadFailed={!fixture && rt.loadError}
+            loading={!fixture && rt.loading}
+            onRetry={rt.refetch}
             amountFor={(b) => listingAllInV3(b.amount)}
             timeFor={(b) => timeAgo(b.created_at)}
             viewerId={fixture?.viewerId ?? user?.id}
