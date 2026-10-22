@@ -28,6 +28,7 @@ import { router } from 'expo-router';
 import { Alert, AppState, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useEffect, useMemo, useState } from 'react';
 
+import { useAnnounceOnce } from '@/src/hooks/useAnnounceOnce';
 import { supabase } from '@/src/lib/supabase';
 import { SIGN_OUT_FAILED_COPY, signOutAllDevices, signOutThisDevice } from '@/src/lib/auth/signOut';
 import { Button } from '@/src/components/ui';
@@ -71,6 +72,10 @@ export default function SettingsScreen({ deletionFixture }: { deletionFixture?: 
   const [deletionProbeFailed, setDeletionProbeFailed] = useState(false);
   const [withdrawing, setWithdrawing] = useState(false);
   const deletionPending = deletionView === 'pending';
+  useAnnounceOnce(
+    deletionPending ? 'Account deletion requested. Your account deletion request is pending. You can withdraw it to keep your account.'
+      : deletionProbeFailed ? 'We could not check your account status.' : null,
+  );
 
   async function refreshDeletionState() {
     try {
