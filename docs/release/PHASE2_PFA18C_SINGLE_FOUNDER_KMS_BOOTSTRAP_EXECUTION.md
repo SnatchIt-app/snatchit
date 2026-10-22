@@ -1,5 +1,7 @@
 # PHASE 2 — PFA-18C SINGLE-FOUNDER AWS KMS / ES256 TRUST-ROOT BOOTSTRAP — EXECUTION RECORD
 
+> **Redaction (2026-10-22, owner decision):** the AWS account id and the production KMS key id that this record originally quoted were replaced in place with `[redacted: account id]` / `[redacted: key id]`. Nothing else in the record changed; the unredacted original is preserved in private evidence on the encrypted SSD. The JSON artifacts in `pfa18c_artifacts/` carry the same in-place marker.
+
 **Status legend:** PREPARATION · CEREMONY · COMPLETED · NOT COMPLETED · ABORTED · PARTIAL STATE
 
 > Interactive, human-executed. The founder runs **every** AWS and production-database mutation.
@@ -14,7 +16,7 @@
 ```
 OVERALL:                 C2-C5 COMPLETE — the AWS trust root EXISTS and is corroborated (session 8).
                          C3 (insert into kernel.signing_key) NOT AUTHORIZED, NOT PERFORMED.
-KMS KEY CREATED:         YES — arn:aws:kms:us-east-1:652872010073:key/45907419-8894-4582-ba79-71e9c29c549e
+KMS KEY CREATED:         YES — arn:aws:kms:us-east-1:[redacted: account id]:key/[redacted: key id]
                          ECC_NIST_P256 / SIGN_VERIFY / ECDSA_SHA_256, Enabled, created 2026-09-09
                          (superseded "KMS KEY CREATED: NO", true through session 7 / 2026-09-06)
 SIGNING KEYS IN PROD:    0   ← still zero: the key lives ONLY in AWS KMS, not in Supabase
@@ -121,8 +123,8 @@ Claude-observed. Independent confirmation is deferred to the M2 second-device re
 
 | Item | Owner-returned value |
 |---|---|
-| Account | `652872010073` |
-| Principal | `arn:aws:iam::652872010073:user/jose-admin` (IAM user; UserId `AIDAZQARUJFMXKFV5U5JY`) |
+| Account | `[redacted: account id]` |
+| Principal | `arn:aws:iam::[redacted: account id]:user/jose-admin` (IAM user; UserId `AIDAZQARUJFMXKFV5U5JY`) |
 | Auth method | `aws login` (browser console session → temporary credentials); verified via `sts get-caller-identity` |
 | CLI / host | AWS CLI 2.36.40, Apple-Silicon Mac; profile `snatchit-admin` |
 | Region | saved `us-east-1`; `AWS_REGION` / `AWS_DEFAULT_REGION` unset |
@@ -183,7 +185,7 @@ appended as each stage completes.)_
 ## SESSION 3 — 2026-09-05 — OWNER PLAN-STATE EVIDENCE + P1-PUBKEY-FORMAT FIX + DESIGN CORRECTIONS
 
 ### Owner-returned evidence (OWNER-RETURNED; not Claude-observed)
-`aws freetier get-account-plan-state` on account `652872010073`: **accountPlanType FREE · accountPlanStatus ACTIVE · $100 remaining ·
+`aws freetier get-account-plan-state` on account `[redacted: account id]`: **accountPlanType FREE · accountPlanStatus ACTIVE · $100 remaining ·
 accountPlanExpirationDate 2027-03-05T17:57:11.079Z.** **Owner decision: KEEP THE AWS FREE PLAN. No billing upgrade authorized.**
 
 ### P0-FREEPLAN — status under that decision
@@ -327,8 +329,8 @@ unauthorized and NOT performed**.
 
 | Item | Value |
 |---|---|
-| KMS key (as reported) | `arn:aws:kms:us-east-1:652872010073/45907419-8894-4582-ba79-71e9c29c549e` |
-| KMS key (**canonical, corrected**) | `arn:aws:kms:us-east-1:652872010073:key/45907419-8894-4582-ba79-71e9c29c549e` |
+| KMS key (as reported) | `arn:aws:kms:us-east-1:[redacted: account id]/[redacted: key id]` |
+| KMS key (**canonical, corrected**) | `arn:aws:kms:us-east-1:[redacted: account id]:key/[redacted: key id]` |
 | D5 public-key fingerprint | `562b5e87bb1c70ba2791503dd3cfe7014332c4cf9278d7c72680806768f64415` |
 | Challenge signature SHA-256 | `83c3938e03ac82f5b8ba01687e9f7cc32d366606ba8dd3a206d053fd147eeb15` |
 | Signature size | 70 bytes |
@@ -349,9 +351,9 @@ Performed with the `snatchit-admin` read profile. No mutating API was called.
 **1. `kms:DescribeKey`** — the key exists and is shaped for ES256 ticket signing:
 
 ```
-AWSAccountId  652872010073          KeyState   Enabled
-KeyId         45907419-8894-4582-ba79-71e9c29c549e
-Arn           arn:aws:kms:us-east-1:652872010073:key/45907419-8894-4582-ba79-71e9c29c549e
+AWSAccountId  [redacted: account id]          KeyState   Enabled
+KeyId         [redacted: key id]
+Arn           arn:aws:kms:us-east-1:[redacted: account id]:key/[redacted: key id]
 Description   Snatch It ticket-signing trust root (PFA-18C)
 KeyUsage      SIGN_VERIFY           KeySpec    ECC_NIST_P256
 SigningAlgorithms  ["ECDSA_SHA_256"]           Origin     AWS_KMS
@@ -376,7 +378,7 @@ ceremony: it proves the fingerprint in the record belongs to *this* key.
 | `eventID` | `ca5a2602-a9a6-4dc9-967d-37616efd9c37` | — | — |
 | `eventTime` | `2026-09-09T06:20:13Z` | — | — |
 | `eventSource` / `eventName` | `kms.amazonaws.com` / `Sign` | one Sign | **✓ exactly one** |
-| `userIdentity.arn` | `arn:aws:sts::652872010073:assumed-role/SnatchIt-KMS-Ceremony/pfa18c-ceremony` | `SnatchIt-KMS-Ceremony/pfa18c-ceremony` | **✓** |
+| `userIdentity.arn` | `arn:aws:sts::[redacted: account id]:assumed-role/SnatchIt-KMS-Ceremony/pfa18c-ceremony` | `SnatchIt-KMS-Ceremony/pfa18c-ceremony` | **✓** |
 | `sessionContext.attributes.mfaAuthenticated` | `true` | MFA | **✓** |
 | `requestParameters.messageType` | `RAW` | `RAW` | **✓** |
 | `requestParameters.signingAlgorithm` | `ECDSA_SHA_256` | `ECDSA_SHA_256` | **✓** |
