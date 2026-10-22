@@ -26,8 +26,14 @@ describe('checkout breakdown: one formatter for all three rows (A, 2026-10-21)',
 
   it.each(['amount: formatCentsV3(serverBreakdown.amount),', 'fee: formatCentsV3(serverBreakdown.buyerFee),', 'total: formatCentsV3(serverBreakdown.total),'])(
     'TC2: the breakdown row uses the 2dp formatter: %s', (line) => {
+      // The pin itself. (A's review: the old "control" replaced the line and then asserted its absence,
+      // which can never fail, so it is gone. TC1's formatCents assertions are the real control.)
       expect(src).toContain(line);
-      // Control: the same row on formatCents fails.
-      expect(src.replace(line, line.replace('formatCentsV3(', 'formatCents('))).not.toContain(line);
     });
+
+  it('TC3: the price-change notice and its Accept label use the same 2dp formatter (A, 2026-10-21)', () => {
+    expect(src).toContain('It was ${formatCentsV3(priceChange.previousCents)} and is now ${formatCentsV3(priceChange.nextCents)}');
+    expect(src).toContain('label: `Accept ${formatCentsV3(priceChange.nextCents)}`');
+    expect(src).not.toMatch(/formatCents\(priceChange\./);
+  });
 });

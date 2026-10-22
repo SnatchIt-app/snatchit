@@ -37,10 +37,33 @@ describe('CFT-703: generic failures say calm words, not server text', () => {
     });
   });
 
-  it.each(SITES)('G2: %s (%s) shows the copy, not the server text', (file, key, raw) => {
-    const src = code(file);
-    expect(src, 'raw message still shown').not.toMatch(raw);
-    expect(src).toContain(`ACTION_FAILED_COPY.${key}.title, ACTION_FAILED_COPY.${key}.body`);
+  it.each(SITES)('G2: %s (%s) shows no server text', (file, _key, raw) => {
+    expect(code(file), 'raw message still shown').not.toMatch(raw);
+  });
+
+  // A's review: anchored per HANDLER, not per file. Each write's own failure branch must carry its own
+  // copy within a few lines of the call, so one handler can't be satisfied by another handler's copy.
+  const HANDLERS: Array<[string, string, string]> = [
+    ['app/settings/blocked-users.tsx', ".from('user_blocks').delete()", 'unblock'],
+    ['app/profile/[id].tsx', ".from('user_blocks').insert(", 'block'],
+    ['app/profile/[id].tsx', ".from('user_blocks').delete()", 'unblock'],
+    ['src/screens/ListingDetailScreen.tsx', ".from('user_blocks').insert(", 'block'],
+    ['src/lib/moderation/blockFlow.ts', ".from('user_blocks').insert(", 'block'],
+    ['app/settings/edit-profile.tsx', ".update({ avatar_path: result.storagePath })", 'photo'],
+    ['app/(tabs)/profile.tsx', ".update({ avatar_path: result.storagePath })", 'photo'],
+    ['app/transfer/receive/[id].tsx', "rpc('set_transfer_delivery_info'", 'delivery'],
+  ];
+  const branchAfter = (src: string, call: string) => {
+    const at = src.indexOf(call);
+    expect(at, call).toBeGreaterThan(-1);
+    return src.slice(at, at + 600);
+  };
+  it.each(HANDLERS)('G4: %s, the failure branch after %s says ACTION_FAILED_COPY.%s', (file, call, key) => {
+    const branch = branchAfter(code(file), call);
+    expect(branch).toContain(`ACTION_FAILED_COPY.${key}.title, ACTION_FAILED_COPY.${key}.body`);
+    // Real control: the same window cut from a copy where this handler shows the raw text instead.
+    const mutated = code(file).replace(`ACTION_FAILED_COPY.${key}.title, ACTION_FAILED_COPY.${key}.body`, `'x', error.message`);
+    expect(branchAfter(mutated, call)).not.toContain(`ACTION_FAILED_COPY.${key}.title, ACTION_FAILED_COPY.${key}.body`);
   });
 
   it('G3: the web path of the photo save no longer alerts the raw text either', () => {

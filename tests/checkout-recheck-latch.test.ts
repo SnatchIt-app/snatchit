@@ -22,7 +22,10 @@ const fnBody = (s: string, name: string) => {
 };
 
 describe('Check status and Retry are single-flight', () => {
-  it('RL1: two taps in one frame give exactly one finalizePurchase; unlatched gives two (control)', async () => {
+  // A's review: RL1 exercises the latch PRIMITIVE with a test-local function shaped like the screen's
+  // handler; it does not mount CheckoutNative (no harness can: the Stripe native module). RL2/RL3 are
+  // what tie the screen to it. The name now says so.
+  it('RL1: the paymentGuard latch admits one of two same-frame calls; unlatched admits both (primitive only, not the screen)', async () => {
     let calls = 0;
     const finalizePurchase = async () => { calls++; await new Promise((r) => setTimeout(r, 5)); };
 
