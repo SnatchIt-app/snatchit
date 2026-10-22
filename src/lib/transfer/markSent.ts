@@ -126,7 +126,8 @@ const NOT_FOUND_RAISE = /^Transfer not found\.?$/;
 
 /** The status named by an SNT-2 raise, or null when the message is not one. */
 export function cannotMarkFromStatus(message: string | null | undefined): string | null {
-  const m = /cannot be marked as sent from current status:\s*([a-z_]+)/i.exec(message ?? '');
+  // Anchored to the raise's own opening (catalogue recipe: a message PREFIX).
+  const m = /^Transfer cannot be marked as sent from current status:\s*([a-z_]+)/i.exec((message ?? '').trim());
   return m ? m[1].toLowerCase() : null;
 }
 
@@ -134,8 +135,11 @@ export function cannotMarkFromStatus(message: string | null | undefined): string
  * A refusal in the seller's words. The server's text is never shown (catalogue §8: it leaks status
  * enums, column, function and bucket names); the caller logs it. Unmatched → the action's generic line.
  */
-export function markSentFailureCopy(message: string, fallback: string): string {
+export function markSentFailureCopy(message: string, fallback: string, opts: { readBackPending?: boolean } = {}): string {
   if (NOT_FOUND_RAISE.test(message.trim())) return MARK_SENT_COPY.notFound;
+  // When the read-back says pending, the read-back is the authority: a raise naming another status
+  // is not turned into "this order closed" (delta review nit 4).
+  if (opts.readBackPending) return fallback;
   const status = cannotMarkFromStatus(message);
   if (status && !SENT.has(status)) return notPendingCopy(status);
   return fallback;
@@ -184,7 +188,7 @@ export async function runMarkSent(deps: MarkSentDeps): Promise<MarkSentOutcome> 
     // non-pending status) is "no longer pending", never a failure carrying the server's text.
     if (after.status !== 'pending') return { kind: 'not_pending', status: after.status };
     if (!uncertain && error && !isAlreadySentRaise(error.message)) {
-      return { kind: 'failed', message: markSentFailureCopy(error.message, MARK_SENT_COPY.failedFallback) };
+      return { kind: 'failed', message: markSentFailureCopy(error.message, MARK_SENT_COPY.failedFallback, { readBackPending: true }) };
     }
     return { kind: 'unconfirmed' };   // includes a reply claiming "sent" that the read contradicts
   }
