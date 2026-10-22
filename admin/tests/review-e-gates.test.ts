@@ -206,8 +206,11 @@ describe("E-L3c — OrderActions offers a money form only when the page's state 
 describe("E-L3d — the proxy matcher covers every console route and skips only framework assets and images", () => {
   async function compiled(): Promise<RegExp> {
     // Next's own matcher compiler (build/analysis/get-page-static-info), so the test reads the matcher the way the build does.
-    const { getMiddlewareMatchers } = await import("next/dist/build/analysis/get-page-static-info");
-    const matchers = getMiddlewareMatchers(proxyConfig.matcher, {} as never) as { regexp: string }[];
+    // getMiddlewareMatchers is exported at runtime but absent from this module's .d.ts in next 16.3.8, so its shape is stated here.
+    const mod = (await import("next/dist/build/analysis/get-page-static-info")) as unknown as {
+      getMiddlewareMatchers: (matcher: unknown, nextConfig: unknown) => { regexp: string }[];
+    };
+    const matchers = mod.getMiddlewareMatchers(proxyConfig.matcher, {});
     expect(matchers).toHaveLength(1);
     return new RegExp(matchers[0].regexp);
   }

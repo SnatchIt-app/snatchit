@@ -43,7 +43,10 @@ export const SESSION_COOKIES_SECURE = secureSessionCookies(process.env.NEXT_PUBL
  * construction, as the domain is dropped by construction.
  */
 export function sessionCookie<T extends { domain?: unknown; httpOnly?: unknown }>(options: T | undefined): Omit<T, "domain" | "httpOnly"> & { httpOnly: false; secure?: true } {
-  const { httpOnly: _ignored, ...rest } = hostOnlyCookie(options) as Omit<T, "domain">;
+  const { httpOnly: _ignored, ...dropped } = hostOnlyCookie(options) as Omit<T, "domain">;
   void _ignored;
+  // Omit<Omit<T, "domain">, "httpOnly"> and Omit<T, "domain" | "httpOnly"> are the same keys, but
+  // TypeScript cannot reduce the nested form while T is unresolved; the cast states what the destructure did.
+  const rest = dropped as Omit<T, "domain" | "httpOnly">;
   return SESSION_COOKIES_SECURE ? { ...rest, httpOnly: false, secure: true } : { ...rest, httpOnly: false };
 }

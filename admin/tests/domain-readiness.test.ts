@@ -193,7 +193,10 @@ describe("E-L5 — session cookies are Secure on Vercel production and preview, 
     m = await import("@/lib/supabase/cookie-options");
     expect(m.SESSION_COOKIES_SECURE).toBe(false);
     expect(m.sessionCookie({ domain: ".snatchitapp.com", path: "/", sameSite: "lax", maxAge: 5 })).toEqual({ path: "/", sameSite: "lax", maxAge: 5, httpOnly: false });
-    expect(m.sessionCookie({ secure: false, path: "/" })).toEqual({ secure: false, path: "/", httpOnly: false });
+    // Typed like a real @supabase/ssr CookieOptions object (httpOnly? present): a bare literal with no key in
+    // common with sessionCookie's all-optional constraint would be refused by TypeScript's weak-type rule.
+    const secureOff: { secure: boolean; path: string; httpOnly?: boolean } = { secure: false, path: "/" };
+    expect(m.sessionCookie(secureOff)).toEqual({ secure: false, path: "/", httpOnly: false });
   });
 
   for (const env of ["production", "preview"]) {
