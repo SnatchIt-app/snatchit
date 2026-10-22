@@ -8,12 +8,17 @@ The owner decided admin v2 replaces the live console after an independent review
 
 | Item | Value |
 |---|---|
-| Source | branch `admin/console-v2-integration`, the head named in the handoff at deploy time, built from a clean checkout |
+| Source | branch `admin/console-v2-integration` @ **`2fc0c8f4`** (#121's head after E's conditions), built from a clean `git archive` export of the tracked `admin/` tree only (254 files; `admin/docs` left out of the upload; no untracked state) |
 | Project | `snatchit-admin` (`prj_o17cASVVqqyGKPUtiklJRvAMVgNB`), run from `admin/` with its `.vercelignore` |
 | Env | the four `NEXT_PUBLIC_*` values the production console already ships to every browser (Supabase URL, anon key, site URL, label `production`). These are public-class values, not secrets. No Preview-target env is created on the project; they are passed to the one deploy. |
 | Data | **production**, read as the signed-in operator through the same `ops.*` RPCs the live console uses. There is no fixture mode in admin. |
 | Protection | Vercel SSO, `all_except_custom_domains`: a preview URL always redirects to Vercel sign-in. No bypass link is created. |
 | Rollback | none needed: delete the preview deployment, or let it expire. Production (`dpl_8q8eeFuyixnfC4xZohU8vCtXHiZt`, `07100a35`) is untouched. |
+
+## The deployment to open
+- **URL:** `https://snatchit-admin-em8pdazqf-gnvprod-5449s-projects.vercel.app` — deployment `dpl_HATGWw1DR83j9GFj233DbxcV8FT9`, READY, built 2026-10-22 from `2fc0c8f4`. Opening it first shows Vercel's own sign-in (your Vercel account); after that, the console's `/login`.
+- Verified at deploy time: target preview (not production, not aliased), Vercel SSO on the URL, the production deployment unchanged (`dpl_8q8eeFuyixnfC4xZohU8vCtXHiZt`), no Preview-scope env added to the project (the four public values were per-deploy build env).
+- Method note for the next preview: run `vercel deploy` from the **export root** (the project's Root Directory is `admin`, so running inside `admin/` fails with `admin/admin`), and put the ignore file at that root; add `admin/.env.example` and `admin/.env.local.example-harness` to it (tracked, public, harmless, but not needed by the build).
 
 ## Rules during the check
 - Sign in with your own founder account and TOTP. Nothing else is entered anywhere.
