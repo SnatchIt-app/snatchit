@@ -43,7 +43,9 @@
 --      Otherwise RAISE; nothing changes.
 --   2. public.cancel_listing(uuid, uuid), from the PRODUCTION body (pg_get_functiondef of
 --      a_sprint_prod_template, fingerprint-identical to production). Same signature, definer, search_path
---      'public', ACL (CREATE OR REPLACE keeps postgres/authenticated/service_role EXECUTE; verified below).
+--      'public', ACL (CREATE OR REPLACE keeps the grants; the post-check compares grants, definer flag and search_path
+--      with the state captured BEFORE the replacement, so the file provably changes none of them wherever it runs:
+--      the 171 pattern, b84c8e05; the production values stay documented in the post-check).
 --        - The four existing refusals keep their MESSAGE text byte for byte (app my-listings.tsx:178 and
 --          ListingDetailScreen show it raw; web mapSellerError matches "only cancel your own", "already been
 --          sold", "Listing not found" by substring). Each gains ERRCODE P0001 (unchanged SQLSTATE) and a HINT:
@@ -242,6 +244,16 @@ BEGIN
 END
 $pre170$;
 
+-- Capture cancel_listing's grants, definer flag and search_path BEFORE the replacement, so the post-check proves this
+-- file changed none of them in WHATEVER environment it runs in (171's b84c8e05 pattern). On production these are
+-- postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres / SECURITY DEFINER / search_path=public (the
+-- values an earlier draft of the post-check pinned literally); CI's fresh chain may carry a different pre-existing ACL
+-- (BE-37 drift), which 170 must not touch either.
+CREATE TEMP TABLE m170_pre ON COMMIT DROP AS
+SELECT 'public.cancel_listing(uuid,uuid)'::text AS sig, array_to_string(p.proacl, ',') AS acl, p.prosecdef AS secdef,
+       array_to_string(p.proconfig, ',') AS config
+  FROM pg_catalog.pg_proc p WHERE p.oid = 'public.cancel_listing(uuid,uuid)'::regprocedure;
+
 -- ── 2. cancel_listing (production body + HINTs + two refusals) ──────────────
 CREATE OR REPLACE FUNCTION public.cancel_listing(p_listing_id uuid, p_user_id uuid)
  RETURNS void
@@ -401,11 +413,25 @@ CREATE TRIGGER trg_guard_listing_delete
 
 -- ── 5. post-check (inside the transaction: a mismatch aborts the whole apply) ─
 DO $post170$
+DECLARE
+  v_bad text;
 BEGIN
-  IF (SELECT p.prosecdef::text || '|' || array_to_string(p.proacl, ',') FROM pg_proc p
-       WHERE p.oid = 'public.cancel_listing(uuid,uuid)'::regprocedure)
-     IS DISTINCT FROM 'true|postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres' THEN
-    RAISE EXCEPTION '170 post-check failed: cancel_listing definer/ACL changed. Nothing changed.';
+  -- Production values (verified on the production replay; informational): cancel_listing(uuid,uuid)
+  --   postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres / secdef true / search_path=public.
+  -- The check compares with the captured pre-apply state (m170_pre), not with these literals.
+  IF (SELECT count(*) FROM m170_pre) <> 1 THEN
+    RAISE EXCEPTION '170 post-check failed: the pre-apply state of cancel_listing was not captured. Nothing changed.';
+  END IF;
+  SELECT 'acl ' || coalesce(v.acl, '<null>') || ' -> ' || coalesce(array_to_string(p.proacl, ','), '<null>')
+         || ' secdef ' || coalesce(v.secdef::text, '<null>') || ' -> ' || coalesce(p.prosecdef::text, '<missing>')
+         || ' config ' || coalesce(v.config, '<null>') || ' -> ' || coalesce(array_to_string(p.proconfig, ','), '<null>')
+    INTO v_bad
+    FROM m170_pre v LEFT JOIN pg_catalog.pg_proc p ON p.oid = pg_catalog.to_regprocedure(v.sig)
+   WHERE array_to_string(p.proacl, ',') IS DISTINCT FROM v.acl
+      OR p.prosecdef IS DISTINCT FROM v.secdef
+      OR array_to_string(p.proconfig, ',') IS DISTINCT FROM v.config;
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION '170 post-check failed: cancel_listing grant, definer or search_path changed by this file: %. Nothing changed.', v_bad;
   END IF;
   IF has_function_privilege('anon', 'public.guard_listing_edit_lock()', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.guard_listing_edit_lock()', 'EXECUTE') THEN
@@ -420,7 +446,7 @@ BEGIN
                        AND tgfoid = 'public.guard_listing_delete()'::regprocedure AND tgenabled = 'O') THEN
     RAISE EXCEPTION '170 post-check failed: trg_guard_listing_delete is not the one enabled DELETE trigger on listings. Nothing changed.';
   END IF;
-  RAISE NOTICE '170 applied: cancel_listing md5 %, guard_listing_edit_lock md5 %, guard_listing_delete md5 %',
+  RAISE NOTICE '170 applied: cancel_listing md5 % (grants, definer and search_path unchanged from the pre-apply state), guard_listing_edit_lock md5 %, guard_listing_delete md5 %',
     md5(pg_get_functiondef('public.cancel_listing(uuid,uuid)'::regprocedure)),
     md5(pg_get_functiondef('public.guard_listing_edit_lock()'::regprocedure)),
     md5(pg_get_functiondef('public.guard_listing_delete()'::regprocedure));
