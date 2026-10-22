@@ -30,6 +30,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { OrderIdentity } from '@/src/components/checkout/OrderIdentity';
 import { Button, IconButton, Spinner } from '@/src/components/ui';
+import { useAnnounceOnce } from '@/src/hooks/useAnnounceOnce';
+import { spokenDuration } from '@/src/lib/a11y/spoken';
 import { hapticSuccess } from '@/src/lib/feedback/haptics';
 import { useTopInset } from '@/src/lib/nav/navInsets';
 // TYPE ONLY, and deliberately: a value import from the payment module would put `src/lib/payments`
@@ -134,6 +136,8 @@ export default function CheckoutView({
     announced.current = status;
     AccessibilityInfo.announceForAccessibility(status);
   }, [pay.loading, pay.label]);
+  // The same for the line that replaces the method slot when payment can't go ahead: it was silent on iOS.
+  useAnnounceOnce(!preparing && !paymentMethodLine && !notice ? errorLine : null);
 
   return (
     <View style={s.safe}>
@@ -169,7 +173,12 @@ export default function CheckoutView({
         */}
         {reservationMsLeft != null && reservationMsLeft > 0 ? (
           <View style={s.holdRow}>
-            <Text style={[textStyle('label'), s.hold]} accessibilityLiveRegion="none">
+            <Text
+              style={[textStyle('label'), s.hold]}
+              accessibilityLiveRegion="none"
+              // Spoken as a duration: VoiceOver reads the visible "4:32" as a time of day.
+              accessibilityLabel={`Held for you, ${spokenDuration(reservationMsLeft)} left${holdUntil ? `, until ${holdUntil}` : ''}`}
+            >
               {`Held for you · ${countdown}${holdUntil ? ` · until ${holdUntil}` : ''}`}
             </Text>
           </View>
@@ -259,6 +268,7 @@ export default function CheckoutView({
  * has to read before paying — a lost hold, a changed total, an unconfirmed payment.
  */
 function NoticeBlock({ notice, s, palette }: { notice: CheckoutNotice; s: CheckoutStyles; palette: Palette }) {
+  useAnnounceOnce(`${notice.title}. ${notice.body}`);
   return (
     <View style={[s.notice, { borderLeftColor: palette.status.warning }]} accessibilityLiveRegion="polite">
       <Text style={[textStyle('title'), s.noticeTitle]}>{notice.title}</Text>
@@ -375,6 +385,9 @@ function TerminalFace({
   const s = useMemo(() => makeStyles(palette), [palette]);
   const insets = useSafeAreaInsets();
   const topPad = useTopInset();
+  // The outcome the caller settled, said once when the face appears: VoiceOver otherwise stayed on the
+  // control that was just replaced and never heard the purchase finish (or not).
+  useAnnounceOnce(`${kicker}. ${title}`);
   return (
     <View style={s.confirmWrap}>
       <View style={[s.confirmBody, { paddingTop: topPad + v2.space.xxl }]}>

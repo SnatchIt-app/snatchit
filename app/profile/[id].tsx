@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
+import { ACTION_FAILED_COPY } from '@/src/lib/ui/errorCopy';
 import { blockConfirmMessage } from '@/src/lib/moderation/blockCopy';
 import { allInFromDollarsV3 } from '@/src/lib/money';
 import { useAuth } from '@/src/hooks/useAuth';
@@ -215,7 +216,7 @@ export default function PublicProfileScreen({ fixture }: { fixture?: PublicProfi
           setWorking(true);
           const { error } = await supabase.from('user_blocks').insert({ blocker_id: user.id, blocked_id: sellerId });
           setWorking(false);
-          if (error && error.code !== '23505') { Alert.alert('Could not block', error.message); return; }
+          if (error && error.code !== '23505') { console.warn('[block]', error.message); Alert.alert(ACTION_FAILED_COPY.block.title, ACTION_FAILED_COPY.block.body); return; }
           Alert.alert('Blocked', `${name} is hidden from your feed.`, [{ text: 'OK', onPress: () => router.back() }]);
         },
       },
@@ -227,7 +228,7 @@ export default function PublicProfileScreen({ fixture }: { fixture?: PublicProfi
     setWorking(true);
     const { error } = await supabase.from('user_blocks').delete().eq('blocker_id', user.id).eq('blocked_id', sellerId);
     setWorking(false);
-    if (error) { Alert.alert('Could not unblock', error.message); return; }
+    if (error) { console.warn('[unblock]', error.message); Alert.alert(ACTION_FAILED_COPY.unblock.title, ACTION_FAILED_COPY.unblock.body); return; }
     setIsBlocked(false);
     load();
   }
@@ -258,7 +259,7 @@ export default function PublicProfileScreen({ fixture }: { fixture?: PublicProfi
       <View style={s.root}>
         <SettingsHeader title="Profile" />
         <View style={s.centered}>
-          <View style={s.avatarRing}><View style={s.avatarFallback}><Text style={s.avatarInitials}>{getInitials(displayName)}</Text></View></View>
+          <View style={s.avatarRing}><View style={s.avatarFallback}><Text style={s.avatarInitials} accessibilityElementsHidden importantForAccessibility="no">{getInitials(displayName)}</Text></View></View>
           <Text style={[textStyle('title'), s.blockedTitle]}>You&apos;ve blocked {displayName}</Text>
           <Text style={[textStyle('bodySm'), s.blockedBody]}>Their listings are hidden from your feed. Unblock to see this profile again.</Text>
           <Button label="Unblock" onPress={handleUnblock} loading={working} disabled={working} style={s.unblock} />
@@ -289,7 +290,7 @@ export default function PublicProfileScreen({ fixture }: { fixture?: PublicProfi
             {avatarUrl ? (
               <Image source={{ uri: avatarUrl }} style={s.avatarImage} contentFit="cover" />
             ) : (
-              <View style={s.avatarFallback}><Text style={s.avatarInitials}>{getInitials(displayName)}</Text></View>
+              <View style={s.avatarFallback}><Text style={s.avatarInitials} accessibilityElementsHidden importantForAccessibility="no">{getInitials(displayName)}</Text></View>
             )}
           </View>
           <Text style={s.name} numberOfLines={1}>{displayName}</Text>
@@ -349,8 +350,8 @@ export default function PublicProfileScreen({ fixture }: { fixture?: PublicProfi
           )}
         </AccountSection>
 
-        {/* Safety actions (hidden on your own profile) */}
-        {!isSelf ? (
+        {/* Safety actions: hidden on your own profile, and for a signed-out viewer — both refuse without a session. */}
+        {user && !isSelf ? (
           <View style={s.actions}>
             <Button label="Report user" variant="secondary" onPress={handleReport} block />
             <Button label="Block user" variant="destructive" onPress={handleBlock} disabled={working} block />

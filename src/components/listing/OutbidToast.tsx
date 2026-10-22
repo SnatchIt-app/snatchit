@@ -17,6 +17,7 @@ import { Animated, Easing, StyleSheet, Text } from 'react-native';
 import { useTopInset } from '@/src/lib/nav/navInsets';
 
 import { useReducedMotion } from '@/src/hooks/useReducedMotion';
+import { useAnnounceOnce } from '@/src/hooks/useAnnounceOnce';
 import { EASING_BEZIER, textStyle } from '@/src/theme/typography';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
@@ -25,6 +26,8 @@ import * as v2 from '@/src/theme/v2';
 const [x1, y1, x2, y2] = EASING_BEZIER;
 
 export function OutbidToast({ visible, message }: { visible: boolean; message: string }) {
+  // liveRegion is Android-only and role="alert" doesn't speak on iOS: VoiceOver never heard "outbid".
+  useAnnounceOnce(visible ? message : null);
   const { palette } = useTheme();
   const styles = useMemo(() => makeStyles(palette), [palette]);
   const reduceMotion = useReducedMotion();

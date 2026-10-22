@@ -46,8 +46,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
+import { TEXT_LINK_HIT_SLOP } from '@/src/lib/a11y/touch';
 import { allInFromDollarsV3 } from '@/src/lib/money';
 import { applyBlockedSellerFilter, useBlockedUserIds } from '@/src/hooks/useBlockedUserIds';
+import { useAnnounceOnce } from '@/src/hooks/useAnnounceOnce';
 import { useNetworkStatus } from '@/src/hooks/useNetworkStatus';
 import { classifyLoadFailure } from '@/src/lib/ui/loadState';
 import ScreenState from '@/src/components/ScreenState';
@@ -88,14 +90,16 @@ function sanitize(term: string): string {
  * the same two states ScreenState distinguishes. Never carries server text.
  */
 function SearchFailureNotice({ s, kind, onRetry }: { s: Styles; kind: 'offline' | 'error'; onRetry: () => void }) {
+  const text = kind === 'offline'
+    ? "You're offline. Showing earlier results."
+    : 'Search did not go through. Showing earlier results.';
+  useAnnounceOnce(text);
   return (
     <View style={s.notice} accessibilityRole="alert">
       <Text style={[textStyle('bodySm'), s.noticeText]}>
-        {kind === 'offline'
-          ? "You're offline. Showing earlier results."
-          : 'Search did not go through. Showing earlier results.'}
+        {text}
       </Text>
-      <Pressable onPress={onRetry} hitSlop={8} accessibilityRole="button" accessibilityLabel="Retry search">
+      <Pressable onPress={onRetry} hitSlop={TEXT_LINK_HIT_SLOP} accessibilityRole="button" accessibilityLabel="Retry search">
         <Text style={[textStyle('label'), s.noticeAction]}>Retry</Text>
       </Pressable>
     </View>
@@ -129,6 +133,9 @@ export default function SearchScreen({ fixture }: { fixture?: SearchFixture } = 
   const [loadError, setLoadError] = useState<'offline' | 'error' | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [searched, setSearched] = useState(fixture != null);
+  // The term the results on screen answer: the query box runs ahead of the 300 ms debounce, so the
+  // announcement quotes this, not `query` (which changed on every keystroke).
+  const [settledTerm, setSettledTerm] = useState<string>('');
 
   // One shared clock for every countdown on screen, as on Home.
   useEffect(() => {
@@ -144,6 +151,7 @@ export default function SearchScreen({ fixture }: { fixture?: SearchFixture } = 
       setSearched(true);
       setLoadError(null);
       setResults(fixture.rows);
+      setSettledTerm(term.trim());
       return;
     }
     const clean = sanitize(term);
@@ -182,6 +190,7 @@ export default function SearchScreen({ fixture }: { fixture?: SearchFixture } = 
       return;
     }
     setResults((data ?? []) as Listing[]);
+    setSettledTerm(term.trim());
   }, [blockedIds, fixture]);
 
   // A failure takes over the screen only when there is nothing to keep on it. Keyed on the RAW
@@ -190,6 +199,12 @@ export default function SearchScreen({ fixture }: { fixture?: SearchFixture } = 
 
   // Client-side narrowing of rows already fetched — no second query, no excluded count.
   const shown = results.filter((r) => matchesSearchFilters(r as never, filters, now));
+  // Results re-render silently: say what settled, once per change — the count on screen, or the empty title.
+  useAnnounceOnce(
+    !searched || searching ? null
+      : shown.length > 0 ? searchResultsHeader(shown.length)
+      : searchEmptyState(settledTerm, filters)?.title ?? null,
+  );
 
   // Debounced so a four-letter word is one query, not four.
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);

@@ -253,6 +253,15 @@ export function buyerAutoReleasedCopy(payoutReleasedAt: string | null | undefine
   };
 }
 
+/**
+ * Seller side: nothing should tell the seller to send (F-SELL-STATES-1). A's lifecycle facts
+ * (2026-10-21): a Stripe dispute can freeze a transfer that was never sent, and a reversed payout can,
+ * rarely, follow a seller-win resolution without a send. So it holds whether or not anything was sent.
+ */
+export function sellerSendHalted(status: string): boolean {
+  return status === 'reversed' || status === 'disputed';
+}
+
 /** Seller side: the ticket is out the door (any state at/after sent). */
 export function sellerAlreadySent(status: string): boolean {
   return status === 'seller_sent' || status === 'buyer_confirmed' || status === 'auto_released';

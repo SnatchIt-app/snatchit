@@ -91,7 +91,12 @@ describe('CheckoutNative — shipped-source guards', () => {
     const presents = src.match(/await presentPaymentSheet\(\)/g) ?? [];
     const guards = src.match(/payLatchRef\.current\.begin\(\)/g) ?? [];
     expect(presents.length).toBeGreaterThanOrEqual(1);
-    expect(guards.length).toBe(presents.length);
+    // RETARGETED (C, 2026-10-21, B-D2): Check status takes the same latch, so there is one more
+    // acquisition than presentations; recheckPayment presents no sheet.
+    expect(guards.length).toBe(presents.length + 1);
+    const recheck = src.slice(src.indexOf('async function recheckPayment('), src.indexOf('function retrySetup('));
+    expect(recheck).toContain('payLatchRef.current.begin()');
+    expect(recheck).not.toContain('presentPaymentSheet');
     expect(src.indexOf('payLatchRef.current.begin()')).toBeLessThan(src.indexOf('await presentPaymentSheet()'));
     expect(src).toContain('createSingleFlight()');
     // released in finally

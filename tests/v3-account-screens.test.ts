@@ -40,7 +40,9 @@ describe('Profile — the board, over an untouched data layer', () => {
     expect(src).toMatch(/<StatRow s=\{s\} label="Active"/);
     expect(src).toMatch(/<StatRow s=\{s\} label="Sold"/);
     // RETARGETED (E, 2026-09-24): 2dp, through the V3 display formatter. The "—" rule is unchanged.
-    expect(src).toMatch(/<StatRow s=\{s\} label="Proceeds" value=\{stats\.revenue > 0 \? formatDollarsV3\(stats\.revenue\) : '—'\}/);
+    // RETARGETED (C, 2026-10-21): stats are null until a read succeeds (a failed read is not zero),
+    // so the guard gains `stats &&`. Same formatter, same "—" for zero and for unknown.
+    expect(src).toMatch(/<StatRow s=\{s\} label="Proceeds" value=\{stats && stats\.revenue > 0 \? formatDollarsV3\(stats\.revenue\) : '—'\}/);
     // The V2 three-up stat strip is gone.
     expect(src).not.toMatch(/statDivider/);
     expect(src).not.toMatch(/textStyle\('price'\), s\.statValue/);
