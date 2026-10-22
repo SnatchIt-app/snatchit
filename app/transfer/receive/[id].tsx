@@ -235,9 +235,13 @@ export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixt
   const confirmedHereRef = useRef(false);
   // Only the newest read may land (review m6): an older re-read finishing last put "not released" back.
   const readGenRef = useRef(0);
+  // Whether any row has ever been shown. A quiet read that fails BEFORE one has (the mount read was
+  // superseded by a focus/foreground read, then that read failed) must leave the error state, not a
+  // row-less screen reading "Transfer not found" (owner, 2026-09-19: a failed read is never not found).
+  const shownRowRef = useRef(false);
   const fetchTransfer = useCallback(async (opts?: { quiet?: boolean }): Promise<TransferData | null> => {
     // Harness: the fixture replaces this one read and nothing else — no query leaves the app.
-    if (fixture) { setTransfer(fixture.transfer); setError(''); setLoading(false); return fixture.transfer; }
+    if (fixture) { shownRowRef.current = true; setTransfer(fixture.transfer); setError(''); setLoading(false); return fixture.transfer; }
     if (!userId || !id) return null;
     // Quiet: re-read behind the content (a return from the provider) instead
     // of replacing the order with a spinner.
@@ -271,6 +275,9 @@ export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixt
         failed: !!fetchErr,
       });
       if (!opts?.quiet) setError(outcome === 'ok' ? 'not_found' : outcome);
+      // A quiet read never decides "not found": with no row ever shown, a row-less or failed quiet
+      // answer leaves the retryable error state; with a row shown, it keeps the order (unchanged).
+      else if (!shownRowRef.current) setError(outcome === 'offline' ? 'offline' : 'unavailable');
     } else {
       setError('');
       fresh = data as unknown as TransferData;
@@ -279,7 +286,7 @@ export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixt
       // confirmed state rather than offer "I have my tickets" again.
       const stale = confirmedHereRef.current && (fresh.status === 'pending' || fresh.status === 'seller_sent');
       if (stale) fresh = null;   // review m7: callers (the arrival prompt) never act on a row we refused
-      else setTransfer(fresh);
+      else { shownRowRef.current = true; setTransfer(fresh); }
     }
     setLoading(false);
     return fresh;
