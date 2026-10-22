@@ -1,14 +1,20 @@
 import type { ReactNode } from "react";
 
 /**
- * Chart container: title, one-line definition (units · range · grain), the chart,
- * and a data-table twin that holds every plotted value (tooltips never gate data).
- * Empty and error states replace the plot — a flat line is never drawn for "no data"
- * and a failed read is never drawn as zero.
+ * Chart container: title, one-line definition (units · range · grain), the surface's
+ * labels (period, timezone, currency, freshness — `meta`), the chart, and a data-table
+ * twin that holds every plotted value (tooltips never gate data).
+ *
+ * Four states, each explicit (`data-state`): `ok` draws the plot; `empty` means every
+ * period had zero rows (nothing is drawn rather than a flat line); `unavailable` means
+ * the server returned no figure for this measure (nothing is drawn rather than an empty
+ * chart, and it is not called empty); `error` means the read failed (an alert, never a
+ * zero).
  */
 export function ChartCard({
   title,
   description,
+  meta,
   definition,
   state,
   children,
@@ -18,32 +24,37 @@ export function ChartCard({
   title: string;
   /** Units, range and grain, e.g. "USD per day · Aug 16 – Sep 14 (UTC)". */
   description: ReactNode;
+  /** The FigureMeta line for this chart. */
+  meta?: ReactNode;
   /** What the measure is and is not. */
   definition?: ReactNode;
-  state: { kind: "ok" } | { kind: "empty"; message: ReactNode } | { kind: "error"; message: ReactNode };
+  state: { kind: "ok" } | { kind: "empty"; message: ReactNode } | { kind: "unavailable"; message: ReactNode } | { kind: "error"; message: ReactNode };
   children?: ReactNode;
   table?: { caption: string; head: string[]; rows: (string | number)[][] };
   footnote?: ReactNode;
 }) {
+  const isError = state.kind === "error";
   return (
-    <figure className="rounded-[var(--radius-card)] border border-line bg-card p-5">
+    <figure className="rounded-[var(--radius-card)] border border-line bg-card p-5" data-state={state.kind}>
       <figcaption>
         <h3 className="title-section !text-[1.25rem]">{title}</h3>
         <p className="mt-0.5 text-[0.8125rem] text-dim">{description}</p>
+        {meta ? <div className="mt-1">{meta}</div> : null}
       </figcaption>
       <div className="mt-4">
         {state.kind === "ok" ? (
           children
         ) : (
           <div
-            role={state.kind === "error" ? "alert" : "status"}
+            role={isError ? "alert" : "status"}
             className={`flex min-h-[180px] flex-col items-center justify-center rounded-[var(--radius-control)] border border-dashed px-6 text-center text-[0.875rem] ${
-              state.kind === "error" ? "border-danger/40 bg-danger-soft/40 text-ink" : "border-line-strong bg-canvas text-muted"
+              isError ? "border-danger/40 bg-danger-soft/40 text-ink" : "border-line-strong bg-canvas text-muted"
             }`}
           >
-            <span aria-hidden="true" className={`mb-2 flex h-6 w-6 items-center justify-center rounded-full text-[0.75rem] font-bold ${state.kind === "error" ? "bg-danger-soft text-danger" : "bg-raised text-dim"}`}>
-              {state.kind === "error" ? "✕" : "–"}
+            <span aria-hidden="true" className={`mb-2 flex h-6 w-6 items-center justify-center rounded-full text-[0.75rem] font-bold ${isError ? "bg-danger-soft text-danger" : "bg-raised text-dim"}`}>
+              {isError ? "✕" : state.kind === "unavailable" ? "?" : "–"}
             </span>
+            {state.kind === "unavailable" ? <span className="mb-1 font-medium text-ink">Not available</span> : null}
             {state.message}
           </div>
         )}

@@ -116,7 +116,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
         <h2 id="attention-heading" className="mb-2 title-section">
           Needs attention
         </h2>
-        <AttentionSummary metrics={today.metrics} definitions={METRIC_DEFINITIONS} />
+        <AttentionSummary metrics={today.metrics} definitions={METRIC_DEFINITIONS} computedAt={today.computed_at} />
       </section>
 
       <div className="grid grid-cols-1 gap-8 xl:grid-cols-[minmax(0,1fr)_400px]">

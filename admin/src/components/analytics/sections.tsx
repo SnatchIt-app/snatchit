@@ -15,9 +15,11 @@ import {
   shortDay,
   type MoneyFigures,
 } from "@/lib/analytics-core";
+import { CURRENCY, tileState } from "@/lib/figure-meta";
 import { ReportFreshness } from "@/components/shell/Freshness";
 import { KpiTile } from "@/components/charts/KpiTile";
 import { ChartCard } from "@/components/charts/ChartCard";
+import { FigureMeta } from "@/components/charts/FigureMeta";
 import { TrendChart, type TrendPoint } from "@/components/charts/TrendChart";
 import { OpsFailureAlert } from "@/components/ui/Alert";
 
@@ -82,7 +84,9 @@ const SHORT_LABEL: Record<string, string> = {
   open_cases: "Open cases",
 };
 
-export function AttentionSummary({ metrics, definitions }: { metrics: MetricTile[]; definitions: Record<string, string> }) {
+export function AttentionSummary({ metrics, definitions, computedAt }: { metrics: MetricTile[]; definitions: Record<string, string>; /** ops.today()'s computed_at — the counts' freshness. */ computedAt?: string | null }) {
+  // Time of this read (server render, per request): the counts are point in time, so the label says when.
+  const readAt = new Date();
   // A missing or unreadable figure is unknown — never counted as clear (Number(null) would be 0).
   const toCount = (v: unknown) => (typeof v === "number" ? v : typeof v === "string" && /^\d+$/.test(v.trim()) ? Number(v) : NaN);
   const all = metrics.map((m) => ({ ...m, n: toCount(m.value), sev: SEVERITY[m.key] ?? "info" }));
@@ -93,6 +97,7 @@ export function AttentionSummary({ metrics, definitions }: { metrics: MetricTile
   const urgent = active.filter((m) => m.sev === "critical").length;
   return (
     <div className="panel px-5 pb-3 pt-4 md:px-6">
+      <FigureMeta pointInTime computedAt={computedAt} readAt={readAt} className="pb-2" />
       <p className="pb-3 text-[0.875rem] text-muted">
         {active.length === 0 && unknown.length ? (
           <span className="font-medium text-ink">Nothing needs attention among the checks that were read.</span>
@@ -184,33 +189,70 @@ function refundValue(periods: MoneyFigures[]) {
   return { value: r.count.toLocaleString("en-US"), note: `Amount not recorded — at most ${r.atMostCents === null ? "unknown" : formatUsdExact(r.atMostCents)}` };
 }
 
+/** A failed money_overview read: nothing is shown rather than a figure that might be wrong. */
+const READ_ERROR = { kind: "error" as const, message: "Couldn't be read — nothing is shown rather than a figure that might be wrong." };
+
 export async function MoneyKpis({ from, to, compact = false }: { from: string; to: string; compact?: boolean }) {
+  // Time of this read (server render, per request; never cached): the only clock the labels use.
+  const readAt = new Date();
+  const range = { from, to };
   const prev = previousPeriod(from, to);
   const [cur, before] = await Promise.all([readPeriod(from, to), prev ? readPeriod(prev.from, prev.to) : Promise.resolve(null)]);
-  if (!cur.ok) return <OpsFailureAlert failure={cur} fn="money_overview" retryHref={compact ? "/" : "/money"} />;
+  const grid = compact ? "grid grid-cols-1 gap-3 min-[480px]:grid-cols-2" : "grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4";
+  if (!cur.ok) {
+    // The surface stays, every tile explicitly in the error state — never a zero, a dash or a stale figure.
+    return (
+      <>
+        <OpsFailureAlert failure={cur} fn="money_overview" retryHref={compact ? "/" : "/money"} subject="Business figures" />
+        <FigureMeta range={range} currency={CURRENCY} readAt={readAt} failed className="mb-2 mt-3" />
+        <div className={grid}>
+          <KpiTile label="Captured sales" value="" state={READ_ERROR} definition={DEF.captured} />
+          <KpiTile label="Platform fees (gross)" value="" state={READ_ERROR} definition={DEF.fees} />
+          <KpiTile label="Fully refunded payments" value="" state={READ_ERROR} definition={DEF.refunds} />
+          <KpiTile label="Seller funds released" value="" state={READ_ERROR} definition={DEF.released} />
+        </div>
+        {!compact ? (
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <KpiTile label="Seller funds pending release · now" value="" state={READ_ERROR} definition={DEF.pending} meta={<FigureMeta pointInTime currency={CURRENCY} readAt={readAt} failed />} />
+            <KpiTile label="Bank payouts" value="" state={READ_ERROR} definition={DEF.bank} />
+          </div>
+        ) : null}
+      </>
+    );
+  }
   const f = cur.figures;
   const p = before && before.ok ? before.figures : null;
   const rv = refundValue([f]);
   const tiles = (
     <>
-      <KpiTile label="Captured sales" value={formatUsdWhole(f.capturedCents)} valueNote={f.capturedCount == null ? "—" : `${f.capturedCount} payments`} delta={delta(f.capturedCents, p?.capturedCents ?? null)} definition={DEF.captured} />
-      <KpiTile label="Platform fees (gross)" value={formatUsdWhole(f.feesCents)} valueNote={f.feesCount == null ? "—" : `${f.feesCount} succeeded payments`} delta={delta(f.feesCents, p?.feesCents ?? null)} definition={DEF.fees} />
-      <KpiTile label="Fully refunded payments" value={rv.value} valueNote={rv.note} delta={delta(f.refundCount, p?.refundCount ?? null)} goodWhen="down" definition={DEF.refunds} />
-      <KpiTile label="Seller funds released" value={formatUsdWhole(f.releasedCents)} valueNote={f.releasedCount == null ? "—" : `${f.releasedCount} transfers`} delta={delta(f.releasedCents, p?.releasedCents ?? null)} goodWhen="neutral" definition={DEF.released} />
+      <KpiTile label="Captured sales" value={formatUsdWhole(f.capturedCents)} valueNote={f.capturedCount == null ? "—" : `${f.capturedCount} payments`} delta={delta(f.capturedCents, p?.capturedCents ?? null)} definition={DEF.captured} state={tileState(f.capturedCents, f.capturedCount, "payments")} />
+      <KpiTile label="Platform fees (gross)" value={formatUsdWhole(f.feesCents)} valueNote={f.feesCount == null ? "—" : `${f.feesCount} succeeded payments`} delta={delta(f.feesCents, p?.feesCents ?? null)} definition={DEF.fees} state={tileState(f.feesCents, f.feesCount, "succeeded payments")} />
+      <KpiTile label="Fully refunded payments" value={rv.value} valueNote={rv.note} delta={delta(f.refundCount, p?.refundCount ?? null)} goodWhen="down" definition={DEF.refunds} state={tileState(f.refundCount, f.refundCount, "fully refunded payments")} />
+      <KpiTile label="Seller funds released" value={formatUsdWhole(f.releasedCents)} valueNote={f.releasedCount == null ? "—" : `${f.releasedCount} transfers`} delta={delta(f.releasedCents, p?.releasedCents ?? null)} goodWhen="neutral" definition={DEF.released} state={tileState(f.releasedCents, f.releasedCount, "released transfers")} />
     </>
   );
   return (
     <>
       <ReportFreshness at={cur.overview.computed_at} />
-      <div className={compact ? "grid grid-cols-1 gap-3 min-[480px]:grid-cols-2" : "grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4"}>{tiles}</div>
+      {/* One read answers every period tile, so the surface's labels are stated once, above the group. */}
+      <FigureMeta range={range} currency={CURRENCY} computedAt={cur.overview.computed_at} readAt={readAt} className="mb-2" />
+      <div className={grid}>{tiles}</div>
       {!compact ? (
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <KpiTile label="Seller funds pending release · now" value={formatUsdWhole(f.pendingCents)} valueNote={f.pendingCount == null ? "—" : `${f.pendingCount} transfers`} goodWhen="neutral" definition={DEF.pending} />
+          <KpiTile
+            label="Seller funds pending release · now"
+            value={formatUsdWhole(f.pendingCents)}
+            valueNote={f.pendingCount == null ? "—" : `${f.pendingCount} transfers`}
+            goodWhen="neutral"
+            definition={DEF.pending}
+            state={tileState(f.pendingCents, f.pendingCount, "transfers pending release", "now")}
+            meta={<FigureMeta pointInTime currency={CURRENCY} computedAt={cur.overview.computed_at} readAt={readAt} />}
+          />
           <KpiTile label="Bank payouts" value="Not tracked" muted definition={DEF.bank} />
         </div>
       ) : null}
       <p className="mt-2 text-[0.75rem] text-dim">
-        {shortDay(from)} – {shortDay(to)} (UTC){prev ? ` compared with ${shortDay(prev.from)} – ${shortDay(prev.to)}` : ""}.
+        {prev ? `Compared with ${shortDay(prev.from)} – ${shortDay(prev.to)} (UTC).` : ""}
         {before && !before.ok ? " Previous period unavailable — no comparison shown." : ""}
       </p>
     </>
@@ -222,20 +264,27 @@ function tableRows(points: { label: string; detail: string; value: number | null
 }
 
 export async function MoneyCharts({ from, to, only }: { from: string; to: string; only?: "captured" }) {
+  // Time of this read (server render, per request; never cached): the only clock the labels use.
+  const readAt = new Date();
+  const period = { from, to };
   const series = await readSeries(from, to);
   const range = `${shortDay(from)} – ${shortDay(to)} (UTC)`;
-  const today = isoDay(new Date());
+  const today = isoDay(readAt);
   const grainWord = !series.ok ? "" : series.grain === "day" ? "per day" : "per week";
   if (!series.ok) {
-    const err = { kind: "error" as const, message: <OpsFailureAlert failure={series} fn={`money_overview (${series.failedBucket})`} retryHref={only ? "/" : "/money"} /> };
+    // Subject-led, so the failed bucket (fn) is shown under "For support" — the generic form never printed it.
+    const err = { kind: "error" as const, message: <OpsFailureAlert failure={series} fn={`money_overview (${series.failedBucket})`} retryHref={only ? "/" : "/money"} subject="Money trends" /> };
+    const failedMeta = <FigureMeta range={period} currency={CURRENCY} readAt={readAt} failed />;
     return only ? (
-      <ChartCard title="Captured sales" description={range} state={err} />
+      <ChartCard title="Captured sales" description={range} meta={failedMeta} state={err} />
     ) : (
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <ChartCard title="Captured sales" description={range} state={err} />
+        <ChartCard title="Captured sales" description={range} meta={failedMeta} state={err} />
       </div>
     );
   }
+  // Each chart carries its own labels; the series' freshness is its oldest point's computed_at.
+  const meta = (money: boolean) => <FigureMeta range={period} currency={money ? CURRENCY : undefined} computedAt={series.computedAt} readAt={readAt} />;
   const partialLast = series.points.length > 0 && series.points[series.points.length - 1].bucket.to >= today;
   const pts = (pick: (f: MoneyFigures) => number | null): TrendPoint[] =>
     series.points.map((p, i) => ({
@@ -245,7 +294,10 @@ export async function MoneyCharts({ from, to, only }: { from: string; to: string
     }));
   const empty = isEmptySeries(series.points);
   const emptyState = { kind: "empty" as const, message: <>No payments, fees, refunds or releases between {range}. Nothing is drawn rather than a flat line.</> };
+  const unavailableState = { kind: "unavailable" as const, message: <>This measure was not returned by the server in any period between {range}. Nothing is drawn rather than an empty chart.</> };
   const ok = { kind: "ok" as const };
+  // A measure the server never returned is unavailable — checked before "empty", which only means zero rows.
+  const stateFor = (points: TrendPoint[]) => (points.length > 0 && points.every((pt) => pt.value === null) ? unavailableState : empty ? emptyState : ok);
   const days = dayCount(from, to);
   const footnote = `${series.calls} database aggregates (${series.grain === "day" ? "one per UTC day" : "one per week"}).${partialLast ? " The last period is today so far." : ""}`;
 
@@ -254,7 +306,8 @@ export async function MoneyCharts({ from, to, only }: { from: string; to: string
     <ChartCard
       title="Captured sales"
       description={`USD ${grainWord} · ${range}`}
-      state={empty ? emptyState : ok}
+      meta={meta(true)}
+      state={stateFor(captured)}
       definition={DEF.captured}
       footnote={footnote}
       table={{ caption: `Captured sales ${grainWord}, ${range}`, head: ["Period", "Captured sales (USD)"], rows: tableRows(captured, formatUsdExact) }}
@@ -273,7 +326,8 @@ export async function MoneyCharts({ from, to, only }: { from: string; to: string
       <ChartCard
         title="Platform fees (gross)"
         description={`USD ${grainWord} · ${range}`}
-        state={empty ? emptyState : ok}
+        meta={meta(true)}
+        state={stateFor(fees)}
         definition={DEF.fees}
         table={{ caption: `Platform fees ${grainWord}, ${range}`, head: ["Period", "Platform fees (USD)"], rows: tableRows(fees, formatUsdExact) }}
       >
@@ -282,7 +336,8 @@ export async function MoneyCharts({ from, to, only }: { from: string; to: string
       <ChartCard
         title="Fully refunded payments"
         description={`Payments ${grainWord} · ${range}`}
-        state={empty ? emptyState : ok}
+        meta={meta(false)}
+        state={stateFor(refunds)}
         definition={`${DEF.refunds} Compare periods by bar height; amounts are not charted.`}
         table={{ caption: `Fully refunded payments ${grainWord}, ${range}`, head: ["Period", "Payments"], rows: tableRows(refunds, (v) => v.toLocaleString("en-US")) }}
       >
@@ -291,7 +346,8 @@ export async function MoneyCharts({ from, to, only }: { from: string; to: string
       <ChartCard
         title="Seller funds released"
         description={`USD ${grainWord} · ${range}`}
-        state={empty ? emptyState : ok}
+        meta={meta(true)}
+        state={stateFor(released)}
         definition={DEF.released}
         table={{ caption: `Seller funds released ${grainWord}, ${range}`, head: ["Period", "Released (USD)"], rows: tableRows(released, formatUsdExact) }}
       >
