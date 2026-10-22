@@ -61,7 +61,7 @@ describe("compareWindows — the sign is always stated; a missing window is n/a,
     expect(compareWindows(null, null)).toEqual({ kind: "na", missing: "current" });
   });
   it("percentages are whole numbers of the previous value's magnitude", () => {
-    expect(compareWindows(1, 3).pct).toBe(-67);
+    expect(compareWindows(1, 3)).toMatchObject({ kind: "ok", pct: -67 });
     expect(compareWindows(-50, -100)).toMatchObject({ change: 50, sign: "+", pct: 50 });
   });
 });

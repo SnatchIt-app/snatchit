@@ -305,7 +305,7 @@ describe("CaseTable, UserTable and ListingTable expose their underlying values",
     expect(userFilterText(u)).toContain("Ava Chen");
     expect(userFilterText(u)).toContain("a***@example.test");
   });
-  const l: ListingSummary = { id: "1a000000-0000-4000-8000-0000000000f1", event_name: "Fixture night", venue: "Room", status: "active", auction_status: "active", proof_status: "pending", buy_now_enabled: true, buy_now_price: 9900, current_bid: null, starting_bid: 5000, bid_count: 0, report_count: 1, open_cases: 0, ends_at: "2026-12-01T00:00:00Z", seller_id: "5e11e000-0000-4000-8000-000000000002", seller_display_name: "Sofia Reyes" };
+  const l: ListingSummary = { id: "1a000000-0000-4000-8000-0000000000f1", event_name: "Fixture night", venue: "Room", status: "active", auction_status: "active", proof_status: "pending", buy_now_enabled: true, buy_now_price: 9900, current_bid: null, starting_bid: 5000, bid_count: 0, report_count: 1, open_cases: 0, ends_at: "2026-12-01T00:00:00Z", seller_id: "5e11e000-0000-4000-8000-000000000002", seller_display_name: "Sofia Reyes", raw: {} };
   it("ListingTable: price is cents, counts numbers, ends ISO", () => {
     const html = h(createElement(ListingTable, { rows: [l], basePath: "/marketplace" }));
     const values = allSortValues(html);

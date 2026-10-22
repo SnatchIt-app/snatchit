@@ -34,7 +34,8 @@ export type ClientRow = {
   card?: ReactNode;
 };
 
-const DIR_WORD: Record<SortDir, string> = { asc: "ascending", desc: "descending" };
+/** The aria-sort vocabulary for each direction (typed so the attribute accepts it). */
+const DIR_WORD: Record<SortDir, "ascending" | "descending"> = { asc: "ascending", desc: "descending" };
 
 export function ClientTable({
   caption,
