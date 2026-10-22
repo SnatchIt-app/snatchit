@@ -15,11 +15,12 @@ import {
   shortDay,
   type MoneyFigures,
 } from "@/lib/analytics-core";
-import { CURRENCY, tileState } from "@/lib/figure-meta";
+import { CURRENCY, rangeLabel, tileState } from "@/lib/figure-meta";
 import { ReportFreshness } from "@/components/shell/Freshness";
 import { KpiTile } from "@/components/charts/KpiTile";
 import { ChartCard } from "@/components/charts/ChartCard";
 import { FigureMeta } from "@/components/charts/FigureMeta";
+import { PeriodComparison } from "@/components/analytics/PeriodComparison";
 import { TrendChart, type TrendPoint } from "@/components/charts/TrendChart";
 import { OpsFailureAlert } from "@/components/ui/Alert";
 
@@ -251,10 +252,21 @@ export async function MoneyKpis({ from, to, compact = false }: { from: string; t
           <KpiTile label="Bank payouts" value="Not tracked" muted definition={DEF.bank} />
         </div>
       ) : null}
-      <p className="mt-2 text-[0.75rem] text-dim">
-        {prev ? `Compared with ${shortDay(prev.from)} – ${shortDay(prev.to)} (UTC).` : ""}
-        {before && !before.ok ? " Previous period unavailable — no comparison shown." : ""}
-      </p>
+      {!compact && prev ? (
+        // The comparison the two reads already provide: both periods named, every change signed, n/a when a window failed.
+        <section aria-labelledby="money-compare-h" className="mt-4">
+          <h3 id="money-compare-h" className="mb-2 text-[0.9375rem] font-medium text-ink">
+            Compared with the previous period
+          </h3>
+          <PeriodComparison currentLabel={rangeLabel(from, to)} previousLabel={rangeLabel(prev.from, prev.to)} current={f} previous={p} />
+          {before && !before.ok ? <p className="mt-2 text-[0.75rem] text-warning">Previous period unavailable — no comparison shown.</p> : null}
+        </section>
+      ) : (
+        <p className="mt-2 text-[0.75rem] text-dim">
+          {prev ? `Compared with ${shortDay(prev.from)} – ${shortDay(prev.to)} (UTC).` : ""}
+          {before && !before.ok ? " Previous period unavailable — no comparison shown." : ""}
+        </p>
+      )}
     </>
   );
 }

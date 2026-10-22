@@ -17,6 +17,8 @@ import { PartyLink } from "@/components/ui/IdLink";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { isUuid } from "@/lib/routes";
 import { listTotal } from "@/lib/list-filters";
+import { breakdown } from "@/lib/breakdown";
+import { StatusBreakdown } from "@/components/ui/StatusBreakdown";
 
 export const metadata: Metadata = { title: "Orders & transfers" };
 export const dynamic = "force-dynamic";
@@ -195,6 +197,9 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
             </Link>
           </div>
         ) : null}
+
+        {/* Status breakdown of the rows this read returned — one page, labelled as such; never a total the server did not state. */}
+        {res.ok && rows.length > 0 ? <OrderBreakdowns rows={rows} /> : null}
 
         <div className="p-2 md:p-1">
           {!res.ok ? (
@@ -461,5 +466,30 @@ function Radio({ id, name, value, label, checked }: { id: string; name: string; 
       <input id={id} type="radio" name={name} value={value} defaultChecked={checked} className="mt-0.5 h-4 w-4 shrink-0 accent-[#1c1917]" />
       <span>{label}</span>
     </label>
+  );
+}
+
+/**
+ * Counts per status over the rows on this page, from the same list_orders
+ * answer the table renders. Payment and seller funds use the reviewed labels;
+ * the ticket transfer is bucketed by the row-aware label (transferStateLabel),
+ * so a `buyer_confirmed` status with no confirmation record is never counted
+ * as a buyer confirmation. A missing status is "Not stated", never dropped.
+ */
+function OrderBreakdowns({ rows }: { rows: OrderRow[] }) {
+  const scope = "on this page";
+  const payment = breakdown(rows, (r) => ({ key: r.payment_status, label: labelFor("payment", r.payment_status), tone: r.payment_status }));
+  const transfer = breakdown(rows, (r) =>
+    r.transfer_id
+      ? { key: transferStateLabel({ status: r.transfer_status, buyer_confirmed_at: r.buyer_confirmed_at }), tone: r.transfer_status }
+      : { key: "no_transfer", label: "No transfer", tone: "canceled" },
+  );
+  const funds = breakdown(rows, (r) => ({ key: r.seller_funds_state, label: labelFor("funds", r.seller_funds_state), tone: r.seller_funds_state }));
+  return (
+    <div role="group" aria-label="Status breakdown of the orders on this page" className="grid grid-cols-1 gap-4 border-b border-line px-3 py-3 md:grid-cols-3 md:px-4">
+      <StatusBreakdown title="Payment" noun="orders" scope={scope} {...payment} />
+      <StatusBreakdown title="Ticket transfer" noun="orders" scope={scope} {...transfer} />
+      <StatusBreakdown title="Seller funds" noun="orders" scope={scope} {...funds} />
+    </div>
   );
 }

@@ -6,6 +6,8 @@ import { CASE_PRIORITIES, CASE_STATUSES, num, toCase, toCaseDetail, toListPage, 
 import { cursorOf, first, limitOf, list, type SearchParams } from "@/lib/search-params";
 import { humanize } from "@/lib/format";
 import { caseFilters } from "@/lib/list-filters";
+import { breakdown } from "@/lib/breakdown";
+import { StatusBreakdown } from "@/components/ui/StatusBreakdown";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { OpsFailureAlert } from "@/components/ui/Alert";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -181,6 +183,9 @@ export default async function CasesPage({ searchParams }: { searchParams: Promis
                 </Link>
               </div>
             ) : null}
+
+            {/* Status and priority of the rows this read returned — one page, labelled as such. */}
+            {res.ok && rows.length > 0 ? <CaseBreakdowns rows={rows} /> : null}
 
             {!res.ok ? (
               <div className="p-3">
@@ -524,5 +529,21 @@ function Chip({ title, name, kind, options, applied }: { title: string; name: Ke
         </div>
       </form>
     </details>
+  );
+}
+
+/**
+ * Counts per status and per priority over the rows on this page, from the same
+ * list_cases answer the queue renders. A missing value is "Not stated", never dropped.
+ */
+function CaseBreakdowns({ rows }: { rows: OpsCase[] }) {
+  const scope = "on this page";
+  const status = breakdown(rows, (c) => ({ key: c.status, label: c.status ? (STATUS_LABEL[c.status] ?? humanize(c.status)) : undefined, tone: c.status }));
+  const priority = breakdown(rows, (c) => ({ key: c.priority, label: c.priority?.toUpperCase(), tone: c.priority }));
+  return (
+    <div role="group" aria-label="Breakdown of the cases on this page" className="grid grid-cols-1 gap-4 border-b border-line px-3 py-3 sm:grid-cols-2 md:px-4">
+      <StatusBreakdown title="Status" noun="cases" scope={scope} {...status} />
+      <StatusBreakdown title="Priority" noun="cases" scope={scope} {...priority} />
+    </div>
   );
 }
