@@ -593,10 +593,20 @@ describe('UB · the banner', () => {
     }
   });
 
-  it('UB6: it is announced once when it appears (it arrives after the screen has rendered)', async () => {
+  it('UB6: on iOS it is announced once when it appears (it arrives after the screen has rendered)', async () => {
+    h.platform = 'ios';
     const { host } = await renderBanner();
     host.flush();
     host.flush();
     expect(h.announced).toEqual(['Unfinished listing. "Weekend pool party" is saved on this device.']);
+  });
+
+  it('UB6b (review m2): on Android it is not announced — its polite live region speaks it, and announcing too would say it twice', async () => {
+    h.platform = 'android';
+    const { host } = await renderBanner();
+    host.flush();
+    host.flush();
+    expect(h.announced).toEqual([]);
+    expect((host.output as { props: Record<string, unknown> }).props.accessibilityLiveRegion).toBe('polite');
   });
 });

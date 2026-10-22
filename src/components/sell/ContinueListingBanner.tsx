@@ -44,9 +44,10 @@ export function ContinueListingBanner({ offer, formHasInput = false, onContinue,
   const askedStartNew = useRef(false);
 
   // It appears after the screen has rendered (the draft is read from storage), so a screen-reader
-  // user is told once, as the security notice does.
+  // user is told once. VoiceOver is told here; on Android the banner's polite live region speaks it,
+  // and announcing as well would say it twice (review m2).
   useEffect(() => {
-    AccessibilityInfo.announceForAccessibility(`${copy.title}. ${body}`);
+    if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(`${copy.title}. ${body}`);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The seller started typing (or had typed before the offer arrived): ask once, and make it a choice —
@@ -89,7 +90,7 @@ export function ContinueListingBanner({ offer, formHasInput = false, onContinue,
   }
 
   return (
-    <View style={s.wrap}>
+    <View style={s.wrap} accessibilityLiveRegion="polite">
       <Text style={[textStyle('title'), s.title]} accessibilityRole="header">{copy.title}</Text>
       <Text style={[textStyle('bodySm'), s.body]}>{body}</Text>
       <Text style={[textStyle('bodySm'), s.note]}>{draftPhotosNote(offer)}</Text>
