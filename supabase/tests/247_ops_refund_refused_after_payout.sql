@@ -510,7 +510,10 @@ SELECT is((SELECT count(*)::int FROM (VALUES
              ('ops.action_dispatch(ops.action)', 'bfb8b9dcfaace5ff04009f96b6de7bef')) v(sig, old_md5)
             WHERE md5(pg_get_functiondef(v.sig::regprocedure)) <> v.old_md5), 3,
   'P9.7: both redefined bodies are live (neither the predecessor''s nor production''s md5)');
-SELECT is((SELECT coalesce(array_agg(v.sig ORDER BY v.sig), '{}'::text[]) FROM (VALUES
+-- A signature may list more than one accepted md5: production's, and (for two writers) the clean repo chain's own
+-- definer, which differs from production by comments only (BE-37 F-rows; CI builds the chain, A's replay is production).
+-- A signature counts as changed only when its live md5 matches NONE of its listed values.
+SELECT is((SELECT coalesce(array_agg(z.sig ORDER BY z.sig), '{}'::text[]) FROM (SELECT v.sig FROM (VALUES
              -- 158 / 157 bodies this file stacks on (unchanged by it)
              ('ops.execute_action(text,text,text,uuid,jsonb,text,jsonb,text)', '24209d0697132d5df7bd12f5cf3e5c0c'),
              ('ops.approve_action(uuid,text,text)', 'ddcdcd1401839910726d20ddd206e40d'),
@@ -530,18 +533,21 @@ SELECT is((SELECT coalesce(array_agg(v.sig ORDER BY v.sig), '{}'::text[]) FROM (
              ('public.record_payout_attempt_result(uuid,text,text,jsonb)', '255e9022cd3ef39a20835ae18cc4196e'),
              ('public.reconcile_payout_attempt(uuid,text)', '3d9f95f1d697a4932dfb942c68af12d5'),
              ('public.record_transfer_payout(uuid,text)', '30622f9196dfae1ccec6e503492f8e03'),
+             ('public.record_transfer_payout(uuid,text)', '464d2299d60c9ad8394ea89fc8e16df5'),   -- chain (BE-37, comments only)
              ('public.admin_release_held_payout(uuid,uuid,text)', '41b3487b3a6c30f5ba80739d1d523406'),
              ('public.apply_auto_release(uuid)', '989e89ddc5d48f80f0bc844c88f8500d'),
              ('public.flag_payout_reversal_required(uuid,text,jsonb)', '0d692f3262b234fed9c492a8204b5d01'),
              ('public.mark_transfer_reversed(text)', 'd7650290139e377646cfcbd7094d2376'),
              ('public.freeze_transfer_for_dispute(uuid)', 'ae88b2ed854811a0d4462acd4050aa9e'),
              ('public.resolve_transfer_dispute(uuid,text,uuid,text,text)', '7d18f1d80991e78d1dfea9e8ad7bb209'),
+             ('public.resolve_transfer_dispute(uuid,text,uuid,text,text)', '7b9e17a54ec065195a7969d8b107d61d'),   -- chain (BE-37, comments only)
              ('public.confirm_transfer_received(uuid,uuid)', 'a009719657758db9d117d91108b09cbd'),
              ('public.buyer_dispute_transfer(uuid,uuid,text,text,text)', 'ea1aa60569a74bc13f4bf62fb1d898c9'),
              ('public.record_payment_refund(text,text,text,integer,text)', '8ce828e3461f97844faa36450241dc8f')) v(sig, md5)
-            WHERE md5(pg_get_functiondef(to_regprocedure(v.sig))) IS DISTINCT FROM v.md5),
+            GROUP BY v.sig
+            HAVING bool_and(md5(pg_get_functiondef(to_regprocedure(v.sig))) IS DISTINCT FROM v.md5)) z),
           '{}'::text[],
-  'P9.8: unchanged: 158''s execute_action, 157''s approve_action / order_detail, the production action pipeline, executor and every payout writer');
+  'P9.8: unchanged: 158''s execute_action, 157''s approve_action / order_detail, the production action pipeline, executor and every payout writer (production md5, or the chain''s for the two BE-37 comment-drifted writers)');
 SELECT is((SELECT count(*)::int FROM pg_proc WHERE pronamespace = 'ops'::regnamespace AND proname = 'refund_payout_refusal'), 1,
   'P9.9: exactly one ops.refund_payout_refusal (no overload)');
 
