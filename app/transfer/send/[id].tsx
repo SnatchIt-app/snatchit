@@ -479,7 +479,9 @@ export default function TransferSendScreen({ fixture }: { fixture?: SendFixture 
               ].filter(Boolean).join(' · ')}
             </Text>
           ) : null}
-          {buyerDeliveryMissing ? (
+          {/* Only while the order can still be sent: a disputed order that was never sent, or a reversed or
+              closed one, must not tell the seller what the buyer has to do "before you can send tickets". */}
+          {buyerDeliveryMissing && !orderClosed && !sendHalted ? (
             <View style={s.warnBox}>
               <Text style={[textStyle('bodySm'), s.warnTitle]}>Delivery info not yet provided</Text>
               <Text style={[textStyle('bodySm'), s.warnText]}>
