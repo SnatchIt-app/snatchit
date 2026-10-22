@@ -9,8 +9,9 @@
  * The mark is a bookmark, filled when saved — the same mark web draws — at the 44pt chip size of the
  * back and overflow controls beside it. The spoken name stays "Save listing" and the on/off state is
  * reported as `selected`, the pattern Chip already uses for a toggle. The note under it is web's own
- * sentence for the failed direction; the screen announces it once, so the text here only needs the
- * alert role for a screen reader that lands on it later.
+ * sentence for the failed direction. It is an alert for a screen reader that lands on it later, and a
+ * polite live region so TalkBack speaks it as it appears; VoiceOver has no live regions, so the hook
+ * announces it on iOS only (review m2) and neither platform hears it twice.
  */
 
 import { useMemo } from 'react';
@@ -44,7 +45,7 @@ export function SaveNote({ text }: { text: string }) {
   const { palette } = useTheme();
   const styles = useMemo(() => makeStyles(palette), [palette]);
   return (
-    <Text style={[textStyle('bodySm'), styles.note]} accessibilityRole="alert">
+    <Text style={[textStyle('bodySm'), styles.note]} accessibilityRole="alert" accessibilityLiveRegion="polite">
       {text}
     </Text>
   );

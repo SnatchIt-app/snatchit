@@ -37,6 +37,8 @@ const h = vi.hoisted(() => ({
   reply: (_c: Call): Promise<Reply> | Reply => ({ data: null, error: null }),
   announced: [] as string[],
   authCb: null as null | ((event: string, session: unknown) => void),
+  // Platform.OS as the hook reads it, per test (review m2: only iOS announces).
+  os: 'ios' as 'ios' | 'android',
 }));
 
 vi.mock('@/src/lib/supabase', () => ({
@@ -72,6 +74,7 @@ vi.mock('react-native', () => ({
   },
   Easing: { bezier: () => () => 0 },
   Pressable: 'Pressable', Text: 'Text', View: 'View',
+  Platform: { get OS() { return h.os; } },
   StyleSheet: { create: <T,>(s: T) => s },
 }));
 vi.mock('@/src/theme/appearance', async () => {
@@ -104,6 +107,7 @@ beforeEach(() => {
   h.reply = () => ({ data: null, error: null });
   h.announced = [];
   h.authCb = null;
+  h.os = 'ios';
 });
 
 // ── Data: the existing table, through PostgREST ─────────────────────────────
@@ -551,6 +555,22 @@ describe('hook — auth events, owner changes and late answers', () => {
     expect(m.value?.note).toBeNull();
     expect(h.announced).toEqual([]);
   });
+
+  it.each([
+    ['ios', ["Couldn't save this listing. Try again."]],
+    ['android', []],
+  ] as const)('H11 (%s): a failed tap shows the note on both platforms; only iOS announces it (Android speaks the note\'s live region, review m2)', async (os, announced) => {
+    h.os = os;
+    h.reply = () => ({ data: null, error: null });
+    const m = await mountHook({ userId: USER_A, listingId: LISTING, enabled: true });
+    await tick();
+    h.reply = () => ({ data: null, error: { code: '08006', message: 'connection failure' } });
+    m.value!.onToggle();
+    await tick();
+    expect(m.value?.saved, 'rolled back').toBe(false);
+    expect(m.value?.note, 'the note is drawn on either platform').toBe("Couldn't save this listing. Try again.");
+    expect(h.announced).toEqual(announced);
+  });
 });
 
 // ── The control and the glyph ───────────────────────────────────────────────
@@ -574,13 +594,15 @@ describe('control — a bookmark with a selected state', () => {
     expect(src).toMatch(/import \{ IconButton \} from '@\/src\/components\/ui';/);
   });
 
-  it('C2: SaveNote is the short note, announced by role', async () => {
+  it('C2: SaveNote is the short note: an alert, and a polite live region so Android speaks it as it appears (review m2)', async () => {
     const { SaveNote } = await import('@/src/components/listing/SaveControl');
     const host = new HookHost(() => SaveNote({ text: "Couldn't save this listing. Try again." }), new Map());
     host.mount();
     const text = findElement(host.output, (el) => el.type === 'Text');
     expect(text?.props.children).toBe("Couldn't save this listing. Try again.");
     expect(text?.props.accessibilityRole).toBe('alert');
+    // The hook announces on iOS only; without the live region Android would say nothing at all.
+    expect(text?.props.accessibilityLiveRegion).toBe('polite');
   });
 
   it('C3: IconButton draws bookmark / bookmark.fill and reports the selected state; other marks are unchanged', async () => {
