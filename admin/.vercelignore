@@ -1,0 +1,23 @@
+# Files a `vercel deploy` run from admin/ must never upload. The CLI does not read .gitignore
+# (a 2026-10-06 CLI deploy of venue/ uploaded gitignored build state). These rules are added
+# to the CLI's built-in list (.git, .next, .vercel, node_modules, .env.local, .env.*.local)
+# which does NOT cover .env, .env.<name> or local harness files. The platform builds from source.
+
+# Environment files and local credentials, in any directory
+.env
+.env.*
+*.pem
+*.key
+*.p8
+*.p12
+
+# Local harness state (never part of a build), Next.js and TypeScript build state
+scripts/local
+.vercel
+.next
+/out
+/coverage
+tsconfig.tsbuildinfo
+next-env.d.ts
+.env.local.example-harness
+.vercelignore
