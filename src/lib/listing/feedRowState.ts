@@ -74,7 +74,8 @@ export function featureMetaLine(
  * The clock forms the mockups draw, §5's amber rule applied:
  *   < 15 minutes            →  "Ending in 11m"   (urgent — the ONLY amber on the row)
  *   later the same day      →  "2h 14m left" / "44m left"
- *   a later calendar day    →  "Ends Sat 20:30"
+ *   1–6 calendar days ahead →  "Ends Sat 20:30"
+ *   7 or more days ahead    →  "Ends 27 Oct 23:47" (the weekday would repeat today's)
  *   past                    →  null — a dead clock is not shown, and cardState's
  *                              `showsCountdown` gates this before it is ever called.
  * The same-day boundary is an inference from the mockups (flagged for B); the words for the
@@ -102,10 +103,20 @@ export function clockLabel(endsAt: string, nowMs: number): { text: string; urgen
     return { text: h > 0 ? `${h}h ${m}m left` : `${m}m left`, urgent: false };
   }
 
-  return {
-    text: `Ends ${WEEKDAY[ends.getDay()]} ${pad(ends.getHours())}:${pad(ends.getMinutes())}`,
-    urgent: false,
-  };
+  const hhmm = `${pad(ends.getHours())}:${pad(ends.getMinutes())}`;
+  // A weekday names one day only inside the next six. Next week's same weekday read as today —
+  // a 7-day listing published Tuesday night said "Ends Tue 23:47" — so from there on, the date.
+  if (calendarDaysBetween(now, ends) >= 7) {
+    return { text: `Ends ${ends.getDate()} ${MONTH[ends.getMonth()]} ${hhmm}`, urgent: false };
+  }
+  return { text: `Ends ${WEEKDAY[ends.getDay()]} ${hhmm}`, urgent: false };
+}
+
+/** Local calendar days from `a` to `b`, by midnight, so a DST change doesn't move the count. */
+function calendarDaysBetween(a: Date, b: Date): number {
+  const dayA = Date.UTC(a.getFullYear(), a.getMonth(), a.getDate());
+  const dayB = Date.UTC(b.getFullYear(), b.getMonth(), b.getDate());
+  return Math.round((dayB - dayA) / 86_400_000);
 }
 
 /** "current bid, all-in" — the §5 caption under the price, from cardState's own label. */

@@ -51,6 +51,9 @@ vi.mock('@/src/theme/appearance', async () => {
   };
 });
 vi.mock('react-native', () => ({
+  // useAnnounceOnce: the failure notice is spoken on iOS.
+  AccessibilityInfo: { announceForAccessibility: () => {} },
+  Platform: { OS: 'ios', select: (o: Record<string, unknown>) => o.ios ?? o.default },
   // N3: Home re-reads on returning to the foreground.
   AppState: { currentState: 'active', addEventListener: () => ({ remove: () => {} }) },
   Animated: {
