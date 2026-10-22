@@ -56,15 +56,26 @@ describe('Transfer receive — confirm and report', () => {
     expect(code).toMatch(/loading=\{disputing\}\s*disabled=\{busy\}/);
   });
 
-  it('the success haptic fires only after confirm-and-release succeeded', () => {
-    const invoke = code.indexOf("functions.invoke('confirm-and-release'");
-    const errorReturn = code.indexOf("Alert.alert('Error', message);");
+  // RETARGETED (CFT-703, A's refusal catalogue 2026-10-21, CRE-404/CRE-500): this pinned the order
+  // invoke → `Alert.alert('Error', message)` → haptic, i.e. the raw-text error path. The edge can fail
+  // AFTER recording the confirmation, so the success (haptic + state + dialog) now lives in one
+  // `receiptConfirmed`, reached only from a 2xx or from a re-read that shows the order confirmed.
+  // Behaviour is pinned in tests/cft703-confirm-reread.test.ts.
+  it('the success haptic fires only after confirm-and-release succeeded (or the re-read shows it did)', () => {
+    const helper = code.indexOf('function receiptConfirmed(rowFromServer: boolean)');
     const haptic = code.indexOf('hapticSuccess();');
     const confirmed = code.indexOf("status: 'buyer_confirmed'");
-    expect(invoke).toBeGreaterThan(0);
-    expect(errorReturn).toBeGreaterThan(invoke);
-    expect(haptic).toBeGreaterThan(errorReturn);
+    const invoke = code.indexOf("functions.invoke('confirm-and-release'");
+    const failed = code.indexOf('if (failure) {', invoke);
+    const landed = code.indexOf('if (fresh && confirmationLanded(fresh.status)) { receiptConfirmed(true); return; }', failed);
+    const ok = code.indexOf('receiptConfirmed(false);', invoke);
+    expect(helper).toBeGreaterThan(0);
+    expect(haptic).toBeGreaterThan(helper);
     expect(confirmed).toBeGreaterThan(haptic);
+    expect(invoke).toBeGreaterThan(confirmed);
+    expect(landed).toBeGreaterThan(failed);
+    expect(ok).toBeGreaterThan(landed);           // the 2xx path runs only after every failure returned
+    expect(code.split('receiptConfirmed(').length - 1).toBe(3);   // the helper and its two callers
     // exactly one success haptic on this screen, none on the dispute path
     expect(code.split('hapticSuccess();').length - 1).toBe(1);
   });

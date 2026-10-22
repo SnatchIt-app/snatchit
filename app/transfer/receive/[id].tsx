@@ -89,6 +89,7 @@ import {
 } from '@/src/lib/transfer/providerHandoff';
 import { AMOUNT_MIN_FONT_SCALE, textStyle } from '@/src/theme/typography';
 import { refundReadState, refundStateLine, type RefundRead } from '@/src/lib/transfer/refundState';
+import { CONFIRM_REFUSAL_COPY, confirmationLanded, confirmFailureFromThrow, confirmRefusalCopy, readConfirmFailure, type ConfirmFailure } from '@/src/lib/transfer/confirmRefusal';
 import { disputeDecision, disputedStateCopy, disputedStateMeta, refundDueContext } from '@/src/lib/transfer/disputeOutcome';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
@@ -376,41 +377,52 @@ export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixt
     );
   }
 
+  /**
+   * The confirmation landed. One path for a 200 and for a failed reply whose re-read shows the order
+   * confirmed (CRE-404 / CRE-500 can answer after the confirmation is recorded): the distinctive success
+   * haptic (CFT-202), the guard against a stale step back, and the dialog. `rowFromServer`: the re-read
+   * already put the server's row on screen, so nothing is written over it.
+   */
+  function receiptConfirmed(rowFromServer: boolean) {
+    hapticSuccess();
+    confirmedHereRef.current = true;
+    // The timestamp travels WITH the status, because the two together are what say the buyer
+    // confirmed: a `buyer_confirmed` row with a NULL timestamp means an operator decided a
+    // dispute. Only its PRESENCE is read — the authority here is the edge function's success,
+    // not this clock.
+    if (!rowFromServer) {
+      setTransfer((prev) => (prev ? { ...prev, status: 'buyer_confirmed', buyer_confirmed_at: new Date().toISOString() } : prev));
+    }
+    Alert.alert('Receipt confirmed', 'You confirmed you received the tickets. Enjoy the event.');
+  }
+
   async function confirmReceipt() {
     setConfirming(true);
     try {
-      const { data, error: fnError } = await supabase.functions.invoke('confirm-and-release', { body: { transfer_id: id } });
-      if (fnError) {
-        let message = 'Something went wrong. Please try again.';
-        try {
-          const ctx = (fnError as any).context;
-          if (ctx && typeof ctx.json === 'function') {
-            const body = await ctx.json();
-            if (body?.error) message = body.error;
-          } else {
-            const body = typeof data === 'string' ? JSON.parse(data) : data;
-            if (body?.error) message = body.error;
-          }
-        } catch { /* ignore parse errors */ }
-        Alert.alert('Error', message);
+      let failure: ConfirmFailure | null = null;
+      try {
+        const { data, error: fnError } = await supabase.functions.invoke('confirm-and-release', { body: { transfer_id: id } });
+        if (fnError) failure = await readConfirmFailure(fnError, data);
+      } catch (e) {
+        failure = confirmFailureFromThrow(e);
+      }
+      if (failure) {
+        console.warn('[receive] confirm-and-release failed:', failure.httpStatus ?? 'no response', failure.code ?? '', failure.error ?? '');
+        // CFT-703 (CRE-404, CRE-500): the edge can fail AFTER recording the confirmation. Re-read first:
+        // a confirmed row is the success it is, whatever the reply said. The read's own guards
+        // (readGenRef, the stale-row check) still apply.
+        let fresh: TransferData | null = null;
+        try { fresh = await fetchTransfer({ quiet: true }); } catch { fresh = null; }
+        if (fresh && confirmationLanded(fresh.status)) { receiptConfirmed(true); return; }
+        Alert.alert(CONFIRM_REFUSAL_COPY.title, confirmRefusalCopy(failure));
         return;
       }
-      // Authoritative: the edge function recorded the confirmation. Only now the
-      // distinctive success haptic (CFT-202), paired with the state block below.
-      hapticSuccess();
-      // The timestamp travels WITH the status, because the two together are what say the buyer
-      // confirmed: a `buyer_confirmed` row with a NULL timestamp means an operator decided a
-      // dispute. Only its PRESENCE is read — the authority here is the edge function's success,
-      // not this clock.
-      confirmedHereRef.current = true;
-      setTransfer((prev) => (prev ? { ...prev, status: 'buyer_confirmed', buyer_confirmed_at: new Date().toISOString() } : prev));
-      Alert.alert('Receipt confirmed', 'You confirmed you received the tickets. Enjoy the event.');
+      // Authoritative: the edge function recorded the confirmation.
+      receiptConfirmed(false);
       // Capture 2: the payout is released moments after the confirmation, and the screen kept saying
       // "not released" until it was reopened. Re-read quietly: a failure keeps this state, a success
       // shows what the server now holds.
       void fetchTransfer({ quiet: true });
-    } catch {
-      Alert.alert('Error', 'Something went wrong. Please try again.');
     } finally {
       setConfirming(false);
     }

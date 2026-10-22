@@ -239,7 +239,9 @@ describe('F-XFER-3 — sent without delivery details: the buyer can still confir
     await flush();
     host.flush();
 
-    expect(h.alerts.map((a) => a.title)).toEqual([DIALOG_TITLE, 'Error']);
+    // RETARGETED (CFT-703, A's refusal catalogue 2026-10-21 §5): the failure dialog was titled 'Error'
+    // and carried the edge's raw `error`. It now carries the mapped copy under this title, after a re-read.
+    expect(h.alerts.map((a) => a.title)).toEqual([DIALOG_TITLE, "Couldn't confirm receipt"]);
     expect(screenText(expandTree(host.output))).not.toContain(transferStatusCopy('buyer_confirmed', 'buyer').body);
     expect(buttonByLabel(host.output, CONFIRM)?.props.disabled).toBe(false);
     expect(buttonByLabel(host.output, DISPUTE)?.props.disabled).toBe(false);
