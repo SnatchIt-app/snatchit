@@ -4,16 +4,16 @@ import type { OpsFailure } from "@/lib/ops-errors";
 
 export type AlertState = "loading" | "empty" | "denied" | "failed" | "stale" | "mfa" | "info" | "success" | "warning";
 
-const STYLES: Record<AlertState, { border: string; label: string }> = {
-  loading: { border: "border-line-neutral", label: "Loading" },
-  empty: { border: "border-line-neutral", label: "Nothing here" },
-  denied: { border: "border-danger", label: "Access denied" },
-  failed: { border: "border-danger", label: "Failed" },
-  stale: { border: "border-warning", label: "Stale" },
-  mfa: { border: "border-warning", label: "Step-up required" },
-  info: { border: "border-info", label: "Info" },
-  success: { border: "border-success", label: "Done" },
-  warning: { border: "border-warning", label: "Warning" },
+const STYLES: Record<AlertState, { tone: string; label: string; glyph: string }> = {
+  loading: { tone: "bg-raised text-dim", label: "Loading", glyph: "…" },
+  empty: { tone: "bg-raised text-dim", label: "Nothing here", glyph: "–" },
+  denied: { tone: "bg-danger-soft text-danger", label: "Access denied", glyph: "✕" },
+  failed: { tone: "bg-danger-soft text-danger", label: "Failed", glyph: "✕" },
+  stale: { tone: "bg-warning-soft text-warning", label: "Stale", glyph: "!" },
+  mfa: { tone: "bg-warning-soft text-warning", label: "Step-up required", glyph: "!" },
+  info: { tone: "bg-info-soft text-info", label: "Info", glyph: "i" },
+  success: { tone: "bg-success-soft text-success", label: "Done", glyph: "✓" },
+  warning: { tone: "bg-warning-soft text-warning", label: "Warning", glyph: "!" },
 };
 
 /**
@@ -41,26 +41,31 @@ export function Alert({
     <div
       role={state === "failed" || state === "denied" ? "alert" : "status"}
       aria-live="polite"
-      className={`border-l-2 ${s.border} bg-card ${compact ? "px-3 py-2" : "px-4 py-3"} text-[13px]`}
+      className={`enter flex gap-3 rounded-2xl bg-card shadow-[0_0_0_1px_rgba(28,25,23,0.08)] ${compact ? "px-3 py-2.5" : "px-4 py-3.5"} text-[0.875rem]`}
     >
-      <p className="font-semibold text-ink">
-        <span className="eyebrow mr-2 text-dim">{s.label}</span>
-        {title}
+      <span aria-hidden="true" className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[0.6875rem] font-bold ${s.tone}`}>
+        {s.glyph}
+      </span>
+      <div className="min-w-0">
+      <p className="font-medium text-ink">
+        <span className="sr-only">{s.label}: </span>
+        {title ?? s.label}
       </p>
-      {children ? <div className="mt-1 text-muted">{children}</div> : null}
+      {children ? <div className="mt-0.5 text-[0.8125rem] text-muted">{children}</div> : null}
       {retryHref ? (
-        <p className="mt-2">
-          <Link href={retryHref} className="link text-[12px]">
+        <p className="mt-3">
+          <Link href={retryHref} className="btn btn-ghost btn-sm">
             {retryLabel}
           </Link>
         </p>
       ) : null}
+      </div>
     </div>
   );
 }
 
 /** Render an OpsFailure with the right state and copy. */
-export function OpsFailureAlert({ failure, retryHref, fn }: { failure: OpsFailure; retryHref?: string; fn?: string }) {
+export function OpsFailureAlert({ failure, retryHref, fn, subject }: { failure: OpsFailure; retryHref?: string; fn?: string; /** What the reader lost, e.g. "Orders" — leads the message when given. */ subject?: string }) {
   if (failure.kind === "denied") {
     return (
       <Alert state="denied" title="Your account is not allowed to do this.">
@@ -83,10 +88,35 @@ export function OpsFailureAlert({ failure, retryHref, fn }: { failure: OpsFailur
       </Alert>
     );
   }
+  if (failure.outdated) {
+    // 158 raises before any row or audit is written, so nothing changed; the database's own words stay visible.
+    return (
+      <Alert state="stale" title="This console is out of date — reload the page, then try again.">
+        Nothing was changed. The server needs data this build of the console does not send.
+        <span className="mt-1 block font-mono text-[0.6875rem] text-dim">
+          {failure.code} {failure.message}
+        </span>
+      </Alert>
+    );
+  }
+  if (subject && !failure.unavailable) {
+    return (
+      <Alert state="failed" title={`${subject} couldn't be loaded.`} retryHref={retryHref} retryLabel="Try again">
+        Nothing is shown rather than numbers that might be out of date. Nothing was changed.
+        <details className="mt-2">
+          <summary className="inline-flex min-h-7 items-center text-[0.75rem] hover:text-ink">For support</summary>
+          <span className="mt-1 block text-[0.75rem]">
+            {fn ? <code className="font-mono">ops.{fn}</code> : null} {failure.message}
+            {failure.code ? <span className="ml-2 font-mono text-[0.6875rem] text-dim">{failure.code}</span> : null}
+          </span>
+        </details>
+      </Alert>
+    );
+  }
   return (
     <Alert state="failed" title={failure.unavailable ? "RPC not available yet" : "Request failed"} retryHref={retryHref}>
       {failure.message}
-      {failure.code ? <span className="ml-2 font-mono text-[11px] text-dim">{failure.code}</span> : null}
+      {failure.code ? <span className="ml-2 font-mono text-[0.6875rem] text-dim">{failure.code}</span> : null}
     </Alert>
   );
 }

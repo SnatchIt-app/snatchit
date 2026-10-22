@@ -39,23 +39,24 @@ export function MetricTile({
   );
   const body = (
     <>
-      <p className="eyebrow text-dim">{heading}</p>
-      <p className={`mt-1 ${unavailable ? "text-base font-semibold text-dim" : "text-xl font-bold text-ink"} tabular-nums`}>{headline}</p>
-      {note ? <p className="mt-1 text-[11px] text-warning">{note}</p> : null}
-      {sub ? <p className="mt-1 text-[11px] text-dim">{sub}</p> : null}
+      <p className="text-[0.8125rem] font-medium text-muted">{heading}</p>
+      <p className={`mt-2 ${unavailable ? "text-[0.9375rem] font-medium text-dim" : "stat-num !text-[2rem] text-ink"}`}>{headline}</p>
+      {note ? <p className="mt-1.5 text-[0.75rem] text-warning">{note}</p> : null}
+      {sub ? <p className="mt-1 text-[0.75rem] text-dim">{sub}</p> : null}
     </>
   );
   if (href) {
     return (
-      <Link href={href} className="block bg-card p-3 transition-colors hover:bg-primary-soft focus-visible:bg-primary-soft">
+      <Link href={href} className="group block h-full bg-[#fffdfa] p-5 transition-colors hover:bg-white focus-visible:bg-white">
         {body}
       </Link>
     );
   }
-  return <div className={`bg-card p-3 ${unavailable ? "bg-[repeating-linear-gradient(135deg,transparent_0_6px,rgba(255,255,255,0.03)_6px_12px)]" : ""}`}>{body}</div>;
+  return <div className={`h-full bg-[#fffdfa] p-5 ${unavailable ? "bg-[repeating-linear-gradient(135deg,transparent_0_6px,rgba(70,50,30,0.04)_6px_12px)]" : ""}`}>{body}</div>;
 }
 
 export function MetricGrid({ children, cols = 4 }: { children: ReactNode; cols?: 2 | 3 | 4 | 6 }) {
   const md = cols === 6 ? "md:grid-cols-6" : cols === 3 ? "md:grid-cols-3" : cols === 2 ? "md:grid-cols-2" : "md:grid-cols-4";
-  return <div className={`grid grid-cols-2 gap-px border border-line-neutral bg-line-neutral ${md}`}>{children}</div>;
+  // Grouped figures (approved concept): one quiet panel, cells divided by hairlines.
+  return <div className={`grid grid-cols-1 gap-px overflow-hidden rounded-[var(--radius-panel)] border border-[rgba(70,50,30,0.09)] bg-[rgba(70,50,30,0.09)] min-[420px]:grid-cols-2 ${md}`}>{children}</div>;
 }

@@ -29,14 +29,14 @@ export function Timeline({ data }: { data: TimelineData }) {
           return (
             <li key={`${e.at}-${e.source}-${e.kind}-${i}`} className="relative mb-4 last:mb-0">
               <span aria-hidden="true" className="absolute -left-[21px] top-1.5 h-2 w-2 bg-primary" />
-              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[13px]">
+              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[0.8125rem]">
                 <DateTime value={e.at} withSeconds />
                 <StatusBadge status={e.source} label={SOURCE_LABELS[e.source ?? ""] ?? humanize(e.source ?? "event")} variant="neutral" />
                 <span className="text-ink">{e.label ?? humanize(e.kind ?? "event")}</span>
-                {e.kind ? <span className="font-mono text-[11px] text-dim">{e.kind}</span> : null}
+                {e.kind ? <span className="font-mono text-[0.6875rem] text-dim">{e.kind}</span> : null}
               </div>
               {e.ref ? (
-                <p className="mt-0.5 font-mono text-[11px] text-dim">
+                <p className="mt-0.5 font-mono text-[0.6875rem] text-dim">
                   ref{" "}
                   {href ? (
                     <Link href={href} className="link">
@@ -53,7 +53,7 @@ export function Timeline({ data }: { data: TimelineData }) {
           );
         })}
       </ol>
-      {data.note ? <p className="mt-4 text-[11px] text-dim">{data.note}</p> : null}
+      {data.note ? <p className="mt-4 text-[0.6875rem] text-dim">{data.note}</p> : null}
     </div>
   );
 }

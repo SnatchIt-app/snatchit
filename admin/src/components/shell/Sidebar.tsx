@@ -2,54 +2,40 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { NAV, isNavActive, type NavGroup } from "@/lib/nav";
+import { Icon } from "@/components/ui/Icon";
 
-export const NAV = [
-  { href: "/", label: "Today", key: "t" },
-  { href: "/cases", label: "Cases", key: "c" },
-  { href: "/orders", label: "Orders & Transfers", key: "o" },
-  { href: "/money", label: "Money", key: "m" },
-  { href: "/users", label: "Users", key: "u" },
-  { href: "/marketplace", label: "Marketplace", key: "k" },
-  { href: "/reports", label: "Reports", key: "r" },
-  { href: "/system", label: "System", key: "s" },
-] as const;
+export { NAV };
 
+const GROUPS: NavGroup[] = ["Work", "Money", "People", "Platform"];
+
+/**
+ * The console's sections, grouped by the job they serve: the operational
+ * queue first, then casework, money movement, people, and the platform
+ * itself. Each item shows its `g` shortcut on hover.
+ */
 export function Sidebar() {
   const pathname = usePathname();
-  return (
-    <nav aria-label="Console sections" className="flex h-full flex-col">
-      <div className="border-b border-line px-4 py-4">
-        <Link href="/" className="block">
-          <span className="block text-[17px] font-black uppercase tracking-[0.2em] text-primary">Snatch It</span>
-          <span className="eyebrow block text-dim">Operating console</span>
+  const item = (n: (typeof NAV)[number]) => {
+    const active = isNavActive(pathname, n.href);
+    return (
+      <li key={n.href}>
+        <Link href={n.href} aria-current={active ? "page" : undefined} title={`${n.label} — press g then ${n.key}`} className="nav-item group">
+          <Icon name={n.icon} size={20} strokeWidth={1.5} />
+          <span className="min-w-0 flex-1 truncate">{n.label}</span>
         </Link>
-      </div>
-      <ul className="flex-1 py-2">
-        {NAV.map((item) => {
-          const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
-          return (
-            <li key={item.href}>
-              <Link
-                href={item.href}
-                aria-current={active ? "page" : undefined}
-                className={`flex items-center justify-between border-l-2 px-4 py-2 text-[13px] font-medium transition-colors ${
-                  active ? "border-primary bg-primary-soft text-ink" : "border-transparent text-muted hover:text-ink"
-                }`}
-              >
-                <span>{item.label}</span>
-                <kbd aria-hidden="true" className="opacity-60">
-                  g {item.key}
-                </kbd>
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
-      <div className="border-t border-line-neutral px-4 py-3 text-[11px] text-dim">
-        <p>
-          <kbd>/</kbd> search · <kbd>g</kbd> then a key to jump
-        </p>
-      </div>
+      </li>
+    );
+  };
+  return (
+    <nav aria-label="Console sections" className="flex flex-col gap-4">
+      <ul className="flex flex-col gap-1">{NAV.filter((n) => !n.group).map(item)}</ul>
+      {GROUPS.map((g) => (
+        <div key={g}>
+          <p className="nav-group mb-1.5">{g}</p>
+          <ul className="flex flex-col gap-1">{NAV.filter((n) => n.group === g).map(item)}</ul>
+        </div>
+      ))}
     </nav>
   );
 }

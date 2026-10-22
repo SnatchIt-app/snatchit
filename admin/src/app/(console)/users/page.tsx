@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { callOps } from "@/lib/ops";
 import { requireOperator } from "@/lib/auth/session";
 import { num, toListPage, toUserListItem, type UserListItem } from "@/lib/types";
-import { cursorOf, first, limitOf, type SearchParams } from "@/lib/search-params";
+import { cursorOf, first, limitOf, selfHref, type SearchParams } from "@/lib/search-params";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { OpsFailureAlert } from "@/components/ui/Alert";
 import { FilterField, FilterForm } from "@/components/ui/FilterField";
@@ -38,24 +38,24 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
       />
       <FilterForm action="/users">
         <FilterField label="Search" className="min-w-[260px]">
-          <input name="q" defaultValue={q} placeholder="display name, user id, exact email or phone" className="field py-1.5 text-[13px]" />
+          <input name="q" defaultValue={q} placeholder="display name, user id, exact email or phone" className="field py-1.5 text-[0.8125rem]" />
         </FilterField>
         <FilterField label="Seller">
-          <select name="is_seller" defaultValue={isSeller ?? ""} className="field min-w-[140px] py-1.5 text-[13px]">
+          <select name="is_seller" defaultValue={isSeller ?? ""} className="field min-w-[140px] py-1.5 text-[0.8125rem]">
             <option value="">Anyone</option>
             <option value="true">Sellers (onboarded or has listings)</option>
             <option value="false">Buyers only</option>
           </select>
         </FilterField>
         <FilterField label="Listing creation">
-          <select name="blocked" defaultValue={blocked ?? ""} className="field min-w-[140px] py-1.5 text-[13px]">
+          <select name="blocked" defaultValue={blocked ?? ""} className="field min-w-[140px] py-1.5 text-[0.8125rem]">
             <option value="">Any</option>
             <option value="true">Blocked</option>
             <option value="false">Allowed</option>
           </select>
         </FilterField>
       </FilterForm>
-      {!res.ok ? <OpsFailureAlert failure={res} fn="list_users" retryHref="/users" /> : <UserTable rows={rows} basePath="/users" searchParams={sp} nextCursor={page?.next_cursor} />}
+      {!res.ok ? <OpsFailureAlert failure={res} fn="list_users" retryHref={selfHref("/users", sp)} /> : <UserTable rows={rows} basePath="/users" searchParams={sp} nextCursor={page?.next_cursor} />}
     </>
   );
 }

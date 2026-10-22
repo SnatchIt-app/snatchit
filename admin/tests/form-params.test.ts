@@ -35,6 +35,12 @@ describe("coerceParam (settings value coercion)", () => {
     expect(coerceParam("integer", "12.5").ok).toBe(false);
     expect(coerceParam("integer", "-3")).toEqual({ ok: true, value: -3 });
   });
+  it("optional: a string that is left out (undefined), not cleared (null), when empty", () => {
+    expect(parseParamField("param.assignee:optional")).toEqual({ key: "assignee", type: "optional" });
+    expect(coerceParam("optional", "")).toEqual({ ok: true, value: undefined });
+    expect(coerceParam("optional", "   ")).toEqual({ ok: true, value: undefined });
+    expect(coerceParam("optional", "aaaaaaaa-0000-4000-8000-000000000001")).toEqual({ ok: true, value: "aaaaaaaa-0000-4000-8000-000000000001" });
+  });
   it("strings pass through untrimmed; json parses", () => {
     expect(coerceParam("string", " hello ")).toEqual({ ok: true, value: " hello " });
     expect(coerceParam("json", '{"a":1}')).toEqual({ ok: true, value: { a: 1 } });

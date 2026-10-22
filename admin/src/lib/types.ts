@@ -37,6 +37,18 @@ export function pick(r: JsonRecord | null | undefined, ...keys: string[]): unkno
   for (const k of keys) if (k in r && r[k] !== undefined) return r[k];
   return undefined;
 }
+/**
+ * The first of `keys` holding a non-empty string. Not pick(): that stops at
+ * the first key PRESENT, even one that is null, so {reject_reason: null,
+ * code: "x"} would lose "x". An empty string quotes nothing and is skipped too.
+ */
+export function firstText(r: JsonRecord | null | undefined, ...keys: string[]): string | null {
+  for (const k of keys) {
+    const v = str(r?.[k]);
+    if (v) return v;
+  }
+  return null;
+}
 
 // ---------- §3.1 / §3.3 whoami ----------
 
@@ -307,7 +319,10 @@ export type ActionType =
   | "job_retry"
   | "setting_set"
   | "approval_decide"
-  | "case_create";
+  | "case_create"
+  // migration 144 — classifying a refund-resolution case is not closing it
+  | "case_refund_classify"
+  | "case_refund_obligation";
 
 export type RejectionReason = "stale_state" | "precondition" | "not_allowed" | "disabled" | "not_supported" | (string & {});
 
@@ -384,7 +399,8 @@ export type ActionOutcome =
 export function toActionOutcome(v: unknown): ActionOutcome | null {
   if (!isRecord(v)) return null;
   const status = str(v.status);
-  const action_id = str(pick(v, "action_id", "id")) ?? undefined;
+  // firstText, not pick: a null in an earlier field must not hide the value in a later one (E-L2).
+  const action_id = firstText(v, "action_id", "id") ?? undefined;
   switch (status) {
     case "succeeded":
       return { status, action_id, result: v.result, raw: v };
@@ -395,12 +411,12 @@ export function toActionOutcome(v: unknown): ActionOutcome | null {
     case "rejected":
       return {
         status,
-        reason: (str(pick(v, "reject_reason", "reason", "code", "rejection")) ?? "precondition") as RejectionReason,
-        message: str(pick(v, "message", "detail", "error")) ?? undefined,
+        reason: (firstText(v, "reject_reason", "reason", "code", "rejection") ?? "precondition") as RejectionReason,
+        message: firstText(v, "message", "detail", "error") ?? undefined,
         raw: v,
       };
     case "failed":
-      return { status, action_id, error: str(pick(v, "error", "message")) ?? undefined, raw: v };
+      return { status, action_id, error: firstText(v, "error", "message") ?? undefined, raw: v };
     case "processing":
       return { status, action_id, raw: v };
     default:
@@ -1379,6 +1395,19 @@ export type OpsAlert = {
   first_fired_at?: string | null;
   last_fired_at?: string | null;
   fire_count?: number | null;
+  // migration 146. queued is NOT delivered: queued_at means pg_net accepted the
+  // post and nothing more, delivered_at means notify-report answered 2xx AND
+  // reported that it delivered something. acknowledged_at is the only field
+  // that records a PERSON, and only because one pressed the button.
+  queued_at?: string | null;
+  delivered_at?: string | null;
+  delivery_status?: number | null;
+  notify_attempts?: number | null;
+  last_notify_error?: string | null;
+  acknowledged_at?: string | null;
+  acknowledged_by?: string | null;
+  /** Bumped when the condition cleared and came back: a NEW incident, needing its own acknowledgement. */
+  incident_seq?: number | null;
 };
 
 export type JobHealth = {
@@ -1463,6 +1492,14 @@ export function toJobHealth(v: unknown): JobHealth | null {
       first_fired_at: str(a.first_fired_at),
       last_fired_at: str(a.last_fired_at),
       fire_count: num(a.fire_count),
+      queued_at: str(a.queued_at),
+      delivered_at: str(a.delivered_at),
+      delivery_status: num(a.delivery_status),
+      notify_attempts: num(a.notify_attempts),
+      last_notify_error: str(a.last_notify_error),
+      acknowledged_at: str(a.acknowledged_at),
+      acknowledged_by: str(a.acknowledged_by),
+      incident_seq: num(a.incident_seq),
     })),
     raw: v,
   };

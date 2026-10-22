@@ -36,6 +36,12 @@ export function formatUtc(v: unknown, withSeconds = false): string {
 }
 
 /** Coarse relative time: "just now" · "4m ago" · "in 3h" · "2d ago". */
+/** True when the moment has already passed (false for missing / unparseable values). */
+export function isPast(v: unknown, now: Date = new Date()): boolean {
+  const d = parseDate(v);
+  return d !== null && d.getTime() < now.getTime();
+}
+
 export function formatRelative(v: unknown, now: Date = new Date()): string {
   const d = parseDate(v);
   if (!d) return "—";
@@ -49,12 +55,10 @@ export function formatRelative(v: unknown, now: Date = new Date()): string {
   return future ? `in ${unit}` : `${unit} ago`;
 }
 
+/** "open_cases" → "Open cases" (sentence case; ids stay "ID"). */
 export function humanize(key: string): string {
-  return key
-    .replace(/_/g, " ")
-    .replace(/\b([a-z])/g, (c) => c.toUpperCase())
-    .replace(/\bId\b/g, "ID")
-    .replace(/\bAt\b/g, "at");
+  const s = key.replace(/_/g, " ").trim().toLowerCase().replace(/\bid\b/g, "ID");
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 // ---------------------------------------------------------------------------
@@ -225,6 +229,8 @@ export const ACTION_TYPE_LABELS: Record<string, string> = {
   refund_execute: "Execute refund",
   job_retry: "Run job now",
   setting_set: "Change setting",
+  case_refund_classify: "Classify refund",
+  case_refund_obligation: "Record refund obligation",
 };
 
 export type Vocab =
@@ -298,6 +304,48 @@ export function payoutStateLabel(row: {
   if (row.payout_review_status === "manual_review") return "Not released — manual review";
   if (row.payout_review_status === "held") return "Not released — held";
   return "Not released";
+}
+
+/**
+ * Stripe mode of a payment, from `payments.stripe_livemode` (migration 045). `ops.order_detail`
+ * returns it through `ops.payment_json` — `to_jsonb(p)` minus the client secret (116:172-176) —
+ * so pre-045 rows carry an explicit null. Column comment: true = live, false = test-era, null =
+ * unclassified. Only a literal `true` reads as Live and only a literal `false` as Test.
+ *
+ * A recorded null fails closed in the money rails: ops-refund-execute refuses
+ * `row_mode_unclassified` (classify.ts `checkModeConsistency`), `claim_payout_attempt` raises
+ * `PAYMENT_NOT_LIVE` (20260906120000) and `rowIsLiveActionable` is false
+ * (_shared/payout-logic.ts). A missing or non-boolean field is NOT a recorded null: the console
+ * can't tell what the row holds, so that note claims nothing about what automation will do.
+ * Pass the payload record itself (`Payment.raw`): `toPayment` folds a missing key into null.
+ */
+export type StripeMode = "live" | "test" | "unclassified" | "not_provided" | "unrecognised";
+
+const STRIPE_MODE_STOP = "a manual refund must stop here and go to the owner.";
+
+export function stripeModeOf(payment: Record<string, unknown> | null | undefined): { mode: StripeMode; label: string; note: string | null } {
+  const v = payment ? payment.stripe_livemode : undefined;
+  if (v === true) return { mode: "live", label: "Live", note: null };
+  if (v === false) return { mode: "test", label: "Test", note: null };
+  if (v === null) {
+    return {
+      mode: "unclassified",
+      label: "Unclassified",
+      note: `No Stripe mode is recorded for this payment. Automated refunds and payouts fail closed on unclassified payments, so ${STRIPE_MODE_STOP}`,
+    };
+  }
+  if (v === undefined) {
+    return {
+      mode: "not_provided",
+      label: "Unclassified (not provided by the server)",
+      note: `ops.order_detail returned no stripe_livemode, so the console can't tell live from test. Treat it as unclassified: ${STRIPE_MODE_STOP}`,
+    };
+  }
+  return {
+    mode: "unrecognised",
+    label: "Unclassified (unrecognised value)",
+    note: `ops.order_detail returned a stripe_livemode that is not true, false or null, so the console can't tell live from test. Treat it as unclassified: ${STRIPE_MODE_STOP}`,
+  };
 }
 
 /**

@@ -12,14 +12,14 @@ function scalar(k: string, v: unknown): ReactNode {
   if (typeof v === "boolean") return <StatusBadge status={String(v)} label={v ? "yes" : "no"} />;
   if (typeof v === "number") return /(cents|amount|total)$/.test(k) ? <Money cents={v} /> : v.toLocaleString("en-US");
   if (typeof v === "string") return /_at$|^from$|^to$/.test(k) && /\d{4}-\d{2}-\d{2}/.test(v) ? <DateTime value={v} /> : v;
-  return <code className="font-mono text-[11px]">{JSON.stringify(v)}</code>;
+  return <code className="font-mono text-[0.6875rem]">{JSON.stringify(v)}</code>;
 }
 
 function CountMap({ map }: { map: JsonRecord }) {
   const entries = Object.entries(map);
   if (entries.length === 0) return <span className="text-dim">none</span>;
   return (
-    <ul className="flex flex-wrap gap-2 text-[12px]">
+    <ul className="flex flex-wrap gap-2 text-[0.75rem]">
       {entries.map(([k, v]) => (
         <li key={k} className="border border-line-neutral px-2 py-0.5">
           <span className="text-dim">{humanize(k)}</span> <span className="tabular-nums text-ink">{num(v) ?? "—"}</span>
@@ -43,8 +43,8 @@ export function SummaryView({ summary }: { summary: DailySummary }) {
   const period = isRecord(b.period) ? b.period : {};
 
   return (
-    <div className="space-y-5 text-[13px]">
-      <p className="text-[12px] text-muted">
+    <div className="space-y-5 text-[0.8125rem]">
+      <p className="text-[0.75rem] text-muted">
         Summary for <span className="text-ink">{summary.summary_date ?? "—"}</span>, generated <DateTime value={summary.generated_at} /> · period <DateTime value={period.from} relative={false} /> → <DateTime value={period.to} relative={false} /> ·{" "}
         <StatusBadge status={summary.delivery_state} label={summary.delivery_state === "portal_only" ? "portal only — no delivery channel configured" : summary.delivery_state ?? "—"} variant="muted" />
       </p>
@@ -87,7 +87,7 @@ export function SummaryView({ summary }: { summary: DailySummary }) {
                 return (
                   <span title={r.note ?? undefined}>
                     <span className={r.certainty === "known" ? "font-mono tabular-nums" : "text-warning"}>{t.headline}</span>
-                    {t.detail ? <span className="block text-[11px] text-dim">{t.detail}{r.legacy ? " · legacy summary normalised" : ""}</span> : null}
+                    {t.detail ? <span className="block text-[0.6875rem] text-dim">{t.detail}{r.legacy ? " · legacy summary normalised" : ""}</span> : null}
                   </span>
                 );
               })(),
@@ -115,7 +115,7 @@ export function SummaryView({ summary }: { summary: DailySummary }) {
           ]}
         />
         {failing.length ? (
-          <ul className="mt-2 space-y-1 text-[12px]">
+          <ul className="mt-2 space-y-1 text-[0.75rem]">
             {failing.map((f, i) => (
               <li key={str(f.job_name) ?? i} className="border-l-2 border-danger pl-2">
                 <code className="font-mono">{str(f.job_name)}</code> · {num(f.consecutive_failures) ?? 0} consecutive failure(s)
@@ -124,16 +124,16 @@ export function SummaryView({ summary }: { summary: DailySummary }) {
             ))}
           </ul>
         ) : (
-          <p className="mt-2 text-[12px] text-dim">No failing jobs.</p>
+          <p className="mt-2 text-[0.75rem] text-dim">No failing jobs.</p>
         )}
       </section>
 
       <section>
         <h3 className="eyebrow mb-2 text-dim">Alerts firing ({num(b.alerts_firing_count) ?? alerts.length})</h3>
         {alerts.length === 0 ? (
-          <p className="text-[12px] text-dim">None.</p>
+          <p className="text-[0.75rem] text-dim">None.</p>
         ) : (
-          <ul className="space-y-1 text-[12px]">
+          <ul className="space-y-1 text-[0.75rem]">
             {alerts.map((a, i) => (
               <li key={str(a.alert_key) ?? i} className="border-l-2 border-warning pl-2">
                 <code className="font-mono">{str(a.alert_key)}</code> · {str(a.kind)} · first <DateTime value={a.first_fired_at} /> · ×{num(a.fire_count) ?? 1}

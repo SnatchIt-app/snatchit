@@ -8,6 +8,7 @@ import { isUuid } from "@/lib/routes";
 import { canRequest } from "@/lib/permissions";
 import { labelFor, shortId } from "@/lib/format";
 import { SUPABASE_URL } from "@/lib/env";
+import { relistExpected } from "@/lib/relist";
 import { evidenceItems, str, toListingDetail, type Bid, type JsonRecord, type Report } from "@/lib/types";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Panel } from "@/components/ui/Panel";
@@ -16,7 +17,7 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { DateTime } from "@/components/ui/DateTime";
 import { Money } from "@/components/ui/Money";
 import { Alert, OpsFailureAlert } from "@/components/ui/Alert";
-import { ConfirmForm } from "@/components/ui/ConfirmForm";
+import { ConfirmForm, ListOutcomeHost, OutcomeHost } from "@/components/ui/ConfirmForm";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { IdLink, PartyLink } from "@/components/ui/IdLink";
 import { EvidenceList } from "@/components/ui/EvidenceLink";
@@ -59,9 +60,18 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
   }
   const l = d.listing;
   const raw = l.raw;
-  const canRelist = l.status === "active" && l.auction_status === "cancelled";
+  // The relist version (migration 158): the five fields exactly as ops.listing_detail returned them,
+  // from the untouched record. null = no form (not active + cancelled, or no version to state).
+  const relist = relistExpected(raw);
+  const relistState = l.status === "active" && l.auction_status === "cancelled";
+  const founder = canRequest(me.role, "listing_relist");
   const transacted = d.payments.some((p) => p.payment_status === "succeeded" || p.payment_status === "refunded");
   const openReports = d.reports.filter((r) => r.status !== "actioned" && r.status !== "dismissed");
+  // The reports given triage forms in this render, and a server-read name for every report on the listing, so an
+  // answer about a report this refresh no longer lists as open still says which report it was.
+  const openReportIds = openReports.flatMap((r) => (r.id ? [r.id] : []));
+  const reportLabels: Record<string, string> = {};
+  for (const r of d.reports) if (r.id) reportLabels[r.id] = `${r.reason ?? shortId(r.id)} · ${labelFor("report", r.status)}`;
 
   return (
     <>
@@ -88,7 +98,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
         }
       />
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
           <Panel eyebrow="As recorded — read only" title="Listing">
             <KeyValue
@@ -136,7 +146,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
                   { key: "seller_sent_at", value: <DateTime value={d.transfer.seller_sent_at} /> },
                   { key: "buyer_confirmed_at", value: <DateTime value={d.transfer.buyer_confirmed_at} /> },
                   { key: "payout_review_status", value: d.transfer.payout_review_status ? <StatusBadge status={d.transfer.payout_review_status} label={labelFor("payout_review", d.transfer.payout_review_status)} /> : null },
-                  { key: "stripe_transfer_id", label: "Stripe Transfer", value: d.transfer.stripe_transfer_id ? <code className="font-mono text-[12px]">{d.transfer.stripe_transfer_id}</code> : <span className="text-dim">none</span> },
+                  { key: "stripe_transfer_id", label: "Stripe Transfer", value: d.transfer.stripe_transfer_id ? <code className="font-mono text-[0.75rem]">{d.transfer.stripe_transfer_id}</code> : <span className="text-dim">none</span> },
                 ]}
               />
             )}
@@ -174,11 +184,14 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
         </div>
 
         <div className="space-y-6">
-          {canRelist ? (
-            <Panel eyebrow="Domain rule" title="Relist">
-              {canRequest(me.role, "listing_relist") ? (
-                <ConfirmForm idempotencyKey={newIdempotencyKey()} actionType="listing_relist" subjectKind="listing" subjectId={id} expected={{ status: l.status, auction_status: l.auction_status }} revalidate={path} label="Relist" danger>
-                  <p className="text-[12px] text-muted">
+          {/* One Relist panel and one answer host in every state. The action's refresh (revalidatePath) turns a
+              relisted listing's form into the note below; the host stays at the same place with the same key, so
+              React keeps the answer it holds ('Recorded.' + result.before, or the stale copy + result.current). */}
+          <Panel eyebrow={relist ? "Domain rule" : "Actions"} title="Relist">
+            <OutcomeHost key="listing_relist" actionType="listing_relist">
+              {relist && founder ? (
+                <ConfirmForm key={`relist-${relist.updated_at}`} idempotencyKey={newIdempotencyKey()} actionType="listing_relist" subjectKind="listing" subjectId={id} expected={relist} revalidate={path} label="Relist" danger>
+                  <p className="text-[0.75rem] text-muted">
                     admin_relist_listing only accepts admin-owned inventory that has never transacted; anything else is rejected by the domain guard. Price and fees are not editable.
                     {transacted ? " This listing has a captured payment — expect a rejection." : ""}
                   </p>
@@ -186,42 +199,49 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
                     <label htmlFor="relist-ends" className="eyebrow block text-dim">
                       New end (UTC) <span aria-hidden="true">*</span>
                     </label>
-                    <input id="relist-ends" type="datetime-local" name="param.new_ends_at" required className="field mt-1" />
-                    <p className="text-[11px] text-dim">Enter the new auction end as a UTC wall-clock time; it is stored as timestamptz.</p>
+                    <input id="relist-ends" type="datetime-local" name="param.new_ends_at:utc" required className="field mt-1" />
+                    <p className="text-[0.6875rem] text-dim">Enter the new auction end as a UTC wall-clock time; it is sent with a Z (UTC) suffix and stored as timestamptz.</p>
                   </div>
                 </ConfirmForm>
-              ) : (
+              ) : relist ? (
                 <Alert state="info" title="Only a founder can relist." compact />
+              ) : relistState ? (
+                <Alert state="failed" title="Relist is unavailable: ops.listing_detail did not return this listing's version." compact>
+                  The relist form states updated_at, ends_at and ended_at exactly as loaded. Reload; if this persists, the read contract changed.
+                </Alert>
+              ) : (
+                <Alert state="info" title="Relist applies only to active listings whose auction is cancelled." compact>
+                  Current: status {l.status ?? "—"}, auction {l.auction_status ?? "—"}.
+                </Alert>
               )}
-            </Panel>
-          ) : (
-            <Panel eyebrow="Actions" title="Relist">
-              <Alert state="info" title="Relist applies only to active listings whose auction is cancelled." compact>
-                Current: status {l.status ?? "—"}, auction {l.auction_status ?? "—"}.
-              </Alert>
-            </Panel>
-          )}
+            </OutcomeHost>
+          </Panel>
 
-          {openReports.length ? (
-            <Panel eyebrow={`${openReports.length}`} title="Resolve reports">
-              <div className="space-y-6">
-                {openReports.map((r) => (
-                  <div key={r.id} id={`report-${r.id}`} className="border-b border-line-neutral pb-4 last:border-b-0 last:pb-0">
-                    <p className="text-[13px] text-ink">
-                      <span className="font-mono">{r.reason ?? "report"}</span> <StatusBadge status={r.status} label={labelFor("report", r.status)} />
-                    </p>
-                    <p className="mt-1 text-[12px] text-muted">{r.notes ?? "—"}</p>
-                    <p className="mt-1 text-[11px] text-dim">
-                      by <IdLink kind="user" id={r.reporter_id} label={r.reporter_label ?? undefined} /> · <DateTime value={r.created_at} />
-                    </p>
-                    <div className="mt-3">
-                      <ReportResolveForms report={r} revalidate={path} />
+          {/* One report_resolve answer host in every state, outside the open-reports filter. Actioned / Dismiss
+              drop the report from this panel in the action's own refresh (the whole panel when it was the last);
+              the host keeps its place and key, so React keeps the answer and shows it below, naming the report. */}
+          <ListOutcomeHost key="report_resolve" actionType="report_resolve" listed={openReportIds} labels={reportLabels}>
+            {openReports.length ? (
+              <Panel eyebrow={`${openReports.length}`} title="Resolve reports">
+                <div className="space-y-6">
+                  {openReports.map((r) => (
+                    <div key={r.id} id={`report-${r.id}`} className="border-b border-line-neutral pb-4 last:border-b-0 last:pb-0">
+                      <p className="text-[0.8125rem] text-ink">
+                        <span className="font-mono">{r.reason ?? "report"}</span> <StatusBadge status={r.status} label={labelFor("report", r.status)} />
+                      </p>
+                      <p className="mt-1 text-[0.75rem] text-muted">{r.notes ?? "—"}</p>
+                      <p className="mt-1 text-[0.6875rem] text-dim">
+                        by <IdLink kind="user" id={r.reporter_id} label={r.reporter_label ?? undefined} /> · <DateTime value={r.created_at} />
+                      </p>
+                      <div className="mt-3">
+                        <ReportResolveForms report={r} revalidate={path} />
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            </Panel>
-          ) : null}
+                  ))}
+                </div>
+              </Panel>
+            ) : null}
+          </ListOutcomeHost>
 
           <Panel eyebrow="Manual" title="Open a case on this listing">
             <NewCaseForm subjectKind="listing" subjectId={id} revalidate={path} defaultTitle={l.event_name ? `${l.event_name} — ` : undefined} />
@@ -244,10 +264,10 @@ function BidTable({ rows, basePath }: { rows: Bid[]; basePath: string }) {
 function ReportTable({ rows, basePath }: { rows: Report[]; basePath: string }) {
   const columns: Column<Report>[] = [
     { key: "created_at", header: "Filed", render: (r) => <DateTime value={r.created_at} /> },
-    { key: "reason", header: "Reason", render: (r) => <span className="font-mono text-[12px]">{r.reason ?? "—"}</span> },
+    { key: "reason", header: "Reason", render: (r) => <span className="font-mono text-[0.75rem]">{r.reason ?? "—"}</span> },
     { key: "status", header: "Status", render: (r) => <StatusBadge status={r.status} label={labelFor("report", r.status)} /> },
     { key: "reporter", header: "Reporter", render: (r) => <IdLink kind="user" id={r.reporter_id} label={r.reporter_label ?? undefined} /> },
-    { key: "notes", header: "Notes", render: (r) => <span className="line-clamp-2 max-w-[320px] text-[12px] text-muted">{r.notes ?? "—"}</span> },
+    { key: "notes", header: "Notes", render: (r) => <span className="line-clamp-2 max-w-[320px] text-[0.75rem] text-muted">{r.notes ?? "—"}</span> },
     { key: "resolved_at", header: "Resolved", render: (r) => <DateTime value={r.resolved_at} /> },
   ];
   return <DataTable columns={columns} rows={rows} rowKey={(r, i) => r.id ?? `${i}`} basePath={basePath} emptyText="No reports." caption="Reports" dense />;
@@ -256,9 +276,9 @@ function ReportTable({ rows, basePath }: { rows: Report[]; basePath: string }) {
 function FlagTable({ rows, basePath }: { rows: JsonRecord[]; basePath: string }) {
   const columns: Column<JsonRecord>[] = [
     { key: "created_at", header: "Raised", render: (r) => <DateTime value={r.created_at} /> },
-    { key: "flag_type", header: "Flag", render: (r) => <span className="font-mono text-[12px]">{str(r.flag_type) ?? "—"}</span> },
+    { key: "flag_type", header: "Flag", render: (r) => <span className="font-mono text-[0.75rem]">{str(r.flag_type) ?? "—"}</span> },
     { key: "severity", header: "Severity", render: (r) => <StatusBadge status={str(r.severity)} variant={str(r.severity) === "critical" ? "danger" : str(r.severity) === "warning" ? "warn" : "neutral"} /> },
-    { key: "details", header: "Details", render: (r) => <span className="line-clamp-2 max-w-[360px] text-[12px] text-muted">{str(r.details) ?? "—"}</span> },
+    { key: "details", header: "Details", render: (r) => <span className="line-clamp-2 max-w-[360px] text-[0.75rem] text-muted">{str(r.details) ?? "—"}</span> },
     { key: "reviewed_at", header: "Reviewed", render: (r) => <DateTime value={r.reviewed_at} /> },
   ];
   return <DataTable columns={columns} rows={rows} rowKey={(r, i) => str(r.id) ?? `${i}`} basePath={basePath} emptyText="No flags." caption="Seller flags" dense />;
