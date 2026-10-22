@@ -1,5 +1,7 @@
 # Release convergence report — the 135-version production line + payments RC + v2 consumer UI
 
+> **Redaction (2026-10-22, owner decision):** the AWS account id and the production KMS key id that this record originally quoted were replaced in place with `[redacted: account id]` / `[redacted: key id]`. Nothing else in the record changed; the unredacted original is preserved in private evidence on the encrypted SSD. The JSON artifacts in `pfa18c_artifacts/` carry the same in-place marker.
+
 Date: 2026-09-09 · Branch: `release/convergence-135` · Author: payments & release integration
 
 **Nothing in this report was deployed. No migration was applied to production, no Stripe setting,
@@ -8,7 +10,7 @@ stays dark, and nothing was merged into `main`.**
 
 > **2026-09-09 addendum.** A ticket-signing KMS key now EXISTS in AWS — created by the owner's PFA-18C
 > C2–C5 ceremony, outside this release work:
-> `arn:aws:kms:us-east-1:652872010073:key/45907419-8894-4582-ba79-71e9c29c549e` (ECC_NIST_P256,
+> `arn:aws:kms:us-east-1:[redacted: account id]:key/[redacted: key id]` (ECC_NIST_P256,
 > ECDSA_SHA_256). Evidence and read-only corroboration are in
 > `docs/release/PHASE2_PFA18C_SINGLE_FOUNDER_KMS_BOOTSTRAP_EXECUTION.md` §SESSION 8. It changes nothing
 > here: the key is **not** in `kernel.signing_key` (still 0 rows), all three native gates are still

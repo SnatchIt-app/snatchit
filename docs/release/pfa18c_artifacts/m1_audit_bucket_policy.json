@@ -6,19 +6,19 @@
       "Effect": "Allow",
       "Principal": { "Service": "cloudtrail.amazonaws.com" },
       "Action": "s3:GetBucketAcl",
-      "Resource": "arn:aws:s3:::snatchit-audit-652872010073",
-      "Condition": { "StringEquals": { "aws:SourceArn": "arn:aws:cloudtrail:us-east-1:652872010073:trail/snatchit-audit-trail" } }
+      "Resource": "arn:aws:s3:::snatchit-audit-[redacted: account id]",
+      "Condition": { "StringEquals": { "aws:SourceArn": "arn:aws:cloudtrail:us-east-1:[redacted: account id]:trail/snatchit-audit-trail" } }
     },
     {
       "Sid": "AWSCloudTrailWrite20150319",
       "Effect": "Allow",
       "Principal": { "Service": "cloudtrail.amazonaws.com" },
       "Action": "s3:PutObject",
-      "Resource": "arn:aws:s3:::snatchit-audit-652872010073/AWSLogs/652872010073/*",
+      "Resource": "arn:aws:s3:::snatchit-audit-[redacted: account id]/AWSLogs/[redacted: account id]/*",
       "Condition": {
         "StringEquals": {
           "s3:x-amz-acl": "bucket-owner-full-control",
-          "aws:SourceArn": "arn:aws:cloudtrail:us-east-1:652872010073:trail/snatchit-audit-trail"
+          "aws:SourceArn": "arn:aws:cloudtrail:us-east-1:[redacted: account id]:trail/snatchit-audit-trail"
         }
       }
     },
@@ -27,7 +27,7 @@
       "Effect": "Deny",
       "Principal": "*",
       "Action": "s3:*",
-      "Resource": [ "arn:aws:s3:::snatchit-audit-652872010073", "arn:aws:s3:::snatchit-audit-652872010073/*" ],
+      "Resource": [ "arn:aws:s3:::snatchit-audit-[redacted: account id]", "arn:aws:s3:::snatchit-audit-[redacted: account id]/*" ],
       "Condition": { "Bool": { "aws:SecureTransport": "false" } }
     },
     {
@@ -35,10 +35,10 @@
       "Effect": "Deny",
       "Principal": {
         "AWS": [
-          "arn:aws:iam::652872010073:role/SnatchIt-KMS-Ceremony",
-          "arn:aws:iam::652872010073:user/snatchit-kms-verifier",
-          "arn:aws:iam::652872010073:role/SnatchIt-CredentialSign-Runtime",
-          "arn:aws:iam::652872010073:user/snatchit-credential-sign-runtime"
+          "arn:aws:iam::[redacted: account id]:role/SnatchIt-KMS-Ceremony",
+          "arn:aws:iam::[redacted: account id]:user/snatchit-kms-verifier",
+          "arn:aws:iam::[redacted: account id]:role/SnatchIt-CredentialSign-Runtime",
+          "arn:aws:iam::[redacted: account id]:user/snatchit-credential-sign-runtime"
         ]
       },
       "Action": [
@@ -49,7 +49,7 @@
         "s3:PutReplicationConfiguration", "s3:PutBucketObjectLockConfiguration",
         "s3:PutBucketPublicAccessBlock", "s3:PutBucketAcl", "s3:PutBucketOwnershipControls"
       ],
-      "Resource": [ "arn:aws:s3:::snatchit-audit-652872010073", "arn:aws:s3:::snatchit-audit-652872010073/*" ]
+      "Resource": [ "arn:aws:s3:::snatchit-audit-[redacted: account id]", "arn:aws:s3:::snatchit-audit-[redacted: account id]/*" ]
     }
   ]
 }
