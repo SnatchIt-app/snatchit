@@ -44,6 +44,8 @@
 --       before it calls admin_relist_listing (a single session cannot observe a missing lock; the two-session
 --       proof is scripts/local/rehearsal_158_concurrency.sh).
 --   R13 157's money guard still works with 158 applied (a duplicate refund_execute is refused).
+--   R14 expected keys outside the five relist keys are ignored (never compared, never echoed); a malformed
+--       params.new_ends_at or expected.ends_at fails the action with 22007 exactly as before 158 (nothing relisted).
 --
 -- now() is frozen inside this transaction, so every UPDATE here stamps the same updated_at. A listing loaded in
 -- an earlier transaction carries an earlier one: tap._age225 sets a cancelled fixture's updated_at to
@@ -54,7 +56,7 @@
 -- Founder A = tap.admin_user() (platform_admin via admin_users), founder B = tap.other_user().
 -- ============================================================================
 BEGIN;
-SELECT plan(81);
+SELECT plan(86);
 SELECT tap.seed_core();
 
 INSERT INTO public.admin_users (user_id, label) VALUES (tap.other_user(), 'FOUNDER B') ON CONFLICT (user_id) DO NOTHING;
@@ -534,12 +536,19 @@ SELECT is((SELECT coalesce(array_agg(v.sig ORDER BY v.sig), '{}'::text[]) FROM (
              ('ops.action_precheck(ops.action)', 'fbc3d08eae4de831ab3f085e170e8f10'),
              ('ops.action_hash(text,text,uuid,text,jsonb)', 'ad280c19761b428d644281f6e336a7c5'),
              ('ops.listing_detail(uuid)', '5208dbb14d749db54c2fdd62e50ab800'),
-             ('ops.approve_action(uuid,text,text)', '60fb8ce43d5ff1b051e379ac6affb53f'),
+             ('ops.approve_action(uuid,text,text)', 'ddcdcd1401839910726d20ddd206e40d'),
              ('ops.order_detail(uuid)', '4358f577291f84b25986b8904b38ab36'),
              ('public.cancel_listing(uuid,uuid)', 'ba31642267e65fefbf9485a144efc753')) v(sig, md5)
-            WHERE md5(pg_get_functiondef(to_regprocedure(v.sig))) IS DISTINCT FROM v.md5),
+            WHERE md5(pg_get_functiondef(to_regprocedure(v.sig))) IS DISTINCT FROM v.md5
+              -- 170 (20261021130000_listing_seller_integrity.sql, an independent branch) redefines cancel_listing (E's M1):
+              -- its md5, read from 170's rollback guard, is the one alternative to production's
+              AND NOT (v.sig = 'public.cancel_listing(uuid,uuid)'
+                       AND md5(pg_get_functiondef(to_regprocedure(v.sig))) = '137f680cff0d54d6c07af2bf49975b6c')
+              -- 177 (20261022001000, stacked on 158) redefines action_precheck: its md5 is the one alternative
+              AND NOT (v.sig = 'ops.action_precheck(ops.action)'
+                       AND md5(pg_get_functiondef(to_regprocedure(v.sig))) = '20a5ae0386be0644293f5230fad84dde')),
           '{}'::text[],
-  'R12.8: neighbours unchanged: action_run, requires_approval, allowed_roles, precheck, action_hash, listing_detail (production); approve_action, order_detail (157); cancel_listing');
+  'R12.8: neighbours unchanged: action_run, requires_approval, allowed_roles, action_hash, listing_detail (production); precheck (production or 177''s); approve_action, order_detail (157); cancel_listing (production or 170''s)');
 -- static lock check (M1): a single session cannot observe a missing FOR UPDATE. In the listing_relist branch of the
 -- live dispatch (comments stripped, whitespace collapsed) the listing is read FOR UPDATE before admin_relist_listing.
 SELECT is((SELECT CASE WHEN lk = 0 THEN 'no locked listing read' WHEN rl = 0 THEN 'no admin_relist_listing call'
@@ -569,6 +578,31 @@ SELECT is((tap._g225('r13a') ->> 'status', tap._g225('r13b') ->> 'status', tap._
 SELECT is((SELECT count(*)::int FROM ops.action WHERE action_type = 'refund_execute' AND subject_id = tap._p225(31)
             AND state IN ('requested','awaiting_approval','processing','unknown','succeeded_at_provider')), 1,
   'R13.3: exactly one unsettled refund_execute on the payment');
+
+-- ── R14 — expected: extra keys are ignored; malformed timestamps are refused as before 158 (listings 51, 52) ──
+SELECT tap._mk225(51);
+SELECT tap._mk225(52);
+SELECT tap._s225('e51', tap._exp225(tap._l225(51)));
+SELECT tap._s225('row51', tap._row225(tap._l225(51)));
+SELECT tap._s225('r14a', tap._rl225(tap.admin_user(), 'k225-r14-extra-a01', tap._l225(51), tap._in3d(),
+                 tap._g225('e51') || '{"bid_count": 999, "event_name": "not compared", "note": "unknown key"}'::jsonb));
+SELECT is((tap._g225('r14a') ->> 'status', (SELECT status || '/' || auction_status FROM public.listings WHERE id = tap._l225(51))),
+          ('succeeded'::text, 'active/active'::text),
+  'R14.1: expected with extra keys (a wrong bid_count, an event_name, an unknown key) => ignored: only the five relist keys are compared, the relist succeeds');
+SELECT is(tap._g225('r14a') #> '{result,before}', tap._g225('row51'),
+  'R14.2: ...result.before is still exactly the locked row''s five fields (extra keys are never echoed)');
+SELECT tap._s225('e52', tap._exp225(tap._l225(52)));
+SELECT tap._s225('md52', to_jsonb(tap._md225(tap._l225(52))));
+SELECT tap._s225('r14b', tap._rl225(tap.admin_user(), 'k225-r14-bad-params-a01', tap._l225(52), '{"new_ends_at": "not-a-timestamp"}'::jsonb, tap._g225('e52')));
+SELECT is((tap._g225('r14b') ->> 'status', tap._g225('r14b') #>> '{result,sqlstate}'), ('failed'::text, '22007'::text),
+  'R14.3: malformed params.new_ends_at => failed / 22007 (invalid_datetime_format), exactly as before 158');
+SELECT tap._s225('r14c', tap._rl225(tap.admin_user(), 'k225-r14-bad-expected-a01', tap._l225(52), tap._in3d(), tap._g225('e52') || '{"ends_at": "not-a-timestamp"}'::jsonb));
+SELECT is((tap._g225('r14c') ->> 'status', tap._g225('r14c') #>> '{result,sqlstate}'), ('failed'::text, '22007'::text),
+  'R14.4: malformed expected.ends_at => failed / 22007: the cast error surfaces, nothing is relisted');
+SELECT is((tap._md225(tap._l225(52)), (SELECT string_agg(state, ',' ORDER BY idempotency_key) FROM ops.action
+                                        WHERE idempotency_key IN ('k225-r14-bad-params-a01', 'k225-r14-bad-expected-a01'))),
+          (tap._g225('md52') #>> '{}', 'failed,failed'::text),
+  'R14.5: listing 52 is unchanged by both, and both actions are failed (terminal)');
 
 SELECT * FROM finish();
 ROLLBACK;

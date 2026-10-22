@@ -10,10 +10,14 @@
 --   postgres=X/postgres (production).
 -- 158's md5s (the applied state): execute_action 24209d0697132d5df7bd12f5cf3e5c0c, action_dispatch
 --   7f507fc880c02617c53d1e4f679c608c.
--- STACKING GUARD (first statement): each of the two functions must carry 158's md5 (applied) or its target md5 above
---   (already restored; re-running this file is then a no-op that re-verifies). Any third body means someone else's
---   change sits on top (a later migration, the unapplied origin/ops/138 branch, a hand edit): RAISE, nothing changed —
---   restoring over it would silently discard it, and the verification below would still pass.
+-- STACKING GUARD (first statement, read-only): (1) 177 (20261022001000_ops_refund_refused_after_payout.sql) is stacked
+--   on 158: it redefines ops.action_precheck (production md5 fbc3d08eae4de831ab3f085e170e8f10 -> 177's) and
+--   ops.action_dispatch and adds ops.refund_payout_refusal. While action_precheck is not production's or the helper
+--   exists, this file RAISEs 'roll back 177 first' (mirrors 157's guard against 158). (2) Each of the two functions must
+--   carry 158's md5 (applied) or its target md5 above (already restored; re-running this file is then a no-op that
+--   re-verifies). Any third body means someone else's change sits on top (a later migration, the unapplied
+--   origin/ops/138 branch, a hand edit): RAISE, nothing changed — restoring over it would silently discard it, and the
+--   verification below would still pass.
 -- WHAT: restores the two bodies verbatim, re-states their ACLs, then VERIFIES inside the same transaction that
 --   md5(pg_get_functiondef(...)) and the ACL of both equal the target (the message names, per function, which of md5 /
 --   ACL differs, with the live value). Any mismatch RAISEs, so a partial or drifted rollback changes nothing.
@@ -23,8 +27,9 @@
 -- AFTER ROLLBACK: a console relist again ignores expected (the A15 defect returns: a stale tab relists a listing that
 --   was relisted and re-cancelled, or edited, after it loaded). A console that sends expected.updated_at keeps working
 --   (the pre-158 server ignores it). The owner's direct SQL path (admin_relist_listing) never changed.
--- ORDER: roll back 158 BEFORE 157 (157's rollback refuses while ops.action_dispatch is not production's) and before
---   any rollback of 152 / 144 / 20261013000000 (they recreate older dispatch bodies). Run only under owner approval.
+-- ORDER: roll back 177 (20261022001000) FIRST if it is applied (this file refuses otherwise), then 158, then 157 (157's
+--   rollback refuses while ops.action_dispatch is not production's), and before any rollback of 152 / 144 /
+--   20261013000000 (they recreate older dispatch bodies). Run only under owner approval.
 -- ============================================================================
 BEGIN;
 -- ── stacking guard: refuse (nothing changed) unless each body is 158's or already the target ─
@@ -32,7 +37,15 @@ DO $stack158$
 DECLARE
   v_exec text := md5(pg_get_functiondef(to_regprocedure('ops.execute_action(text,text,text,uuid,jsonb,text,jsonb,text)')));
   v_disp text := md5(pg_get_functiondef(to_regprocedure('ops.action_dispatch(ops.action)')));
+  v_prec text := md5(pg_get_functiondef(to_regprocedure('ops.action_precheck(ops.action)')));
+  v_help regprocedure := to_regprocedure('ops.refund_payout_refusal(uuid,text)');
 BEGIN
+  -- 1. 177 stacked on 158: its precheck body or its helper present => roll back 177 first
+  IF v_prec IS DISTINCT FROM 'fbc3d08eae4de831ab3f085e170e8f10' OR v_help IS NOT NULL THEN
+    RAISE EXCEPTION '158 rollback refused (nothing changed): 177 (20261022001000) is applied: ops.action_precheck md5 % (production''s is fbc3d08eae4de831ab3f085e170e8f10), ops.refund_payout_refusal %; roll back 177 first',
+      coalesce(v_prec, '<missing>'), CASE WHEN v_help IS NULL THEN 'absent' ELSE 'present' END USING ERRCODE = 'P0001';
+  END IF;
+  -- 2. each body is 158's (applied) or already the target (re-run); a third body is another change on top of 158
   IF v_exec IS DISTINCT FROM '24209d0697132d5df7bd12f5cf3e5c0c' AND v_exec IS DISTINCT FROM '0da9bc63acb58f1d76a86f8039c0c877'
      OR v_disp IS DISTINCT FROM '7f507fc880c02617c53d1e4f679c608c' AND v_disp IS DISTINCT FROM 'bfb8b9dcfaace5ff04009f96b6de7bef' THEN
     RAISE EXCEPTION '158 rollback refused (nothing changed): ops.execute_action md5 % (expected 158''s 24209d0697132d5df7bd12f5cf3e5c0c or 157''s 0da9bc63acb58f1d76a86f8039c0c877), ops.action_dispatch md5 % (expected 158''s 7f507fc880c02617c53d1e4f679c608c or production''s bfb8b9dcfaace5ff04009f96b6de7bef); another change sits on top of 158: roll that back first',
