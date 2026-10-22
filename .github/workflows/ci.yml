@@ -658,6 +658,14 @@ jobs:
           # the gate tip + 154-156 (Homebrew PG 17, scripts/local/replay.sh): 34|116|37|43 -> 35|123|37|47
           # (re-read 2026-10-15 after the review fixes: +is_public, +set_listing_ends_at_from_duration and its trigger).
           # Re-read 2026-10-15 for 156's ADDENDUM 3 (old-build purchase safeguard): 35|123|37|47 -> 35|126|37|49.
+          # 2026-10-22 registry 160 + 161 (D, S1 venue tiers/inventory; DARK, applied nowhere): NO change to any of
+          # the four counters. 160 creates venue.set_ticket_type_visibility / set_ticket_type_rank /
+          # get_inventory_counters, replaces four venue.* bodies in place (E-76) and re-creates
+          # venue_api.ticket_types with display_rank; 161 creates schema venue_cmd with six SECURITY INVOKER
+          # wrappers. Nothing lands in `public`, and this counter reads `public` only. The venue census moves
+          # 87 -> 90 (pgTAP 144 A15 / 145 A4 / 148 B5 / 180 A5) and the five-schema routine census 305 -> 308
+          # (148 B2 / 157 A46 / 180 A6); the venue_api / venue / venue_cmd ACLs are pinned by pgTAP 226/227/228.
+          # Read from a local PG17 replay of bfc5cf97 + 159 + 160 + 161 (a154c_green clone): still 35|126|37|49.
           EXPECT_TABLES: 35
           # 2026-09-15 migration 130 (L1 concurrency, B): functions 94 -> 96 —
           # +2 public.claim_checkout_supersede, public.release_checkout_supersede

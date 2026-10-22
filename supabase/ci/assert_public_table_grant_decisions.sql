@@ -117,6 +117,21 @@
 --      name(argtypes) — argument TYPES only, no parameter names, so a rename
 --      cannot silently orphan the entry.
 --
+-- SCOPE NOTE (2026-10-22, registry 160/161 — D, S1 venue tiers/inventory; DARK,
+-- applied nowhere). Parts A and B enumerate `public` only, and B2 fails closed
+-- on a row whose function is not in public, so the objects 160/161 create
+-- OUTSIDE public carry NO row here (159 added none for the same reason):
+--   venue.set_ticket_type_visibility(uuid, text, text, text)   authenticated-execute
+--   venue.set_ticket_type_rank(uuid, smallint, text)           authenticated-execute
+--   venue.get_inventory_counters(uuid)                         authenticated-execute
+--   venue_cmd.* — six SECURITY INVOKER wrappers                authenticated-execute;
+--                 schema USAGE to authenticated only
+--   (anon, PUBLIC and service_role hold nothing on any of them; no proacl is
+--   left DEFAULTED; the four venue.* bodies 160 replaces keep their 081 grants.)
+-- Those decisions are ASSERTED by pgTAP 227 (A8/A9/A16/B11) and 228 (A10-A17,
+-- swept over EVERY function in venue_cmd, not a fixed list), the way 226 F1/F2
+-- gate venue_api. Nothing in public changed; the manifests below are unchanged.
+--
 -- Table decisions:
 --   no-client-access  deny-all. RLS on, service_role only. ASSERTED: anon and
 --                     authenticated must hold zero table privileges.
