@@ -48,23 +48,22 @@ export const EDIT_REFUSAL_COPY = {
 } as const;
 
 /** One refusal, worded from the table above. Exported for the paths that have nothing to read. */
-export function editRefusalCopy(kind: EditRefusalKind, body?: string | null): EditRefusal {
-  return { kind, title: EDIT_REFUSAL_COPY[kind].title, body: body || EDIT_REFUSAL_COPY[kind].body };
+export function editRefusalCopy(kind: EditRefusalKind): EditRefusal {
+  return { kind, title: EDIT_REFUSAL_COPY[kind].title, body: EDIT_REFUSAL_COPY[kind].body };
 }
 
 /**
  * Why this listing cannot be edited, or null when it can.
  *
- * `readError` is the server's own sentence for a failed or empty read; it replaces the generic
- * body when present, which is what the screen already did.
+ * A failed read is 'not-found' with the held sentence. The read error's own text used to replace
+ * the body; it is a server string (CFT-703), so the screen now logs it and never passes it here.
  */
 export function editRefusal(i: {
   listing: EditCandidate | null | undefined;
   viewerId: string | null | undefined;
-  readError?: string | null;
 }): EditRefusal | null {
   if (!i.viewerId) return editRefusalCopy('signed-out');
-  if (!i.listing) return editRefusalCopy('not-found', i.readError);
+  if (!i.listing) return editRefusalCopy('not-found');
   if (i.listing.seller_id !== i.viewerId) return editRefusalCopy('not-owner');
   if ((i.listing.bid_count ?? 0) > 0) return editRefusalCopy('has-bids');
   if ((i.listing.auction_status ?? 'active') !== 'active') return editRefusalCopy('inactive');

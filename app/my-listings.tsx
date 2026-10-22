@@ -28,6 +28,7 @@ import { useAuth } from '@/src/hooks/useAuth';
 import SellerListingCard, { SELLER_THUMB_H, SELLER_THUMB_W } from '@/src/components/SellerListingCard';
 import ScreenState from '@/src/components/ScreenState';
 import { isNetworkError } from '@/src/hooks/useNetworkStatus';
+import { deleteGateCopy, listingCancelFailure, listingDeleteFailure, listingDeleteNoRows } from '@/src/lib/listing/listingRefusal';
 import { Chip, EmptyState, IconButton, Skeleton } from '@/src/components/ui';
 import { MEDIA_RADIUS } from '@/src/lib/design/featureMetrics';
 import { textStyle } from '@/src/theme/typography';
@@ -150,13 +151,25 @@ export default function MyListingsScreen({ fixture }: { fixture?: MyListingsFixt
     // The harness can never walk a destructive chain: the guard precedes every write.
     if (fixture) return;
     if (listing.bid_count > 0 || listing.auction_status !== 'active') {
-      Alert.alert('Cannot delete', 'This listing has bids and cannot be deleted.');
+      // The sentence names the condition that applies: bids, or an ended/cancelled/sold listing.
+      const gate = deleteGateCopy(listing);
+      Alert.alert(gate.title, gate.body);
       return;
     }
     if (!beginDestructive(listing.id)) return;
     try {
-      const { error } = await supabase.from('listings').delete().eq('id', listing.id).eq('seller_id', userId);
-      if (error) { Alert.alert('Delete failed', error.message); return; }
+      // CFT-703: ask for the deleted row. PostgREST answers success for ZERO rows (gone already, or
+      // RLS no longer matching), which must not read as a delete (catalogue DEL-5).
+      const { data: deleted, error } = await supabase
+        .from('listings').delete().eq('id', listing.id).eq('seller_id', userId)
+        .select('id');
+      if (error || !Array.isArray(deleted) || deleted.length === 0) {
+        const failure = error ? listingDeleteFailure(error) : listingDeleteNoRows();
+        if (error) console.warn('[MyListings] delete failed:', failure.id, error);
+        Alert.alert(failure.title, failure.body);
+        if (failure.refresh) void fetchMyListings(true);
+        return;
+      }
       setListings((prev) => prev.filter((l) => l.id !== listing.id));
       if (listing.cover_image_path) {
         try {
@@ -175,7 +188,13 @@ export default function MyListingsScreen({ fixture }: { fixture?: MyListingsFixt
     if (!beginDestructive(listing.id)) return;
     try {
       const { error } = await supabase.rpc('cancel_listing', { p_listing_id: listing.id, p_user_id: userId });
-      if (error) { Alert.alert('Cancel failed', error.message); return; }
+      if (error) {
+        const failure = listingCancelFailure(error);
+        console.warn('[MyListings] cancel failed:', failure.id, error);
+        Alert.alert(failure.title, failure.body);
+        if (failure.refresh) void fetchMyListings(true);
+        return;
+      }
       setListings((prev) =>
         prev.map((l) =>
           l.id === listing.id ? { ...l, auction_status: 'cancelled' as const, ended_at: new Date().toISOString() } : l,
