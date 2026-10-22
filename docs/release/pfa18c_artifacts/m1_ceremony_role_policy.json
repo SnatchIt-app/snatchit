@@ -22,7 +22,7 @@
       "Sid": "AllowTagAtCreate",
       "Effect": "Allow",
       "Action": "kms:TagResource",
-      "Resource": "arn:aws:kms:us-east-1:652872010073:key/*",
+      "Resource": "arn:aws:kms:us-east-1:[redacted: account id]:key/*",
       "Condition": { "StringEquals": { "aws:RequestTag/snatchit:purpose": "ticket-signing" } }
     },
     {
@@ -36,14 +36,14 @@
         "kms:ListResourceTags",
         "kms:PutKeyPolicy"
       ],
-      "Resource": "arn:aws:kms:us-east-1:652872010073:key/*",
+      "Resource": "arn:aws:kms:us-east-1:[redacted: account id]:key/*",
       "Condition": { "StringEquals": { "aws:ResourceTag/snatchit:purpose": "ticket-signing" } }
     },
     {
       "Sid": "AllowBindingProofSignOnTaggedKeyOnly",
       "Effect": "Allow",
       "Action": "kms:Sign",
-      "Resource": "arn:aws:kms:us-east-1:652872010073:key/*",
+      "Resource": "arn:aws:kms:us-east-1:[redacted: account id]:key/*",
       "Condition": {
         "StringEquals": {
           "aws:ResourceTag/snatchit:purpose": "ticket-signing",
@@ -89,8 +89,8 @@
         "s3:PutBucketPublicAccessBlock", "s3:PutBucketAcl", "s3:PutBucketOwnershipControls"
       ],
       "Resource": [
-        "arn:aws:s3:::snatchit-audit-652872010073",
-        "arn:aws:s3:::snatchit-audit-652872010073/*"
+        "arn:aws:s3:::snatchit-audit-[redacted: account id]",
+        "arn:aws:s3:::snatchit-audit-[redacted: account id]/*"
       ]
     },
     {
