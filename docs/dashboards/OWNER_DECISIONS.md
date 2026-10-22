@@ -51,15 +51,15 @@ Prepared 2026-10-21 (read-only evidence; nothing executed). Each row lists what 
 - PRs: #116 (console Next patch), #120 (this package), #121 (admin v2), #122 (venue readiness), #123 (venue_api 159; A's review PASS), #124 (manual refund SOP; A signed off the money wording), #134 (live-console relist contract; must deploy before A's 158). All drafts.
 
 
-## E. Venue product scope — owner decisions (recorded with D; F and D build none of these)
-D checked D's approved feature list against the owner's records on 2026-10-21. These venue database-mode surfaces still show "not wired". The owner deferred them, so each needs an explicit owner decision before anyone builds it. D's bundled list points here so they are not counted twice.
-| ID | Surface | Owner record (per D) | Default |
+## E. Venue product scope — now D development scope in draft PRs (updated 2026-10-22)
+On 2026-10-21 the owner (in D's chat) authorised D to BUILD the venue primary-ticketing program in draft PRs, superseding the earlier development-only deferrals. **This is not authorisation to activate production issuance, scanning or payments, bypass PFA controls, or claim any feature live.** Each row below is therefore D's to build (backend and UI, on branches off #122), with **activation still an owner decision per surface**. D sends shared venue/ file changes to F before commit; writes stay disabled and surfaces stay "not wired" until the owner activates them (database-mode writes require aal2, V-07).
+| ID | Surface | Owner record (per D) | Status now |
 |---|---|---|---|
-| P-1 | Check-in / scanning, door PINs | "Do not enable issuance, scanning or native ticket data."; door-PIN park PFA-26 (owner-signed) | stays off |
-| P-2 | Create event and any writes, capacity, activity feed, Today summaries | "Do not implement capacity changes, custody-chain access, activity feeds, dashboard summaries, scanning, payments, or event mutations in this slice." | stays off |
-| P-3 | Guest list / attendee roster / `lookup_attendee` | venue CRM roster parked; PFA-28 parks the customer_ref readers. Reviewers also found `list_attendees`, `lookup_attendee` and `get_live_device_count` would raise under a plain view or wrapper | stays off |
-| P-4 | Box office lookup | same live-operations deferral | stays off |
-| P-5 | Extra read views (`venue_api.orders`, scan counts) | reviewer proposal only; no owner approval found | not built |
+| P-1 | Check-in / scanning, door PINs | "Do not enable issuance, scanning or native ticket data."; door-PIN park PFA-26 (owner-signed) | D builds (draft); activation owner-only |
+| P-2 | Create event and any writes, capacity, activity feed, Today summaries | "Do not implement capacity changes, custody-chain access, activity feeds, dashboard summaries, scanning, payments, or event mutations in this slice." | D builds (draft); activation owner-only |
+| P-3 | Guest list / attendee roster / `lookup_attendee` | venue CRM roster parked; PFA-28 parks the customer_ref readers. Reviewers also found `list_attendees`, `lookup_attendee` and `get_live_device_count` would raise under a plain view or wrapper | D builds (draft); activation owner-only |
+| P-4 | Box office lookup | same live-operations deferral | D builds (draft); activation owner-only |
+| P-5 | Extra read views (`venue_api.orders`, scan counts) | reviewer proposal only; no owner approval found | D builds if its program needs it (draft) |
 | P-6 | Tenant onboarding (migration 138 on `ops/138-operator-onboarding`) | owner approved the flow "for implementation and review" (PFA-34); applying it was never authorised. It redefines ops.execute_action/precheck/dispatch, which A is changing in 157/158, so 138 is stale and must not be applied as written | A + owner decision |
 
 ## F. Admin console and ops — owner decisions
