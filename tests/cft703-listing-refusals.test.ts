@@ -304,3 +304,19 @@ describe('CFT-703 · each alert site uses the mapping, and no error.message reac
     expect(mutated).toMatch(/\berror\??\.message\b/);
   });
 });
+
+describe('DEL-1 copy on a listing that cannot be cancelled (delta review m2)', () => {
+  const del1 = { code: '23503', message: 'update or delete on table "listings" violates foreign key constraint "payments_listing_id_fkey" on table "payments"' };
+  it('M2a: by default (an active listing) the line offers Cancel', () => {
+    expect(listingDeleteFailure(del1).body).toBe(C.delete.checkout);
+  });
+  it('M2b: with canCancel false (ended/cancelled, reached from ListingDetail) it does not advise cancelling', () => {
+    const body = listingDeleteFailure(del1, { canCancel: false }).body;
+    expect(body).toBe(C.delete.checkoutNoCancel);
+    expect(body.toLowerCase()).not.toContain('cancel');
+  });
+  it('M2c: ListingDetail passes whether the listing is still active', () => {
+    const src = readFileSync('src/screens/ListingDetailScreen.tsx', 'utf8');
+    expect(src).toContain("listingDeleteFailure(error, { canCancel: listing.auction_status === 'active' })");
+  });
+});
