@@ -32,6 +32,13 @@
 --     before validate_and_apply_bid locks the listing still holds (219 A2 now names this stamp as the one
 --     trigger allowed ahead of the guard).
 --   INSERT only: existing rows are never rewritten (no UPDATE in this file; an UPDATE of created_at is kept).
+--   DATA RESTORES (operator note, E's static pass): COPY fires BEFORE INSERT row triggers, so a data restore into bids
+--     (pg_restore of a data-only dump, COPY ... FROM, an ETL load) would re-stamp every restored row with the restore
+--     time instead of its original created_at. Restore bids with row triggers off: pg_restore --disable-triggers
+--     (superuser or table owner; it wraps the COPY in ALTER TABLE ... DISABLE/ENABLE TRIGGER ALL), or
+--     SET session_replication_role = replica for the restoring session (this trigger is created with the default
+--     ENABLE, tgenabled 'O', so it does not fire under replica). The same applies to before_bid_insert
+--     (validate_and_apply_bid), which would re-run the bid rules on historical rows. Nothing in this file changes for it.
 --   UNCHANGED: validate_and_apply_bid (production md5 d237200eb6a4cc6a2400b217e25e0618; F10 parked) and every
 --   refusal message; guard_bid_parties, guard_bid_requires_disclosure; bids columns, defaults, nullability
 --   (production's NOT NULL is R-5a, owner, after this), constraints, indexes, policies, table grants.
