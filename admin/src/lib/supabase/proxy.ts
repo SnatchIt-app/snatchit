@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { SUPABASE_ANON_KEY, SUPABASE_URL, hasSupabaseEnv } from "@/lib/env";
 import { decideProxyRedirect } from "@/lib/auth/proxy-logic";
-import { hostOnlyCookie } from "@/lib/supabase/cookie-options";
+import { sessionCookie } from "@/lib/supabase/cookie-options";
 
 /**
  * Moves the session cookies a refresh wrote on the pass-through response onto
@@ -10,11 +10,11 @@ import { hostOnlyCookie } from "@/lib/supabase/cookie-options";
  * for. Only those: the pass-through's x-middleware-* headers must not reach a
  * redirect. Without this the browser never receives the rotated tokens, keeps
  * the old refresh token, and is signed out once the server refuses it.
- * Each cookie goes through hostOnlyCookie again, whatever wrote it.
+ * Each cookie goes through sessionCookie again, whatever wrote it.
  */
 export function withSessionCookies(redirect: NextResponse, from: NextResponse, cacheHeaders: Record<string, string>): NextResponse {
   for (const { name, value, ...options } of from.cookies.getAll()) {
-    redirect.cookies.set(name, value, hostOnlyCookie(options));
+    redirect.cookies.set(name, value, sessionCookie(options));
   }
   Object.entries(cacheHeaders).forEach(([key, value]) => redirect.headers.set(key, value));
   return redirect;
@@ -59,8 +59,8 @@ export async function updateSession(request: NextRequest) {
         cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
         supabaseResponse = NextResponse.next({ request });
         cookiesToSet.forEach(({ name, value, options }) =>
-          // Host-only: never a Domain attribute (lib/supabase/cookie-options.ts).
-          supabaseResponse.cookies.set(name, value, hostOnlyCookie(options)),
+          // Host-only, Secure on Vercel, never HttpOnly (lib/supabase/cookie-options.ts).
+          supabaseResponse.cookies.set(name, value, sessionCookie(options)),
         );
         Object.assign(cacheHeaders, headers);
         Object.entries(cacheHeaders).forEach(([key, value]) => supabaseResponse.headers.set(key, value));

@@ -16,3 +16,34 @@ export function hostOnlyCookie<T extends { domain?: unknown }>(options: T | unde
   void _ignored;
   return rest;
 }
+
+/**
+ * True on a Vercel production or preview deployment, where the console is
+ * served over https only, so a session cookie can carry Secure. Local
+ * `next dev` on http://localhost never qualifies: a browser drops a Secure
+ * cookie set over plain http. Exact values, trimmed; anything else is "not
+ * hosted".
+ */
+export function secureSessionCookies(vercelEnv: string | null | undefined): boolean {
+  const v = (vercelEnv ?? "").trim();
+  return v === "production" || v === "preview";
+}
+
+/** Read once from the inlined NEXT_PUBLIC_VERCEL_ENV (the same switch env.ts and env-policy.ts use). */
+export const SESSION_COOKIES_SECURE = secureSessionCookies(process.env.NEXT_PUBLIC_VERCEL_ENV);
+
+/**
+ * Options for every session cookie the console writes (server client, proxy
+ * refresh, proxy redirect): host-only (hostOnlyCookie), Secure on a hosted
+ * deployment, and never HttpOnly. The TOTP enrol/verify flow runs in the
+ * browser — components/auth/MfaFlow.tsx uses lib/supabase/client.ts, a
+ * createBrowserClient with no cookie accessors, so @supabase/ssr reads the
+ * session from document.cookie — and an HttpOnly session cookie would leave
+ * that client signed out at /mfa. httpOnly is therefore forced false by
+ * construction, as the domain is dropped by construction.
+ */
+export function sessionCookie<T extends { domain?: unknown; httpOnly?: unknown }>(options: T | undefined): Omit<T, "domain" | "httpOnly"> & { httpOnly: false; secure?: true } {
+  const { httpOnly: _ignored, ...rest } = hostOnlyCookie(options) as Omit<T, "domain">;
+  void _ignored;
+  return SESSION_COOKIES_SECURE ? { ...rest, httpOnly: false, secure: true } : { ...rest, httpOnly: false };
+}
