@@ -111,6 +111,67 @@ process pushes them.
   - `expected` on the suspend/restore forms (OC-17);
   - the sharp and source-map-js lockfile advisories.
 
+## V-1 visual hierarchy (`admin/console-v2-visual`, 2026-10-22)
+
+Branch off #121's head `2fc0c8f4`, admin/ only, **local — not pushed, no PR, no CI run.** The owner's
+requirement (2026-10-22, verbatim): "Improve the admin dashboard's visual hierarchy while keeping Snatch It
+branding: useful real-data charts, trend comparisons, status breakdowns, sortable/filterable tables and small
+explanatory workflow diagrams where they help operations. No invented metrics/sample success data. Label date
+ranges, currency, timezone, data freshness and unavailable/empty/error states; exclude test rows consistently.
+Use restrained motion, respect reduced motion and keep layout/performance/accessibility sound." Authorization,
+MFA and money-action code and copy are untouched: no edit under `src/lib/auth`, `src/lib/actions.ts`,
+`src/components/orders/OrderActions.tsx` or `src/proxy.ts` (a test asserts OrderActions neither imports nor
+renders the new diagrams). Every figure still renders only what the `ops.*` read returned, per request, never
+cached; no dependency was added. One commit per item, each with a test that was RED first and planted mutants
+the tests had to catch; raw outputs with exit codes are in the private evidence folder `logs/v1-visual/`.
+
+| | Commit | What | RED → GREEN | Mutants caught |
+|---|---|---|---|---|
+| V1-1 | `9e629bf2` (+ `9b345c74`) | **Labels and states on every figure surface.** `lib/figure-meta.ts` (pure): `CURRENCY` "USD" and `TIMEZONE` "UTC" taken from the formatters the console prints (`formatMoney`, `formatUtc`; buckets are UTC calendar days); `rangeLabel`; `asOfLabel` from the server's `computed_at` — a missing one reads "not stated by the server (read <time>)", never the read time dressed up as freshness; `isPartialPeriod` from the request's own clock ("includes today so far (partial)"); `tileState`: null → unavailable, zero rows → empty, else a figure. `FigureMeta` is the one line each surface carries; `readAt` is the server render time. `KpiTile` / `ChartCard` carry `data-state` ok · empty · unavailable · error: empty keeps the genuine zero and says so; unavailable shows "Not available" (no dash, no delta); error shows "Not read" — never a zero or an empty plot; a chart measure returned in no period is unavailable, checked before "empty". Money KPIs: one label above the group, the pending tile labelled point in time, a failed read keeps the surface with every tile in the error state under a subject-led alert ("Business figures couldn't be loaded."). Money charts: a label per card; the failed bucket is now visible under "For support" (the generic alert never printed `fn`). Today's attention counts and /system's metric row are labelled point in time with `ops.today` / `job_health` freshness. | file fails to load on the parent; with only the three new modules present 24 failed / 13 passed (37) → 37/37; related suites 8 files / 137 | 15/15 (one survived first — a failed read's group label losing `failed` while the pending tile kept it — killed by `9b345c74`) |
+| V1-2 | `0a2b7648` | **Trend comparison and status breakdowns from real reads.** `compareWindows` (pure): the change from the previous `money_overview` window to the current one with its sign always stated ("+", "−", "±"), a whole percentage of the previous value, no percentage when the previous period was zero, "n/a" naming the missing side. `PeriodComparison` on Money under the tiles: both periods named in the header, "+$500.00 (+61%)" / "±$0.00 (no change)" / "+$225.00 (none in previous period)" / "n/a — previous period couldn't be read" / "n/a — not returned by the server"; a decorative pair of bars per row compares the same measure across the two periods (one measure per axis). Pending (point in time) and bank payouts (not tracked) are not compared; Today keeps the "Compared with …" line. `lib/breakdown.ts` (pure) + `StatusBreakdown`: counts per status over the rows the page's own list read returned, most common first, "Not stated" last and never dropped, the share of the row total, the scope ("N orders on this page") in the label; no rows is an explicit empty state. Orders: payment / ticket transfer (row-aware `transferStateLabel`, so `buyer_confirmed` with no confirmation record is never a buyer confirmation) / seller funds. Cases: status and priority. No new read. | file fails to load on the parent → 20/20; related suites 7 files / 134 | 16/16 |
+| V1-3 | `a41ab6b8` | **Sortable + filterable DataTable.** `lib/table-view.ts` (pure): `nextSort`, `sortedIndices` (by the underlying value — the recorded code, integer cents, the ISO timestamp; stable; blanks last in both directions), `matchesFilter` (every word, case-insensitive), `viewIndices`. `ClientTable` ("use client"): the server still renders every cell and passes the elements down with each row's sort values and filter text (serialisable; no function crosses the boundary; no server DOM mutation — `next/dist/docs` server-and-client-boundary); it only re-orders or hides the rows it was given on this page, never re-fetches, never changes the server's row set; headers are native buttons ("Sort by <column>"), the sorted column carries `aria-sort`, a polite status line says "this page only" and "N of M rows shown"; without JS the server order renders. `DataTable`: `sortValue`, `headerText`, `firstSortDir`, `filterable` + `filterText`, `defaultSort`, the `notice` slot; a table that opts into nothing is byte-for-byte the old server table; pagination, caption, selection and the phone cards are kept. `OrderTable`, `CaseTable`, `UserTable`, `ListingTable` carry underlying values and an exported filter text; Orders, Users, Marketplace opt into the filter beside their server-side chips/forms; the Cases queue (a list) gets `SortFilterList` (native select Detected / Due / Priority / Title / Status, a direction button, the filter) with the keyboard model untouched. `data-sort-value` / `data-filter` make the wiring observable. | file fails to load on the parent → 31/31; every table / list page suite 17 files / 327 | 20/21 + 1 equivalent (dropping the explicit tie-break: V8's sort is stable since ES2019, so no behaviour changes) |
+| V1-4 | `e1c4ea9d` | **Two static workflow diagrams** on the order page's actions column, after the action panels, collapsed behind "How this works". Refund path as it is today: Request refund (founder; parked as awaiting approval; full refund of the total only) → Two-founder approval (System → Approvals; nothing changes until then) → Execution disabled in production (`refund_execute_enabled` false; rejected as disabled; the console never calls Stripe) → Manual Stripe Dashboard refund per the manual refund SOP, **named as a draft not approved for use** (a full refund of the PaymentIntent; the `re_…` id noted on the case) → Webhook records the result ("Refund recorded (not confirmed settled)" is set by the Stripe webhook, never by the console; confirm the outcome in Stripe). Payout release: Seller marked sent (`seller_sent`, no release recorded, no open dispute) → Request release ("Release held payout", awaiting approval) → Second founder approval → Payout worker (Stripe Transfer to the connected account on its next run — not a bank payout; "Released to connected account"). Each step has `pins` and `sources`: the test checks every pin is in the step's own text and in a cited source — OrderActions and order-page copy, `lib/format.ts` labels verbatim, and the SOP file where it is checked out (`repos/snatchit-admin-sop`, branch `admin/manual-refund-sop`, cited by section). Inline SVG, `role="img"`, `aria-labelledby` its own `<title>` + `<desc>`, `focusable="false"`, viewBox + `w-full max-w-full h-auto`; a visually hidden `<ol>` is the text alternative and lists each step's source. | file fails to load on the parent → 15/15; order page suites 7 files / 105 | 17/17 |
+| V1-5 | `67afd6a9` | **Motion and accessibility guard.** `.reveal`: a 160 ms fade-in on the disclosure body (the existing `fade-in` keyframes) — the only animation V-1 adds; the stylesheet's global `prefers-reduced-motion` rule removes it. `tests/motion-a11y.test.ts` pins on the sources and the markup: every V-1 duration ≤ 200 ms, no `animate-*`, the global reduced-motion and `:focus-visible` rules intact; no new control hides its outline, leaves the tab order or needs a key handler; focus order filter → sort buttons → rows and select → direction → filter → list; labelled fields, polite live status; at phone width the tables and the comparison scroll inside their container, toolbars wrap with fields capped at the viewport, the breakdown bar fills its column with a wrapping legend over one-column grids, the diagrams scale by viewBox with no fixed size, no new label forces one line. | 2 failed / 12 passed on the parent → 14/14; stylesheet, diagram and table suites 5 files / 80 | 14/14 |
+
+- **Test rows (DC-1 / DC-2).** DC-1 (migration 180, the server-side exclusion) has not landed. No client-side
+  test filter was added and no count is invented: every chart, table and KPI renders exactly what the server
+  returns. **The single hook for DC-2's "N test records hidden" notice is
+  `src/components/ui/HiddenTestRowsNotice.tsx`** (renders nothing unless given a server-reported integer), wired
+  through `DataTable`'s `notice` slot for lists and `FigureMeta`'s `notice` slot for figures; nothing passes it
+  yet, and `tests/figure-labels.test.ts` asserts no page renders the hook. The pages' own text filter is a view
+  over the rows the server returned ("N of M rows shown"), not an exclusion.
+- **Gates (heavy slot held 15:42:38Z → released 15:42:57Z, and 15:45:24Z → 15:45:59Z; local, Node v24.13.1,
+  the sibling checkout's node_modules cloned, no install).** First run at `67afd6a9`: full vitest **50 files /
+  629 passed**; tsc **3 errors**; `next build` with the CI placeholder env **exit 1** on the same type check
+  (`06-gate-*.run1-at-67afd6a9.log`). The three errors — `aria-sort` typed as a string in `ClientTable`, a test
+  fixture missing `raw`, a test reading a union field without narrowing — are fixed in **`20c7b6d2`** (no
+  behaviour change; eslint 0). Second run at `20c7b6d2`: tsc **0**; full vitest **50 files / 629 passed**;
+  `next build` with the CI placeholder env **exit 0** — Next.js 16.3.8, 18 dynamic routes + `/_not-found` + the
+  Proxy (`06-gate-tsc.log`, `06-gate-vitest.log`, `06-gate-build.log`). `.next` removed after each run.
+  **Branch tip: `20c7b6d2`** (this document is committed on top of it).
+- **eslint on the changed files:** 0 for every item (`0N-itemN-eslint.log`). Only targeted vitest ran during the
+  work (per item: the new file plus every suite that renders a changed module).
+- **Evidence:** `private-evidence/F-web-redesign/logs/v1-visual/` — per item `red-parent`, `green`, `eslint`,
+  `mutants` logs with exit codes; `mutate.sh` (plants one perl mutant, runs the tests, reverts with
+  `git checkout`); `gates.sh`; `06-gate-*.log`.
+- **Not done here:**
+  - a DOM event test of the sort / filter interaction (no jsdom in the tree): the behaviour is proven through
+    the pure view functions and the SSR of a default sort; any browser render, screenshot, signed-in or aal2
+    check of the new surfaces;
+  - drawing the previous period as a second series on the charts: only the KPI / table comparison from the two
+    windows v2 already reads (a per-bucket previous series would double the `money_overview` calls — AN-1 first);
+  - sort / filter on the Money page's "Payouts by transfer" and "Reconciliation queue", /system, /reports,
+    /search, the action and audit tables, or the detail-page sub-tables (only the four lists the owner named; the
+    shared `OrderTable` / `CaseTable` / `ListingTable` are sortable wherever they are rendered);
+  - per-tile labels on /system's `MetricTile` cells: the row has one point-in-time label line;
+  - the pre-existing animations above 200 ms (`.enter` 360–460 ms, `.drawer` 260 ms, `.meter` 500 ms) and the
+    pre-existing `?? 0` rendering of a null count in `UserTable` / `ListingTable` (the sort mirrors what is shown);
+  - `OpsFailureAlert` without a `subject` still never prints `fn` (fixed only for the charts by leading with a
+    subject); the header `FreshnessSlot` still reads "Live data" when a page reports no `computed_at`;
+  - the SOP is cited as a draft; it is not approved for use and its wording may change — the diagram test reads it
+    from the sibling checkout when present and from `docs/admin-console/` if it lands in this tree;
+  - pushing, a PR, CI (owner's process).
+
 ## What changed in the readiness pass
 
 A two-scope audit (route/action contracts; responsive/keyboard/error states)
