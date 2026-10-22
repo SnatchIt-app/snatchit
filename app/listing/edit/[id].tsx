@@ -18,6 +18,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View, type TextStyle } from 'react-native';
 import { TICKET_PLATFORMS } from '@/src/lib/listing/ticketPlatforms';
 import { readServerRefusal } from '@/src/lib/moderation/serverRefusal';
+import { listingEditFailure } from '@/src/lib/listing/listingRefusal';
 import { useTopInset } from '@/src/lib/nav/navInsets';
 
 import { supabase } from '@/src/lib/supabase';
@@ -117,11 +118,13 @@ export default function EditListingScreen({ fixture }: { fixture?: EditListingFi
         : await supabase.from('listings').select('*').eq('id', listingId).maybeSingle();
       if (cancelled) return;
       const l = (data ?? null) as Listing | null;
-      const refusal = editRefusal({ listing: l, viewerId: user.id, readError: error?.message });
+      // CFT-703: a failed read is logged, never shown — the refusal carries the held sentence.
+      if (error) console.warn('[EditListing] read failed:', error);
+      const refusal = editRefusal({ listing: l, viewerId: user.id });
       // `!l` is already the 'not-found' refusal; it stays in the condition so the rest of this
       // function keeps its non-null listing rather than asserting one.
       if (refusal || !l) {
-        refuse(refusal ?? editRefusalCopy('not-found', error?.message), true);
+        refuse(refusal ?? editRefusalCopy('not-found'), true);
         return;
       }
       setListing(l);
@@ -167,10 +170,13 @@ export default function EditListingScreen({ fixture }: { fixture?: EditListingFi
         .select('id');
       if (error) {
         // RC3 (152): a suspended seller or prohibited text is the server's refusal — the policy
-        // sentence, form kept, no retry offered. Anything else keeps today's copy.
+        // sentence, form kept, no retry offered. Anything else is mapped below, never shown raw.
         const refusal = readServerRefusal(error);
         if (refusal) { Alert.alert(refusal.title, refusal.body); return; }
-        Alert.alert('Save failed', error.message); return;
+        // CFT-703: the length checks (EDT-3, EDT-4, EDT-5) get their own line; anything else the generic one.
+        const failure = listingEditFailure(error);
+        console.warn('[EditListing] save failed:', failure.id, error);
+        Alert.alert(failure.title, failure.body); return;
       }
       if (!Array.isArray(written) || written.length === 0) {
         // Nothing was written: say so and keep the form, so nothing typed is lost.
@@ -213,8 +219,8 @@ export default function EditListingScreen({ fixture }: { fixture?: EditListingFi
           You can edit details until the first bid arrives. After that, use Cancel from My Listings if you need to remove it.
         </Text>
 
-        <Input label="Event name" placeholder="e.g. Weekend pool party" value={eventName} onChangeText={setEventName} returnKeyType="next" />
-        <Input label="Venue" placeholder="e.g. LIV Miami" value={venue} onChangeText={setVenue} returnKeyType="next" containerStyle={s.gap} />
+        <Input label="Event name" placeholder="e.g. Weekend pool party" value={eventName} onChangeText={setEventName} returnKeyType="next" maxLength={120} />
+        <Input label="Venue" placeholder="e.g. LIV Miami" value={venue} onChangeText={setVenue} returnKeyType="next" maxLength={120} containerStyle={s.gap} />
 
         <Text style={[textStyle('micro'), s.groupLabel]}>Ticket platform</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chipRow} keyboardShouldPersistTaps="handled">

@@ -25,12 +25,14 @@ const h = vi.hoisted(() => {
   };
   return {
     deferred,
-    deletes: [] as ReturnType<typeof deferred<{ error: unknown }>>[],
+    deletes: [] as ReturnType<typeof deferred<{ data?: unknown; error: unknown }>>[],
     cancels: [] as ReturnType<typeof deferred<{ error: unknown }>>[],
     rows: [] as Record<string, unknown>[],
     /** Every Alert shown, with the destructive button captured so the test can confirm. */
-    alerts: [] as { title: string; confirm?: () => void }[],
+    alerts: [] as { title: string; body?: string; confirm?: () => void }[],
     focus: { current: null as null | (() => void) },
+    /** Listing reads after mount: a refresh is one more. */
+    listingReads: 0,
   };
 });
 
@@ -45,9 +47,9 @@ vi.mock('@/src/theme/appearance', async () => {
 });
 vi.mock('react-native', () => ({
   Alert: {
-    alert: (title: string, _body?: string, buttons?: { text: string; style?: string; onPress?: () => void }[]) => {
+    alert: (title: string, body?: string, buttons?: { text: string; style?: string; onPress?: () => void }[]) => {
       const destructive = buttons?.find((b) => b.style === 'destructive');
-      h.alerts.push({ title, confirm: destructive?.onPress });
+      h.alerts.push({ title, body, confirm: destructive?.onPress });
     },
   },
   FlatList: 'FlatList', Pressable: 'Pressable', RefreshControl: 'RefreshControl', ScrollView: 'ScrollView',
@@ -76,19 +78,19 @@ vi.mock('@/src/lib/supabase', () => {
     let deleting = false;
     q.delete = () => { deleting = true; return q; };
     q.update = () => q;
-    for (const m of ['select', 'order', 'limit', 'in', 'neq', 'or', 'gte', 'lte', 'maybeSingle', 'single']) q[m] = () => q;
-    let eqs = 0;
-    q.eq = () => {
+    for (const m of ['order', 'limit', 'in', 'neq', 'or', 'gte', 'lte', 'maybeSingle', 'single', 'eq']) q[m] = () => q;
+    // RETARGETED (CFT-703 DEL-5): the delete is now `.delete().eq('id').eq('seller_id').select('id')`,
+    // so the request is the trailing select, which answers with the deleted rows.
+    q.select = () => {
       if (!deleting) return q;
-      eqs += 1;
-      // `.delete().eq('id').eq('seller_id')` — the request is the second eq.
-      if (eqs < 2) return q;
-      const d = h.deferred<{ error: unknown }>();
+      const d = h.deferred<{ data?: unknown; error: unknown }>();
       h.deletes.push(d);
       return d.promise;
     };
-    q.then = (ok: (v: unknown) => unknown) =>
-      Promise.resolve({ data: name === 'listings' ? h.rows : [], error: null }).then(ok);
+    q.then = (ok: (v: unknown) => unknown) => {
+      if (name === 'listings') h.listingReads += 1;
+      return Promise.resolve({ data: name === 'listings' ? h.rows : [], error: null }).then(ok);
+    };
     return q;
   };
   return {
@@ -157,7 +159,7 @@ async function mountMyListings(): Promise<HookHost> {
 }
 
 beforeEach(() => {
-  h.deletes.length = 0; h.cancels.length = 0; h.alerts.length = 0;
+  h.deletes.length = 0; h.cancels.length = 0; h.alerts.length = 0; h.listingReads = 0;
   h.rows = [listing('l-1')];
   h.focus.current = null;
   vi.resetModules();
@@ -204,6 +206,8 @@ describe('F-DESTRUCT-1 — destructive listing actions are one-at-a-time', () =>
 
     expect(rowProps(host).busy).toBeFalsy();
     expect(h.alerts.some((a) => a.title === 'Delete failed')).toBe(true);
+    // RETARGETED (CFT-703): the dialog no longer carries the server's text.
+    expect(h.alerts.some((a) => a.body === 'delete rejected')).toBe(false);
   });
 
   it('D4: cancel is guarded the same way — one RPC, not two', async () => {
@@ -251,7 +255,8 @@ describe('F-DESTRUCT-1 — destructive listing actions are one-at-a-time', () =>
     tapDestructive(host);
     confirmLast(host);
     await flush();
-    h.deletes[0].resolve({ error: null });
+    // RETARGETED (CFT-703 DEL-5): success is a returned row, not merely the absence of an error.
+    h.deletes[0].resolve({ data: [{ id: 'l-1' }], error: null });
     await flush();
     host.flush();
 
@@ -286,5 +291,76 @@ describe('F-DESTRUCT-1 — the row itself stands down while busy', () => {
 
     expect(render(true).props.disabled).toBe(true);
     expect(render(false).props.disabled).toBeFalsy();   // regression guard: not disabled by default
+  });
+});
+
+describe('CFT-703 — delete and cancel refusals in My Listings', () => {
+  async function confirmDelete(host: HookHost) {
+    tapDestructive(host);
+    confirmLast(host);
+    await flush();
+    host.flush();
+  }
+
+  it('D9 (DEL-5): a delete that removed 0 rows is not a delete — the row stays and the list is re-read', async () => {
+    const host = await mountMyListings();
+    const readsBefore = h.listingReads;
+    await confirmDelete(host);
+    h.deletes[0].resolve({ data: [], error: null });
+    await flush();
+    host.flush();
+
+    expect(rowCount(host), 'the row must not be dropped as if deleted').toBe(1);
+    const last = h.alerts[h.alerts.length - 1];
+    expect(last.title).toBe('Delete failed');
+    expect(last.body).toBe('This listing was already removed.');
+    expect(h.listingReads, 'a refresh follows').toBeGreaterThan(readsBefore);
+  });
+
+  it('D10 (DEL-1): a payments FK refusal shows the catalogue sentence, never the FK text', async () => {
+    const host = await mountMyListings();
+    await confirmDelete(host);
+    h.deletes[0].resolve({
+      data: null,
+      error: {
+        code: '23503',
+        message: 'update or delete on table "listings" violates foreign key constraint "payments_listing_id_fkey" on table "payments"',
+        details: 'Key is still referenced from table "payments".', hint: null,
+      },
+    });
+    await flush();
+    host.flush();
+
+    expect(rowCount(host)).toBe(1);
+    const last = h.alerts[h.alerts.length - 1];
+    expect(last.body).toBe("This listing has had checkout activity, so it can't be deleted. You can cancel it instead.");
+    expect(h.alerts.some((a) => (a.body ?? '').includes('foreign key'))).toBe(false);
+  });
+
+  it('D11 (CAN-1): a stale Cancel on a sold listing says so calmly and re-reads the list', async () => {
+    h.rows = [listing('l-1', { bid_count: 3 })];
+    const host = await mountMyListings();
+    const readsBefore = h.listingReads;
+    tapDestructive(host);
+    confirmLast(host);
+    await flush();
+    h.cancels[0].resolve({ error: { code: 'P0001', message: 'This listing has already been sold and cannot be cancelled.', hint: null, details: null } });
+    await flush();
+    host.flush();
+
+    const last = h.alerts[h.alerts.length - 1];
+    expect(last.title).toBe('Cancel failed');
+    expect(last.body).toBe("This listing has already sold, so it can't be cancelled.");
+    expect(h.listingReads).toBeGreaterThan(readsBefore);
+  });
+
+  it('D12: the gate copy on a no-bid ended listing does not claim bids', async () => {
+    h.rows = [listing('l-1', { auction_status: 'ended' })];
+    const host = await mountMyListings();
+    await confirmDelete(host);
+    expect(h.deletes.length).toBe(0);
+    const last = h.alerts[h.alerts.length - 1];
+    expect(last.title).toBe('Cannot delete');
+    expect(last.body).toBe("This listing has ended, so it can't be deleted.");
   });
 });
