@@ -6,7 +6,8 @@
  *
  *   pending, before expires_at          "Send by <local time from expires_at>"
  *   pending, expires_at missing/bad     "Send the tickets"         (no time is invented)
- *   pending, device clock past it       neutral: never "expired", never "checking", never "send"
+ *   pending, device clock past it       "Send window has passed — open this order to see its current status"
+ *                                       (A signed off the exact words; pinned as a literal, SN5)
  *   seller_sent with no proof           "Add proof"                (no deadline: the server has none)
  *   expired (server status)             the existing do-not-send sentence
  *   reversed / disputed / buyer_confirmed / auto_released / anything else   nothing
@@ -15,6 +16,11 @@
  * tickets or assert that a refund occurred." A (2026-10-21): expires_at is a display deadline only;
  * the server's expiry sweep is the authority. And the send screen's TRANSFER_EXPIRY_COPY.seller is
  * NOT reused: it says a status check is running, and My Listings runs none.
+ *
+ * Signed-off copy is pinned as LITERALS here (the past-window sentence, "Send by <time>", "Add proof"):
+ * comparing a line to the module's own constant is a tautology that any rewording passes. Lines
+ * reused from C's transferState.ts (SELLER_ORDER_CLOSED_COPY, transferStatusCopy) stay reuse checks
+ * plus a structural check, because C may change that copy at integration.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -89,18 +95,51 @@ describe('pending, before the deadline — "Send by <local time>"', () => {
 describe('pending, device clock past expires_at — neutral wording', () => {
   const past = (now: number) => sellerNextAction(sold({ status: 'pending', expires_at: DEADLINE }), now) as SellerNextAction;
 
-  it('SN5: the line is neutral — it never says expired, never claims a check, never says to send', () => {
+  it('SN5: the line is the signed-off sentence, word for word — a literal, not the module\'s own constant', () => {
     const a = past(AFTER);
     expect(a.kind).toBe('window_passed');
     expect(a.tone).toBe('neutral');
-    expect(a.line).toBe(SELLER_NEXT_ACTION_COPY.windowPassed);
-    expect(a.line).not.toMatch(/expir/i);
-    expect(a.line).not.toMatch(/checking|being checked/i);
-    expect(a.line).not.toMatch(/^Send (by|the|now)/);
-    expect(a.line).not.toMatch(/refund/i);
+    // A signed off these exact words. Comparing the line to SELLER_NEXT_ACTION_COPY.windowPassed alone
+    // is a tautology that any rewording of the constant passes (A, #131 review): a copy change has to
+    // come with a deliberate edit of this literal.
+    expect(a.line).toBe('Send window has passed — open this order to see its current status');
+    expect(SELLER_NEXT_ACTION_COPY.windowPassed).toBe('Send window has passed — open this order to see its current status');
     // Not the send screen's string: that one asserts a status check is running.
     expect(a.line).not.toBe(TRANSFER_EXPIRY_COPY.seller);
     expect(a.line).not.toBe(TRANSFER_EXPIRY_COPY.sellerLastCheckedOpen);
+  });
+
+  /**
+   * Owner, 2026-09-19: "A phone-clock deadline alone must not encourage sending tickets or assert that
+   * a refund occurred." Every guard is UNANCHORED and case-insensitive, so it holds wherever a reworded
+   * line puts the word, and each carries a sentence it MUST catch — a regex that can never match would
+   * otherwise pass in silence. The signed sentence opens with "Send window": that noun phrase is the
+   * one "send" it may contain.
+   */
+  const PAST_WINDOW_GUARDS: [why: string, guard: RegExp, mustCatch: string][] = [
+    ['says expired (only the server status may)', /expir/i, 'Send window expired — open this order'],
+    ['claims a status check (My Listings runs none)', /check(ing|ed)/i, "Send window has passed — checking this order's status"],
+    ['asserts a refund', /refund|money back|reimburs/i, 'Send window has passed — a refund is on its way'],
+    ["A's send / action-needed negative", /\bsend (by|the|now|them|it)\b|action needed/i, 'Send window has passed — action needed'],
+    ['a send instruction anywhere in the sentence', /\bsend (by|the|them|it|now|your|tickets?)\b/i, 'Window has passed — send the tickets now'],
+    ['any "send" other than the leading "Send window"', /\bsend\b(?! window\b)/i, 'Send window has passed — please send them now'],
+    ['another word for sending', /\b(transfer|deliver|upload)\b/i, 'Send window has passed — transfer them to the buyer'],
+    ['urgency', /\b(now|hurry|asap|quickly|urgent|still)\b/i, 'Send window has passed — you can still make it'],
+  ];
+
+  it('SN5b: never expired, never a check, never a refund, never a send instruction — unanchored, on the line AND the constant', () => {
+    const a = past(AFTER);
+    // A's proposed negative, verbatim.
+    expect(a.line).not.toMatch(/\bsend (by|the|now|them|it)\b|action needed/i);
+    for (const [why, guard, mustCatch] of PAST_WINDOW_GUARDS) {
+      expect(mustCatch, `witness — the guard is live: ${why}`).toMatch(guard);
+      expect(a.line, why).not.toMatch(guard);
+      expect(past(Date.parse(DEADLINE)).line, `${why} (at the boundary)`).not.toMatch(guard);
+      expect(SELLER_NEXT_ACTION_COPY.windowPassed, `${why} (the constant)`).not.toMatch(guard);
+    }
+    // "Send" appears once — as "Send window" — and nowhere else (not even inside "resend").
+    expect(a.line.match(/send/gi) ?? []).toHaveLength(1);
+    expect(a.line).toMatch(/^Send window\b/);
   });
 
   it('SN6: the switch happens AT the deadline (same boundary as the send screen countdown)', () => {
@@ -157,6 +196,8 @@ describe('server expired — the existing do-not-send sentence', () => {
       expect(a).toEqual({ kind: 'do_not_send', line: SELLER_ORDER_CLOSED_COPY.expired.body, tone: 'warning' });
     }
     expect(SELLER_NEXT_ACTION_COPY.doNotSend).toContain("Don't transfer the tickets");
+    // C owns the sentence (it may change at integration); structurally it must never invite a send.
+    expect(SELLER_NEXT_ACTION_COPY.doNotSend).not.toMatch(/\bsend (by|the|now|them|it)\b|action needed/i);
   });
 
   it('SN14: "expired" is said only when the SERVER status says it', () => {
