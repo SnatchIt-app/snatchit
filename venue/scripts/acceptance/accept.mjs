@@ -2,6 +2,7 @@
 // Venue dashboard slice 1 — automated acceptance runner (local rehearsal or the shared sandbox).
 //
 //   node venue/scripts/acceptance/accept.mjs --target local   --phase all
+//   node venue/scripts/acceptance/accept.mjs --target local   --db x_rehears --url http://localhost:3402 --app http://localhost:3403 --cdp-ports 9800-9899 --phase all
 //   node venue/scripts/acceptance/accept.mjs --target sandbox --project-ref ofaidukbieeekqaboscm --phase preflight
 //   VENUE_ACCEPT_WINDOW=W1 node venue/scripts/acceptance/accept.mjs --target sandbox --project-ref ofaidukbieeekqaboscm --window W1 --phase fixtures
 //
@@ -19,6 +20,7 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { makeTarget, REPO, ROLES, assertUuid } from "./lib/target.mjs";
 import { launchBrowser } from "./lib/cdp.mjs";
+import { authCookie, parsePortRange, preflightLedgerChecks, roleLabelClaimed, sessionCookieHolds, verifyApplyLedgerChecks, waitSettled } from "./lib/checks.mjs";
 
 // ---------------------------------------------------------------- args
 const argv = process.argv.slice(2);
@@ -31,9 +33,13 @@ const opts = {
   phase: arg("phase", "preflight"),
   projectRef: arg("project-ref"),
   db: arg("db", "snatchit_rehears_venueapi_rc"),
+  // Local target only: the harness API (auth stub). Unset = http://localhost:3202; lib/target.mjs refuses non-loopback.
+  url: arg("url"),
   app: arg("app", "http://localhost:3300"),
   window: arg("window"),
   chrome: arg("chrome", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+  // Chrome's DevTools port range, "<lo>-<hi>" (default 9400-9799 in lib/cdp.mjs); a port in use is skipped.
+  cdpPorts: parsePortRange(arg("cdp-ports")),
   out: arg("out"),
 };
 const OUT = opts.out ?? join(REPO, "venue/scripts/acceptance/.runs", opts.target);
@@ -89,8 +95,19 @@ const ID = {
 const A = `/o/${ID.orgA}/v/${ID.venA}`;
 const B = `/o/${ID.orgB}/v/${ID.venB}`;
 const TITLE = { e1: "Hosted Acceptance Night A (synthetic, on sale)", e2: "Hosted Acceptance Draft A (synthetic)", e3: "Hosted Acceptance Night B (synthetic, announced)", e4: "Hosted Acceptance Draft B (synthetic)" };
-const DENIED = "You don't have access to this.";
+// v2 denial copy (components/ui/State.tsx DeniedState, also used by EntryGate): "<surface> isn't open to you."
+// The pre-v2 app said "You don't have access to this." — that sentence is now only the database 42501 screen.
+const DENIED = "isn't open to you.";
 const NO_GRANT = "holds no staff or organization role at this venue";
+// Role labels the app shows only once it has verified a grant: roleLabelClaimed() in lib/checks.mjs (unit-tested).
+// v2 streams every venue screen behind src/app/o/[org]/v/[venue]/loading.tsx. A client-side navigation (the redirect
+// after sign-in) commits the new URL while that fallback is still showing, so a page is read only once it is gone;
+// settled() throws if it never goes (20 s), which records a FAIL for the phase rather than checking the skeleton.
+const ROUTE_LOADING = "[data-route-loading]";
+// v2 events list: remaining-only figure for the next session ("<n> still available"; the pre-v2 app said "<n> available").
+const REMAINING_A = "174 still available";
+// v2 keeps Sign out in the account popover (a closed <details>), so it is in the DOM but not in innerText.
+const SIGN_OUT = 'form[action="/logout"] button';
 const SIGN_IN = "Sign in to continue";
 
 // ---------------------------------------------------------------- http helpers
@@ -128,14 +145,13 @@ const denied = (r) => [401, 403].includes(r.status) && r.json?.code === "42501";
 // ---------------------------------------------------------------- phases
 async function preflight() {
   const snap = target.sqlFile(SQL("preflight.sql"));
-  if (snap.ledger_count === null) check("preflight", "local replay: no migration ledger to inspect (expected)", target.name === "local", "");
-  else check("preflight", "076-092 recorded in the ledger, no duplicate versions", snap.ledger_076_092 === 17 && snap.ledger_dupes === 0, { ledger_count: snap.ledger_count, tip: snap.ledger_tip_timestamp, dupes: snap.ledger_dupes });
+  for (const [id, ok, detail] of preflightLedgerChecks(snap, target.name)) check("preflight", id, ok, detail);
   check("preflight", "catalog/venue/kernel schemas present", ["catalog", "venue", "kernel"].every((s) => snap.schemas_present.includes(s)), snap.schemas_present);
   check("preflight", "no fixture-id collisions (5a4d0b0e-)", snap.fixture_id_collisions === 0, snap.fixture_id_collisions);
   check("preflight", "no leftover acceptance users", snap.acceptance_users === 0, snap.acceptance_users);
   check("preflight", "feature flags dark", snap.feature_flags.every((f) => f.v === false), snap.feature_flags);
   if (target.name === "sandbox") {
-    check("preflight", "venue_api not yet applied (views 0, no ledger row)", snap.venue_api_views === 0 && snap.ledger_has_venue_api === 0, { views: snap.venue_api_views, ledger: snap.ledger_has_venue_api });
+    check("preflight", "venue_api not yet applied (views 0, no 20261021120000 ledger row)", snap.venue_api_views === 0 && snap.ledger_has_venue_api === 0, { views: snap.venue_api_views, ledger: snap.ledger_has_venue_api });
     const probe = await rest("nonexistent");
     check("preflight", "venue_api not exposed yet (406 PGRST106)", probe.status === 406 && probe.json?.code === "PGRST106", probe.text.slice(0, 160));
     const jwks = await fetch(`${target.url}/auth/v1/.well-known/jwks.json`).then((r) => r.json()).catch(() => null);
@@ -146,9 +162,11 @@ async function preflight() {
   console.log(`baseline -> ${BASELINE}`);
 }
 
+// venue_api read views: registry 159 (pgTAP 226). The pre-registry 20260910120000 file is retired and never applied.
 function apply() {
-  const mig = join(REPO, "supabase/migrations/20260910120000_venue_api_read_views.sql");
-  const tmp = join(tmpdir(), `ledger_20260910120000_${process.pid}.sql`);
+  const mig = join(REPO, "supabase/migrations/20261021120000_venue_api_read_views.sql");
+  if (!existsSync(mig)) throw new Error(`${mig} not found: run the kit from a tree that carries registry 159 (never the retired 20260910120000 file)`);
+  const tmp = join(tmpdir(), `ledger_20261021120000_${process.pid}.sql`);
   writeFileSync(tmp, execFileSync("python3", [join(REPO, "venue/scripts/acceptance/ledger-row.py"), mig], { encoding: "utf8" }), { mode: 0o600 });
   try {
     target.execFile(mig);
@@ -166,7 +184,7 @@ function verifyApply() {
   check("verify-apply", "anon has no USAGE; authenticated has USAGE", v.anon_usage === false && v.authenticated_usage === true, v);
   check("verify-apply", "authenticated SELECT on all 8, no other client grants", v.authenticated_select_grants === 8 && v.non_select_grants_to_clients === 0 && v.anon_or_public_grants === 0, v);
   check("verify-apply", "no SECURITY DEFINER functions in venue_api", v.definer_functions_in_schema === 0, v);
-  if (target.name === "sandbox") check("verify-apply", "ledger row 20260910120000 = venue_api_read_views with 24 statements", v.ledger_row_statements === 24 && v.ledger_row_name === "venue_api_read_views", { name: v.ledger_row_name, statements: v.ledger_row_statements });
+  if (target.name === "sandbox") for (const [id, ok, detail] of verifyApplyLedgerChecks(v)) check("verify-apply", id, ok, detail);
 }
 
 async function verifyExposure() {
@@ -324,16 +342,7 @@ async function api() {
   check(P, "C6 Venue A manager cannot read Venue B draft", Array.isArray(r.json) && r.json.length === 0, r.text);
 }
 
-// ---- browser helpers
-function authCookie(cookies) {
-  const parts = cookies.filter((c) => /^sb-.+-auth-token(\.\d+)?$/.test(c.name));
-  if (!parts.length) return null;
-  const base = parts[0].name.replace(/\.\d+$/, "");
-  const ordered = parts.filter((c) => c.name === base).concat(parts.filter((c) => c.name.startsWith(`${base}.`)).sort((a, b) => Number(a.name.split(".").pop()) - Number(b.name.split(".").pop())));
-  const raw = ordered.map((c) => c.value).join("");
-  const json = raw.startsWith("base64-") ? Buffer.from(raw.slice(7), "base64url").toString("utf8") : decodeURIComponent(raw);
-  return { base, parts: ordered, session: JSON.parse(json), template: ordered[0] };
-}
+// ---- browser helpers (authCookie and sessionCookieHolds: lib/checks.mjs, unit-tested)
 async function writeAuthCookie(page, ck, session) {
   const value = `base64-${Buffer.from(JSON.stringify(session)).toString("base64url")}`;
   for (const p of ck.parts) await page.deleteCookie(p.name, opts.app);
@@ -341,6 +350,8 @@ async function writeAuthCookie(page, ck, session) {
   for (let i = 0; i < chunks.length; i++) {
     await page.setCookie({ name: chunks.length === 1 ? ck.base : `${ck.base}.${i}`, value: chunks[i], url: opts.app, path: "/", httpOnly: ck.template.httpOnly, secure: ck.template.secure, sameSite: ck.template.sameSite ?? "Lax", expires: ck.template.expires > 0 ? ck.template.expires : undefined });
   }
+  // Read it back: a refused write must not let H2/H3 pass on whatever cookie (or none) the browser has instead.
+  return sessionCookieHolds(authCookie(await page.cookies(opts.app)), session);
 }
 async function signIn(page, user, next) {
   await page.goto(`${opts.app}/login?next=${encodeURIComponent(next)}`);
@@ -349,23 +360,27 @@ async function signIn(page, user, next) {
   await page.click('button[type="submit"]');
   const left = await page.waitFor(`location.pathname !== '/login' || document.body.innerText.includes('Sign-in failed')`, 20000);
   await page.waitFor("document.readyState === 'complete'", 5000);
+  await settled(page);
   return left && !(await page.text()).includes("Sign-in failed");
 }
+const settled = (page) => waitSettled(page, ROUTE_LOADING, 20000);
+const openBrowser = () => launchBrowser(opts.chrome, opts.cdpPorts ? { portRange: opts.cdpPorts } : {});
 async function visit(page, path) {
   await page.goto(`${opts.app}${path}`);
+  await settled(page);
   return page.text();
 }
 
 async function browser() {
   const { users } = loadState();
   const P = "browser";
-  const br = await launchBrowser(opts.chrome);
+  const br = await openBrowser();
   try {
     // Signed out, and the app must be in database mode against this target.
     const anon = await br.newPage();
     let t = await visit(anon, `${A}/events`);
     check(P, "H1 signed out -> Sign in to continue (database mode)", t.includes(SIGN_IN), t.slice(0, 200));
-    check(P, "P1 signed out: no role label, no sample fixture names, no phantom role switch", !/Venue manager|Org owner|\(sample\)|role switch/i.test(t), t.slice(0, 300));
+    check(P, "P1 signed out: no role label, no sample fixture names, no phantom role switch", !roleLabelClaimed(t) && !/\(sample\)|role switch/i.test(t), t.slice(0, 300));
     await anon.close();
 
     // Manager: real login, page content, projection, no write controls.
@@ -373,10 +388,10 @@ async function browser() {
     check(P, "H1 manager signs in through /login", await signIn(m, users.manager, `${A}/events`), await m.url());
     t = await m.text();
     check(P, "H1 events list shows both Venue A events", t.includes(TITLE.e1) && t.includes(TITLE.e2), t.slice(0, 400));
-    check(P, "H1 remaining-only figure (174 available)", t.includes("174 available"), t.slice(0, 400));
+    check(P, `H1 remaining-only figure (${REMAINING_A})`, t.includes(REMAINING_A), t.slice(0, 400));
     check(P, "C5 strip derives Venue manager from grants", t.includes("Capabilities come from your grants") && t.includes("Venue manager"), t.slice(0, 300));
     check(P, "H1 header shows the signed-in email", t.includes(users.manager.email), t.slice(0, 300));
-    check(P, "H1 Sign out offered", t.toLowerCase().includes("sign out"), "");
+    check(P, "H1 Sign out offered", await m.evaluate(`!!document.querySelector(${JSON.stringify(SIGN_OUT)})`), "");
     check(P, "H1 no Create event control in database mode", !t.toLowerCase().includes("create event"), "");
     await m.screenshot(join(OUT, "evidence-manager-events.png"));
     t = await visit(m, `${A}/events/${ID.e1}`);
@@ -417,9 +432,10 @@ async function browser() {
     check(P, "H2 session cookie present after login", !!ck, "");
     const good = ck.session;
     const bad = { ...good, access_token: good.access_token.slice(0, -4) + (good.access_token.endsWith("AAAA") ? "BBBB" : "AAAA"), expires_at: Math.floor(Date.now() / 1000) + 3000 };
-    await writeAuthCookie(m, ck, bad);
+    const heldBad = await writeAuthCookie(m, ck, bad);
+    check(P, "H2 the browser holds the tampered session cookie (read back)", heldBad, "the rewritten cookie was refused or not stored");
     t = await visit(m, `${A}/events`);
-    check(P, "H2 tampered token -> Sign in to continue, no data", t.includes(SIGN_IN) && !t.includes(TITLE.e1), t.slice(0, 200));
+    check(P, "H2 tampered token -> Sign in to continue, no data", heldBad && t.includes(SIGN_IN) && !t.includes(TITLE.e1), t.slice(0, 200));
 
     // H3 refresh: force the session past expiry; the refreshed session must be persisted to the cookie.
     await m.close();
@@ -428,9 +444,10 @@ async function browser() {
     await new Promise((r) => setTimeout(r, 1100)); // a refresh in the same second as sign-in can re-mint an identical access JWT
     ck = authCookie(await m2.cookies(opts.app));
     const before = ck.session;
-    await writeAuthCookie(m2, ck, { ...before, expires_at: Math.floor(Date.now() / 1000) - 120 });
+    const heldExpired = await writeAuthCookie(m2, ck, { ...before, expires_at: Math.floor(Date.now() / 1000) - 120 });
+    check(P, "H3 the browser holds the expired session cookie (read back)", heldExpired, "the rewritten cookie was refused or not stored");
     t = await visit(m2, `${A}/events`);
-    check(P, "H3 expired session still renders data (refreshed)", t.includes(TITLE.e1), t.slice(0, 200));
+    check(P, "H3 expired session still renders data (refreshed)", heldExpired && t.includes(TITLE.e1), t.slice(0, 200));
     const afterCk = authCookie(await m2.cookies(opts.app));
     check(P, "H3 refreshed session persisted to the cookie (rotated refresh token, future expiry)", !!afterCk && afterCk.session.refresh_token !== before.refresh_token && afterCk.session.expires_at > Math.floor(Date.now() / 1000), afterCk ? { expires_at: afterCk.session.expires_at, access_changed: afterCk.session.access_token !== before.access_token, refresh_changed: afterCk.session.refresh_token !== before.refresh_token } : "cookie gone");
     // Hosted GoTrue revokes a reused refresh token once its reuse interval (10 s default) has passed, so on the
@@ -440,7 +457,7 @@ async function browser() {
     check(P, `H3 next request ${target.name === "sandbox" ? "12 s later (past the refresh-token reuse interval)" : "after refresh"} still signed in`, t.includes(TITLE.e1), t.slice(0, 200));
 
     // H6 logout.
-    await m2.click('form[action="/logout"] button');
+    await m2.click(SIGN_OUT);
     await m2.waitFor("location.pathname === '/login'", 15000);
     check(P, "H6 Sign out lands on /login", (await m2.url()).includes("/login"), await m2.url());
     check(P, "H6 auth cookie removed", !authCookie(await m2.cookies(opts.app)), "");
@@ -473,7 +490,7 @@ async function browser() {
     t = await visit(o, `/o/${ID.orgA}/v/${ID.venC}/events`);
     check(P, "C7 Org A owner enters Org A's pending venue (Org owner)", !t.includes(DENIED) && t.includes("Org owner"), t.slice(0, 300));
     t = await visit(o, `/o/${ID.orgA}/v/${ID.venB}/events`);
-    check(P, "C6 Org A owner at /o/A/v/B: denied, no Venue B rows, no role claimed", t.includes(DENIED) && !t.includes(TITLE.e3) && !t.includes(TITLE.e4) && !/Capabilities come from your grants/.test(t), t.slice(0, 300));
+    check(P, "C6 Org A owner at /o/A/v/B: denied, no Venue B rows, no role claimed", t.includes(DENIED) && !t.includes(TITLE.e3) && !t.includes(TITLE.e4) && !roleLabelClaimed(t), t.slice(0, 300));
     t = await visit(o, `/o/${ID.orgA}/v/${ID.venB}/events/${ID.e3}`);
     check(P, "C6 Org A owner at /o/A/v/B event page: denied", t.includes(DENIED) && !t.includes(TITLE.e3) && !t.includes("Hidden Venue B tier"), t.slice(0, 300));
     await o.close();
@@ -487,7 +504,7 @@ async function browser() {
     check(P, "H7 concurrent: manager sees A events", tm.includes(TITLE.e1), tm.slice(0, 200));
     check(P, "H7 concurrent: outsider sees denial, never A's rows", to.includes(DENIED) && to.includes(NO_GRANT) && !to.includes(TITLE.e1) && !to.includes(TITLE.e2), to.slice(0, 200));
     await out.screenshot(join(OUT, "evidence-outsider-denied.png"));
-    check(P, "P1 grant-less caller: no role label claimed, no sample names, no empty menu", !/Capabilities come from your grants: (Venue|Org)|Venue manager|\(sample\)|role switch/i.test(to) && !(await out.evaluate("[...document.querySelectorAll('details')].some(d => /Menu ·/.test(d.innerText) && d.querySelectorAll('a').length === 0)")), to.slice(0, 300));
+    check(P, "P1 grant-less caller: no role label claimed, no sample names, no empty menu", !roleLabelClaimed(to) && !/\(sample\)|role switch/i.test(to) && !(await out.evaluate("[...document.querySelectorAll('details')].some(d => /Menu ·/.test(d.innerText) && d.querySelectorAll('a').length === 0)")), to.slice(0, 300));
     check(P, "P1 manager header shows no sample fixture names in database mode", !/\(sample\)/.test(tm), tm.slice(0, 300));
     for (const path of [`${A}/events/${ID.e1}`, `${A}/events/${ID.e1}/door`, `${B}/events`, `${A}/events?role=venue_manager&state=live`, `/o/${ID.orgA}/v/${ID.venC}/events`]) {
       t = await visit(out, path);
@@ -512,7 +529,7 @@ async function precedence() {
   check("precedence", "owner now also holds venue_scanner @ A", JSON.stringify(r.json) === JSON.stringify([{ venue_id: ID.venA, role: "venue_scanner" }]), r.text);
   r = await rest("my_staff_roles?order=role", { token: Tf });
   check("precedence", "finance holds venue_finance + venue_scanner @ B", JSON.stringify(r.json) === JSON.stringify([{ venue_id: ID.venB, role: "venue_finance" }, { venue_id: ID.venB, role: "venue_scanner" }]), r.text);
-  const br = await launchBrowser(opts.chrome);
+  const br = await openBrowser();
   try {
     const o = await br.newPage();
     await signIn(o, users.owner, `${A}/events`);
@@ -529,7 +546,7 @@ async function precedence() {
 
 async function revocation() {
   const { users } = loadState();
-  const br = await launchBrowser(opts.chrome);
+  const br = await openBrowser();
   try {
     const m = await br.newPage();
     await signIn(m, users.manager, `${A}/events`);
@@ -574,6 +591,12 @@ function postflight() {
     for (const k of ["organizations", "venues", "events", "sessions", "ticket_types", "batches", "staff_roles", "org_members", "auth_users"]) {
       check("postflight", `count ${k} back to baseline (${base.counts[k]})`, now.counts[k] === base.counts[k], { before: base.counts[k], after: now.counts[k] });
     }
+    // Manifest scope: nothing outside the venue fixtures changed (native tickets, checkout/payments, door/scan, resale).
+    const changed = Object.keys(base.collateral ?? {}).filter((k) => base.collateral[k] !== now.collateral?.[k]);
+    check("postflight", `out-of-scope tables unchanged (${Object.keys(base.collateral ?? {}).length} checked)`, !!base.collateral && changed.length === 0, changed.map((k) => ({ table: k, before: base.collateral[k], after: now.collateral[k] })));
+    check("postflight", "platform_config unchanged (feature flags incl. issuance/scanning)", base.platform_config_digest === now.platform_config_digest, { before: base.platform_config_digest, after: now.platform_config_digest });
+    const get = (arr, k) => (arr.find((s) => s.startsWith(`${k}=`)) ?? "").slice(k.length + 1);
+    check("postflight", "db_pre_request hook unchanged", get(base.authenticator_pgrst, "pgrst.db_pre_request") === get(now.authenticator_pgrst, "pgrst.db_pre_request"), now.authenticator_pgrst);
   } else check("postflight", "baseline present", false, "no baseline.json");
 }
 

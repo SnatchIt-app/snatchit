@@ -4,10 +4,24 @@ import type { NextConfig } from "next";
 const isDev = process.env.NODE_ENV === "development";
 
 /**
- * Preview build: self-only CSP. There is deliberately no connect-src entry for
- * Supabase or Stripe — this app has no backend client at all (see
- * src/lib/data.ts). If a future wiring adds one, the origin must be added here
- * on purpose, not inherited.
+ * Self-only CSP in both modes. There is deliberately no connect-src entry for
+ * Supabase or Stripe: the browser never calls a backend. Fixture mode has no
+ * backend client at all; database mode runs every Supabase call (sign-in,
+ * session refresh, venue_api reads) on the server (src/lib/supabase/server.ts,
+ * src/lib/supabase/proxy.ts), so the page only ever talks to 'self'. If a
+ * future change adds a browser-side call, its origin must be added here on
+ * purpose, not inherited. No value here is host-specific, so the same policy
+ * serves the preview host and venue.snatchitapp.com.
+ *
+ * Mirrors admin/next.config.ts where it applies: the same Permissions-Policy in
+ * every mode, and HSTS outside `next dev` only. HSTS is max-age only. Sent from
+ * venue.snatchitapp.com, includeSubDomains would cover *.venue.snatchitapp.com
+ * only, never admin.snatchitapp.com or the apex; it is omitted because nothing
+ * is served under this host. preload is not wanted. Browsers ignore HSTS on
+ * plain http (localhost).
+ * Not mirrored: admin's upgrade-insecure-requests. Every subresource here is
+ * same-origin and relative (no absolute URL in src/, pinned by a test), so it
+ * would change nothing on https and only matter on http://localhost.
  */
 const csp = [
   "default-src 'self'",
@@ -29,6 +43,8 @@ const securityHeaders = [
   { key: "X-Frame-Options", value: "DENY" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   { key: "X-Robots-Tag", value: "noindex, nofollow" },
+  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=(), usb=()" },
+  ...(isDev ? [] : [{ key: "Strict-Transport-Security", value: "max-age=63072000" }]),
 ];
 
 const nextConfig: NextConfig = {

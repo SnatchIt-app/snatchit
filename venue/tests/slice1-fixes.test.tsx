@@ -106,6 +106,15 @@ describe("F1 session refresh is persisted by the proxy", () => {
     await refreshSession(new NextRequest("http://localhost:3300/login"));
     expect(ssr.getClaims).not.toHaveBeenCalled();
   });
+
+  it("refuses a new-format secret key (sb_secret_…) in the public slot rather than using it", async () => {
+    vi.stubEnv("NEXT_PUBLIC_VENUE_DATA_SOURCE", "database");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://localhost:3202");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", ["sb", "secret", "fake-test-value"].join("_"));
+    const { refreshSession } = await import("@/lib/supabase/proxy");
+    await refreshSession(new NextRequest("http://localhost:3300/login"));
+    expect(ssr.getClaims).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------

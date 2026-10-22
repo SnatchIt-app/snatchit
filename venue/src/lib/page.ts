@@ -71,9 +71,13 @@ export async function readPage(paramsP: Promise<PageParams>, spP: Promise<Search
   };
 
   let session: SessionProbe | null = null;
-  let entry: Entry = { kind: "fixtures" };
+  // Fail closed: in database mode nothing below may leave the entry open by default. A route whose ids
+  // are not UUIDs (scope not ok) is a denial, never the fixture entry.
+  let entry: Entry = ctx.source === "database" ? { kind: "denied" } : { kind: "fixtures" };
   let event: Event | null = null;
   let eventFailure: ReadFailure | null = null;
+  /** Database mode, after entry: the route venue's own name (venue_api.venues.name), for headings only. */
+  let venueName: string | null = null;
 
   if (ctx.source === "database") {
     session = await probeSession();
@@ -91,6 +95,7 @@ export async function readPage(paramsP: Promise<PageParams>, spP: Promise<Search
         else {
           entry = { kind: "ok", grants: g.data };
           ctx = { ...ctx, role: principal, verifiedRole: true };
+          venueName = venue.data?.name?.trim() || null;
           if (params.event && isUuid(params.event)) {
             const r = await dbGetEvent(params.event);
             if (r.ok) event = r.data && eventInScope(r.data, scope) ? r.data : null;
@@ -113,6 +118,7 @@ export async function readPage(paramsP: Promise<PageParams>, spP: Promise<Search
     eventFailure,
     session,
     signedInAs: session?.ok ? (session.user?.email ?? session.user?.id ?? null) : null,
+    venueName,
     first,
     now: ctx.source === "database" ? new Date() : PREVIEW_NOW,
     timeZone: VENUE.timeZone,

@@ -1,4 +1,4 @@
-import { STATUS_HELP, STATUS_LABEL, nextStatus, publishBlocker, RESALE_LABEL } from "@/lib/events";
+import { STATUS_HELP, STATUS_LABEL, nextStatus, publishBlocker, resaleLabel } from "@/lib/events";
 import { doorHoldback, sessionTotals } from "@/lib/inventory";
 import { usd, venueTime } from "@/lib/format";
 import { withPreview, type PreviewContext } from "@/lib/preview";
@@ -133,7 +133,14 @@ export function EventSetup({ event, types, batches, ctx, basePath, timeZone, ope
       {/* 5. Everything else, out of the way but reachable. */}
       <div className="space-y-4">
         {canReadResalePolicy(ctx.role) ? (
-          <Detail summary={`Can tickets be passed on? ${RESALE_LABEL[event.resaleMode]}`}>
+          <Detail summary={`Can tickets be passed on? ${resaleLabel(event)}`}>
+            {event.resaleMode === "not_readable" ? (
+              event.status === "draft" ? (
+                <p className="mb-2">This event is a draft. Its own resale setting can&apos;t be read until the event is published, so nothing is shown here rather than a guess: the venue-wide setting is not necessarily the one that applies.</p>
+              ) : (
+                <p className="mb-2">This venue isn&apos;t approved yet. Its venue-wide resale setting can&apos;t be read until it is, so nothing is shown here rather than a guess: resale is not necessarily off.</p>
+              )
+            ) : null}
             <p>Resale is off unless you turn it on. Tickets already listed keep the rules they were listed under.</p>
             {editor && ctx.writesEnabled !== false ? <p className="mt-2">Changing this writes a new version rather than editing the old one, so you can always see which rules a ticket was sold under.</p> : null}
           </Detail>

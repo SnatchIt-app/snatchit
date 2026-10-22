@@ -1,4 +1,4 @@
-import type { EventStatus, InventoryBatch, TicketType } from "@/lib/types";
+import type { Event, EventStatus, InventoryBatch, TicketType } from "@/lib/types";
 
 /** Spec §7.4 — forward-only lifecycle; the UI offers only the next legal transition. */
 const FORWARD: EventStatus[] = ["draft", "announced", "on_sale", "live", "completed"];
@@ -53,4 +53,15 @@ export const RESALE_LABEL = {
   buy_now: "Buy now",
   auction: "Auction",
   offer: "Offer",
+  not_readable: "Resale not readable until published",
 } as const;
+
+/**
+ * The resale line for an event. `not_readable` has two causes (lib/db/rows.ts): a draft's own policy is hidden by
+ * RLS until it is published, or the venue is not approved and RLS hides its venue-wide policy. Only a draft can be
+ * "published", so any other event says what it is actually waiting for.
+ */
+export function resaleLabel(e: Pick<Event, "status" | "resaleMode">): string {
+  if (e.resaleMode !== "not_readable") return RESALE_LABEL[e.resaleMode];
+  return e.status === "draft" ? RESALE_LABEL.not_readable : "Resale not readable until the venue is approved";
+}
