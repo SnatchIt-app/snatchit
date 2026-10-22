@@ -1,5 +1,7 @@
 # PHASE 2 — PFA-18C BOOTSTRAP READINESS REPORT
 
+> **Redaction (2026-10-22, owner decision):** the AWS account id and the production KMS key id that this record originally quoted were replaced in place with `[redacted: account id]` / `[redacted: key id]`. Nothing else in the record changed; the unredacted original is preserved in private evidence on the encrypted SSD. The JSON artifacts in `pfa18c_artifacts/` carry the same in-place marker.
+
 **Date:** 2026-09-05 · **Sessions:** backend continuation (AWS baseline reconciliation + readiness) · **corrected + P1-PUBKEY-FORMAT fixed** (same day, later session)
 **Scope:** design + evidence only. **No AWS mutation, no production-DB mutation, no KMS key, no deploy, no flag, no billing change, no migration 110.** C18 preserved.
 
@@ -14,7 +16,7 @@ PRODUCTION (fresh, read-only, 2026-09-05 20:17:23Z):
                       monitor false · native_issuance false · native_scanning false · tickets/pins/sessions/scans/manifests 0 ·
                       native edges NOT deployed  →  UNCHANGED vs recorded baseline; no repair performed
 M4:                   PASS (canonical §6.1 L428–536 writes algorithm='ES256' explicitly; PRE-FLIGHT 2b; POST-CHECK)
-BOOTSTRAP VERDICT:    NOT READY — CreateKey NO-GO in account 652872010073 under the owner's KEEP-FREE-PLAN decision
+BOOTSTRAP VERDICT:    NOT READY — CreateKey NO-GO in account [redacted: account id] under the owner's KEEP-FREE-PLAN decision
                       (see P0-FREEPLAN); P1-PUBKEY-FORMAT FIXED in the repository (tests green, deploy pending);
                       M3 credential provider still to build; owner decisions listed in §10
 ```
@@ -37,7 +39,7 @@ No planned control is marked PASS anywhere in this report. No owner ratification
 
 ## 2. AWS baseline (OWNER-RETURNED, 2026-09-05)
 
-Account `652872010073` · principal `arn:aws:iam::652872010073:user/jose-admin` (IAM user, `AIDAZQARUJFMXKFV5U5JY`) · auth `aws login` (temporary
+Account `[redacted: account id]` · principal `arn:aws:iam::[redacted: account id]:user/jose-admin` (IAM user, `AIDAZQARUJFMXKFV5U5JY`) · auth `aws login` (temporary
 credentials, no long-lived keys) · CLI 2.36.40 · profile `snatchit-admin` · saved region `us-east-1`, env unset · Organizations **not in use** ·
 CloudTrail `[]` · S3 `[]` · IAM users `jose-admin` only (AdministratorAccess via group `SnatchIt-admins`; passkey MFA registered; **fresh MFA
 sign-in test deferred**) · IAM roles: 3 service-linked only · root: MFA used, **0 access keys** · long-lived keys created: **none** ·
@@ -67,7 +69,7 @@ documentation (CLAUDE-OBSERVED, 2026-09-05):
   associated AWS account." (S3 user guide)
 
 Consequence under the owner's decision (recorded, not overridden): a production KMS trust root and compliance-locked audit evidence created in
-account `652872010073` have a hard horizon of **2027-03-05** (then a 90-day grace, then erasure) unless the plan is upgraded, and Object-Lock
+account `[redacted: account id]` have a hard horizon of **2027-03-05** (then a 90-day grace, then erasure) unless the plan is upgraded, and Object-Lock
 COMPLIANCE retention would be ended by account closure rather than honoured. Engineering therefore holds **CreateKey = NO-GO in this account**
 while the Free plan is kept. This does **not** block repository work (done), M1/M2/M3 *design* (done), or local tests. Paths the owner may choose
 later — none is authorized or performed now: (a) authorize a paid-plan upgrade before CreateKey (≈ $1–2/month; remaining credits still apply
@@ -136,7 +138,7 @@ Neither needs `kms:GetPublicKey` at runtime (the public key comes from the DB ro
 | Element | Design | Artifact |
 |---|---|---|
 | Trail | `snatchit-audit-trail`, **multi-region**, log-file validation **ON**, management events **Read+Write**, KMS events **included**, no Insights/data events (cost) | — |
-| Bucket | `snatchit-audit-652872010073` (globally unique; account id in name), `us-east-1` (omit `--create-bucket-configuration` for us-east-1), **Object Lock enabled at creation** (`--object-lock-enabled-for-bucket`; versioning auto), Block Public Access ALL, TLS-only | `m1_audit_bucket_policy.json` |
+| Bucket | `snatchit-audit-[redacted: account id]` (globally unique; account id in name), `us-east-1` (omit `--create-bucket-configuration` for us-east-1), **Object Lock enabled at creation** (`--object-lock-enabled-for-bucket`; versioning auto), Block Public Access ALL, TLS-only | `m1_audit_bucket_policy.json` |
 | Object Lock | **COMPLIANCE** default retention, `Years = <OWNER DECISION>` | `m1_object_lock_configuration.json` |
 | Encryption | **SSE-S3 (AES256)** — satisfies the ratified "SSE-S3 or a CMK the ceremony principal cannot administer". A log CMK would add a second key whose policy/deletion becomes a new attack surface for no gain; **not introduced** | — |
 | Ceremony identity | new IAM role **`SnatchIt-KMS-Ceremony`**, assumed by `jose-admin` **only with MFA** and fixed session name `pfa18c-ceremony`, max session 1 h. All ceremony AWS calls run as this role session | `m1_ceremony_role_trust.json`, `m1_ceremony_role_policy.json` |
@@ -236,7 +238,7 @@ Status legend: **I** implemented · **T** tested · **D** deployed · **V** oper
 | E3 | **M6 — migration 110** BEFORE INSERT guard on `kernel.signing_key` — **implemented + rehearsal-tested (commit `e181c3b`); NOT deployed; production ledger unchanged (124)**; spec/review `docs/phase2/M6_MIGRATION_110_SPEC_AND_REVIEW.md` | ✔ | ✔ | — | — | trigger `tg_signing_key_insert_guard` enforcing the **ratified global ES256 bootstrap lineage with no bypass**: reject `scope <> 'global'` (scoped keys stay parked until a PFA un-parks them — a future PFA changes the guard by migration, never by a runtime switch); reject `algorithm <> 'ES256'` unconditionally (no session GUC, no role exemption — the 103 `EdDSA` default can never survive an INSERT); reject `kms_handle_ref` not matching `^arn:aws:kms:[a-z0-9-]+:\d{12}:key/[0-9a-f-]{36}$`; reject `public_key` that does not parse as an SPKI PEM `PUBLIC KEY` block of a P-256 key or that contains `PRIVATE KEY`; reject `status <> 'active'` on insert; pgTAP suite 176 (≥8 negatives incl. EdDSA-with-superuser + 1 positive); rehearsal reset+test green; G-4; Gate-2 census bumped; rollback file; NOT applied to production without authorization; **required before issuance, not before bootstrap** |
 | E4 | **Gated two-person post-revoke re-bootstrap artifact** — **implemented + rehearsal-tested as migration 111 (commit `927a02a`); NOT deployed; production ledger unchanged (124)**; spec/review `docs/phase2/E4_MIGRATION_111_RECOVERY_SPEC_AND_REVIEW.md` | ✔ | ✔ | — | — | SQL artifact: PRE-FLIGHT exactly one `revoked` global + zero `active`; two distinct `platform_admin`+aal2 command keys recorded in `kernel.ceremony_approval` (new table, migration) within a 15-min window, else `dual_control_unavailable`; sets `algorithm` explicitly; fingerprint gate as §6.1; classified TWO-PERSON-MANDATORY post-T3; pgTAP negatives (single approver, expired window, active key present) |
 | E5 | **M5 end-to-end credential-sign test** | — | — | — | — | after E1+E2 and a separately authorized **dark** deploy of `credential-sign` with `KMS_PROVIDER=aws`: one throwaway atom on a non-saleable test event; edge returns a token; sign-after-verify PASS; CloudTrail shows exactly one `Sign` by the runtime role; `feature.native_issuance_enabled` stays false throughout; recorded in the execution record |
-| E6 | **Model A audit isolation** — audit plane before T3; **account LAYOUT settled before CreateKey** | — | — | — | — | **SCPs never apply to an Organizations management account**, so the signing workload must NOT live in the management account. Proposed layout (no organization created now): (1) a NEW, dedicated **management account** that hosts no workloads, no KMS keys, no trails of its own — root MFA, no access keys, used only for Organizations/SCP administration; (2) a **workload (signing) MEMBER account** where the production KMS key, ceremony/runtime/verifier principals, and the app's AWS resources live — this is what the SCP protects; (3) an **audit MEMBER account** owning the organization trail and the Object-Lock bucket, with no workload principals. Because the production key must be created *inside* the member account that the SCP binds, the layout decision precedes CreateKey; the KMS ARN then carries that member account id. Open owner questions: whether `652872010073` (Free plan) becomes the workload member (FAQ: an upgrade *via* Organizations expires Free-Tier credits immediately; joining an org is plan-affecting and must be owner-authorized) or a fresh paid workload account is created. Acceptance: org + 2 member accounts; org trail → audit-account Object-Lock bucket; SCP on the workload account denying `cloudtrail:Stop*/Delete*/Update*/PutEventSelectors`, audit-bucket mutation, and `kms:ScheduleKeyDeletion` on the signing key to *everyone including account admins*; Device-2 read-back from the audit account; PFA-18C residual formally closed |
+| E6 | **Model A audit isolation** — audit plane before T3; **account LAYOUT settled before CreateKey** | — | — | — | — | **SCPs never apply to an Organizations management account**, so the signing workload must NOT live in the management account. Proposed layout (no organization created now): (1) a NEW, dedicated **management account** that hosts no workloads, no KMS keys, no trails of its own — root MFA, no access keys, used only for Organizations/SCP administration; (2) a **workload (signing) MEMBER account** where the production KMS key, ceremony/runtime/verifier principals, and the app's AWS resources live — this is what the SCP protects; (3) an **audit MEMBER account** owning the organization trail and the Object-Lock bucket, with no workload principals. Because the production key must be created *inside* the member account that the SCP binds, the layout decision precedes CreateKey; the KMS ARN then carries that member account id. Open owner questions: whether `[redacted: account id]` (Free plan) becomes the workload member (FAQ: an upgrade *via* Organizations expires Free-Tier credits immediately; joining an org is plan-affecting and must be owner-authorized) or a fresh paid workload account is created. Acceptance: org + 2 member accounts; org trail → audit-account Object-Lock bucket; SCP on the workload account denying `cloudtrail:Stop*/Delete*/Update*/PutEventSelectors`, audit-bucket mutation, and `kms:ScheduleKeyDeletion` on the signing key to *everyone including account admins*; Device-2 read-back from the audit account; PFA-18C residual formally closed |
 | E7 | Gate-C owner/config blockers (unchanged) | n/a | n/a | n/a | — | **First-sale gate:** LEGAL/TAX posture (PFA-PT-7) affirmed; `fee.buyer_service_bps` owner-set; venue Connect onboarding with transfers capability; dark deploy of native edges (separate authorization); issuance/scanning flag flips (separate authorization). **Separate, later gate — `deletion.post_event_hold_hours`** gates **deletion *finalization*** (post-event erasure may not run while it is owner-unset; erasure fails closed) — it does **not** gate the first sale. See `FINAL_OWNER_SIGNATURE_AND_PRODUCTION_PREFLIGHT.md` Gate C and the deletion-gate stop condition |
 
 Already in place (I/T, dark, not D/V): `AwsKmsSigner` ES256 transport + taxonomy (vitest 56/56 in `credential-sign-kms.test.ts`), sign-after-verify,
@@ -246,7 +248,7 @@ PFA-18B revoke + force-close (106/109), door PIN KDF + machine authority (107/10
 ## 10. Blockers, owner decisions, next actions
 
 **Blocking Phase-1 AWS mutations (in order):**
-1. **P0-FREEPLAN — resolved as an owner decision (keep Free plan), which leaves CreateKey NO-GO in `652872010073`.** M1/M2/M3 setup in this account
+1. **P0-FREEPLAN — resolved as an owner decision (keep Free plan), which leaves CreateKey NO-GO in `[redacted: account id]`.** M1/M2/M3 setup in this account
    would inherit the 2027-03-05 horizon. Owner to choose later among §3(a)/(b)/(c); nothing authorized now.
 2. **Model A account layout** (E6) — settle *which* account will hold the production key before any CreateKey (the key ARN is account-bound).
 3. **Owner decisions still open:** (a) pin region `us-east-1`; (b) Object-Lock retention years (1 / 3 / 7 — engineering recommends 3, never chosen by
@@ -294,7 +296,7 @@ cases). Design + operations: `docs/phase2/_impl/KMS_RUNTIME_CREDENTIALS.md`. Sui
 
 > **M1 distribution + manifest signature key identity — CLOSED IN REHEARSAL (2026-09-05, commit `2153f44`).** Migration 114 (`venue.get_signing_keys_door` for bearer-only devices via `door-session /keys`; `venue.get_manifest_signing_context` as the door-manifest edge's only source of `signature.key_id` — the single active global `kernel.signing_key`; env-only handle inference removed; sign-after-verify per response). Ceremony binding recorded in `SCANNER_VERIFIER_CONTRACT.md` §4: D4 full-ARN `kms_handle_ref`, D3/D5 `public_key`/fingerprint from that key, E2 role scope. Census venue 85→87 / five-schema 294→296. Rehearsal-tested (180 42/42, real-RPC artifact verification), not deployed, production unchanged. Still open: signed M1 bundles.
 
-> **Dark pre-ceremony audit (2026-09-06, commit `1f3fc19`):** `docs/release/PHASE2_PFA18C_DARK_PRECEREMONY_AUDIT.md`; owner runbook `docs/release/PHASE2_PFA18C_OWNER_CEREMONY_RUNBOOK.md` (NO-GO: CreateKey remains NO-GO in `652872010073` while the Free plan is kept).
+> **Dark pre-ceremony audit (2026-09-06, commit `1f3fc19`):** `docs/release/PHASE2_PFA18C_DARK_PRECEREMONY_AUDIT.md`; owner runbook `docs/release/PHASE2_PFA18C_OWNER_CEREMONY_RUNBOOK.md` (NO-GO: CreateKey remains NO-GO in `[redacted: account id]` while the Free plan is kept).
 Supabase secrets, billing: UNAPPROVED.
 
 **Tested commit (P1-PUBKEY-FORMAT):** `c150283` (branch `feature/venue-native-and-product-v2`). **Production deployment: PENDING** — the corrected
