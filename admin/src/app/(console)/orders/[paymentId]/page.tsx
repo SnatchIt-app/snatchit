@@ -19,6 +19,7 @@ import { IdLink, PartyLink } from "@/components/ui/IdLink";
 import { EvidenceList } from "@/components/ui/EvidenceLink";
 import { CaseTable } from "@/components/cases/CaseTable";
 import { OrderActions } from "@/components/orders/OrderActions";
+import { HowThisWorks } from "@/components/orders/WorkflowDiagrams";
 import { loadMoneyGuards } from "@/lib/pending-actions";
 import { ActionTable } from "@/components/actions/ActionTable";
 import { Timeline } from "@/components/orders/Timeline";
@@ -333,6 +334,8 @@ export default async function OrderPage({ params }: { params: Promise<{ paymentI
 
         <div className="space-y-6">
           <OrderActions d={d} me={me} path={path} refundEnabled={refundEnabled} disputeOpen={disputeOpen} canRelease={canRelease} canRefund={canRefund} guards={guards} />
+          {/* Static reference, collapsed: the refund path as it is today and the payout release path, each step from the repo's own records. */}
+          <HowThisWorks />
         </div>
       </div>
 

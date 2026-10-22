@@ -62,7 +62,7 @@ export default async function MarketplacePage({ searchParams }: { searchParams: 
           <input name="q" defaultValue={q} placeholder="listing id or event name" className="field py-1.5 text-[0.8125rem]" />
         </FilterField>
       </FilterForm>
-      {!res.ok ? <OpsFailureAlert failure={res} fn="list_listings" retryHref={selfHref("/marketplace", sp)} /> : <ListingTable rows={rows} basePath="/marketplace" searchParams={sp} nextCursor={page?.next_cursor} />}
+      {!res.ok ? <OpsFailureAlert failure={res} fn="list_listings" retryHref={selfHref("/marketplace", sp)} /> : <ListingTable rows={rows} basePath="/marketplace" searchParams={sp} nextCursor={page?.next_cursor} filterable />}
     </>
   );
 }

@@ -251,3 +251,28 @@ export function refundAmount(periods: MoneyFigures[]): RefundAmount {
   if (knownPeriods === 0) return { state: "unknown", count, atMostCents: atMost };
   return { state: "mixed", count, knownCents: known, atMostCents: atMost };
 }
+
+// ---------------------------------------------------------------------------
+// Period comparison (V-1 item 2): the current window against the previous
+// one, both read from ops.money_overview by the caller. The sign is always
+// stated; a window that could not be read makes the comparison "n/a", never a
+// zero or a change computed from a guess.
+// ---------------------------------------------------------------------------
+
+export type Comparison =
+  | { kind: "ok"; current: number; previous: number; change: number; sign: "+" | "−" | "±"; pct: number | null }
+  | { kind: "na"; missing: "current" | "previous" };
+
+/**
+ * Change from `previous` to `current`. `pct` is a whole percentage of the
+ * previous value's magnitude; it is 0 for no change and null when the previous
+ * period was zero (no percentage exists, "none in previous period").
+ */
+export function compareWindows(current: number | null, previous: number | null): Comparison {
+  if (current === null) return { kind: "na", missing: "current" };
+  if (previous === null) return { kind: "na", missing: "previous" };
+  const change = current - previous;
+  const sign = change > 0 ? "+" : change < 0 ? "−" : "±";
+  const pct = change === 0 ? 0 : previous === 0 ? null : Math.round((change / Math.abs(previous)) * 100);
+  return { kind: "ok", current, previous, change, sign, pct };
+}
