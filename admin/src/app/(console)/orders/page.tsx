@@ -220,7 +220,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
               ) : null}
             </div>
           ) : (
-            <OrderTable rows={rows} basePath="/orders" searchParams={{ ...sp, open: undefined }} nextCursor={page?.next_cursor} openHref={openHref} selectedId={open} />
+            <OrderTable rows={rows} basePath="/orders" searchParams={{ ...sp, open: undefined }} nextCursor={page?.next_cursor} openHref={openHref} selectedId={open} filterable />
           )}
         </div>
       </section>

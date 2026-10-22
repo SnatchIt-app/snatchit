@@ -16,6 +16,8 @@ import { Icon, type IconName } from "@/components/ui/Icon";
 import { NewCaseForm } from "@/components/cases/NewCaseForm";
 import { CaseSplit } from "@/components/cases/CaseSplit";
 import { CaseControls, CaseFacts, CaseNotes, CaseRefundResolution, assigneeName, caseEnvelope, caseRefundState } from "@/components/cases/CaseWork";
+import { caseFilterText } from "@/components/cases/CaseTable";
+import { SortFilterList, type SortOption } from "@/components/ui/SortFilterList";
 
 export const metadata: Metadata = { title: "Cases" };
 export const dynamic = "force-dynamic";
@@ -39,6 +41,15 @@ const VIEWS: { key: string; label: string; hint: string; icon: IconName; params:
 
 const STATUS_LABEL: Record<string, string> = { open: "Open", in_progress: "In progress", waiting: "Waiting", resolved: "Resolved", dismissed: "Dismissed" };
 const ASSIGNEE_LABEL: Record<string, string> = { me: "Me", unassigned: "Unassigned" };
+
+/** Client-side sort keys for the queue (this page only); the values are the rows' recorded fields. */
+const CASE_SORT_OPTIONS: SortOption[] = [
+  { key: "detected", label: "Detected", firstDir: "desc" },
+  { key: "due", label: "Due" },
+  { key: "priority", label: "Priority" },
+  { key: "title", label: "Title" },
+  { key: "status", label: "Status" },
+];
 
 function href(params: Record<string, string | undefined>): string {
   const q = new URLSearchParams();
@@ -209,11 +220,18 @@ export default async function CasesPage({ searchParams }: { searchParams: Promis
                 <p id="queue-keys" className="sr-only">
                   Use the up and down arrow keys to move between cases, Enter to open one, and Escape to close it.
                 </p>
-                <ul aria-describedby="queue-keys" className="flex flex-col gap-0.5 p-1.5">
-                  {rows.map((c, i) => (
-                    <CaseRow key={c.id ?? i} c={c} meId={me.id} href={c.id ? openHref(c.id) : null} selected={!!c.id && c.id === open} />
-                  ))}
-                </ul>
+                <SortFilterList
+                  noun="cases"
+                  listDescribedBy="queue-keys"
+                  listClassName="flex flex-col gap-0.5 p-1.5"
+                  sortOptions={CASE_SORT_OPTIONS}
+                  items={rows.map((c, i) => ({
+                    key: c.id ?? `${i}`,
+                    node: <CaseRow key={c.id ?? i} c={c} meId={me.id} href={c.id ? openHref(c.id) : null} selected={!!c.id && c.id === open} />,
+                    sort: { detected: c.detected_at ?? c.created_at ?? null, due: c.due_at ?? null, priority: c.priority ?? null, title: c.title ?? c.case_type ?? null, status: c.status ?? null },
+                    filter: caseFilterText(c, me.id),
+                  }))}
+                />
               </>
             )}
 
