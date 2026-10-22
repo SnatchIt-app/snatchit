@@ -59,13 +59,16 @@ describe('RC3 · each write path maps the refusal first, then keeps its own copy
     expect(ret).toBeLessThan(reset);
   });
 
-  it('RS4: Edit — update error → refusal → else "Save failed" with the server message', () => {
+  // RETARGETED (CFT-703): the fallback after the refusal used to be "Save failed" with the raw
+  // server message; it is now the catalogue mapping's title and body (listingRefusal.ts).
+  it('RS4: Edit — update error → refusal → else the mapped "Save failed" copy', () => {
     const src = strip('app/listing/edit/[id].tsx');
     expect(src).toContain(IMPORT);
     const update = src.indexOf(".from('listings')\n        .update(");
     const map = src.indexOf('readServerRefusal(error)', update);
     const show = src.indexOf(SHOW, update);
-    const fallback = src.indexOf("Alert.alert('Save failed', error.message)", update);
+    const fallback = src.indexOf('Alert.alert(failure.title, failure.body)', update);
+    expect(src).not.toContain("Alert.alert('Save failed', error.message)");
     expect(update).toBeGreaterThan(0);
     expect(map).toBeGreaterThan(update);
     expect(show).toBeGreaterThan(map);

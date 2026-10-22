@@ -268,9 +268,12 @@ describe('Mark as sent — the outcome is settled by the status contract, not th
     });
     expect(await runMarkSent(d)).toEqual({ kind: 'unconfirmed' });
   });
-  it('the verb fails for another reason: failed with the message; nothing shown as sent', async () => {
+  // RETARGETED (CFT-703, A's refusal catalogue 2026-10-21 §4a/§8): this pinned an unmatched server
+  // sentence being shown verbatim. Unmatched refusals now get the action's generic line; the raw text
+  // goes to console.warn at the call site.
+  it('the verb fails for another reason: failed with the generic line, never the server text; nothing shown as sent', async () => {
     const d = mk({ call: vi.fn(async () => ({ error: { message: 'Transfer window has expired.' } })) });
-    expect(await runMarkSent(d)).toEqual({ kind: 'failed', message: 'Transfer window has expired.' });
+    expect(await runMarkSent(d)).toEqual({ kind: 'failed', message: MARK_SENT_COPY.failedFallback });
   });
   it('the verb returns no error: success ONLY when the read-back says sent; otherwise unconfirmed', async () => {
     const ok = ['pending', 'seller_sent'];

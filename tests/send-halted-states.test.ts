@@ -31,9 +31,10 @@ describe('sellerSendHalted', () => {
 describe('the Send screen', () => {
   it('SH2: the platform instructions are gated on the halt as well', () => {
     const gate = '{!alreadySent && !orderClosed && !sendHalted ? (';
+    // The pin. (A's review: the old "witness" swapped the string out and asserted it was gone, which
+    // can never fail. SH1 exercises sellerSendHalted itself; this pins the screen to it.)
     expect(send).toContain(gate);
-    // Witness: build 29's gate fails the same check.
-    expect(send.replace(gate, '{!alreadySent && !orderClosed ? (')).not.toContain(gate);
+    expect(send.match(/sellerSendHalted\(transfer\.status\)/g)?.length).toBe(1);
   });
 
   it('SH3: the heading is neutral on a halted order, as on a closed one', () => {

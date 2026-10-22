@@ -100,9 +100,12 @@ describe('Mark as sent against 140', () => {
     expect(await runMarkSent(mk(seq(snap('pending'), snap('seller_sent', null))))).toEqual({ kind: 'needs_proof' });
   });
 
-  it('the conflicting retry (disputed, reversed…) raises and reads back not sent → failed with the server text', async () => {
+  // RETARGETED (CFT-703, A's refusal catalogue 2026-10-21, SNT-2): this pinned the raw server text
+  // ("…from current status: disputed.") as what the seller reads — a status-enum leak. A read-back
+  // that is not pending is now the not_pending outcome, with the per-status catalogue copy.
+  it('the conflicting retry (disputed, reversed…) raises and reads back not sent → not_pending, never the server text', async () => {
     const d = mk(seq(snap('pending'), snap('disputed')), async () => ({ error: { message: 'Transfer cannot be marked as sent from current status: disputed.' } }));
-    expect(await runMarkSent(d)).toEqual({ kind: 'failed', message: 'Transfer cannot be marked as sent from current status: disputed.' });
+    expect(await runMarkSent(d)).toEqual({ kind: 'not_pending', status: 'disputed' });
   });
 
   it('contract plumbing texts are never shown to a seller', async () => {

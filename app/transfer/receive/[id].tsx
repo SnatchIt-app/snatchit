@@ -89,6 +89,7 @@ import {
 } from '@/src/lib/transfer/providerHandoff';
 import { AMOUNT_MIN_FONT_SCALE, textStyle } from '@/src/theme/typography';
 import { refundReadState, refundStateLine, type RefundRead } from '@/src/lib/transfer/refundState';
+import { CONFIRM_REFUSAL_COPY, confirmationLanded, confirmFailureFromThrow, confirmRefusalCopy, readConfirmFailure, type ConfirmFailure } from '@/src/lib/transfer/confirmRefusal';
 import { disputeDecision, disputedStateCopy, disputedStateMeta, refundDueContext } from '@/src/lib/transfer/disputeOutcome';
 import { OrderSupportAction } from '@/src/components/transfer/OrderSupportAction';
 import { useTheme } from '@/src/theme/appearance';
@@ -235,9 +236,15 @@ export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixt
   const confirmedHereRef = useRef(false);
   // Only the newest read may land (review m6): an older re-read finishing last put "not released" back.
   const readGenRef = useRef(0);
+  // Whether any row has ever been shown. A quiet read that fails BEFORE one has (the mount read was
+  // superseded by a focus/foreground read, then that read failed) must leave the error state, not a
+  // row-less screen reading "Transfer not found" (owner, 2026-09-19: a failed read is never not found).
+  const shownRowRef = useRef(false);
+  // The newest server row on screen, for a decision taken after an overtaken re-read (delta review m1).
+  const transferRef = useRef<TransferData | null>(null);
   const fetchTransfer = useCallback(async (opts?: { quiet?: boolean }): Promise<TransferData | null> => {
     // Harness: the fixture replaces this one read and nothing else — no query leaves the app.
-    if (fixture) { setTransfer(fixture.transfer); setError(''); setLoading(false); return fixture.transfer; }
+    if (fixture) { shownRowRef.current = true; transferRef.current = fixture.transfer; setTransfer(fixture.transfer); setError(''); setLoading(false); return fixture.transfer; }
     if (!userId || !id) return null;
     // Quiet: re-read behind the content (a return from the provider) instead
     // of replacing the order with a spinner.
@@ -271,6 +278,9 @@ export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixt
         failed: !!fetchErr,
       });
       if (!opts?.quiet) setError(outcome === 'ok' ? 'not_found' : outcome);
+      // A quiet read never decides "not found": with no row ever shown, a row-less or failed quiet
+      // answer leaves the retryable error state; with a row shown, it keeps the order (unchanged).
+      else if (!shownRowRef.current) setError(outcome === 'offline' ? 'offline' : 'unavailable');
     } else {
       setError('');
       fresh = data as unknown as TransferData;
@@ -279,7 +289,7 @@ export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixt
       // confirmed state rather than offer "I have my tickets" again.
       const stale = confirmedHereRef.current && (fresh.status === 'pending' || fresh.status === 'seller_sent');
       if (stale) fresh = null;   // review m7: callers (the arrival prompt) never act on a row we refused
-      else setTransfer(fresh);
+      else { shownRowRef.current = true; transferRef.current = fresh; setTransfer(fresh); }
     }
     setLoading(false);
     return fresh;
@@ -377,41 +387,57 @@ export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixt
     );
   }
 
+  /**
+   * The confirmation landed. One path for a 200 and for a failed reply whose re-read shows the order
+   * confirmed (CRE-404 / CRE-500 can answer after the confirmation is recorded): the distinctive success
+   * haptic (CFT-202), the guard against a stale step back, and the dialog. `rowFromServer`: the re-read
+   * already put the server's row on screen, so nothing is written over it.
+   */
+  function receiptConfirmed(rowFromServer: boolean) {
+    hapticSuccess();
+    confirmedHereRef.current = true;
+    // The timestamp travels WITH the status, because the two together are what say the buyer
+    // confirmed: a `buyer_confirmed` row with a NULL timestamp means an operator decided a
+    // dispute. Only its PRESENCE is read — the authority here is the edge function's success,
+    // not this clock.
+    if (!rowFromServer) {
+      setTransfer((prev) => (prev ? { ...prev, status: 'buyer_confirmed', buyer_confirmed_at: new Date().toISOString() } : prev));
+    }
+    Alert.alert('Receipt confirmed', 'You confirmed you received the tickets. Enjoy the event.');
+  }
+
   async function confirmReceipt() {
     setConfirming(true);
     try {
-      const { data, error: fnError } = await supabase.functions.invoke('confirm-and-release', { body: { transfer_id: id } });
-      if (fnError) {
-        let message = 'Something went wrong. Please try again.';
-        try {
-          const ctx = (fnError as any).context;
-          if (ctx && typeof ctx.json === 'function') {
-            const body = await ctx.json();
-            if (body?.error) message = body.error;
-          } else {
-            const body = typeof data === 'string' ? JSON.parse(data) : data;
-            if (body?.error) message = body.error;
-          }
-        } catch { /* ignore parse errors */ }
-        Alert.alert('Error', message);
+      let failure: ConfirmFailure | null = null;
+      try {
+        const { data, error: fnError } = await supabase.functions.invoke('confirm-and-release', { body: { transfer_id: id } });
+        if (fnError) failure = await readConfirmFailure(fnError, data);
+      } catch (e) {
+        failure = confirmFailureFromThrow(e);
+      }
+      if (failure) {
+        console.warn('[receive] confirm-and-release failed:', failure.httpStatus ?? 'no response', failure.code ?? '', failure.error ?? '');
+        // CFT-703 (CRE-404, CRE-500): the edge can fail AFTER recording the confirmation. Re-read first:
+        // a confirmed row is the success it is, whatever the reply said. The read's own guards
+        // (readGenRef, the stale-row check) still apply.
+        let fresh: TransferData | null = null;
+        // A re-read overtaken by a focus or foreground read returns null without having failed: read
+        // once more, and decide on the newest landed row rather than on the overtaken one (m1).
+        for (let attempt = 0; attempt < 2 && !fresh; attempt++) {
+          try { fresh = await fetchTransfer({ quiet: true }); } catch { fresh = null; }
+        }
+        const latest = fresh ?? transferRef.current;
+        if (latest && confirmationLanded(latest.status)) { receiptConfirmed(true); return; }
+        Alert.alert(CONFIRM_REFUSAL_COPY.title, confirmRefusalCopy(failure));
         return;
       }
-      // Authoritative: the edge function recorded the confirmation. Only now the
-      // distinctive success haptic (CFT-202), paired with the state block below.
-      hapticSuccess();
-      // The timestamp travels WITH the status, because the two together are what say the buyer
-      // confirmed: a `buyer_confirmed` row with a NULL timestamp means an operator decided a
-      // dispute. Only its PRESENCE is read — the authority here is the edge function's success,
-      // not this clock.
-      confirmedHereRef.current = true;
-      setTransfer((prev) => (prev ? { ...prev, status: 'buyer_confirmed', buyer_confirmed_at: new Date().toISOString() } : prev));
-      Alert.alert('Receipt confirmed', 'You confirmed you received the tickets. Enjoy the event.');
+      // Authoritative: the edge function recorded the confirmation.
+      receiptConfirmed(false);
       // Capture 2: the payout is released moments after the confirmation, and the screen kept saying
       // "not released" until it was reopened. Re-read quietly: a failure keeps this state, a success
       // shows what the server now holds.
       void fetchTransfer({ quiet: true });
-    } catch {
-      Alert.alert('Error', 'Something went wrong. Please try again.');
     } finally {
       setConfirming(false);
     }

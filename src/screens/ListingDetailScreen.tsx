@@ -41,6 +41,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { supabase } from '@/src/lib/supabase';
 import { ACTION_FAILED_COPY } from '@/src/lib/ui/errorCopy';
 import { readServerRefusal } from '@/src/lib/moderation/serverRefusal';
+import { listingCancelFailure, listingDeleteFailure, listingDeleteNoRows } from '@/src/lib/listing/listingRefusal';
 import { blockConfirmMessage } from '@/src/lib/moderation/blockCopy';
 import { PriceDisplay } from '@/src/components/PriceDisplay';
 import { useAuth } from '@/src/hooks/useAuth';
@@ -937,13 +938,19 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
-            const { error } = await supabase
+            // CFT-703: ask for the deleted row — PostgREST answers success for ZERO rows (already
+            // gone, or no longer the caller's), and that is never "Deleted" (catalogue DEL-5).
+            const { data: deleted, error } = await supabase
               .from('listings')
               .delete()
               .eq('id', listing.id)
-              .eq('seller_id', user.id);
-            if (error) {
-              Alert.alert('Delete failed', error.message);
+              .eq('seller_id', user.id)
+              .select('id');
+            if (error || !Array.isArray(deleted) || deleted.length === 0) {
+              const failure = error ? listingDeleteFailure(error, { canCancel: listing.auction_status === 'active' }) : listingDeleteNoRows();
+              if (error) console.warn('[ListingDetail] delete failed:', failure.id, error);
+              Alert.alert(failure.title, failure.body);
+              if (failure.refresh) void fetchData(true);
               return;
             }
             if (listing.cover_image_path) {
@@ -985,7 +992,10 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
               p_user_id:    user.id,
             });
             if (error) {
-              Alert.alert('Cancel failed', error.message);
+              const failure = listingCancelFailure(error);
+              console.warn('[ListingDetail] cancel failed:', failure.id, error);
+              Alert.alert(failure.title, failure.body);
+              if (failure.refresh) void fetchData(true);
               return;
             }
             Alert.alert('Cancelled', 'Your listing has been cancelled.', [
