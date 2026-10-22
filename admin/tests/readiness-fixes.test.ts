@@ -155,6 +155,15 @@ describe("A11 (item 4) — no second refund or release can be parked from the or
   });
 });
 
+describe("E-L1 — the order page's Refund note describes the record as it stands (migration 150 applied)", () => {
+  it("no longer says 'Until migration 150 is live'; names what 150 keeps and what this page shows", () => {
+    const s = src("app/(console)/orders/[paymentId]/page.tsx");
+    expect(s).not.toContain("Until migration 150");
+    expect(s).toContain("payment_refund_state");
+    expect(s).toContain("confirm the outcome in Stripe");
+  });
+});
+
 describe("A14 (item 6) — Orders queues use the reviewed wording", () => {
   it("manual review and open-case hints come from the reviewed labels", () => {
     const s = src("app/(console)/orders/page.tsx");

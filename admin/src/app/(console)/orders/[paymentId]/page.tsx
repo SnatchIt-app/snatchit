@@ -315,8 +315,10 @@ export default async function OrderPage({ params }: { params: Promise<{ paymentI
             <p className="mt-3 text-[0.6875rem] text-dim">
               “Refund recorded” is set by the Stripe webhook or by the expiry job when a refund is recorded — never by the console. It records that a refund
               was CREATED, not that it settled: the handler records every refund on the charge and the status flips once the recorded amount reaches the
-              total. A card refund can still fail up to ~30 days later. Until migration 150 is live there is no column that distinguishes a settled refund
-              from a failed one — treat this as “a refund exists at Stripe”, and confirm the outcome in Stripe before telling anyone their money is back.
+              total. A card refund can still fail up to ~30 days later. Migration 150 keeps each Stripe refund&apos;s own status in payment_refund_state, and a
+              refund once counted toward the payment stays counted even if it later fails; this page shows only the payment status, “refund recorded at”, the
+              Stripe refund id and the console&apos;s own attempts below, none of which says that a refund settled. Treat them as “a refund exists at Stripe”,
+              and confirm the outcome in Stripe before telling anyone their money is back.
             </p>
             {d.refund.refund_actions.length ? (
               <div className="mt-3">
