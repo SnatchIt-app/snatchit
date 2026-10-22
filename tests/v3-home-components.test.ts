@@ -237,7 +237,7 @@ describe('FeedRow — the §3 row', () => {
   });
 });
 
-describe('HomeFeature — the §3 full-bleed feature', () => {
+describe('HomeFeature — the feature (the §3 full-bleed poster until 2026-10-22; the V4 square frame since)', () => {
   it('HF1: name in the feature voice over the curve-scrimmed slot, fluid width', async () => {
     const host = await mountFeature();
     const name = nameOf(host, 'nameFeature');

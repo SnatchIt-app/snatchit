@@ -75,6 +75,7 @@ const REAL_BOXES: Partial<Record<MediaSlotName, { w: number; h: number; why: str
   CHECKOUT_THUMBNAIL: { w: posterWidth(72), h: 72, why: 'checkout / order / bids row' },
   HOME_FEATURE_V3: { w: 393, h: Math.round(393 / v2.ratio.portrait), why: 'full-bleed at 393pt' },
   LISTING_HERO_V3: { w: 393, h: Math.round(393 / v2.ratio.portrait), why: 'full-bleed at 393pt' },
+  HOME_FEATURE_V4: { w: 393 - 40, h: 393 - 40, why: 'the Home feature inside the two 20pt gutters at 393pt' },
 };
 
 describe('the classification is exhaustive — a new slot cannot slip past the direction', () => {
@@ -162,7 +163,8 @@ describe('the request — where a crop would actually happen, unseen', () => {
   const LEGACY = { path: 'uuid/covers/1715000000000.jpg', contract: 'legacy' as const };
 
   it('PC5: every poster request carries BOTH dimensions, in the frame\'s own proportions', () => {
-    for (const n of POSTER_SLOTS) {
+    // The square-fitted slot makes the same request contract: both dimensions, the frame's shape, contain.
+    for (const n of [...POSTER_SLOTS, ...(Object.keys(SQUARE_FITTED) as MediaSlotName[])]) {
       const box = REAL_BOXES[n] ?? {
         w: MEDIA_SLOTS[n].layoutWidth.mobile,
         h: slotHeight(n, 'mobile'),
@@ -214,7 +216,7 @@ describe('the request — where a crop would actually happen, unseen', () => {
   });
 
   it('PC8: a legacy 16:9 asset is FITTED in a poster slot, never re-cropped', () => {
-    for (const n of POSTER_SLOTS) {
+    for (const n of [...POSTER_SLOTS, ...(Object.keys(SQUARE_FITTED) as MediaSlotName[])]) {
       const r = resolveImage(LEGACY, n, { layoutWidth: 100, layoutHeight: 125, devicePixelRatio: 2 });
       if (r.kind !== 'image') continue;
       expect(r.fit, `${n} fits legacy artwork`).toBe('fit');
