@@ -75,11 +75,27 @@
 -- LOCK ORDER. approve_action (157): order advisory lock -> ops.action FOR UPDATE -> ops.approval FOR UPDATE ->
 --   action_run -> action_dispatch: public.payments FOR UPDATE (unchanged) -> public.transfers FOR UPDATE (new).
 --   payments -> transfers is the order record_payment_refund (-> flag_payout_reversal_required) and
---   delete_account_cleanup already take; claim_payout_attempt, record_payout_attempt_result,
---   flag_payout_reversal_required, admin_release_held_payout, apply_auto_release, record_transfer_payout and the buyer's
---   RPCs lock the transfer and never lock payments, so no cycle. Under READ COMMITTED the FOR UPDATE waits for an open
---   payout writer and the check (a new statement, a new snapshot) reads what it committed (two-session rehearsal:
---   private-evidence a177). ops.action_precheck takes no lock (request time; the dispatch is the authority).
+--   delete_account_cleanup already take. admin_release_held_payout, apply_auto_release, record_transfer_payout,
+--   flag_payout_reversal_required, confirm_transfer_received and the other buyer RPCs lock the transfer and take no
+--   lock on payments: against them the dispatch simply waits (rehearsal D1 / D2). claim_payout_attempt (and
+--   record_payout_attempt_result on its reversal_required path) is DIFFERENT (independent review, N1):
+--   public.payout_attempts.payment_id and public.payout_decisions.payment_id are FOREIGN KEYs to payments(id), so its
+--   INSERT takes FOR KEY SHARE on the payment row AFTER its transfer FOR UPDATE, i.e. transfers -> payments, the
+--   opposite order. A deadlock cycle therefore EXISTS when a claim starts in the microseconds between the dispatch's
+--   payments lock and its transfers lock (reproduced with a paused dispatch copy: a177/review/05b_cycle.log;
+--   rehearsal D8). Postgres resolves it after deadlock_timeout (40P01, one victim): when the approval is the victim,
+--   ops.action_run records the action 'failed' ("deadlock detected"; the approval is consumed) and the worker's claim
+--   commits; when the claim is the victim, the worker's transaction aborts (the next sweep retries) and the approval
+--   then refuses (rejected / payout_released: the transfer is releasable). In NEITHER case is anything handed to
+--   ops-refund-execute: money never moves. Outside that window the claim holds its KEY SHARE first and the dispatch
+--   waits on payments, then refuses with the claimed attempt in its basis (rehearsal D7). The locks are NOT reordered:
+--   locking the transfer before the payment would trade this cycle for one with record_payment_refund ->
+--   flag_payout_reversal_required (payments -> transfers). FOLLOW-UP, an owner decision outside 177: ops.action_run
+--   could treat 40P01 as a retryable rejection instead of the terminal 'failed'. (The comment inside the dispatch's 177
+--   block still says the payout writers never lock payments; it predates this finding and is corrected here only,
+--   because changing the body would change the pinned md5 530105443d….) Under READ COMMITTED the FOR UPDATE waits for
+--   an open payout writer and the check (a new statement, a new snapshot) reads what it committed (two-session
+--   rehearsal: private-evidence a177). ops.action_precheck takes no lock (request time; the dispatch is the authority).
 --
 -- NOT COVERED (by design or scope).
 --   - The reverse race: a payout released or claimed AFTER the refund was dispatched ('processing', the edge refunding
@@ -108,6 +124,10 @@
 --      An approval already running when this commits finishes with the body it started with.
 --   3. Console: no deploy needed. The live console renders "Rejected: payout_released" plus the message. F may later
 --      read result.payout / result.stage.
+--   MERGE ORDER (independent review, N2): the refusal message cites docs/admin-console/MANUAL_REFUND_SOP.md (§2 row 8
+--      "The seller has not been paid", §9 "Refund after the seller was paid (owner decision)"). That file exists only on
+--      branch admin/manual-refund-sop (PR #124, 57d2f499) until it merges to main; the console shows the path as text,
+--      so nothing breaks, but merge #124 before or together with 177 so the cited path resolves.
 -- ROLLBACK: supabase/rollbacks/20261022001000_ops_refund_refused_after_payout_rollback.sql restores ops.action_precheck
 --   VERBATIM from production (md5 fbc3d08e…) and ops.action_dispatch VERBATIM from 158 (md5 7f507fc8…), drops the
 --   helper, and verifies md5 + ACL inside the transaction (a mismatch changes nothing). Its stacking guard refuses if a

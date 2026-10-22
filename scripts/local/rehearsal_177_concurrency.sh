@@ -29,6 +29,16 @@
 #      dispatches (processing) and holds 3 s with the transfer row locked; session 2 = the cron's apply_auto_release(T7)
 #      (FOR UPDATE SKIP LOCKED): it does not wait and returns false (skipped); no deadlock, no error. A later cron run
 #      can release T7 while the refund is at Stripe (payout side, out of scope).
+#   D7 the payout WORKER (review N1, positive case): session 1 = claim_payout_attempt(T8) (T8 released by the cron and
+#      committed beforehand; the claim's INSERT takes FOR KEY SHARE on the payment through the payout_attempts FK) held
+#      3 s; session 2 = the approval WAITS already on the production payments FOR UPDATE, then rejected /
+#      payout_released with payout_attempt_claimed in its basis. The outcome is recorded (waited-then-refused).
+#   D8 the CYCLE (review N1): a dispatch copy pauses 2 s between its payments FOR UPDATE and its transfers FOR UPDATE
+#      (schema rehearsal177; the real ops functions are untouched); the worker's claim on T9 starts inside the pause and
+#      waits for the payment's KEY SHARE; the copy wakes and waits for the transfer: deadlock, resolved by Postgres
+#      (40P01) after deadlock_timeout. Whichever side is the victim, nothing is handed to ops-refund-execute; the
+#      recorded outcome is "40P01 failed" (the approval consumed, the claim committed) or "refused after the claim
+#      aborted". FOLLOW-UP for the owner (outside 177): action_run could treat 40P01 as a retryable rejection.
 # Fixtures are committed under fixed ids (17700000-...) and LEFT IN PLACE: ops.audit is append-only, so the rows cannot
 # be fully removed. Run only on throwaway clones; drop them afterwards.
 # SAFETY: loopback only (127.0.0.1); scrubs remote connection variables. bash 3.2.
@@ -68,8 +78,8 @@ T() { printf '17700000-0000-0000-0003-%012d' "$1"; }
 claims() { printf '{"sub":"%s","role":"authenticated","aal":"aal2"}' "$1"; }
 as_user() { printf "select set_config('request.jwt.claims', '%s', true); set local role authenticated;" "$(claims "$1")"; }
 
-seed() {  # $1 db: founders, seller, buyer; orders 1..7 (listing + succeeded live payment + seller_sent transfer);
-          # refund execution on (setting_set by founder A); a refund parked by founder A on orders 1, 2, 5, 6, 7
+seed() {  # $1 db: founders, seller, buyer; orders 1..9 (listing + succeeded live payment + seller_sent transfer);
+          # refund execution on (setting_set by founder A); a refund parked by founder A on orders 1, 2, 5, 6, 7, 8, 9
   q "$1" "
     insert into auth.users (id, instance_id, aud, role, email, raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
     select x.id, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', x.email, '{\"provider\":\"email\"}', '{}', now(), now()
@@ -79,24 +89,25 @@ seed() {  # $1 db: founders, seller, buyer; orders 1..7 (listing + succeeded liv
     select x.id, '', x.label from (values ('$A'::uuid, 'R177 A'), ('$B'::uuid, 'R177 B'), ('$S'::uuid, 'R177 S'), ('$U'::uuid, 'R177 U')) x(id, label)
     on conflict (id) do nothing;
     insert into public.admin_users (user_id, label) values ('$A', 'R177 FOUNDER A'), ('$B', 'R177 FOUNDER B') on conflict (user_id) do nothing;
+    update public.profiles set stripe_connect_id = 'acct_r177_seller' where id = '$S' and stripe_connect_id is null;  -- D7 / D8: claim_payout_attempt needs an onboarded seller
     insert into public.listings (id, seller_id, event_name, venue, neighborhood, event_date, event_time, ticket_type, quantity, transfer_method,
                                  starting_bid, buy_now_enabled, buy_now_price, duration_hours, starts_at, ends_at, current_bid, cover_image_path, auction_status)
     select ('17700000-0000-0000-0001-' || lpad(n::text, 12, '0'))::uuid, '$S', 'R177 #' || n, 'Club', 'wynwood', current_date + 30, '21:00', 'GA', 1,
            'mobile_transfer', 100, true, 200, 24, now(), now() + interval '24 hours', 100, 'r177.jpg', 'active'
-      from generate_series(1, 7) n on conflict (id) do nothing;
+      from generate_series(1, 9) n on conflict (id) do nothing;
     insert into public.payments (id, listing_id, buyer_id, seller_id, amount, buyer_fee, seller_fee, total, stripe_payment_intent_id, status, mode, paid_at, stripe_livemode)
     select ('17700000-0000-0000-0002-' || lpad(n::text, 12, '0'))::uuid, ('17700000-0000-0000-0001-' || lpad(n::text, 12, '0'))::uuid, '$U', '$S',
            10000, 1000, 1000, 11000, 'pi_r177_' || n, 'succeeded', 'buy_now', now(), true
-      from generate_series(1, 7) n on conflict (id) do nothing;
+      from generate_series(1, 9) n on conflict (id) do nothing;
     insert into public.transfers (id, listing_id, payment_id, seller_id, buyer_id, transfer_method, status, seller_sent_at, auto_release_at, transfer_evidence_path, expires_at)
     select ('17700000-0000-0000-0003-' || lpad(n::text, 12, '0'))::uuid, ('17700000-0000-0000-0001-' || lpad(n::text, 12, '0'))::uuid,
            ('17700000-0000-0000-0002-' || lpad(n::text, 12, '0'))::uuid, '$S', '$U', 'mobile_transfer', 'seller_sent', now(), now() + interval '72 hours',
            'r177/evidence.jpg', now() + interval '24 hours'
-      from generate_series(1, 7) n on conflict (id) do nothing;" >/dev/null
+      from generate_series(1, 9) n on conflict (id) do nothing;" >/dev/null
   psql -X -At -v ON_ERROR_STOP=1 -d "$1" -c "begin; $(as_user $A)
     select ops.execute_action('k177-r-set-on', 'setting_set', 'setting', null, '{\"value\": true}'::jsonb, 'rehearsal 177', null, 'refund_execute_enabled');
     commit;" >/dev/null
-  local n; for n in 1 2 5 6 7; do
+  local n; for n in 1 2 5 6 7 8 9; do
     psql -X -At -v ON_ERROR_STOP=1 -d "$1" -c "begin; $(as_user $A)
       select ops.execute_action('k177-r-refund-$n', 'refund_execute', 'payment', '$(P $n)', '{}'::jsonb, 'rehearsal 177', null, null); commit;" >/dev/null
   done
@@ -148,7 +159,7 @@ race() {
 
 echo "177 concurrency rehearsal: db=$DB control=$CDB $(date -u +%FT%TZ)"
 seed "$DB"; seed "$CDB"
-echo "  fixtures: $DB refunds parked on orders 1 2 5 6 7: $(act "$DB" 1) $(act "$DB" 2) $(act "$DB" 5) $(act "$DB" 6) $(act "$DB" 7); control order 1: $(act "$CDB" 1)"
+echo "  fixtures: $DB refunds parked on orders 1 2 5 6 7 8 9: $(act "$DB" 1) $(act "$DB" 2) $(act "$DB" 5) $(act "$DB" 6) $(act "$DB" 7) $(act "$DB" 8) $(act "$DB" 9); control order 1: $(act "$CDB" 1)"
 
 # D1: the cron releases T1 while founder B approves the parked refund
 race "$DB" "$(cron_hold "$(T 1)")" "$(approve "$DB" "$(aid "$DB" 1)" 0)"
@@ -214,6 +225,56 @@ a=$(act "$DB" 7)
 [ "$(field "$R1" 1)" = "processing" ] && [ "$R2" = "false" ] && [ "$LW" = "none" ] && [ "$a" = "processing/" ] && [ "$(trs "$DB" 7)" = "seller_sent" ] \
   && report D6 PASS "approval s1 dispatched ($(field "$R1" 1)) and held T7; the cron's apply_auto_release s2 did not wait (SKIP LOCKED; Lock waits: $LW) and returned $R2; transfer $(trs "$DB" 7); no deadlock. A later cron run can release it while the refund is at Stripe: the reverse race, out of 177's scope" \
   || report D6 FAIL "s1=$R1 s2=$R2 lock waits=$LW (${W}ms) action=$a transfer=$(trs "$DB" 7)"
+
+# D7: the payout WORKER holds a claim on T8 (released by the cron, committed) while founder B approves the parked refund.
+# The claim's INSERT into payout_attempts took FOR KEY SHARE on the payment (FK), so the approval WAITS already on the
+# production payments FOR UPDATE (lock-wait indicator, not wall clock), then refuses with the claimed attempt in its basis.
+q "$DB" "select public.apply_auto_release('$(T 8)')" >/dev/null
+claim_hold() { printf "begin; select 'R=' || coalesce((select attempt_no::text from public.claim_payout_attempt('%s', 'r177-worker', interval '10 minutes')), 'none'); select pg_sleep(3); commit;" "$1"; }
+race "$DB" "$(claim_hold "$(T 8)")" "$(approve "$DB" "$(aid "$DB" 8)" 0)"
+a=$(act "$DB" 8); att=$(q "$DB" "select coalesce(string_agg(state, ',' order by attempt_no), 'none') from public.payout_attempts where transfer_id = '$(T 8)'")
+if [ "$R1" = "1" ] && [ "$(field "$R2" 1)" = "rejected" ] && [ "$(field "$R2" 2)" = "payout_released" ] && [ "$(field "$R2" 3)" = "approval" ] && [ -z "$(field "$R2" 4)" ] \
+   && [ "$LW" != "none" ] && [ "$a" = "rejected/payout_released" ] && [ "$att" = "claimed" ] \
+   && case "$(field "$R2" 5)" in *payout_attempt_claimed*status_auto_released*) true ;; *) false ;; esac; then
+  report D7 PASS "worker claim held 3 s (attempt #$R1); approval s2 waited on a lock ($LW; ${W}ms informational), then $(field "$R2" 1)/$(field "$R2" 2) stage $(field "$R2" 3) basis $(field "$R2" 5); action $a; attempt $att; no handoff — outcome: waited-then-refused"
+else
+  report D7 FAIL "s1=$R1 s2=$R2 lock waits=$LW (${W}ms) action=$a attempts=$att transfer=$(trs "$DB" 8)"
+fi
+
+# D8: the CYCLE (review N1). A dispatch copy pauses 2 s between its payments FOR UPDATE and its transfers FOR UPDATE
+# (copies in schema rehearsal177; the real ops functions are untouched); the worker's claim on T9 starts inside the pause.
+q "$DB" "select public.apply_auto_release('$(T 9)')" >/dev/null
+q "$DB" "drop schema if exists rehearsal177 cascade; create schema rehearsal177; grant usage on schema rehearsal177 to authenticated;" >/dev/null
+q "$DB" "do \$m\$ declare d text; k text := 'perform 1 from public.transfers t where t.payment_id = a.subject_id for update;'; begin
+  d := pg_get_functiondef('ops.action_dispatch(ops.action)'::regprocedure);
+  if (length(d) - length(replace(d, k, ''))) / length(k) <> 1 then raise exception 'D8 copy: dispatch anchor count <> 1'; end if;
+  d := replace(d, 'CREATE OR REPLACE FUNCTION ops.action_dispatch(', 'CREATE OR REPLACE FUNCTION rehearsal177.action_dispatch_paused(');
+  d := replace(d, k, 'perform pg_sleep(2); ' || k);
+  execute d;
+  d := pg_get_functiondef('ops.action_run(uuid)'::regprocedure);
+  if position('v_res := ops.action_dispatch(a);' in d) = 0 then raise exception 'D8 copy: action_run anchor missing'; end if;
+  d := replace(d, 'CREATE OR REPLACE FUNCTION ops.action_run(', 'CREATE OR REPLACE FUNCTION rehearsal177.action_run(');
+  d := replace(d, 'v_res := ops.action_dispatch(a);', 'v_res := rehearsal177.action_dispatch_paused(a);');
+  execute d;
+  d := pg_get_functiondef('ops.approve_action(uuid,text,text)'::regprocedure);
+  if position('return ops.action_run(a.id);' in d) = 0 then raise exception 'D8 copy: approve_action anchor missing'; end if;
+  d := replace(d, 'CREATE OR REPLACE FUNCTION ops.approve_action(', 'CREATE OR REPLACE FUNCTION rehearsal177.approve_action(');
+  d := replace(d, 'return ops.action_run(a.id);', 'return rehearsal177.action_run(a.id);');
+  execute d;
+end \$m\$;" >/dev/null || { echo "  FAIL D8 — could not build the paused copies"; fail=1; }
+race "$DB" "$(approve "$DB" "$(aid "$DB" 9)" 0 rehearsal177.approve_action)" \
+  "set lock_timeout = '10s'; select 'R=' || coalesce((select attempt_no::text from public.claim_payout_attempt('$(T 9)', 'r177-worker', interval '10 minutes')), 'none');"
+a=$(act "$DB" 9); err=$(q "$DB" "select coalesce(error, '') from ops.action where idempotency_key = 'k177-r-refund-9'")
+att=$(q "$DB" "select coalesce(string_agg(state, ',' order by attempt_no), 'none') from public.payout_attempts where transfer_id = '$(T 9)'")
+appr=$(q "$DB" "select ap.state from ops.approval ap join ops.action x on x.id = ap.action_id where x.idempotency_key = 'k177-r-refund-9'")
+if [ "$(field "$R1" 1)" = "failed" ] && case "$err" in *deadlock*) true ;; *) false ;; esac && [ "$R2" = "1" ] && [ "$a" = "failed/" ] && [ "$att" = "claimed" ]; then
+  report D8 PASS "CYCLE, the approval is the victim: s1 (paused dispatch copy) ended $(field "$R1" 1), error '$err' (40P01), approval $appr (consumed); the worker's claim committed (attempt $att); transfer $(trs "$DB" 9); no handoff — outcome: 40P01 failed"
+elif [ "$(field "$R1" 1)" = "rejected" ] && [ "$(field "$R1" 2)" = "payout_released" ] && case "$R2" in ERROR:*deadlock*) true ;; *) false ;; esac && [ "$a" = "rejected/payout_released" ] && [ "$att" = "none" ]; then
+  report D8 PASS "CYCLE, the claim is the victim: the worker's claim aborted (40P01: $R2); the approval then $(field "$R1" 1)/$(field "$R1" 2) basis $(field "$R1" 5); action $a; transfer $(trs "$DB" 9); no handoff — outcome: refused after the claim aborted"
+else
+  report D8 FAIL "s1=$R1 s2=$R2 lock waits(s2)=$LW (${W}ms) action=$a error='$err' attempts=$att approval=$appr transfer=$(trs "$DB" 9)"
+fi
+q "$DB" "drop schema if exists rehearsal177 cascade;" >/dev/null
 
 echo "RESULT: $([ $fail -eq 0 ] && echo ALL-PASS || echo FAILURES)"
 exit $fail

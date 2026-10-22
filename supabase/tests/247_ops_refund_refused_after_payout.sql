@@ -23,7 +23,8 @@
 --       rejected, nothing is handed to ops-refund-execute, executor_claim refuses it (terminal), the payment stays
 --       succeeded.
 --   P6  the refund dispatch locks the order's transfer row (locked, not updated, after an accepted dispatch whose
---       answer is unchanged) and, statically, before it reads the payout state.
+--       answer is unchanged) and, statically, before it reads the payout state, with a plain WAITING FOR UPDATE (the
+--       statement ends in 'for update;': no SKIP LOCKED, no NOWAIT; review B1: a SKIP LOCKED mutant passed P6.1-P6.4).
 --   P7  157 interplay, both orders: an UNSETTLED payout_release blocks a refund as 157's duplicate_unsettled (157
 --       answers first); once SETTLED, 177 answers payout_released. A parked refund blocks a payout_release (157);
 --       after the deny the payout settles and a new refund is payout_released.
@@ -42,7 +43,7 @@
 -- 000_helpers inserts transfers.
 -- ============================================================================
 BEGIN;
-SELECT plan(88);
+SELECT plan(89);
 SELECT tap.seed_core();
 
 INSERT INTO public.admin_users (user_id, label) VALUES (tap.other_user(), 'FOUNDER B') ON CONFLICT (user_id) DO NOTHING;
@@ -409,6 +410,16 @@ SELECT is((SELECT CASE WHEN lk = 0 THEN 'no locked transfer read' WHEN rd = 0 TH
                                                                         '--[^\n]*', '', 'g'), '\s+', ' ', 'g') AS d) x) y) z),
           'transfer locked, then payout read, then handoff',
   'P6.4: static (comments stripped): the refund_execute branch locks the transfer FOR UPDATE before it reads the payout state');
+-- P6.5 (review B1): P6.1-P6.4 and the two-session rehearsal cannot tell a waiting FOR UPDATE from FOR UPDATE SKIP LOCKED
+-- (the lock text is still present; the row is still locked when it is free), and SKIP LOCKED reopens the TOCTOU 177 closes
+-- (the approval reads the committed seller_sent row while the release is uncommitted). Pin the statement's exact tail.
+SELECT is((SELECT position('from public.transfers t where t.payment_id = a.subject_id for update;' IN b) > 0
+                  AND position('skip locked' IN b) = 0 AND position('nowait' IN b) = 0
+             FROM (SELECT substring(d FROM 'when ''refund_execute'' then(.*?)when ''job_retry'' then') AS b
+                     FROM (SELECT regexp_replace(regexp_replace(lower(pg_get_functiondef('ops.action_dispatch(ops.action)'::regprocedure)),
+                                                                '--[^\n]*', '', 'g'), '\s+', ' ', 'g') AS d) x) z),
+          true,
+  'P6.5: static: the transfer lock is a plain FOR UPDATE that waits (the statement ends in "for update;", no SKIP LOCKED / NOWAIT)');
 
 -- ── P7 — 157 interplay, both orders ──
 -- order 22: payout_release first
@@ -502,7 +513,7 @@ SELECT is((SELECT count(*)::int FROM (VALUES
 SELECT is((SELECT coalesce(array_agg(v.sig ORDER BY v.sig), '{}'::text[]) FROM (VALUES
              -- 158 / 157 bodies this file stacks on (unchanged by it)
              ('ops.execute_action(text,text,text,uuid,jsonb,text,jsonb,text)', '24209d0697132d5df7bd12f5cf3e5c0c'),
-             ('ops.approve_action(uuid,text,text)', '60fb8ce43d5ff1b051e379ac6affb53f'),
+             ('ops.approve_action(uuid,text,text)', 'ddcdcd1401839910726d20ddd206e40d'),
              ('ops.order_detail(uuid)', '4358f577291f84b25986b8904b38ab36'),
              -- production: the action pipeline around the two bodies, and the refund executor's functions
              ('ops.action_run(uuid)', '546693f1489c364de19e9416a92c07ed'),
