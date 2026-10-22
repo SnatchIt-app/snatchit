@@ -239,9 +239,11 @@ export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixt
   // superseded by a focus/foreground read, then that read failed) must leave the error state, not a
   // row-less screen reading "Transfer not found" (owner, 2026-09-19: a failed read is never not found).
   const shownRowRef = useRef(false);
+  // The newest server row on screen, for a decision taken after an overtaken re-read (delta review m1).
+  const transferRef = useRef<TransferData | null>(null);
   const fetchTransfer = useCallback(async (opts?: { quiet?: boolean }): Promise<TransferData | null> => {
     // Harness: the fixture replaces this one read and nothing else — no query leaves the app.
-    if (fixture) { shownRowRef.current = true; setTransfer(fixture.transfer); setError(''); setLoading(false); return fixture.transfer; }
+    if (fixture) { shownRowRef.current = true; transferRef.current = fixture.transfer; setTransfer(fixture.transfer); setError(''); setLoading(false); return fixture.transfer; }
     if (!userId || !id) return null;
     // Quiet: re-read behind the content (a return from the provider) instead
     // of replacing the order with a spinner.
@@ -286,7 +288,7 @@ export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixt
       // confirmed state rather than offer "I have my tickets" again.
       const stale = confirmedHereRef.current && (fresh.status === 'pending' || fresh.status === 'seller_sent');
       if (stale) fresh = null;   // review m7: callers (the arrival prompt) never act on a row we refused
-      else { shownRowRef.current = true; setTransfer(fresh); }
+      else { shownRowRef.current = true; transferRef.current = fresh; setTransfer(fresh); }
     }
     setLoading(false);
     return fresh;
@@ -419,8 +421,13 @@ export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixt
         // a confirmed row is the success it is, whatever the reply said. The read's own guards
         // (readGenRef, the stale-row check) still apply.
         let fresh: TransferData | null = null;
-        try { fresh = await fetchTransfer({ quiet: true }); } catch { fresh = null; }
-        if (fresh && confirmationLanded(fresh.status)) { receiptConfirmed(true); return; }
+        // A re-read overtaken by a focus or foreground read returns null without having failed: read
+        // once more, and decide on the newest landed row rather than on the overtaken one (m1).
+        for (let attempt = 0; attempt < 2 && !fresh; attempt++) {
+          try { fresh = await fetchTransfer({ quiet: true }); } catch { fresh = null; }
+        }
+        const latest = fresh ?? transferRef.current;
+        if (latest && confirmationLanded(latest.status)) { receiptConfirmed(true); return; }
         Alert.alert(CONFIRM_REFUSAL_COPY.title, confirmRefusalCopy(failure));
         return;
       }
