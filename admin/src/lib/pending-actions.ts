@@ -106,21 +106,55 @@ function safeRead(read: OpsRead, type: MoneyActionType, subjectId: string): Prom
 }
 
 /**
- * Reads list_actions for each money form the page is about to offer and
- * decides its guard. A form that will not be offered gets null (no read).
+ * Money on an order is one subject: a payout release on the transfer and a
+ * refund of the payment must not both be parked (check-then-act across two
+ * tabs or two founders). list_actions filters by one action_type, so each
+ * form's guard folds the other verb's answer in:
+ * - either pending → pending, carrying the blocking action so the page can
+ *   name it (the form's own type is preferred when both are pending);
+ * - otherwise either unverified → unverified (a failed read on the other type
+ *   hides this form too — fail closed);
+ * - only both clear → clear.
+ * `other` is null when that verb has no subject row (no transfer): nothing to
+ * read, so it never blocks. `own` null means this form is not offered.
+ */
+export function combineMoneyGuards(own: PendingGuard | null, other: PendingGuard | null): PendingGuard | null {
+  if (!own) return null;
+  if (own.kind === "pending") return own;
+  if (other?.kind === "pending") return other;
+  if (own.kind === "unverified") return own;
+  if (other?.kind === "unverified") return other;
+  return own;
+}
+
+/** A subject row the page holds but cannot address (no id) can never be checked. */
+const UNADDRESSABLE: PendingGuard = { kind: "unverified", failure: null };
+
+/**
+ * Reads list_actions for BOTH money types on this order whenever either money
+ * form is about to be offered, decides each guard, and folds the other type
+ * in (combineMoneyGuards). A form that will not be offered gets null; when no
+ * money form is offered nothing is read.
  */
 export async function loadMoneyGuards(read: OpsRead, d: OrderDetail, want: { release: boolean; refund: boolean }): Promise<MoneyGuards> {
+  if (!want.release && !want.refund) return { release: null, refund: null };
   const transferId = d.transfer?.id;
   const paymentId = d.payment?.id;
   const [releaseRes, refundRes] = await Promise.all([
-    want.release && transferId ? safeRead(read, "payout_release", transferId) : null,
-    want.refund && paymentId ? safeRead(read, "refund_execute", paymentId) : null,
+    transferId ? safeRead(read, "payout_release", transferId) : null,
+    paymentId ? safeRead(read, "refund_execute", paymentId) : null,
   ]);
+  // Per type, before the fold: null only when there is no row of that kind at all.
+  const release: PendingGuard | null =
+    releaseRes && transferId ? decidePendingGuard({ type: "payout_release", subjectId: transferId, known: d.actions, listed: releaseRes }) : d.transfer ? UNADDRESSABLE : null;
+  const refund: PendingGuard | null =
+    refundRes && paymentId
+      ? decidePendingGuard({ type: "refund_execute", subjectId: paymentId, known: [...d.refund.refund_actions, ...d.actions], listed: refundRes })
+      : d.payment
+        ? UNADDRESSABLE
+        : null;
   return {
-    release: releaseRes && transferId ? decidePendingGuard({ type: "payout_release", subjectId: transferId, known: d.actions, listed: releaseRes }) : null,
-    refund:
-      refundRes && paymentId
-        ? decidePendingGuard({ type: "refund_execute", subjectId: paymentId, known: [...d.refund.refund_actions, ...d.actions], listed: refundRes })
-        : null,
+    release: want.release ? combineMoneyGuards(release, refund) : null,
+    refund: want.refund ? combineMoneyGuards(refund, release) : null,
   };
 }

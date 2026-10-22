@@ -135,14 +135,16 @@ describe("A11 (item 4) — no second refund or release can be parked from the or
   it("a refund awaiting approval replaces the refund form with the pending state and a link to the action", async () => {
     const html = await orderActions(detail([], [action({})]));
     expect(actionTypes(html)).not.toContain("refund_execute");
-    expect(actionTypes(html)).toContain("payout_release");
+    // P3: the pending refund hides the release form too (one money action at a time per order).
+    expect(actionTypes(html)).not.toContain("payout_release");
     expect(html).toContain("Already requested — Awaiting approval");
     expect(html).toContain('href="/actions/aaaaaaaa-0000-4000-8000-000000000001"');
   });
-  it("a release in processing replaces the release form", async () => {
+  it("a release in processing replaces the release form, and hides the refund form (P3)", async () => {
     const html = await orderActions(detail([action({ action_type: "payout_release", subject_kind: "transfer", subject_id: TR, state: "processing" })]));
     expect(actionTypes(html)).not.toContain("payout_release");
-    expect(actionTypes(html)).toContain("refund_execute");
+    expect(actionTypes(html)).not.toContain("refund_execute");
+    expect(html).toContain("Release held payout");
   });
   it("unsettled means not terminal: unknown and succeeded_at_provider block; rejected, failed, succeeded do not; other subjects never", () => {
     expect(unsettledAction([action({ state: "unknown" })], "refund_execute", PAY)).not.toBeNull();

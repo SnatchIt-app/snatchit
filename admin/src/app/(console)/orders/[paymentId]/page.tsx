@@ -81,8 +81,10 @@ export default async function OrderPage({ params }: { params: Promise<{ paymentI
   const canRefund = p.status === "succeeded";
   // order_detail's `actions` holds only the newest 50 rows across payment,
   // transfer and listing, so an older unsettled request can be missing from
-  // it. Ask list_actions for this exact subject before offering a money form;
-  // a failed read hides the form (fail closed).
+  // it. Before offering either money form, ask list_actions for BOTH money
+  // types on this order (payout_release on the transfer, refund_execute on the
+  // payment): a pending one of either type hides both forms, and a failed
+  // read on either hides both (fail closed).
   const guards = await loadMoneyGuards((fn, args) => callOps<unknown>(fn, args), d, { release: canRelease && Boolean(t?.id), refund: canRefund });
   const eventTitle = l?.event_name ?? "Order";
   // From the payload record, not p.stripe_livemode: toPayment folds a missing key into null.

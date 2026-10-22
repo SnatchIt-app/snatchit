@@ -3,9 +3,9 @@ import type { ReactNode } from "react";
 import type { Operator } from "@/lib/auth/session";
 import { newIdempotencyKey } from "@/lib/idempotency";
 import { canRequest } from "@/lib/permissions";
-import { ACTION_STATE_LABELS, DISPUTE_OUTCOME_LABELS, labelFor } from "@/lib/format";
+import { ACTION_STATE_LABELS, ACTION_TYPE_LABELS, DISPUTE_OUTCOME_LABELS, labelFor } from "@/lib/format";
 import type { OpsAction, OrderDetail } from "@/lib/types";
-import type { MoneyGuards, PendingGuard } from "@/lib/pending-actions";
+import type { MoneyActionType, MoneyGuards, PendingGuard } from "@/lib/pending-actions";
 import { Panel } from "@/components/ui/Panel";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Money } from "@/components/ui/Money";
@@ -16,11 +16,24 @@ import { NewCaseForm } from "@/components/cases/NewCaseForm";
 /** Kept importable from here for existing callers; the logic lives in lib/pending-actions. */
 export { unsettledAction } from "@/lib/pending-actions";
 
-function PendingRequest({ action }: { action: OpsAction }) {
-  // A row list_actions returned may lack a state the console can read; it still blocks.
+/**
+ * The unsettled money action that blocks this form. It names the action,
+ * because a pending refund hides the release form and a pending release hides
+ * the refund form (one money action at a time per order): the operator must
+ * see which one it is.
+ */
+function PendingRequest({ action, form }: { action: OpsAction; form: MoneyActionType }) {
+  // A row list_actions returned may lack a state or a type the console can read; it still blocks.
   const state = action.state ? (ACTION_STATE_LABELS[action.state] ?? action.state) : null;
+  const type = action.action_type ? (ACTION_TYPE_LABELS[action.action_type] ?? action.action_type) : null;
+  const otherVerb = Boolean(action.action_type) && action.action_type !== form;
   return (
     <Alert state="info" title={state ? `Already requested — ${state}` : "Already requested"} compact>
+      {type ? (
+        <>
+          <strong>{type}</strong> is pending on this order{otherVerb ? " and blocks this form too: one money action at a time per order" : ""}.{" "}
+        </>
+      ) : null}
       Nothing more can be requested here until it finishes.{" "}
       {action.id ? (
         <Link href={`/actions/${action.id}`} className="link">
@@ -43,9 +56,9 @@ function GuardUnverified({ path }: { path: string }) {
   );
 }
 
-/** pending → the existing request; clear → the form; anything else (failed read, missing guard) → hidden. */
-function guarded(guard: PendingGuard | null, path: string, form: ReactNode) {
-  if (guard?.kind === "pending") return <PendingRequest action={guard.action} />;
+/** pending → the existing request (of either money type); clear → the form; anything else (failed read, missing guard) → hidden. */
+function guarded(guard: PendingGuard | null, type: MoneyActionType, path: string, form: ReactNode) {
+  if (guard?.kind === "pending") return <PendingRequest action={guard.action} form={type} />;
   if (guard?.kind === "clear") return form;
   return <GuardUnverified path={path} />;
 }
@@ -130,6 +143,7 @@ export function OrderActions({
           {canRequest(me.role, "payout_release") ? (
             guarded(
               guards.release,
+              "payout_release",
               path,
             <ConfirmForm
               idempotencyKey={newIdempotencyKey()}
@@ -163,6 +177,7 @@ export function OrderActions({
           ) : (
             guarded(
               guards.refund,
+              "refund_execute",
               path,
             <>
               {!refundEnabled ? (

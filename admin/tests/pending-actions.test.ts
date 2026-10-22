@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { decidePendingGuard, loadMoneyGuards, pendingActionFilters, UNSETTLED_STATES, type OpsRead } from "@/lib/pending-actions";
+import { combineMoneyGuards, decidePendingGuard, loadMoneyGuards, pendingActionFilters, UNSETTLED_STATES, type OpsRead } from "@/lib/pending-actions";
 import type { OpsAction, OrderDetail } from "@/lib/types";
 
 /** F1 — the decision behind the order page's money-form guard, with the reads mocked. */
@@ -82,7 +82,7 @@ describe("decidePendingGuard — any row list_actions returns blocks (reviewer p
 });
 
 describe("loadMoneyGuards", () => {
-  it("asks list_actions once per offered form, with the agreed filter shape", async () => {
+  it("reads both money types once each whenever a money form is offered, with the agreed filter shape", async () => {
     const read = vi.fn<OpsRead>(async () => ok([]));
     const g = await loadMoneyGuards(read, detail(), { release: true, refund: true });
     expect(g).toEqual({ release: { kind: "clear" }, refund: { kind: "clear" } });
@@ -92,11 +92,11 @@ describe("loadMoneyGuards", () => {
     expect(UNSETTLED_STATES).toEqual(["requested", "awaiting_approval", "processing", "succeeded_at_provider", "unknown"]);
     expect(pendingActionFilters("refund_execute", PAY).subject_kind).toBe("payment");
   });
-  it("capped list misses the old release, list_actions has it → release pending, refund clear", async () => {
+  it("capped list misses the old release, list_actions has it → release pending, and the refund guard is pending too, carrying the release (P3)", async () => {
     const read: OpsRead = async (_fn, args) => ((args.p_filters as { action_type: string[] }).action_type[0] === "payout_release" ? ok([act({})]) : ok([]));
     const g = await loadMoneyGuards(read, detail(), { release: true, refund: true });
     expect(g.release?.kind).toBe("pending");
-    expect(g.refund).toEqual({ kind: "clear" });
+    expect(g.refund).toEqual({ kind: "pending", action: expect.objectContaining({ id: "aaaaaaaa-0000-4000-8000-0000000000e1", action_type: "payout_release" }) });
   });
   it("a read that throws is a failed read → unverified, never clear", async () => {
     const read: OpsRead = async () => {
@@ -110,9 +110,99 @@ describe("loadMoneyGuards", () => {
     const g = await loadMoneyGuards(async () => ok([]), detail(settled, [act({ action_type: "refund_execute", subject_kind: "payment", subject_id: PAY, state: "succeeded_at_provider" })]), { release: false, refund: true });
     expect(g.refund?.kind).toBe("pending");
   });
-  it("no read and no guard for a form that is not offered", async () => {
+  it("no read and no guard when no money form is offered", async () => {
     const read = vi.fn<OpsRead>(async () => ok([]));
     expect(await loadMoneyGuards(read, detail(), { release: false, refund: false })).toEqual({ release: null, refund: null });
     expect(read).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * P3 (reviewer E) — money on an order is one subject. list_actions filters by
+ * one action_type, so each form's guard folds the other verb's answer in:
+ * either pending → pending (the blocking action, so the page can name it);
+ * either unverified → unverified; only both clear → clear. A verb without a
+ * subject row has nothing to read and never blocks the other.
+ */
+describe("P3 — loadMoneyGuards reads both money types and each guard folds the other in", () => {
+  const refundRow = act({ id: "rrrrrrrr-0000-4000-8000-0000000000e1", action_type: "refund_execute", subject_kind: "payment", subject_id: PAY, state: "unknown" });
+  const byType = (release: unknown, refund: unknown): OpsRead => async (_fn, args) => ((args.p_filters as { action_type: string[] }).action_type[0] === "payout_release" ? release : refund) as never;
+
+  it("a pending refund makes the release guard pending with the refund action", async () => {
+    const g = await loadMoneyGuards(byType(ok([]), ok([refundRow])), detail(), { release: true, refund: true });
+    expect(g.release).toEqual({ kind: "pending", action: expect.objectContaining({ id: refundRow.id, action_type: "refund_execute" }) });
+    expect(g.refund?.kind).toBe("pending");
+  });
+
+  it("a pending row of the form's own type is preferred over the other type's", async () => {
+    const g = await loadMoneyGuards(byType(ok([act({})]), ok([refundRow])), detail(), { release: true, refund: true });
+    expect(g.release).toEqual({ kind: "pending", action: expect.objectContaining({ action_type: "payout_release" }) });
+    expect(g.refund).toEqual({ kind: "pending", action: expect.objectContaining({ action_type: "refund_execute" }) });
+  });
+
+  it("only the refund form offered → payout_release is still read, and a pending release blocks the refund", async () => {
+    const read = vi.fn<OpsRead>(byType(ok([act({})]), ok([])));
+    const g = await loadMoneyGuards(read, detail(), { release: false, refund: true });
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(read).toHaveBeenCalledWith("list_actions", expect.objectContaining({ p_filters: expect.objectContaining({ action_type: ["payout_release"], subject_id: TR }) }));
+    expect(g.release).toBeNull();
+    expect(g.refund).toEqual({ kind: "pending", action: expect.objectContaining({ action_type: "payout_release" }) });
+  });
+
+  it("only the release form offered → refund_execute is still read, and a failed refund read leaves the release unverified", async () => {
+    const failure = { ok: false as const, kind: "error" as const, message: "boom" };
+    const read = vi.fn<OpsRead>(byType(ok([]), failure));
+    const g = await loadMoneyGuards(read, detail(), { release: true, refund: false });
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(g.release).toEqual({ kind: "unverified", failure });
+    expect(g.refund).toBeNull();
+  });
+
+  it("the other type's read failing or answering an unrecognised page → unverified, never clear", async () => {
+    for (const bad of [{ ok: false, kind: "denied" }, { ok: true, data: null }, { ok: true, data: { items: [], count_hint: 1 } }]) {
+      const g = await loadMoneyGuards(byType(bad, ok([])), detail(), { release: true, refund: true });
+      expect(g.refund?.kind, JSON.stringify(bad)).toBe("unverified");
+      expect(g.release?.kind, JSON.stringify(bad)).toBe("unverified");
+    }
+  });
+
+  it("pending on one side and unverified on the other → pending on both (the action is named; nothing is re-armed)", async () => {
+    const g = await loadMoneyGuards(byType({ ok: false, kind: "error", message: "x" }, ok([refundRow])), detail(), { release: true, refund: true });
+    expect(g.release).toEqual({ kind: "pending", action: expect.objectContaining({ id: refundRow.id }) });
+    expect(g.refund).toEqual({ kind: "pending", action: expect.objectContaining({ id: refundRow.id }) });
+  });
+
+  it("both clear → both clear (control)", async () => {
+    expect(await loadMoneyGuards(async () => ok([]), detail(), { release: true, refund: true })).toEqual({ release: { kind: "clear" }, refund: { kind: "clear" } });
+  });
+
+  it("no transfer row → nothing to read for payout_release; the refund guard stands alone", async () => {
+    const read = vi.fn<OpsRead>(async () => ok([]));
+    const d = { ...detail(), transfer: null } as unknown as OrderDetail;
+    expect(await loadMoneyGuards(read, d, { release: false, refund: true })).toEqual({ release: null, refund: { kind: "clear" } });
+    expect(read).toHaveBeenCalledTimes(1);
+  });
+
+  it("a transfer row without an id cannot be checked → both unverified (fail closed)", async () => {
+    const d = { ...detail(), transfer: { status: "seller_sent" } } as unknown as OrderDetail;
+    const g = await loadMoneyGuards(async () => ok([]), d, { release: true, refund: true });
+    expect(g.release).toEqual({ kind: "unverified", failure: null });
+    expect(g.refund).toEqual({ kind: "unverified", failure: null });
+  });
+
+  it("combineMoneyGuards: the pure fold", () => {
+    const clear = { kind: "clear" } as const;
+    const unv = { kind: "unverified", failure: null } as const;
+    const pend = { kind: "pending", action: act({}) } as const;
+    const pend2 = { kind: "pending", action: refundRow } as const;
+    expect(combineMoneyGuards(null, pend)).toBeNull();
+    expect(combineMoneyGuards(clear, null)).toEqual(clear);
+    expect(combineMoneyGuards(clear, clear)).toEqual(clear);
+    expect(combineMoneyGuards(clear, pend)).toEqual(pend);
+    expect(combineMoneyGuards(clear, unv)).toEqual(unv);
+    expect(combineMoneyGuards(unv, clear)).toEqual(unv);
+    expect(combineMoneyGuards(unv, pend)).toEqual(pend);
+    expect(combineMoneyGuards(pend, pend2)).toEqual(pend);
+    expect(combineMoneyGuards(pend, unv)).toEqual(pend);
   });
 });
