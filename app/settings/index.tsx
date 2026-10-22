@@ -28,6 +28,8 @@ import { router } from 'expo-router';
 import { Alert, AppState, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useEffect, useMemo, useState } from 'react';
 
+import { useAnnounceOnce } from '@/src/hooks/useAnnounceOnce';
+import { TEXT_LINK_HIT_SLOP } from '@/src/lib/a11y/touch';
 import { supabase } from '@/src/lib/supabase';
 import { SIGN_OUT_FAILED_COPY, signOutAllDevices, signOutThisDevice } from '@/src/lib/auth/signOut';
 import { Button } from '@/src/components/ui';
@@ -71,6 +73,10 @@ export default function SettingsScreen({ deletionFixture }: { deletionFixture?: 
   const [deletionProbeFailed, setDeletionProbeFailed] = useState(false);
   const [withdrawing, setWithdrawing] = useState(false);
   const deletionPending = deletionView === 'pending';
+  useAnnounceOnce(
+    deletionPending ? 'Account deletion requested. Your account deletion request is pending. You can withdraw it to keep your account.'
+      : deletionProbeFailed ? 'We could not check your account status.' : null,
+  );
 
   async function refreshDeletionState() {
     try {
@@ -314,7 +320,7 @@ export default function SettingsScreen({ deletionFixture }: { deletionFixture?: 
         {deletionProbeFailed && !deletionPending ? (
           <View style={s.probeBanner} accessibilityRole="alert">
             <Text style={[textStyle('bodySm'), s.probeText]}>We could not check your account status.</Text>
-            <Pressable onPress={refreshDeletionState} hitSlop={8} accessibilityRole="button" accessibilityLabel="Retry">
+            <Pressable onPress={refreshDeletionState} hitSlop={TEXT_LINK_HIT_SLOP} accessibilityRole="button" accessibilityLabel="Retry">
               <Text style={[textStyle('action'), s.retry]}>Retry</Text>
             </Pressable>
           </View>

@@ -258,7 +258,7 @@ export default function PublicProfileScreen({ fixture }: { fixture?: PublicProfi
       <View style={s.root}>
         <SettingsHeader title="Profile" />
         <View style={s.centered}>
-          <View style={s.avatarRing}><View style={s.avatarFallback}><Text style={s.avatarInitials}>{getInitials(displayName)}</Text></View></View>
+          <View style={s.avatarRing}><View style={s.avatarFallback}><Text style={s.avatarInitials} accessibilityElementsHidden importantForAccessibility="no">{getInitials(displayName)}</Text></View></View>
           <Text style={[textStyle('title'), s.blockedTitle]}>You&apos;ve blocked {displayName}</Text>
           <Text style={[textStyle('bodySm'), s.blockedBody]}>Their listings are hidden from your feed. Unblock to see this profile again.</Text>
           <Button label="Unblock" onPress={handleUnblock} loading={working} disabled={working} style={s.unblock} />
@@ -289,7 +289,7 @@ export default function PublicProfileScreen({ fixture }: { fixture?: PublicProfi
             {avatarUrl ? (
               <Image source={{ uri: avatarUrl }} style={s.avatarImage} contentFit="cover" />
             ) : (
-              <View style={s.avatarFallback}><Text style={s.avatarInitials}>{getInitials(displayName)}</Text></View>
+              <View style={s.avatarFallback}><Text style={s.avatarInitials} accessibilityElementsHidden importantForAccessibility="no">{getInitials(displayName)}</Text></View>
             )}
           </View>
           <Text style={s.name} numberOfLines={1}>{displayName}</Text>
@@ -349,8 +349,8 @@ export default function PublicProfileScreen({ fixture }: { fixture?: PublicProfi
           )}
         </AccountSection>
 
-        {/* Safety actions (hidden on your own profile) */}
-        {!isSelf ? (
+        {/* Safety actions: hidden on your own profile, and for a signed-out viewer — both refuse without a session. */}
+        {user && !isSelf ? (
           <View style={s.actions}>
             <Button label="Report user" variant="secondary" onPress={handleReport} block />
             <Button label="Block user" variant="destructive" onPress={handleBlock} disabled={working} block />

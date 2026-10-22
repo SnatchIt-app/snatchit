@@ -27,6 +27,17 @@ export function minNextBid(currentBid: number, increment: number): number {
   return currentBid + increment;
 }
 
+/**
+ * The current bid a listing screen prices its minimum from (B-D1, A's ruling 2026-10-21): the higher
+ * of the listing row's server-owned current_bid and the bids list's highest. A failed list read
+ * falls back to starting_bid in the list, which is never above the row, so the row decides. A
+ * successful read that is ahead of the row (an insert seen first) still wins. Display only: the
+ * bid itself is checked by the server against current_bid.
+ */
+export function displayedBidFloor(listingCurrentBid: number, listHighest: number): number {
+  return Math.max(listingCurrentBid, listHighest);
+}
+
 /** One step down, never below the minimum. */
 export function stepDown(selected: number, minimum: number, increment: number): number {
   return Math.max(minimum, selected - increment);
