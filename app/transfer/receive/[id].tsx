@@ -69,7 +69,6 @@ import {
   REPORT_PROBLEM_UNCONFIRMED,
   transferReadOutcome,
   transferStatusCopy,
-  transferStatusMeta,
   TRANSFER_EXPIRY_COPY,
   CONFIRM_RECEIPT_DIALOG,
 
@@ -87,7 +86,9 @@ import {
 } from '@/src/lib/transfer/providerHandoff';
 import { AMOUNT_MIN_FONT_SCALE, textStyle } from '@/src/theme/typography';
 import { refundReadState, refundStateLine, type RefundRead } from '@/src/lib/transfer/refundState';
-import { disputeDecision, disputedStateCopy, disputedStateMeta, refundDueContext } from '@/src/lib/transfer/disputeOutcome';
+import { disputeDecision, disputedStateCopy, refundDueContext } from '@/src/lib/transfer/disputeOutcome';
+import { orderBadgeMeta } from '@/src/lib/transfer/orderBadge';
+import { OrderSupportAction } from '@/src/components/transfer/OrderSupportAction';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
@@ -496,9 +497,8 @@ export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixt
     );
   }
 
-  const meta = transfer.status === 'disputed'
-    ? disputedStateMeta(decision, 'buyer')
-    : transferStatusMeta(transfer.status, 'buyer', { buyerConfirmed: transfer.buyer_confirmed_at != null });
+  // One selector for the badge and the support email's status word, so the two cannot drift.
+  const meta = orderBadgeMeta(transfer, 'buyer');
 
   return (
     <View style={s.root}>
@@ -754,6 +754,9 @@ export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixt
             ) : null}
           </StateBlock>
         ) : null}
+
+        {/* CFT-406: support, prefilled with this order's ID and status (no PII), in every state. */}
+        <OrderSupportAction role="buyer" transfer={transfer} />
 
         <View style={{ height: v2.space.xxl }} />
       </ScrollView>

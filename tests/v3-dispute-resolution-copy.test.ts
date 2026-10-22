@@ -89,10 +89,16 @@ describe('the other surfaces that asserted receipt', () => {
   });
 
   it('DR8: both transfer screens pass the fact to the badge, not just to the body', () => {
-    for (const rel of ['app/transfer/receive/[id].tsx', 'app/transfer/send/[id].tsx']) {
-      const src = read(rel);
-      expect(src, rel).toMatch(/transferStatusMeta\([^)]*buyerConfirmed/s);
+    // RETARGETED (C, 2026-10-22, D #133 d4a35ed6): both screens now hand the whole row to the shared
+    // selector, and the selector passes `buyerConfirmed` on. The fact still reaches the badge; the pin
+    // follows it through the one indirection, and the witness below proves the pin can fail.
+    for (const [rel, role] of [['app/transfer/receive/[id].tsx', 'buyer'], ['app/transfer/send/[id].tsx', 'seller']] as const) {
+      expect(read(rel), rel).toContain(`orderBadgeMeta(transfer, '${role}')`);
     }
+    const selector = read('src/lib/transfer/orderBadge.ts');
+    const forwards = /transferStatusMeta\(status, role, \{ buyerConfirmed: row\.buyer_confirmed_at != null \}\)/;
+    expect(selector).toMatch(forwards);
+    expect(selector.replace('{ buyerConfirmed: row.buyer_confirmed_at != null }', '{}')).not.toMatch(forwards);   // witness
   });
 
   it('DR9: the Bids board does not label an operator decision "Received"', async () => {

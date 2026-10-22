@@ -1,0 +1,201 @@
+/**
+ * tests/order-support-action.test.ts — the "Contact support about this order" control (CFT-406 slice 1).
+ *
+ * Mounts the REAL component under the hook harness. It opens the prefilled mailto through Linking;
+ * when the mail app cannot open, it shows the address and the order ID as text (the Support screen
+ * shows the address on its own button, so the user is never left without it) in a polite live region,
+ * and announces it on iOS only — Android already speaks the live region, so an announcement there
+ * would say it twice (C review m2). It persists nothing: the only state is "the last open failed".
+ */
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { expandTree, findElement, HookHost, type Element } from './helpers/nav-stack-harness';
+
+const h = vi.hoisted(() => ({
+  opened: [] as string[],
+  announced: [] as string[],
+  openImpl: (async () => true) as (url: string) => Promise<unknown>,
+  os: 'ios' as 'ios' | 'android',
+}));
+
+vi.mock('react-native', () => ({
+  AccessibilityInfo: { announceForAccessibility: (m: string) => { h.announced.push(m); } },
+  Platform: { get OS() { return h.os; } },
+  Linking: { openURL: (url: string) => { h.opened.push(url); return h.openImpl(url); } },
+  Text: 'Text', View: 'View',
+  StyleSheet: { create: <T,>(s: T) => s },
+}));
+vi.mock('@/src/components/ui', () => ({ Button: 'Button' }));
+vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}) }));
+vi.mock('@/src/theme/appearance', async () => {
+  const { dark } = await import('@/src/theme/palette');
+  return { useTheme: () => ({ scheme: 'dark', palette: dark }) };
+});
+
+const ID = '3f2a9c1b-7d4e-4a8f-9b6c-2e1d0a9f8c7b';
+const TRANSFER = {
+  id: ID, status: 'seller_sent', buyer_confirmed_at: null, dispute_resolution: null,
+  delivery_email: 'buyer.private@example.test', delivery_phone: '+13055554417',
+  seller: { display_name: 'Sam Seller' },
+  listing: { event_name: 'Neon Choir', venue: 'Lantern Room' },
+};
+
+const flush = async () => { for (let i = 0; i < 6; i++) await new Promise((r) => setImmediate(r)); };
+
+async function mount(props: { role: 'buyer' | 'seller'; transfer: Record<string, unknown> }): Promise<HookHost> {
+  const mod = await import('@/src/components/transfer/OrderSupportAction');
+  const host = new HookHost(() => mod.OrderSupportAction(props as never), new Map());
+  host.mount(); host.flush();
+  return host;
+}
+const tree = (host: HookHost) => expandTree(host.output);
+const button = (host: HookHost) =>
+  findElement(tree(host), (el) => el.type === 'Button' && el.props.label === 'Contact support about this order') as Element | undefined;
+const texts = (node: unknown, out: string[] = []): string[] => {
+  if (Array.isArray(node)) { node.forEach((n) => texts(n, out)); return out; }
+  const el = node as Element | null;
+  if (!el || typeof el !== 'object' || !('props' in el)) return out;
+  if (el.type === 'Text') {
+    const c = el.props.children;
+    out.push(Array.isArray(c) ? c.join('') : String(c));
+  }
+  texts(el.props.children, out);
+  return out;
+};
+const textElement = (host: HookHost, needle: string) =>
+  findElement(tree(host), (el) => el.type === 'Text' && String(el.props.children).includes(needle));
+
+beforeEach(() => {
+  h.opened.length = 0;
+  h.announced.length = 0;
+  h.openImpl = async () => true;
+  h.os = 'ios';
+});
+
+describe('OA1 · the control', () => {
+  it('renders one secondary button with the agreed label and a hint', async () => {
+    const host = await mount({ role: 'buyer', transfer: TRANSFER });
+    const b = button(host);
+    expect(b, 'no Contact support button').toBeDefined();
+    expect(b!.props.variant).toBe('secondary');
+    expect(b!.props.accessibilityHint).toMatch(/email/i);
+  });
+
+  it('a tap opens the prefilled mailto for this order and role — and nothing else', async () => {
+    const host = await mount({ role: 'seller', transfer: { ...TRANSFER, status: 'expired' } });
+    (button(host)!.props.onPress as () => void)();
+    await flush(); host.flush();
+    expect(h.opened).toHaveLength(1);
+    const url = h.opened[0];
+    expect(url.startsWith('mailto:support@snatchitapp.com?subject=Order%203f2a9c1b%20%C2%B7%20Expired&body=')).toBe(true);
+    expect(decodeURIComponent(url)).toContain('Role: Seller');
+    // The body is the order reference, its status and the role — nothing else (C review M1).
+    expect(decodeURIComponent(url.slice(url.indexOf('&body=') + '&body='.length)).startsWith(`Order ID: ${ID}\r\n`)).toBe(true);
+    // No PII from the row reaches the URL, and neither does the event name (seller free text).
+    for (const secret of ['buyer.private', '3055554417', 'Sam', 'Lantern', 'Neon', 'Choir', 'Event']) expect(decodeURIComponent(url)).not.toContain(secret);
+    // Success shows no fallback and announces nothing.
+    expect(textElement(host, "Couldn't open")).toBeUndefined();
+    expect(h.announced).toEqual([]);
+  });
+
+  it('a double tap while the first open is in flight opens the mail app once', async () => {
+    let release: () => void = () => {};
+    h.openImpl = () => new Promise((r) => { release = () => r(true); });
+    const host = await mount({ role: 'buyer', transfer: TRANSFER });
+    const press = button(host)!.props.onPress as () => void;
+    press(); press();
+    expect(h.opened).toHaveLength(1);
+    release(); await flush(); host.flush();
+    (button(host)!.props.onPress as () => void)();
+    expect(h.opened).toHaveLength(2);
+  });
+
+  it('renders nothing when the row has no usable order ID', async () => {
+    const host = await mount({ role: 'buyer', transfer: { ...TRANSFER, id: '' } });
+    expect(button(host)).toBeUndefined();
+    expect(host.output).toBeNull();
+  });
+
+  it('renders nothing for a harness fixture order (not a uuid), so a sandbox tap cannot draft to the real inbox', async () => {
+    const host = await mount({ role: 'buyer', transfer: { ...TRANSFER, id: 'fixture-order' } });
+    expect(button(host)).toBeUndefined();
+    expect(host.output).toBeNull();
+  });
+
+  it('until an open fails, the control is its button alone: no text beside it, in any state or role', async () => {
+    for (const role of ['buyer', 'seller'] as const) {
+      for (const status of ['pending', 'seller_sent', 'buyer_confirmed', 'auto_released', 'disputed', 'expired', 'reversed']) {
+        const host = await mount({ role, transfer: { ...TRANSFER, status } });
+        expect(button(host), `${role} ${status}`).toBeDefined();
+        expect(texts(tree(host)), `${role} ${status}`).toEqual([]);
+      }
+    }
+  });
+});
+
+describe('OA2 · when the mail app cannot open', () => {
+  it('shows the address and the full order ID as selectable text, and announces it (iOS)', async () => {
+    h.os = 'ios';
+    h.openImpl = async () => { throw new Error('Unable to open URL: mailto:…'); };
+    const host = await mount({ role: 'buyer', transfer: TRANSFER });
+    expect(textElement(host, "Couldn't open")).toBeUndefined();
+    (button(host)!.props.onPress as () => void)();
+    await flush(); host.flush();
+    const fallback = textElement(host, "Couldn't open");
+    expect(fallback, 'no fallback text').toBeDefined();
+    const said = String(fallback!.props.children);
+    expect(said).toContain('support@snatchitapp.com');
+    expect(said).toContain(ID);
+    expect(fallback!.props.selectable).toBe(true);
+    expect(fallback!.props.accessibilityLiveRegion).toBe('polite');
+    expect(h.announced).toEqual([said]);
+  });
+
+  it('a later successful open clears the fallback', async () => {
+    h.openImpl = async () => false;
+    const host = await mount({ role: 'seller', transfer: TRANSFER });
+    (button(host)!.props.onPress as () => void)();
+    await flush(); host.flush();
+    expect(textElement(host, "Couldn't open")).toBeDefined();
+    h.openImpl = async () => true;
+    (button(host)!.props.onPress as () => void)();
+    await flush(); host.flush();
+    expect(textElement(host, "Couldn't open")).toBeUndefined();
+  });
+});
+
+describe('OA3 · the fallback is spoken once on each platform (C review m2)', () => {
+  async function failOnce(os: 'ios' | 'android') {
+    h.os = os;
+    h.openImpl = async () => { throw new Error('Unable to open URL: mailto:…'); };
+    const host = await mount({ role: 'buyer', transfer: TRANSFER });
+    (button(host)!.props.onPress as () => void)();
+    await flush(); host.flush();
+    const fallback = textElement(host, "Couldn't open");
+    expect(fallback, `${os}: no fallback text`).toBeDefined();
+    return fallback!;
+  }
+
+  it('iOS: the live region is set and VoiceOver hears one announcement (iOS does not speak live regions)', async () => {
+    const fallback = await failOnce('ios');
+    expect(fallback.props.accessibilityLiveRegion).toBe('polite');
+    expect(h.announced).toEqual([String(fallback.props.children)]);
+  });
+
+  it('Android: the polite live region speaks it, so nothing else announces it', async () => {
+    const fallback = await failOnce('android');
+    expect(fallback.props.accessibilityLiveRegion).toBe('polite');
+    expect(fallback.props.selectable).toBe(true);
+    expect(String(fallback.props.children)).toContain(ID);
+    expect(h.announced).toEqual([]);
+  });
+
+  it('Android: a second failed open still adds no announcement', async () => {
+    h.os = 'android';
+    h.openImpl = async () => false;
+    const host = await mount({ role: 'seller', transfer: TRANSFER });
+    for (let i = 0; i < 2; i++) { (button(host)!.props.onPress as () => void)(); await flush(); host.flush(); }
+    expect(textElement(host, "Couldn't open")).toBeDefined();
+    expect(h.announced).toEqual([]);
+  });
+});

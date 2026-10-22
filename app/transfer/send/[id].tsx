@@ -39,10 +39,11 @@ import {
   sellerHoldLine,
   transferReadOutcome,
   transferStatusCopy,
-  transferStatusMeta,
 } from '@/src/lib/transfer/transferState';
 import { SellerClosedBlock, SellerReversedBlock, SellerSentBlock, StateBlock } from '@/src/components/transfer/TransferStateBlocks';
-import { disputeDecision, disputedStateCopy, disputedStateMeta } from '@/src/lib/transfer/disputeOutcome';
+import { disputeDecision, disputedStateCopy } from '@/src/lib/transfer/disputeOutcome';
+import { orderBadgeMeta } from '@/src/lib/transfer/orderBadge';
+import { OrderSupportAction } from '@/src/components/transfer/OrderSupportAction';
 import { textStyle } from '@/src/theme/typography';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
@@ -392,9 +393,8 @@ export default function TransferSendScreen({ fixture }: { fixture?: SendFixture 
   }
 
   const disputeState = disputeDecision(transfer);
-  const meta = transfer.status === 'disputed'
-    ? disputedStateMeta(disputeState, 'seller')
-    : transferStatusMeta(transfer.status, 'seller', { buyerConfirmed: transfer.buyer_confirmed_at != null });
+  // One selector for the badge and the support email's status word, so the two cannot drift.
+  const meta = orderBadgeMeta(transfer, 'seller');
 
   return (
     <View style={s.root}>
@@ -634,6 +634,9 @@ export default function TransferSendScreen({ fixture }: { fixture?: SendFixture 
             </StateBlock>
           );
         })() : null}
+
+        {/* CFT-406: support, prefilled with this order's ID and status (no PII), in every state. */}
+        <OrderSupportAction role="seller" transfer={transfer} />
 
         <View style={{ height: v2.space.xxl }} />
       </ScrollView>
