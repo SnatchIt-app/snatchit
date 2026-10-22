@@ -371,19 +371,22 @@ SELECT is(tap._claim247(tap._id247('p5r')), '{"status": "refused", "reason": "te
 SELECT is((SELECT count(*)::int FROM ops.audit WHERE action_id = tap._id247('p5r') AND action = 'action.refund_execute' AND outcome = 'processing')
           + (SELECT count(*)::int FROM public.payments WHERE id = tap._p247(19) AND status <> 'succeeded'), 0,
   'P5.7: never processing, never handed off; the payment is still succeeded');
--- order 20: the buyer confirms and the payout is recorded (confirm-and-release) while the refund waits
+-- order 20: the buyer confirms and the payout is recorded while the refund waits. The money-moved columns are written by the
+-- legacy writer record_transfer_payout (as P2.9): with 179 (20261022003000) the worker's claim_payout_attempt is REFUSED while
+-- a refund_execute is parked (REFUND_IN_FLIGHT; pgTAP 249 R2.1), so confirm-and-release can no longer pay this order — the
+-- basis at approval is the two columns plus the status, without a payout attempt. Green on 157 + 158 + 177 with and without 179.
 SELECT tap._order247(20);
 SELECT tap._s247('p5r2', tap._refund247(tap.admin_user(), 'k247-p5-refund-a02', 20));
 SELECT tap._buyer247('confirm', 20);
-SELECT is((tap._g247('p5r2') ->> 'status', tap._payout247(20, 'succeeded'), tap._fx247(20)),
-          ('awaiting_approval'::text, 'succeeded'::text, 'buyer_confirmed/succeeded/recorded/tr_fixture_247_20'::text),
-  'P5.8: refund parked; then the buyer confirms and the payout is paid and recorded');
+SELECT is((tap._g247('p5r2') ->> 'status', public.record_transfer_payout(tap._t247(20), 'tr_fixture_247_20'), tap._fx247(20)),
+          ('awaiting_approval'::text, true, 'buyer_confirmed/no_attempt/recorded/tr_fixture_247_20'::text),
+  'P5.8: refund parked; then the buyer confirms and the payout is recorded (legacy writer; the worker''s claim is 179''s REFUND_IN_FLIGHT)');
 SELECT tap._s247('p5ap2', tap._ap247(tap.other_user(), tap._id247('p5r2'), 'approve'));
 SELECT is(tap._sum247(tap._g247('p5ap2')),
-          'rejected|payout_released|approval|buyer_confirmed|["payout_released_at", "stripe_transfer_id", "payout_attempt_succeeded", "status_buyer_confirmed"]',
-  'P5.9: approving it is refused at approval with the full basis');
+          'rejected|payout_released|approval|buyer_confirmed|["payout_released_at", "stripe_transfer_id", "status_buyer_confirmed"]',
+  'P5.9: approving it is refused at approval with the money-moved basis (both columns) and the status');
 SELECT is(tap._g247('p5ap2') ->> 'message',
-          tap._msg247('approval', 'transfer buyer_confirmed; ' || tap._rec247() || '; Stripe transfer tr_fixture_247_20; payout attempt #1 succeeded'),
+          tap._msg247('approval', 'transfer buyer_confirmed; ' || tap._rec247() || '; Stripe transfer tr_fixture_247_20'),
   'P5.10: approval-stage message names the recorded payout');
 
 -- ── P6 — the refund dispatch locks the transfer row (order 21) ──

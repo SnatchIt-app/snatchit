@@ -321,7 +321,7 @@ SELECT is((WITH want(sig, md5) AS (VALUES
              ('public.resolve_transfer_dispute(uuid,text,uuid,text,text)', '7b9e17a54ec065195a7969d8b107d61d'),
              ('public.confirm_transfer_received(uuid,uuid)', 'a009719657758db9d117d91108b09cbd'),
              ('public.buyer_dispute_transfer(uuid,uuid,text,text,text)', 'ea1aa60569a74bc13f4bf62fb1d898c9'),
-             ('public.record_payment_refund(text,text,text,integer,text)', '8ce828e3461f97844faa36450241dc8f')))
+             ('public.record_payment_refund(text,text,text,integer,text)', '8ce828e3461f97844faa36450241dc8f'))
            -- a signature fails only when its live md5 matches NONE of its listed values (one value for all but the two drifting writers)
            SELECT coalesce(array_agg(w.sig ORDER BY w.sig), '{}'::text[]) FROM (SELECT DISTINCT sig FROM want) w
             WHERE NOT EXISTS (SELECT 1 FROM want w2 WHERE w2.sig = w.sig AND md5(pg_get_functiondef(to_regprocedure(w2.sig))) = w2.md5)),
