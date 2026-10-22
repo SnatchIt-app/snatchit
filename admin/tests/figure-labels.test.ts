@@ -316,16 +316,20 @@ describe("MoneyKpis — labels on the KPI surface", () => {
     expect(html).not.toContain("$0");
     expect(html).not.toContain("$1,320");
     expect(html).not.toContain("vs previous period");
-    expect(html).not.toContain("as of 2026");
+    // No freshness claim of any kind on a failed read — not even "not stated": every label says the read failed.
+    expect(html).not.toContain("as of");
+    expect(html.match(/failed — nothing is shown/g)?.length).toBe(2); // the group label and the pending tile's own label
   });
 
-  it("compact (Today): same labels, four tiles, error state has four error tiles", async () => {
+  it("compact (Today): same labels, four tiles, error state has four error tiles and the failed label", async () => {
     const ok = await kpis(overview(FROM, TO_PAST, FULL), overview("2026-08-25", "2026-09-22", FULL), { compact: true });
     expect(tiles(ok)).toEqual(["ok", "ok", "ok", "ok"]);
     expect(ok).toContain("as of 2026-10-22 10:54:59 UTC");
     expect(ok).toContain("USD");
     const err = await kpis(FAIL, FAIL, { compact: true });
     expect(tiles(err)).toEqual(["error", "error", "error", "error"]);
+    expect(err).toContain("failed — nothing is shown");
+    expect(err).not.toContain("as of");
   });
 });
 
