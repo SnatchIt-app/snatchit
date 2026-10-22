@@ -550,8 +550,9 @@ SELECT is((SELECT coalesce(array_agg(z.sig ORDER BY z.sig), '{}'::text[]) FROM (
              ('public.confirm_transfer_received(uuid,uuid)', 'a009719657758db9d117d91108b09cbd'),
              ('public.confirm_transfer_received(uuid,uuid)', '2628bda3533c447295ae153e3e276f9a'),   -- 171 (20261021131000) redefines it from production's body
              ('public.buyer_dispute_transfer(uuid,uuid,text,text,text)', 'ea1aa60569a74bc13f4bf62fb1d898c9'),
-             ('public.record_payment_refund(text,text,text,integer,text)', '8ce828e3461f97844faa36450241dc8f')),
-             ('public.record_payment_refund(text,text,text,integer,text)', 'aadd3cca365aae33b1903daaf9ff67d7'   -- 175 (20261021135000) redefines it from production's body) v(sig, md5)
+             ('public.record_payment_refund(text,text,text,integer,text)', '8ce828e3461f97844faa36450241dc8f'),
+             -- 175 (20261021135000) redefines record_payment_refund from production's body
+             ('public.record_payment_refund(text,text,text,integer,text)', 'aadd3cca365aae33b1903daaf9ff67d7') v(sig, md5)
             GROUP BY v.sig
             HAVING bool_and(md5(pg_get_functiondef(to_regprocedure(v.sig))) IS DISTINCT FROM v.md5)) z),
           '{}'::text[],
