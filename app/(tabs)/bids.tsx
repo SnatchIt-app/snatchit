@@ -43,6 +43,7 @@ import { finalSoldPrice } from '@/src/lib/salePrice';
 import { allInFromDollarsV3 } from '@/src/lib/money';
 import { getCoverImageUrl } from '@/src/lib/coverImage';
 import ScreenState from '@/src/components/ScreenState';
+import { useAnnounceOnce } from '@/src/hooks/useAnnounceOnce';
 import { useNetworkStatus } from '@/src/hooks/useNetworkStatus';
 import { classifyLoadFailure } from '@/src/lib/ui/loadState';
 import { Chip, EmptyState, Skeleton } from '@/src/components/ui';
@@ -148,6 +149,7 @@ export default function BidsScreen({ fixture }: { fixture?: BidsFixture } = {}) 
     fixture ? ('failure' in fixture ? fixture.failure : fixture.refreshFailed ?? null) : null,
   );
   const [segment,    setSegment]    = useState<BidGroup>('active');
+  useAnnounceOnce(loadError && bids.length > 0 ? BIDS_REFRESH_FAILED_COPY[loadError] : null);
 
   const initialLoadDone = useRef(false);
   // Only the latest load may change the screen (D review of F-BIDS-1): a pull, a

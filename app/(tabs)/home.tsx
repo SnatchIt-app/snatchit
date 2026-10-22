@@ -52,6 +52,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '@/src/lib/supabase';
 import { allInFromDollarsV3 } from '@/src/lib/money';
 import ScreenState from '@/src/components/ScreenState';
+import { useAnnounceOnce } from '@/src/hooks/useAnnounceOnce';
 import { useNetworkStatus } from '@/src/hooks/useNetworkStatus';
 import { classifyLoadFailure } from '@/src/lib/ui/loadState';
 import {
@@ -558,6 +559,7 @@ export default function HomeScreen({ fixture: rawFixture }: HomeScreenProps = {}
   const datasetFailure = datasetState
     ? failureSurface(filteredListings.length, datasetState.error !== null)
     : 'none';
+  useAnnounceOnce(datasetFailure === 'inline' && datasetState?.error ? HOME_FILTER_REFRESH_FAILED_COPY[datasetState.error] : null);
   const retryDataset = () => {
     if (activeDataset === 'recently_sold') void fetchSoldListings();
     if (activeDataset === 'ended')         void fetchEndedListings();
