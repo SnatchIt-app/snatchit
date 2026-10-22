@@ -46,11 +46,21 @@
 --      seller's cancel that waited on a buyer's uncommitted reserve_buy_now clears the just-committed hold
 --      (two-session race, private-evidence/A-sprint-20261021/a2/p1/review/R06_race.out). D6: the 170 body's md5
 --      (the migration's VERIFY line), so any later redefinition re-reads this suite.
+--   E. guard_listing_delete (BEFORE DELETE ON listings; source sprint-control/LEGACY_CLIENT_API_SURFACE_AUDIT_20261021.md
+--      §5 P2): the shipped delete request (WHERE id AND seller_id) is refused (LISTING_DELETE_LOCKED, the exact sentence)
+--      once a listing has a bid, a Buy Now hold (live, or lapsed but not yet swept) or a sale, so no CASCADE erases the
+--      bids or the saves and no flag is unlinked (E1-E11, E27; E2 is the cascade-prevention proof). E12/E13: the bid
+--      counter and the bid rows are each enough on their own (defense in depth; no RPC lets them disagree). E14/E15: a
+--      non-owner matches 0 rows under RLS, no error and no state oracle, nothing deleted (unchanged). E16-E19: no
+--      activity (open, ended, cancelled, a swept lapsed hold) stays deletable. E20/E21: where the guard lets a delete
+--      through, the payments and listing_visibility foreign keys still answer 23503, as today. E22-E26: service_role and
+--      claims-less postgres stay trusted (the FKs still bind them); claims make either untrusted. E28-E31: wiring and the
+--      body's md5. Reachable states only, except E12/E13's counter drift (labelled; 0 such production rows).
 -- Helpers are version-agnostic (dynamic SQL, errors caught), so the file runs to completion on a database
 -- without 170 and reports each gap as its own failure (RED).
 -- ============================================================================
 BEGIN;
-SELECT plan(95);
+SELECT plan(127);
 SELECT tap.seed_core();
 
 -- ── helpers ─────────────────────────────────────────────────────────────────
@@ -112,6 +122,16 @@ BEGIN
   UPDATE public.listings SET reserved_until = p_until WHERE id = p_id;
   PERFORM set_config('app.bypass_listing_guard', 'off', true);
 END $f$;
+-- The shipped delete request (app/my-listings.tsx:158, src/screens/ListingDetailScreen.tsx:927-931 at e46fc203;
+-- web/src/lib/seller-listings.ts:235): supabase.from('listings').delete().eq('id', id).eq('seller_id', uid).
+CREATE FUNCTION tap._del240(p_id uuid, p_seller_arg uuid) RETURNS text LANGUAGE sql AS $f$
+  SELECT format('DELETE FROM public.listings WHERE id = %L AND seller_id = %L RETURNING id', p_id, p_seller_arg) $f$;
+-- A listing and everything a DELETE of it would cascade or unlink, read past RLS (definer, owner = postgres).
+CREATE FUNCTION tap._dep240(p_id uuid) RETURNS text LANGUAGE sql SECURITY DEFINER SET search_path = '' AS $f$
+  SELECT 'listing=' || (SELECT count(*) FROM public.listings l WHERE l.id = p_id)
+      || '|bids=' || (SELECT count(*) FROM public.bids b WHERE b.listing_id = p_id)
+      || '|saved=' || (SELECT count(*) FROM public.saved_listings s WHERE s.listing_id = p_id)
+      || '|flags=' || (SELECT count(*) FROM public.seller_flags f WHERE f.listing_id = p_id) $f$;
 
 -- ── fixtures (as postgres; seller S unless noted; all open for 24 h, start 100, Buy Now 300) ─────────
 -- 1 HELD, 2 EXPIRED, 3 BOUNDARY, 4 ONE SECOND LEFT, 5 AUCTION WON, 6 RELIST shape (admin, waived), 7 SOLD,
@@ -537,6 +557,156 @@ SELECT ok(coalesce(pg_get_functiondef(to_regprocedure('public.cancel_listing(uui
   || 'then refused as a live hold)');
 SELECT is(md5(pg_get_functiondef(to_regprocedure('public.cancel_listing(uuid,uuid)'))), '137f680cff0d54d6c07af2bf49975b6c',
   'D6: cancel_listing is exactly the 170 body (md5 of pg_get_functiondef; the migration''s VERIFY value)');
+
+-- ═══ E. hard DELETE after activity (guard_listing_delete, BEFORE DELETE ON public.listings) ═══════════
+-- Every refusal below is the shipped delete request (tap._del240). Without the guard each one succeeds and the
+-- foreign keys do the rest: bids_listing_id_fkey and saved_listings_listing_id_fkey CASCADE, seller_flags_listing_id_fkey
+-- SET NULL (private-evidence/A-sprint-20261021/a2/p1/w4/W01_red_postgrest_base.out: the same through a real PostgREST).
+-- E reuses the reachable states A-C built (4 one second left, 5 won, 7 sold Buy Now, 8 voided with bids, 9 cancelled
+-- no bid, 10 cancelled with winner, 12 won, 13 sold auction, 20 open with two bids, 22 lapsed hold not yet swept, 23 once
+-- sold) and adds 30 (no activity), 31 (ended, no bid), 32 (a live hold taken in E), 33/34 (bid counter drift), 35
+-- (hidden). Listing 1 is no longer held here: reserve_buy_now releases the caller's other holds (one live hold per buyer),
+-- and the buyer took 22 in B.
+SELECT tap.logout();
+-- C4's suspension probe is lifted the way the ops unsuspend action writes it, so the bids below are accepted.
+UPDATE ops.user_restriction SET lifted_at = now(), lifted_by = tap.admin_user(), lift_reason = '240 E: C4 probe lifted'
+ WHERE user_id = tap.seller() AND lifted_at IS NULL;
+INSERT INTO public.listings (id, seller_id, event_name, venue, neighborhood, event_date, event_time, ticket_type, quantity,
+  transfer_method, restrictions, starting_bid, buy_now_enabled, buy_now_price, duration_hours, starts_at, ends_at, current_bid,
+  cover_image_path, proof_of_ownership_path, auction_status)
+SELECT tap._l240(n), tap.seller(), 'Fixture 240 #' || n, 'Club 240', 'wynwood', current_date + 30, '21:00', 'GA', 2,
+       'mobile_transfer', NULL, 100, true, 300, 24, now(), now() + interval '24 hours', 100,
+       'covers/240.jpg', 'proofs/240.png', 'active'
+  FROM unnest(ARRAY[30,31,32,33,34,35]) AS n;
+-- Listing 20's dependents: a buyer saved it (web saved_listings), the risk engine flagged it (seller_flags).
+INSERT INTO public.saved_listings (user_id, listing_id) VALUES (tap.buyer(), tap._l240(20));
+INSERT INTO public.seller_flags (seller_id, flag_type, severity, details, listing_id)
+VALUES (tap.seller(), 'same_event_overload', 'info', '240 E fixture flag', tap._l240(20));
+SELECT is(tap._dep240(tap._l240(20)) || '|' || tap._st240(tap._l240(20)),
+  'listing=1|bids=2|saved=1|flags=1|active|active|by=null|until=null|winner=null|bids=2',
+  'E0: reachable state: listing 20 is open with two real bids (B0, B21), saved by a buyer, linked to a moderation flag');
+SELECT tap.login(tap.seller());
+SELECT is(tap._try240(tap._del240(tap._l240(20), tap.seller())),
+  tap._no240('This listing can''t be deleted after it has bids, a buyer checking out, or a sale. Cancel it instead.', 'LISTING_DELETE_LOCKED'),
+  'E1: the seller''s delete of an auction with bids is refused (P0001, HINT LISTING_DELETE_LOCKED, the exact sentence)');
+SELECT tap.logout();
+SELECT is(tap._dep240(tap._l240(20)), 'listing=1|bids=2|saved=1|flags=1',
+  'E2: no cascade ran: the listing, both bids, the save and the flag''s listing link are all still there');
+SELECT tap.login(tap.admin_user());
+SELECT tap._try240(tap._reserve240(tap._l240(32), tap.admin_user()));     -- a buyer (the admin account) takes a hold on 32
+SELECT tap.login(tap.seller());
+SELECT is(tap._try240(tap._del240(tap._l240(32), tap.seller())),
+  tap._no240('This listing can''t be deleted after it has bids, a buyer checking out, or a sale. Cancel it instead.', 'LISTING_DELETE_LOCKED'),
+  'E3: a listing under a live Buy Now hold (the buyer is checking out) is refused');
+SELECT is(tap._st240(tap._l240(32)), 'reserved|active|by=admin|until=live|winner=null|bids=0',
+  'E4: ...and the hold is intact (reserve_buy_now''s state, by the buyer, live)');
+SELECT is(tap._try240(tap._del240(tap._l240(4), tap.seller())) ->> 'hint', 'LISTING_DELETE_LOCKED',
+  'E5: a hold with one second left is still live: refused');
+SELECT is(tap._st240(tap._l240(22)) || '|' || (tap._try240(tap._del240(tap._l240(22), tap.seller())) ->> 'hint'),
+  'reserved|active|by=buyer|until=past|winner=null|bids=0|LISTING_DELETE_LOCKED',
+  'E6: a lapsed hold not yet swept is still status reserved: refused until cleanup_expired_reservations runs');
+SELECT is(tap._try240(tap._del240(tap._l240(7), tap.seller())),
+  tap._no240('This listing can''t be deleted after it has bids, a buyer checking out, or a sale. Cancel it instead.', 'LISTING_DELETE_LOCKED'),
+  'E7: a listing sold through Buy Now (no bid) gets the sentence, before the payments foreign key''s raw 23503');
+SELECT is(tap._try240(tap._del240(tap._l240(13), tap.seller())) ->> 'hint', 'LISTING_DELETE_LOCKED',
+  'E8: a sold auction is refused');
+SELECT is(tap._st240(tap._l240(23)) || '|' || (tap._try240(tap._del240(tap._l240(23), tap.seller())) ->> 'code'),
+  'active|cancelled|by=null|until=null|winner=null|bids=0|P0001',
+  'E9: a once-sold listing (sold_at kept, status no longer sold, no bid) is refused by sold_at alone (P0001, not the FK''s 23503)');
+SELECT is(tap._try240(tap._del240(tap._l240(5), tap.seller())) ->> 'hint', 'LISTING_DELETE_LOCKED',
+  'E10: an ended auction with a winner is refused');
+SELECT is(tap._st240(tap._l240(8)) || '|' || (tap._try240(tap._del240(tap._l240(8), tap.seller())) ->> 'hint'),
+  'active|cancelled|by=null|until=null|winner=null|bids=1|LISTING_DELETE_LOCKED',
+  'E11: an auction voided with its bids (A36) keeps its bid history: refused');
+SELECT tap.logout();
+-- Defense in depth: bid_count and the bid rows disagree. No RPC writes either drift (validate_and_apply_bid moves
+-- bid_count in the bid's own transaction; bids_listing_id_fkey and listings_highest_bidder_id_fkey keep the last bidder's
+-- row), and the replay has 0 rows of either (W00_catalog.out); each branch is still asserted on its own.
+SELECT set_config('app.bypass_listing_guard', 'on', true);
+UPDATE public.listings SET bid_count = 1 WHERE id = tap._l240(33);
+SELECT tap.reset_guards();
+SELECT tap.login(tap.other_user());
+SELECT tap._try240(tap._bid240(tap._l240(34), tap.other_user(), 120));
+SELECT tap.logout();
+SELECT set_config('app.bypass_listing_guard', 'on', true);
+UPDATE public.listings SET bid_count = 0 WHERE id = tap._l240(34);
+SELECT tap.reset_guards();
+SELECT tap.login(tap.seller());
+SELECT is(tap._dep240(tap._l240(33)) || '|' || tap._st240(tap._l240(33)) || '|' || (tap._try240(tap._del240(tap._l240(33), tap.seller())) ->> 'hint'),
+  'listing=1|bids=0|saved=0|flags=0|active|active|by=null|until=null|winner=null|bids=1|LISTING_DELETE_LOCKED',
+  'E12: defense in depth: bid_count > 0 with no bid row still locks');
+SELECT is(tap._dep240(tap._l240(34)) || '|' || tap._st240(tap._l240(34)) || '|' || (tap._try240(tap._del240(tap._l240(34), tap.seller())) ->> 'hint'),
+  'listing=1|bids=1|saved=0|flags=0|active|active|by=null|until=null|winner=null|bids=0|LISTING_DELETE_LOCKED',
+  'E13: defense in depth: a bid row with bid_count 0 still locks (the guard reads the bids table, not only the counter)');
+-- A non-owner: RLS (listings_delete_own: seller_id = auth.uid()) matches no row, so the guard never runs: no error, no
+-- state oracle (the lock sentence is never shown to them), nothing deleted. Unchanged by 170.
+SELECT tap.login(tap.other_user());
+SELECT is(tap._dml240(tap._del240(tap._l240(20), tap.other_user())) || '|' || tap._dml240(tap._del240(tap._l240(20), tap.seller()))
+          || '|' || tap._dml240(tap._del240(tap._l240(30), tap.other_user())) || '|' || tap._dml240(tap._del240(tap._l240(30), tap.seller())),
+  '0|0|0|0', 'E14: a non-owner''s delete (their own id or the seller''s) of a locked or an unlocked listing matches 0 rows, no error');
+SELECT tap.logout();
+SELECT is(tap._dep240(tap._l240(20)) || '|' || tap._dep240(tap._l240(30)),
+  'listing=1|bids=2|saved=1|flags=1|listing=1|bids=0|saved=0|flags=0', 'E15: ...and both listings are untouched');
+-- No activity: the clients' normal delete still works.
+SELECT tap.login(tap.seller());
+SELECT is(tap._dml240(tap._del240(tap._l240(30), tap.seller())), 1::bigint,
+  'E16: a listing with no bid, hold or sale is deleted by its seller (the app''s normal path)');
+SELECT tap.logout();
+UPDATE public.listings SET ends_at = now() - interval '1 minute' WHERE id = tap._l240(31);   -- the clock runs out
+SELECT tap._try240(format('SELECT public.finalize_auction(%L)', tap._l240(31)));
+SELECT tap.login(tap.seller());
+SELECT is(tap._st240(tap._l240(31)) || '|' || tap._dml240(tap._del240(tap._l240(31), tap.seller())),
+  'active|ended|by=null|until=null|winner=null|bids=0|1', 'E17: an auction that ended with no bid is deletable');
+SELECT is(tap._st240(tap._l240(9)) || '|' || tap._dml240(tap._del240(tap._l240(9), tap.seller())),
+  'active|cancelled|by=null|until=null|winner=null|bids=0|1', 'E18: a cancelled listing with no bid is deletable');
+SELECT tap.logout();
+SELECT public.cleanup_expired_reservations();                                 -- the cron sweep (auto_finalize_expired_auctions)
+SELECT tap.login(tap.seller());
+SELECT is(tap._st240(tap._l240(22)) || '|' || tap._dml240(tap._del240(tap._l240(22), tap.seller())),
+  'active|active|by=null|until=null|winner=null|bids=0|1', 'E19: once the sweep clears the lapsed hold (22), the listing is deletable');
+-- The foreign-key refusals keep answering where the guard lets a delete through (as today, with and without 170).
+SELECT is(tap._try240(tap._del240(tap.listing_d(), tap.seller())) ->> 'code', '23503',
+  'E20: a listing with no activity but a payment row (seed listing D, pending payment) is still refused by payments_listing_id_fkey');
+SELECT tap._try240(tap._cancel240(tap._l240(35), tap.seller()));             -- the seller cancels 35, then ops hides it
+SELECT tap.logout();
+INSERT INTO public.listing_visibility (listing_id, hidden_reason, hidden_by) VALUES (tap._l240(35), '240 E hidden', 'pgTAP 240');
+SELECT tap.login(tap.seller());
+SELECT is(tap._st240(tap._l240(35)) || '|' || (tap._try240(tap._del240(tap._l240(35), tap.seller())) ->> 'code'),
+  'active|cancelled|by=null|until=null|winner=null|bids=0|23503',
+  'E21: a hidden listing with no activity is still refused by listing_visibility_listing_id_fkey (RESTRICT; suite 221 K1)');
+-- Trusted paths: service_role and claims-less postgres pass the guard (155/156 trust test); the FKs still apply to them.
+SELECT tap.login_service();
+SELECT is(tap._try240(format('DELETE FROM public.listings WHERE id = %L', tap._l240(12))) || jsonb_build_object('after', tap._dep240(tap._l240(12))),
+  '{"ok": true, "after": "listing=0|bids=0|saved=0|flags=0"}'::jsonb,
+  'E22: service_role (claims absent or service_role) may still delete a won auction; its bid cascades as before');
+SELECT is(tap._try240(format('DELETE FROM public.listings WHERE id = %L', tap._l240(7))) ->> 'code', '23503',
+  'E23: ...and is still refused by the payments foreign key on a sold listing');
+SELECT tap.logout();
+SELECT is(tap._try240(format('DELETE FROM public.listings WHERE id = %L', tap._l240(10))) || jsonb_build_object('after', tap._dep240(tap._l240(10))),
+  '{"ok": true, "after": "listing=0|bids=0|saved=0|flags=0"}'::jsonb,
+  'E24: claims-less postgres (migrations, cron, the SQL editor) may delete a listing with a bid');
+SELECT tap.set_claims(tap.seller(), 'authenticated');
+SELECT is(tap._try240(format('DELETE FROM public.listings WHERE id = %L', tap._l240(20))) ->> 'hint', 'LISTING_DELETE_LOCKED',
+  'E25: a postgres session that carries request claims is not trusted');
+SELECT set_config('role', 'service_role', true);
+SELECT is(tap._try240(format('DELETE FROM public.listings WHERE id = %L', tap._l240(20))) ->> 'hint', 'LISTING_DELETE_LOCKED',
+  'E26: service_role carrying authenticated claims is not trusted either');
+SELECT tap.logout();
+SELECT is(tap._dep240(tap._l240(20)), 'listing=1|bids=2|saved=1|flags=1', 'E27: after every refusal listing 20 and its dependents are intact');
+-- Wiring.
+SELECT is((SELECT p.prosecdef::text || '|' || array_to_string(p.proconfig, ',') || '|' || p.prorettype::regtype::text
+             FROM pg_proc p WHERE p.oid = to_regprocedure('public.guard_listing_delete()')),
+  'true|search_path=""|trigger', 'E28: guard_listing_delete() is SECURITY DEFINER with search_path ''''');
+SELECT is((SELECT has_function_privilege('anon', p.oid, 'EXECUTE')::text || '|' || has_function_privilege('authenticated', p.oid, 'EXECUTE')::text
+                  || '|' || (coalesce(array_to_string(p.proacl, ','), '<default>') ~ '(^|,)=X/')::text
+             FROM pg_proc p WHERE p.oid = to_regprocedure('public.guard_listing_delete()')),
+  'false|false|false', 'E29: no client EXECUTE on guard_listing_delete() (anon, authenticated, PUBLIC)');
+SELECT is((SELECT string_agg(pg_get_triggerdef(t.oid) || ' [' || t.tgenabled::text || ']', ' ; ' ORDER BY t.tgname) FROM pg_trigger t
+            WHERE t.tgrelid = 'public.listings'::regclass AND NOT t.tgisinternal AND (t.tgtype & 8) = 8),
+  'CREATE TRIGGER trg_guard_listing_delete BEFORE DELETE ON public.listings FOR EACH ROW EXECUTE FUNCTION guard_listing_delete() [O]',
+  'E30: the only DELETE trigger on listings: BEFORE DELETE FOR EACH ROW, enabled, executing guard_listing_delete()');
+SELECT is(md5(pg_get_functiondef(to_regprocedure('public.guard_listing_delete()'))), '81a277a5f23a457d660fad75431e2872',
+  'E31: guard_listing_delete is exactly the 170 body (md5 of pg_get_functiondef; the migration''s VERIFY value)');
 
 SELECT * FROM finish();
 ROLLBACK;

@@ -4,7 +4,8 @@
 -- settles; owner-gated. STATUS 88 holds release-bound changes to listing-state RPCs and guards while the four
 -- relisted production listings are live and build 29 is in App Review. Prepared and tested on the local
 -- production replay only (a_sprint_prod_template); applied nowhere.
--- Source finding: sprint-control/SERVER_REFUSAL_CATALOGUE_C_20261021.md §9, "Surprising" 2 and 4.
+-- Source finding: sprint-control/SERVER_REFUSAL_CATALOGUE_C_20261021.md §9, "Surprising" 2 and 4; the DELETE guard (c):
+-- sprint-control/LEGACY_CLIENT_API_SURFACE_AUDIT_20261021.md §3 / §5 P2 (evidence private-evidence/A-sprint-20261021/leg/).
 --
 -- WHY.
 --   (a) public.cancel_listing refused only status 'sold'. A seller (or any service path) could cancel
@@ -24,11 +25,22 @@
 --       web/src/lib/seller-listings.ts:166-201 the same four after its badge gate and a real bid count). A stale
 --       form saved after the first bid, the app's own edit screen during a live hold, or any direct PATCH,
 --       succeeded (01_red.out, pgTAP 240 B1-B18, B27).
+--   (c) A seller could HARD-DELETE their own listing after bids or under a live Buy Now hold. authenticated holds
+--       DELETE on listings, the one DELETE policy (listings_delete_own) checks ownership only, and no DELETE trigger
+--       existed; the "no delete once there is activity" rule lived only in the clients (app/my-listings.tsx:152,
+--       src/screens/ListingDetailScreen.tsx:911 read a bid_count that can be stale; web seller-listings.ts:227-232
+--       counts bids, then deletes a moment later). The delete then CASCADEs the bids (bids_listing_id_fkey) and the
+--       buyers' saves (saved_listings_listing_id_fkey) and unlinks moderation flags (seller_flags_listing_id_fkey SET
+--       NULL); a live hold is destroyed while the buyer is checking out. Only payments, transfers, webhook_retries
+--       (NO ACTION) and listing_visibility (RESTRICT) block it. The 10-15 snapshot has 23 listings with bid rows and no
+--       blocking row. Reproduced through a real PostgREST 16.2 with the app's exact request
+--       (private-evidence/A-sprint-20261021/a2/p1/w4/W01_red_postgrest_base.out) and in pgTAP 240 E1-E13.
 --
 -- WHAT.
 --   1. Pre-flight (read-only DO block): cancel_listing must be the PRODUCTION body (md5
---      ba31642267e65fefbf9485a144efc753, prod_functions.json; the chain at bfc5cf97 carries the same body) and
---      neither new object may exist. Otherwise RAISE; nothing changes.
+--      ba31642267e65fefbf9485a144efc753, prod_functions.json; the chain at bfc5cf97 carries the same body), none of
+--      the four new objects may exist, and public.listings must have no DELETE trigger (production has none).
+--      Otherwise RAISE; nothing changes.
 --   2. public.cancel_listing(uuid, uuid), from the PRODUCTION body (pg_get_functiondef of
 --      a_sprint_prod_template, fingerprint-identical to production). Same signature, definer, search_path
 --      'public', ACL (CREATE OR REPLACE keeps postgres/authenticated/service_role EXECUTE; verified below).
@@ -81,6 +93,32 @@
 --        transfer_method, restrictions, starting_bid, buy_now_enabled, buy_now_price, starts_at,
 --        cover_image_path, ticket_platform, seller_commitment_accepted_at, category. pgTAP 240 D4 re-derives
 --        this split from has_column_privilege, so a future client-updatable column fails CI until classified.
+--   4. public.guard_listing_delete() — NEW, trigger function, SECURITY DEFINER (it reads public.bids past RLS),
+--      search_path '', EXECUTE revoked from PUBLIC, anon, authenticated (no client EXECUTE; the same shape as 3).
+--        Locked: OLD.bid_count > 0 OR a bid row exists for the listing OR OLD.status IN ('reserved','sold')
+--          OR OLD.sold_at IS NOT NULL OR a live hold (reserved_until > now()). The bid counter and the bid rows are
+--          read separately (defense in depth: no RPC lets them disagree, and the replay has 0 such rows, but a
+--          delete must never cascade a bid row). status 'reserved' includes a hold that lapsed but is not yet swept:
+--          it is refused until cleanup_expired_reservations (auto_finalize_expired_auctions) returns the listing to
+--          'active', then it is deletable; the seller can cancel it meanwhile (cancel_listing clears a lapsed hold).
+--          The live-hold disjunct is null-safe (reserved_until IS NOT NULL AND ...), so an unlocked row is never
+--          refused by a NULL.
+--        Unlocked rows pass: an active, ended or cancelled listing with no bid, no hold and no sale is the clients'
+--        normal delete and keeps working (RETURN OLD).
+--        Trusted, as-is: the same trust test as 3 (service_role with claims absent or service_role; postgres with NO
+--        request claims). A postgres or service_role session carrying authenticated claims is untrusted.
+--        Untrusted delete of a locked row ->
+--          'This listing can''t be deleted after it has bids, a buyer checking out, or a sale. Cancel it instead.'
+--          HINT LISTING_DELETE_LOCKED (ERRCODE P0001). Raised, not filtered: an RLS refusal of DELETE is a silent
+--          0-row success the shipped app would report as "Deleted" (catalogue DEL-5); both apps show error.message.
+--      Trigger trg_guard_listing_delete BEFORE DELETE ON public.listings FOR EACH ROW. It is the only DELETE trigger
+--      on listings; the foreign-key actions are AFTER ROW (RI) triggers, so the guard decides before any CASCADE
+--      or SET NULL runs, and a refusal rolls the whole statement back.
+--      Interplay with the existing refusals (unchanged): RLS first — a non-owner's DELETE matches 0 rows and the
+--      guard never runs (no state oracle, no error, as today). Where the guard lets a delete through, the foreign
+--      keys answer exactly as before: a listing with a payment, transfer or webhook_retries row stays 23503, a
+--      hidden listing (listing_visibility, RESTRICT) stays 23503 (suite 221 K1-K5 identical), for clients and the
+--      trusted path alike. Where both apply (a sold listing), the guard's sentence now answers before the raw 23503.
 --
 -- FIRING ORDER (BEFORE UPDATE row triggers on public.listings fire in name order; pgTAP 240 C5):
 --   guard_listing_state < trg_guard_listing_content < trg_guard_listing_edit_lock < trg_guard_listing_identity
@@ -96,6 +134,8 @@
 --   A first draft named the trigger trg_guard_listing_activity_lock (sorting BEFORE the content guard); the
 --   regression run showed 219 G4 flip from ACCOUNT_SUSPENDED to the lock's hint, so the order was changed
 --   (private-evidence/A-sprint-20261021/a2/p1/03_regress_prod_try1.out).
+--   DELETE: trg_guard_listing_delete is the only BEFORE DELETE (and the only non-internal DELETE) trigger on listings;
+--   the seven foreign-key actions on listings are AFTER ROW RI triggers and run only if it returns OLD (240 E30).
 --
 -- CALLERS (enumerated 2026-10-21; producers whose accepted inputs narrow):
 --   cancel_listing:
@@ -114,6 +154,20 @@
 --       (listing_relist calls admin_relist_listing only); no edge function; the admin console has no cancel.
 --     - Internal UPDATEs that cancel without this RPC (kernel.sweep_deletion_pending, delete_account_cleanup)
 --       are unchanged.
+--   listings DELETE (the guard narrows what is accepted; every producer enumerated 2026-10-21 at e46fc203):
+--     - app/my-listings.tsx:158 and src/screens/ListingDetailScreen.tsx:927-931:
+--       supabase.from('listings').delete().eq('id', id).eq('seller_id', uid). Their own gates (:152, :911) already
+--       refuse bid_count > 0 / sold; the guard adds what they miss: a stale bid_count (a tab loaded before the first
+--       bid), a live or unswept hold (status 'reserved', auction_status still 'active'), a once-sold row. They show
+--       error.message raw ("Delete failed"); the sentence is user-presentable, and C can key on LISTING_DELETE_LOCKED.
+--     - web/src/lib/seller-listings.ts:235 deleteSellerListing, after its badge gate and countRealBids (:227-232):
+--       mapSellerError (:141-153) passes unknown text through, so a bid or hold that lands between its count and its DELETE
+--       now gets the sentence instead of a cascade.
+--     - the legacy web bundle (G's call list, 1 site): the same request, same outcome.
+--     - Not callers: no SQL function in any schema deletes from listings and no foreign key cascades into listings
+--       (listings_seller_id_fkey is NO ACTION) — W00_catalog.out; no edge function and no console code deletes a
+--       listing; claims-less operator SQL stays trusted. Existing suites that delete listings (030 anon 0-row, 185
+--       claims-less cleanups, 221 K1-K5) are unaffected (W04 regression).
 --   listings content UPDATEs: only the two edit paths above. The lock is reached through a stale form, a direct
 --     request, the APP's edit screen on a held listing (its gate ignores status 'reserved'), and either client on
 --     a lapsed hold not yet swept (status still 'reserved' until cleanup_expired_reservations runs; the web badge
@@ -125,30 +179,40 @@
 -- NOT CHANGED (report only): the F10-adjacent starting_bid / current_bid floor (bid rules unchanged; an edit of
 --   starting_bid while bid_count = 0 stays allowed); a hold that lapsed with a succeeded but unsettled payment
 --   (webhook lag) stays cancellable; a winner who never pays keeps the listing uncancellable by its seller (the
---   unpaid-winner path is an owner decision).
+--   unpaid-winner path is an owner decision). Table grants: anon and authenticated keep DELETE on listings (anon's,
+--   refused by RLS today, is registry 174's revoke, not this file's); the delete guard works inside that grant.
 --
 -- ROLLOUT (each step an owner decision, after 2026-10-28 03:47:04Z and build 29's review):
---   1. Apply this file (one transaction; lock_timeout 3s; CREATE TRIGGER takes SHARE ROW EXCLUSIVE on
+--   1. Apply this file (one transaction; lock_timeout 3s; each CREATE TRIGGER takes SHARE ROW EXCLUSIVE on
 --      public.listings for an instant; no row is read or written).
---   2. Clients: none required. C may map the six HINTs (CFT-703 catalogue).
+--   2. Clients: none required. C may map the eight HINTs (CFT-703 catalogue): cancel_listing's six,
+--      LISTING_LOCKED_FOR_EDIT and LISTING_DELETE_LOCKED.
 -- ROLLBACK: supabase/rollbacks/20261021130000_listing_seller_integrity_rollback.sql — refuses unless the 170
---   bodies are the ones installed (no silent revert of a later change), drops the trigger and the function,
---   restores cancel_listing VERBATIM from production and verifies its md5 and ACL; any mismatch RAISEs and
---   nothing changes.
+--   bodies are the ones installed (no silent revert of a later change; a partial 170 is refused too), drops both
+--   triggers and both functions, restores cancel_listing VERBATIM from production and verifies its md5 and ACL; any
+--   mismatch RAISEs and nothing changes.
 -- CI (four-file rule, read from the files):
---   - supabase/ci/assert_public_table_grant_decisions.sql:474-476: +('guard_listing_edit_lock()', 'no-client-execute')
---     (the SEC-2/F2 gate fails closed on a public function with no row; cancel_listing keeps its row at :490).
---   - .github/workflows/ci.yml Gate-2 census (public schema only, :605-615): EXPECT_FUNCS 126 -> 127 (:688-691),
---     EXPECT_TRIGGERS 49 -> 50 (:704-706); EXPECT_TABLES 35 (:661) and EXPECT_POLICIES 37 (:694) unchanged. The same
+--   - supabase/ci/assert_public_table_grant_decisions.sql:474-479: +('guard_listing_edit_lock()', 'no-client-execute'),
+--     +('guard_listing_delete()', 'no-client-execute') (the SEC-2/F2 gate fails closed on a public function with no
+--     row; cancel_listing keeps its row at :493).
+--   - .github/workflows/ci.yml Gate-2 census (public schema only, :605-615): EXPECT_FUNCS 126 -> 128 (:688-694),
+--     EXPECT_TRIGGERS 49 -> 51 (:707-710); EXPECT_TABLES 35 (:661) and EXPECT_POLICIES 37 (:697) unchanged. The same
 --     census is pinned in pgTAP 162 P2/P4 (supabase/tests/162_payout_reversal_and_obligation_recovery.sql:697-709),
---     moved with it.
+--     moved with it. CENSUS COLLISION: 172 (20261021132000, PR #128) moves the same two lines and the same two 162
+--     pins 126 -> 127 / 49 -> 50 from the same base (bfc5cf97); whichever of 170 (PR #126) and 172 merges second
+--     rebases all four to 129 functions / 52 triggers (170 +2/+2, 172 +1/+1). 128/51 alone does not say which set
+--     landed: 170 as extended here alone and 170 as first reviewed (+1/+1) plus 172 both give 128/51, so a rebase
+--     must recount from the replay, never add to whatever number is on the line. 175 (20261021135000, local draft at
+--     2026-10-21) also moves functions 126 -> 127; 170 + 172 + 175 together = 130 functions / 52 triggers.
 --   - supabase/ci/expected_grants.txt: unchanged. It is the TABLE grant matrix (information_schema.role_table_grants,
---     ci.yml:727-737); 170 creates no table and changes no table or column grant (listings rows :5, :23, :48 stand).
+--     ci.yml:735-746); 170 creates no table and changes no table or column grant (listings rows :5, :23, :48 stand:
+--     the guard refuses inside the DELETE the grant still allows).
 --   - supabase/rollbacks/20261021130000_listing_seller_integrity_rollback.sql: below.
 -- VERIFY (read-only):
---   select md5(pg_get_functiondef('public.cancel_listing(uuid,uuid)'::regprocedure));        -- 170 body, see 240
+--   select md5(pg_get_functiondef('public.cancel_listing(uuid,uuid)'::regprocedure));        -- 170 body, see 240 D6
 --   select md5(pg_get_functiondef('public.guard_listing_edit_lock()'::regprocedure));
---   select pg_get_triggerdef(oid) from pg_trigger where tgname = 'trg_guard_listing_edit_lock';
+--   select md5(pg_get_functiondef('public.guard_listing_delete()'::regprocedure));           -- see 240 E31
+--   select pg_get_triggerdef(oid) from pg_trigger where tgname in ('trg_guard_listing_edit_lock', 'trg_guard_listing_delete');
 -- FAILURE BEHAVIOUR: one transaction. The pre-flight RAISE, a lock timeout or any error leaves the database
 --   exactly as it was.
 -- OWNER APPROVAL POINT: prepared and tested locally only; applying it is a separate owner approval.
@@ -167,6 +231,13 @@ BEGIN
   IF to_regprocedure('public.guard_listing_edit_lock()') IS NOT NULL
      OR EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.listings'::regclass AND tgname = 'trg_guard_listing_edit_lock') THEN
     RAISE EXCEPTION '170 pre-flight refused: guard_listing_edit_lock or trg_guard_listing_edit_lock already exists. Nothing changed.';
+  END IF;
+  IF to_regprocedure('public.guard_listing_delete()') IS NOT NULL
+     OR EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.listings'::regclass AND tgname = 'trg_guard_listing_delete') THEN
+    RAISE EXCEPTION '170 pre-flight refused: guard_listing_delete or trg_guard_listing_delete already exists. Nothing changed.';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.listings'::regclass AND NOT tgisinternal AND (tgtype & 8) = 8) THEN
+    RAISE EXCEPTION '170 pre-flight refused: public.listings already has a DELETE trigger (production has none). Re-derive 170. Nothing changed.';
   END IF;
 END
 $pre170$;
@@ -280,7 +351,55 @@ CREATE TRIGGER trg_guard_listing_edit_lock
   ON public.listings
   FOR EACH ROW EXECUTE FUNCTION public.guard_listing_edit_lock();
 
--- ── 4. post-check (inside the transaction: a mismatch aborts the whole apply) ─
+-- ── 4. the delete lock ──────────────────────────────────────────────────────
+CREATE FUNCTION public.guard_listing_delete()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE
+  v_role       text;
+  v_claims     text;
+  v_claim_role text;
+BEGIN
+  -- Not locked: no bid (counter or row), no Buy Now hold (live, or lapsed but not yet swept), no sale.
+  IF NOT (OLD.bid_count > 0
+          OR OLD.status IN ('reserved', 'sold')
+          OR OLD.sold_at IS NOT NULL
+          OR (OLD.reserved_until IS NOT NULL AND OLD.reserved_until > now())
+          OR EXISTS (SELECT 1 FROM public.bids b WHERE b.listing_id = OLD.id)) THEN
+    RETURN OLD;
+  END IF;
+  -- The guards' trust test (155/156), read the 119 way (role GUC + request claims; never current_user alone).
+  v_role   := coalesce(nullif(current_setting('role', true), 'none'), current_user::text);
+  v_claims := nullif(current_setting('request.jwt.claims', true), '');
+  IF v_claims IS NOT NULL THEN
+    BEGIN
+      v_claim_role := v_claims::jsonb ->> 'role';
+    EXCEPTION WHEN others THEN
+      v_claim_role := NULL;   -- unparseable claims assert nothing
+    END;
+  END IF;
+  IF v_role = 'service_role' AND coalesce(v_claim_role, 'service_role') = 'service_role' THEN
+    RETURN OLD;
+  END IF;
+  IF v_role = 'postgres' AND v_claims IS NULL THEN
+    RETURN OLD;               -- migrations, cron, the SQL editor: no request context
+  END IF;
+  RAISE EXCEPTION 'This listing can''t be deleted after it has bids, a buyer checking out, or a sale. Cancel it instead.'
+    USING ERRCODE = 'P0001', HINT = 'LISTING_DELETE_LOCKED';
+END;
+$function$;
+REVOKE ALL ON FUNCTION public.guard_listing_delete() FROM PUBLIC, anon, authenticated;
+COMMENT ON FUNCTION public.guard_listing_delete() IS
+  '170: once a listing has a bid (counter or row), a Buy Now hold or a sale, an untrusted DELETE is refused before any cascade (LISTING_DELETE_LOCKED). Trusted: service_role, claims-less postgres.';
+
+CREATE TRIGGER trg_guard_listing_delete
+  BEFORE DELETE ON public.listings
+  FOR EACH ROW EXECUTE FUNCTION public.guard_listing_delete();
+
+-- ── 5. post-check (inside the transaction: a mismatch aborts the whole apply) ─
 DO $post170$
 BEGIN
   IF (SELECT p.prosecdef::text || '|' || array_to_string(p.proacl, ',') FROM pg_proc p
@@ -292,9 +411,19 @@ BEGIN
      OR has_function_privilege('authenticated', 'public.guard_listing_edit_lock()', 'EXECUTE') THEN
     RAISE EXCEPTION '170 post-check failed: a client role can EXECUTE guard_listing_edit_lock. Nothing changed.';
   END IF;
-  RAISE NOTICE '170 applied: cancel_listing md5 %, guard_listing_edit_lock md5 %',
+  IF has_function_privilege('anon', 'public.guard_listing_delete()', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.guard_listing_delete()', 'EXECUTE') THEN
+    RAISE EXCEPTION '170 post-check failed: a client role can EXECUTE guard_listing_delete. Nothing changed.';
+  END IF;
+  IF (SELECT count(*) FROM pg_trigger WHERE tgrelid = 'public.listings'::regclass AND NOT tgisinternal AND (tgtype & 8) = 8) <> 1
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.listings'::regclass AND tgname = 'trg_guard_listing_delete'
+                       AND tgfoid = 'public.guard_listing_delete()'::regprocedure AND tgenabled = 'O') THEN
+    RAISE EXCEPTION '170 post-check failed: trg_guard_listing_delete is not the one enabled DELETE trigger on listings. Nothing changed.';
+  END IF;
+  RAISE NOTICE '170 applied: cancel_listing md5 %, guard_listing_edit_lock md5 %, guard_listing_delete md5 %',
     md5(pg_get_functiondef('public.cancel_listing(uuid,uuid)'::regprocedure)),
-    md5(pg_get_functiondef('public.guard_listing_edit_lock()'::regprocedure));
+    md5(pg_get_functiondef('public.guard_listing_edit_lock()'::regprocedure)),
+    md5(pg_get_functiondef('public.guard_listing_delete()'::regprocedure));
 END
 $post170$;
 

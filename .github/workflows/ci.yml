@@ -685,10 +685,13 @@ jobs:
           # 2026-10-15 156 ADDENDUM 3 (old-build purchase safeguard): functions 123 -> 126 — +3
           # public.client_shows_proof_disclosure, public.guard_bid_requires_disclosure,
           # public.guard_reservation_requires_disclosure (all no-client-execute). Read from an actual local replay.
-          # 2026-10-21 migration 170 (20261021130000, listing seller integrity; DRAFT, owner-gated): functions 126 -> 127 —
-          # +1 public.guard_listing_edit_lock (no-client-execute; cancel_listing is redefined in place, net 0). Read from a
-          # local a_sprint_chain clone + 170 (non-extension public functions; private-evidence/A-sprint-20261021/a2/p1).
-          EXPECT_FUNCS: 127
+          # 2026-10-21 migration 170 (20261021130000, listing seller integrity; DRAFT, owner-gated): functions 126 -> 128 —
+          # +2 public.guard_listing_edit_lock, public.guard_listing_delete (both no-client-execute; cancel_listing is
+          # redefined in place, net 0). Read from a local a_sprint_chain clone + 170 (non-extension public functions;
+          # private-evidence/A-sprint-20261021/a2/p1/w4). MERGE ORDER: 172 (PR #128) also moves 126 -> 127 from the same
+          # base; whichever of 170/172 merges second rebases this line to 129 (170 +2, 172 +1); 175 (+1) also moves it,
+          # all three = 130. Recount from an actual replay on rebase.
+          EXPECT_FUNCS: 128
           # 2026-10-15 migration 154: policies 37 -> 37 — listings_select_all -> listings_select_visible and
           # bids_select_all -> bids_select_visible, 1-for-1; listing_visibility carries no policy.
           EXPECT_POLICIES: 37
@@ -701,9 +704,10 @@ jobs:
           # (listings); 156: +trg_guard_listing_proof_waiver (listings).
           # 2026-10-15 156 ADDENDUM 3: triggers 47 -> 49 — +trg_reservation_requires_disclosure (listings),
           # +trg_bid_requires_disclosure (bids). Read from an actual local replay.
-          # 2026-10-21 migration 170: triggers 49 -> 50 — +trg_guard_listing_edit_lock (listings, BEFORE UPDATE OF the 17
-          # content columns). Read from a local a_sprint_chain clone + 170.
-          EXPECT_TRIGGERS: 50
+          # 2026-10-21 migration 170: triggers 49 -> 51 — +trg_guard_listing_edit_lock (listings, BEFORE UPDATE OF the 17
+          # content columns), +trg_guard_listing_delete (listings, BEFORE DELETE). Read from a local a_sprint_chain clone
+          # + 170. MERGE ORDER: 172 (PR #128) also moves 49 -> 50; the second to merge rebases this line to 52.
+          EXPECT_TRIGGERS: 51
 
       # Privilege-parity diagnostic. Production's table grants come from Supabase's
       # DEFAULT PRIVILEGES, not from the migration chain (migration 063 says so
