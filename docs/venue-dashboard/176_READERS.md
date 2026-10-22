@@ -161,3 +161,8 @@ No `SECURITY INVOKER` function reads either table, and no `ops.*` console functi
 3. **No platform arm.** RLS §9.1 and §9.2 give the platform labels `A(all)` or `A(full)`, but 081
    carries no platform arm on either table. The console reads through `ops.*` definers, so nothing
    breaks.
+
+## 9. A's rulings on the consequences (2026-10-22)
+- **(a) Accepted as the intended narrowing.** `org_member`, `venue_box_office`, `venue_marketing` and `venue_promoter_manager` only ever saw a draft event's batches through the PUBLIC arm, which is exactly what the owner decided to close. If box office needs draft-event inventory before publish, that is a separate staff-arm extension (D's program, an owner decision), not 176's job. Recorded here as a known consequence.
+- **(b) Pre-existing, unchanged by 176.** `org_finance`, `venue_finance` and `venue_scanner` cannot read batches of hidden ticket types, because the batch staff arm resolves through the type's visibility. Not a 176 finding.
+- **Overlap with 173–175:** A checked the branch diffs under `supabase/`, not the registry text: 0 references to `venue.ticket_type`, `venue.inventory_batch`, the two public policies, `catalog.event` or the venue/catalog schemas. Timestamp order 173 < 174 < 175 < 176 holds; apply order is by timestamp.
