@@ -396,6 +396,28 @@ describe('UH5 · the offer belongs to the account it was read for, and to no lis
     expect(restored).toEqual([]);
   });
 
+  it('UH5c (A, b5884efa review): a live instance never reads, offers or autosaves under a second account — it goes inert', async () => {
+    // u-1 types; u-2 has nothing stored. Without the guard, the read for u-2 finds nothing, the phase turns
+    // 'editing', and the next autosave writes u-1's unsaved form under u-2's key — the leak A found.
+    const { host, state, step, setFields, AUTOSAVE_DELAY_MS } = await mountHook({ userId: 'u-1' });
+    await setFields(draft());
+    await step(AUTOSAVE_DELAY_MS);
+    expect(writes()).toEqual([`set ${KEY}`]);
+    h.ops.length = 0;
+
+    h.authListener!('SIGNED_IN', { user: { id: 'u-2' } });                 // the store now serves u-2…
+    state.opts = { ...state.opts, userId: 'u-2' };                          // …and so does the screen
+    host.flush();
+    await step(AUTOSAVE_DELAY_MS * 2);
+    const underU2 = () => h.ops.filter((o) => o.includes(listingDraftKey('u-2')));
+    expect(underU2()).toEqual([]);                                          // no get, no set under u-2
+    expect(state.ret!.offer).toBeNull();
+    state.ret!.clear();                                                     // clear() touches nothing either
+    await step();
+    expect(underU2()).toEqual([]);
+    // (u-1's own stored draft is the store's business: its purge on an account change is covered by the store suite.)
+  });
+
   it('UH5b: a publish while an older draft is still on offer leaves that draft, and its offer, alone', async () => {
     // The seller ignored the banner, filled in a different listing and published it. The stored draft
     // is not that listing, and nobody chose Discard: clear() removes only the draft this form wrote.

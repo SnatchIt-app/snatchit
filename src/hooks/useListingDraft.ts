@@ -12,6 +12,9 @@
  *
  * The offer and the phase belong to the account they were read for. Under any other account they
  * read as nothing, so a change of account never shows, restores or autosaves over the last one's.
+ * Stronger still, an instance is bound to the first account it served: should a second account ever
+ * reach it (the route remounts per account, so none does), it goes inert rather than read, offer or
+ * autosave — the form state it holds is the first account's.
  *
  * A read the store REFUSES (this account is not the store's current one — the screen's useAuth and
  * the store's own auth listener can disagree for a moment) is not "no draft": the hook WAITS, with
@@ -132,7 +135,14 @@ export interface UseListingDraftReturn {
 type Phase = 'off' | 'loading' | 'waiting' | 'offer' | 'editing';
 
 export function useListingDraft({ userId, enabled, fields, onRestore }: UseListingDraftOptions): UseListingDraftReturn {
-  const uid = enabled && userId ? userId : null;
+  // One instance serves one account. The Sell route remounts the screen per account (app/(tabs)/create.tsx
+  // keys it by user id), so a live instance never meets a second account; if one ever did — the form state
+  // would still be the first account's — the instance goes inert for good rather than read, offer or
+  // autosave over the newcomer's draft (A, candidate b5884efa review). Signed out (null) does not rebind.
+  const boundUid = useRef<string | null>(null);
+  if (enabled && userId && boundUid.current === null) boundUid.current = userId;
+  const foreign = enabled && !!userId && boundUid.current !== null && boundUid.current !== userId;
+  const uid = enabled && userId && !foreign ? userId : null;
   const [held, setHeld] = useState<{ uid: string; phase: Phase; offer: ListingDraftOffer | null } | null>(null);
   const mine = held !== null && held.uid === uid ? held : null;
   const phase: Phase = mine ? mine.phase : 'off';
