@@ -125,3 +125,11 @@ describe('CR3: reading the failure', () => {
     for (const s of ['pending', 'seller_sent', 'disputed', 'expired', 'reversed', '']) expect(confirmationLanded(s), s).toBe(false);
   });
 });
+
+describe('CR4: delta-review nit 3', () => {
+  it('N3: a CNF-1 phrase embedded in another sentence falls to the generic line (anchored to the raise)', () => {
+    const f = (error: string) => ({ httpStatus: 400, error, code: null, network: false });
+    expect(confirmRefusalCopy(f('Transfer cannot be confirmed from current status: pending.'))).toBe(CONFIRM_REFUSAL_COPY.notSentYet);
+    expect(confirmRefusalCopy(f('Note: Transfer cannot be confirmed from current status: pending.'))).toBe(CONFIRM_REFUSAL_COPY.generic);
+  });
+});

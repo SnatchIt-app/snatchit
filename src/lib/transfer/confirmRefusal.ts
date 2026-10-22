@@ -78,7 +78,9 @@ export function confirmFailureFromThrow(e: unknown): ConfirmFailure {
 
 /** CNF-1, matched by text until A's TRANSFER_NOT_CONFIRMABLE hint lands (catalogue §7). */
 function cnfStatus(message: string): string | null {
-  const m = /cannot be confirmed from current status:\s*([a-z_]+)/i.exec(message);
+  // Anchored to the raise's own opening (catalogue recipe: a message PREFIX), so the phrase inside
+  // some other sentence can't name a status.
+  const m = /^Transfer cannot be confirmed from current status:\s*([a-z_]+)/i.exec(message.trim());
   return m ? m[1].toLowerCase() : null;
 }
 

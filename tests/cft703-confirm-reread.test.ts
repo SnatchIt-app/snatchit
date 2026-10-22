@@ -239,7 +239,9 @@ const confirmBody = (src: string) => {
   return i < 0 ? '' : src.slice(i, src.indexOf('function handleDispute()', i));
 };
 const PIN_REREAD = 'try { fresh = await fetchTransfer({ quiet: true }); } catch { fresh = null; }';
-const PIN_LANDED = 'if (fresh && confirmationLanded(fresh.status)) { receiptConfirmed(true); return; }';
+// RETARGETED (C, delta review m1): the decision reads the newest landed row (`latest` = the re-read, or the row a
+// newer read painted), not only the one re-read. Same gate, same success path.
+const PIN_LANDED = 'if (latest && confirmationLanded(latest.status)) { receiptConfirmed(true); return; }';
 const PIN_COPY = 'Alert.alert(CONFIRM_REFUSAL_COPY.title, confirmRefusalCopy(failure));';
 
 function pinConfirm(src: string): void {

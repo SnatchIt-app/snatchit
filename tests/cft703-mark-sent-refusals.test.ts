@@ -18,6 +18,7 @@ import { readFileSync } from 'node:fs';
 import {
   ATTACH_COPY,
   MARK_SENT_COPY,
+  cannotMarkFromStatus,
   PROOF_LITERALS,
   markSentFailureCopy,
   notPendingCopy,
@@ -152,5 +153,20 @@ describe('MS4: the Send screen pins (anchored to the handler bodies)', () => {
     // The warn moved out of the mark handler (into attach) must not satisfy the mark pin.
     expect(() => pinMark(SEND.replace(PIN_WARN_MARK, '').replace(PIN_WARN_ATTACH, `${PIN_WARN_ATTACH}\n${PIN_WARN_MARK}`))).toThrow();
     expect(() => pinAttach(SEND.replace(PIN_WARN_ATTACH, ''))).toThrow();
+  });
+});
+
+describe('MS5: delta-review nits 3 and 4', () => {
+  it('N3: an SNT-2 phrase embedded in another sentence is not a status match (anchored to the raise)', () => {
+    expect(cannotMarkFromStatus('Transfer cannot be marked as sent from current status: expired.')).toBe('expired');
+    expect(cannotMarkFromStatus('Note: Transfer cannot be marked as sent from current status: expired.')).toBeNull();
+  });
+  it('N4: a pending read-back outranks a raise that names another status: the generic line, not "closed"', async () => {
+    const out = await runMarkSent({
+      readTransfer: async () => ({ status: 'pending', evidencePath: null }),
+      upload: async () => 'u/transfer-evidence/x.jpg',
+      call: async () => ({ data: null, error: { message: 'Transfer cannot be marked as sent from current status: expired.' } }),
+    });
+    expect(out).toEqual({ kind: 'failed', message: MARK_SENT_COPY.failedFallback });
   });
 });

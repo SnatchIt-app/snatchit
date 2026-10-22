@@ -67,7 +67,7 @@ describe('Transfer receive — confirm and report', () => {
     const confirmed = code.indexOf("status: 'buyer_confirmed'");
     const invoke = code.indexOf("functions.invoke('confirm-and-release'");
     const failed = code.indexOf('if (failure) {', invoke);
-    const landed = code.indexOf('if (fresh && confirmationLanded(fresh.status)) { receiptConfirmed(true); return; }', failed);
+    const landed = code.indexOf('if (latest && confirmationLanded(latest.status)) { receiptConfirmed(true); return; }', failed);
     const ok = code.indexOf('receiptConfirmed(false);', invoke);
     expect(helper).toBeGreaterThan(0);
     expect(haptic).toBeGreaterThan(helper);
