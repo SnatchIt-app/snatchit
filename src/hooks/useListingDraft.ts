@@ -184,11 +184,14 @@ export function useListingDraft({ userId, enabled, fields, onRestore }: UseListi
     };
   }, [uid, saver]);
 
-  // Autosave — only once the seller is editing (never over an undecided offer).
+  // Autosave — only once the seller is editing (never over an undecided offer). Keyed on what the form
+  // HOLDS (its signature), not on the object the screen builds each render, so a re-render that changes
+  // nothing schedules nothing — not even after clear() made the saver forget its last write (C nit).
+  const signature = uid && phase === 'editing' ? listingDraftSignature(fields) : null;
   useEffect(() => {
     if (!uid || phase !== 'editing') return;
     saver.schedule(uid, fields);
-  }, [uid, phase, fields, saver]);
+  }, [uid, phase, signature, saver]); // eslint-disable-line react-hooks/exhaustive-deps -- `fields` is tracked by `signature`
 
   // Leaving the foreground writes at once: an app kill gives no warning.
   useEffect(() => {

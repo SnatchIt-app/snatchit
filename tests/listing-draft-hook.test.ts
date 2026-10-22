@@ -295,6 +295,24 @@ describe('UH3 · autosave', () => {
     expect(writes()).toEqual([`set ${KEY}`]);
   });
 
+  it('UH3c2 (C nit): a re-render that changes nothing schedules nothing — even once clear() has forgotten the last write', async () => {
+    const { state, setFields, step, AUTOSAVE_DELAY_MS } = await mountHook();
+    await setFields({ ...empty(), venue: 'LIV' });
+    await step(AUTOSAVE_DELAY_MS);
+    expect(writes()).toEqual([`set ${KEY}`]);
+    state.ret!.clear();                                  // the saver forgets what it last wrote
+    await step();
+    expect(h.mem.has(KEY)).toBe(false);
+    await setFields({ ...empty(), venue: 'LIV' });      // re-rendered: a new object, the same content
+    await step(AUTOSAVE_DELAY_MS * 3);
+    expect(writes()).toEqual([`set ${KEY}`]);            // nothing scheduled, so nothing written back
+    expect(h.mem.has(KEY)).toBe(false);
+    await setFields({ ...empty(), venue: 'LIV Miami' }); // an actual change still autosaves
+    await step(AUTOSAVE_DELAY_MS);
+    expect(writes()).toEqual([`set ${KEY}`, `set ${KEY}`]);
+    expect(JSON.parse(h.mem.get(KEY)!).fields.venue).toBe('LIV Miami');
+  });
+
   it('UH3d: unmounting (sign-out unmounts the tabs) cancels a pending write', async () => {
     const { host, setFields, step, AUTOSAVE_DELAY_MS } = await mountHook();
     await setFields({ ...empty(), venue: 'LIV' });
