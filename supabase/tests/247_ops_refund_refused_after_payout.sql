@@ -525,7 +525,10 @@ SELECT is((SELECT coalesce(array_agg(v.sig ORDER BY v.sig), '{}'::text[]) FROM (
              ('ops.detect_refunds()', '6a4727f4f39ced0a6078ac639b38de16'),
              ('ops.funds_state(transfers,payments)', 'b73cae88e18c3fc62b1fcfce70722301'),
              -- production: every payout / transfer writer this file reads the result of
+             -- 179 (20261022003000, pgTAP 249) redefines claim_payout_attempt (REFUND_IN_FLIGHT): production's md5 (this suite on
+             -- 157 + 158 + 177 alone, and after a 179 rollback) or 179's e2ba30303f77137f589bb4fd37778cb1; any third value still fails.
              ('public.claim_payout_attempt(uuid,text,interval)', 'b6aae8680e1891892dd0d42f62b9531b'),
+             ('public.claim_payout_attempt(uuid,text,interval)', 'e2ba30303f77137f589bb4fd37778cb1'),
              ('public.mark_payout_requested(uuid)', '4c6b3cf979f54450d21decd453c47017'),
              ('public.record_payout_attempt_result(uuid,text,text,jsonb)', '255e9022cd3ef39a20835ae18cc4196e'),
              ('public.reconcile_payout_attempt(uuid,text)', '3d9f95f1d697a4932dfb942c68af12d5'),
