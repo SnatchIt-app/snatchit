@@ -471,6 +471,10 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   -- 155 (20261015000100): the server-owned end time, a trigger function on listings (BEFORE INSERT OR
   -- UPDATE; SECURITY INVOKER). REVOKE PUBLIC/anon/authenticated.
   ('set_listing_ends_at_from_duration()',                            'no-client-execute'),
+  -- 175 (20261021135000): the live/test money boundary shared by record_refund_state and record_payment_refund
+  -- (the 045 predicate of claim_payout_attempt; plpgsql STABLE, SECURITY INVOKER, search_path ''). Called only by
+  -- those two SECURITY DEFINER writers as their owner. REVOKE ALL FROM PUBLIC, anon, authenticated.
+  ('assert_refund_livemode(uuid, boolean)',                          'no-client-execute'),
 
   -- ── authenticated-execute ────────────────────────────────────────────────
   -- Signed-in RPCs. Each derives caller identity from auth.uid() internally;

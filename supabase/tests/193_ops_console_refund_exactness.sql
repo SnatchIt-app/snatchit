@@ -116,6 +116,10 @@ begin
 end $f$;
 
 -- ── FIXTURE — eleven $100 buy_now payments, each on its own listing ─────────
+-- 2026-10-21 (registry 175, 20261021135000): the refund writer records facts only on live rows
+-- (stripe_livemode = true; test-mode rows only under the sandbox switch app.allow_test_mode_money). Every payment
+-- that receives a refund through the writer is therefore live; this file measures money, not mode, and was
+-- written with test-mode rows only incidentally. A10's pure legacy row (9) stays test-mode, as production's are.
 INSERT INTO public.listings
   (id, seller_id, event_name, venue, neighborhood, event_date, event_time, ticket_type, quantity, transfer_method,
    starting_bid, buy_now_enabled, buy_now_price, duration_hours, starts_at, ends_at, current_bid, cover_image_path, auction_status)
@@ -125,7 +129,7 @@ SELECT tap._pay193(n), tap.seller(), 'Fixture 193-' || n, 'Club 193', 'wynwood',
 INSERT INTO public.payments (id, listing_id, buyer_id, seller_id, amount, buyer_fee, seller_fee, total,
                              stripe_payment_intent_id, status, mode, created_at, paid_at, stripe_livemode)
 SELECT tap._pay193(n), tap._pay193(n), tap.buyer(), tap.seller(), 9091, 909, 909, 10000,
-       'pi_193_' || n, 'succeeded', 'buy_now', tap._at193(-5, '08:00'), tap._at193(-5, '09:00'), false
+       'pi_193_' || n, 'succeeded', 'buy_now', tap._at193(-5, '08:00'), tap._at193(-5, '09:00'), true
   FROM generate_series(1, 12) n WHERE n NOT IN (9, 12);
 
 SELECT tap._refund193(1, 're_193_1',  NULL, 1000,  'dashboard', tap._at193(0, '10:00'));      -- A1 partial $10
@@ -274,7 +278,7 @@ INSERT INTO public.payments (id, listing_id, buyer_id, seller_id, amount, buyer_
 VALUES (tap._pay193(9), tap._pay193(9), tap.buyer(), tap.seller(), 9091, 909, 909, 10000,
         'pi_193_9', 'refunded', 'buy_now', tap._at193(-5,'08:00'), tap._at193(-5,'09:00'), tap._at193(-2,'09:00'), false),
        (tap._pay193(12), tap._pay193(12), tap.buyer(), tap.seller(), 9091, 909, 909, 10000,
-        'pi_193_12', 'refunded', 'buy_now', tap._at193(-5,'08:00'), tap._at193(-5,'09:00'), tap._at193(-3,'09:00'), false);
+        'pi_193_12', 'refunded', 'buy_now', tap._at193(-5,'08:00'), tap._at193(-5,'09:00'), tap._at193(-3,'09:00'), true);  -- live: 175
 SELECT tap._refund193(12, NULL, 'du_193_12', 3000, 'dispute_lost', tap._at193(-3, '12:00'));   -- legacy refund, then a recorded lost chargeback
 SELECT tap._store193('rf_Dm3', tap._try193(format('SELECT ops.refund_facts(%L, %L)', tap._at193(-3,'00:00'), tap._at193(-2,'00:00'))));
 SELECT tap._store193('rf_Dm2', tap._try193(format('SELECT ops.refund_facts(%L, %L)', tap._at193(-2,'00:00'), tap._at193(-1,'00:00'))));

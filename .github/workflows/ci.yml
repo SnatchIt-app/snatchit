@@ -685,7 +685,12 @@ jobs:
           # 2026-10-15 156 ADDENDUM 3 (old-build purchase safeguard): functions 123 -> 126 — +3
           # public.client_shows_proof_disclosure, public.guard_bid_requires_disclosure,
           # public.guard_reservation_requires_disclosure (all no-client-execute). Read from an actual local replay.
-          EXPECT_FUNCS: 126
+          # 2026-10-21 migration 175 (20261021135000, SQL refund writers livemode guard; DRAFT, owner-gated): functions
+          # 126 -> 127 — +1 public.assert_refund_livemode(uuid, boolean) (no-client-execute; record_refund_state and
+          # record_payment_refund are redefined in place, net 0). Read from a local a_sprint_chain clone + 175
+          # (non-extension public functions; private-evidence/A-sprint-20261021/a175). 170 and 172 also move this
+          # counter 126 -> 127 for other objects: whichever merges second re-reads it from an actual replay.
+          EXPECT_FUNCS: 127
           # 2026-10-15 migration 154: policies 37 -> 37 — listings_select_all -> listings_select_visible and
           # bids_select_all -> bids_select_visible, 1-for-1; listing_visibility carries no policy.
           EXPECT_POLICIES: 37

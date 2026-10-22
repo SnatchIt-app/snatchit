@@ -147,6 +147,10 @@ SELECT is(current_setting('app.bypass_payment_guard', true), 'off',
   'the bypass GUC is closed by the statement trigger (one statement, like 056c)');
 
 -- ── record_payment_refund: partial vs full, idempotent, dispute-aware ────────
+-- 2026-10-21 (registry 175, 20261021135000): the writer records facts only on live rows (test-mode rows only under
+-- the sandbox switch; NULL never). The seed fixtures carry stripe_livemode NULL (unclassified); A and B become live
+-- here — the state of every production payment with a recorded refund (stripe_livemode is not a guarded column, above).
+UPDATE public.payments SET stripe_livemode = true WHERE id IN (tap.payment_a(), tap.payment_b());
 CREATE TEMP TABLE _p1 AS SELECT public.record_payment_refund('pi_fixture_b', 're_b1', NULL, 5000, 'dashboard') AS r;
 SELECT is((SELECT r->>'status' FROM _p1), 'succeeded', 'partial refund keeps status succeeded');
 SELECT is((SELECT (r->>'amount_refunded_cents')::int FROM _p1), 5000, 'partial amount recorded');
