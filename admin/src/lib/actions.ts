@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { callOps } from "@/lib/ops";
 import { isIdempotencyKey, IDEMPOTENCY_FIELD } from "@/lib/idempotency";
-import { isRecord, parseApprovalDecision, str, toActionOutcome, type ActionOutcome, type ActionType, type ApprovalDecision } from "@/lib/types";
+import { firstText, isRecord, parseApprovalDecision, str, toActionOutcome, type ActionOutcome, type ActionType, type ApprovalDecision } from "@/lib/types";
 import { coerceParam, parseParamField } from "@/lib/form-params";
 import type { OpsFailure } from "@/lib/ops-errors";
 
@@ -38,15 +38,6 @@ export type ActionFormState = {
    */
   subject?: { kind: string; id: string };
 };
-
-/** The first of `keys` holding a non-empty string. Not pick(): it stops at the first key present, even one that is null. */
-function firstText(r: Record<string, unknown> | null, ...keys: string[]): string | null {
-  for (const k of keys) {
-    const v = str(r?.[k]);
-    if (v) return v;
-  }
-  return null;
-}
 
 /**
  * A mutation answer with a status the console does not know (a status added

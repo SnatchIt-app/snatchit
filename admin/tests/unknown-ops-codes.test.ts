@@ -126,6 +126,21 @@ describe("an unknown reject_reason in a rejected outcome renders generically wit
       expect(html).toContain("Rejected: duplicate unsettled");
       expect(html).not.toContain("undefined");
     });
+
+    it(`${fn}: reject_reason null with the code in another field → that code, not "precondition"; a null message does not hide the detail (E-L2)`, async () => {
+      for (const data of [
+        { status: "rejected", reject_reason: null, code: "duplicate_unsettled", message: null, detail: "An unsettled payout_release already exists" },
+        { status: "rejected", reject_reason: "", reason: null, rejection: "duplicate_unsettled", message: "", error: "An unsettled payout_release already exists" },
+      ]) {
+        rpc.reply = { data, error: null };
+        const state = await submitActionForm({}, form());
+        expect(state.outcome, JSON.stringify(data)).toMatchObject({ status: "rejected", reason: "duplicate_unsettled", message: "An unsettled payout_release already exists" });
+        const html = rendered(state, fn);
+        expect(html).toContain("Rejected: duplicate unsettled");
+        expect(html).toContain("An unsettled payout_release already exists");
+        expect(html).not.toContain("changed since you loaded it");
+      }
+    });
   }
 });
 
