@@ -471,6 +471,12 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   -- 155 (20261015000100): the server-owned end time, a trigger function on listings (BEFORE INSERT OR
   -- UPDATE; SECURITY INVOKER). REVOKE PUBLIC/anon/authenticated.
   ('set_listing_ends_at_from_duration()',                            'no-client-execute'),
+  -- 170 (20261021130000): the listing content lock after bids / a hold / a sale, a trigger function on listings
+  -- (BEFORE UPDATE OF 17 content columns; SECURITY DEFINER, search_path ''). REVOKE ALL FROM PUBLIC, anon, authenticated.
+  ('guard_listing_edit_lock()',                                      'no-client-execute'),
+  -- 170 (20261021130000): the listing hard-delete lock after bids / a hold / a sale, a trigger function on listings
+  -- (BEFORE DELETE; SECURITY DEFINER, search_path ''). REVOKE ALL FROM PUBLIC, anon, authenticated.
+  ('guard_listing_delete()',                                         'no-client-execute'),
 
   -- ── authenticated-execute ────────────────────────────────────────────────
   -- Signed-in RPCs. Each derives caller identity from auth.uid() internally;
