@@ -5,7 +5,7 @@
     {
       "Sid": "AccountMayAdministerButNeverDelegateCryptoOps",
       "Effect": "Allow",
-      "Principal": { "AWS": "arn:aws:iam::652872010073:root" },
+      "Principal": { "AWS": "arn:aws:iam::[redacted: account id]:root" },
       "NotAction": [
         "kms:Sign", "kms:Verify", "kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey", "kms:GenerateDataKeyPair",
         "kms:GenerateDataKeyPairWithoutPlaintext", "kms:GenerateDataKeyWithoutPlaintext", "kms:ReEncryptFrom",
@@ -16,7 +16,7 @@
     {
       "Sid": "CeremonyBindingProofSign_REMOVED_IN_V2",
       "Effect": "Allow",
-      "Principal": { "AWS": "arn:aws:iam::652872010073:role/SnatchIt-KMS-Ceremony" },
+      "Principal": { "AWS": "arn:aws:iam::[redacted: account id]:role/SnatchIt-KMS-Ceremony" },
       "Action": "kms:Sign",
       "Resource": "*",
       "Condition": { "StringEquals": { "kms:SigningAlgorithm": "ECDSA_SHA_256" } }
@@ -24,7 +24,7 @@
     {
       "Sid": "RuntimeSignOnly",
       "Effect": "Allow",
-      "Principal": { "AWS": "arn:aws:iam::652872010073:role/SnatchIt-CredentialSign-Runtime" },
+      "Principal": { "AWS": "arn:aws:iam::[redacted: account id]:role/SnatchIt-CredentialSign-Runtime" },
       "Action": "kms:Sign",
       "Resource": "*",
       "Condition": { "StringEquals": { "kms:SigningAlgorithm": "ECDSA_SHA_256", "kms:MessageType": "RAW" } }
@@ -34,8 +34,8 @@
       "Effect": "Allow",
       "Principal": {
         "AWS": [
-          "arn:aws:iam::652872010073:user/snatchit-kms-verifier",
-          "arn:aws:iam::652872010073:role/SnatchIt-KMS-Ceremony"
+          "arn:aws:iam::[redacted: account id]:user/snatchit-kms-verifier",
+          "arn:aws:iam::[redacted: account id]:role/SnatchIt-KMS-Ceremony"
         ]
       },
       "Action": [ "kms:DescribeKey", "kms:GetPublicKey", "kms:GetKeyPolicy", "kms:ListKeyPolicies", "kms:ListResourceTags" ],
