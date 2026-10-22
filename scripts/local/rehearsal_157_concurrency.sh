@@ -8,7 +8,9 @@
 #   both names must start with a_sprint_ (a_sprint_prod_replay / _prod_template / _chain are refused);
 #   host must be 127.0.0.1. Model: scripts/rehearsal_132_concurrency.sh.
 #
-# Scenarios (each prints PASS/FAIL):
+# Scenarios (each prints PASS/FAIL). "Waited" is a LOCK-WAIT INDICATOR, never a wall-clock bound: pg_stat_activity
+# is polled while session 2 runs and must show it in a heavyweight Lock wait of the expected kind (wait_event
+# 'advisory' for the order lock, 'transactionid' for a unique-index wait); the elapsed ms are printed for information.
 #   G1 session 1 BEGIN; execute_action(refund_execute P, k1) and holds the transaction; session 2
 #      execute_action(refund_execute P, k2) WAITS on the order advisory lock, then returns
 #      duplicate_unsettled naming session 1's action once session 1 commits. Exactly one unsettled row.
@@ -20,14 +22,18 @@
 #      indicator, not a wall-clock bound (a < 1000 ms check flaked at 1018 ms under load): session 2 runs under
 #      lock_timeout 500ms, so any wait on session 1's locks (which it holds 3 s) errors, and pg_stat_activity,
 #      polled while session 2 runs, must never show it in a Lock wait (wait_event 'advisory' under 157).
-#   G5 same-key race: session 2 reuses session 1's key -> waits, then idempotent_replay of session 1's
-#      action (never duplicate_unsettled, never a second row).
+#   G5 same-key race: session 2 reuses session 1's key -> waits (advisory), then idempotent_replay of session 1's
+#      action (never duplicate_unsettled, never a second row): the re-check after the lock answers.
+#   G7 same-key race on a NON-MONEY type (case_create: no advisory lock): session 2's key lookup misses session 1's
+#      uncommitted row, its INSERT waits on the unique index (transactionid), then raises 23505 on
+#      action_idempotency_key_key and the constraint-aware handler answers idempotent_replay of session 1's action
+#      (the handler branch pgTAP 224 T3.6 can only simulate). One row for the key.
 #   G6 approve race on a LEGACY cross pair (two awaiting rows written directly, as before 157): session 1
 #      approves the refund and holds; session 2 approving the payout WAITS, then is refused
 #      duplicate_unsettled and the payout's approval stays pending (transfer untouched).
 #   C1 CONTROL — an execute_action copy WITHOUT the order lock and blocker check (index kept): session 2
-#      waits on the backstop index instead, then the constraint-aware handler answers duplicate_unsettled
-#      (never idempotent_replay with a NULL action_id). One unsettled row.
+#      waits on the backstop index instead (transactionid, not advisory), then the constraint-aware handler answers
+#      duplicate_unsettled (never idempotent_replay with a NULL action_id). One unsettled row.
 #   C2 CONTROL — an approve_action copy WITHOUT the advisory lock: G6's session 2 runs its recheck before
 #      session 1 commits, cannot see session 1's 'processing', and releases the payout while the refund is in
 #      flight (refund processing + payout succeeded): the lock is what makes the approve-time recheck sound.
@@ -141,29 +147,29 @@ seed "$DB"; seed "$CDB"
 # G1: refund vs refund, order 1
 race "$DB" "$(hold_ex "$DB" $A k157-g1-a refund_execute payment "$(P 1)")" "$(ex "$DB" $B k157-g1-b refund_execute payment "$(P 1)")"
 n=$(unsettled "$DB" 1)
-[ "$(field "$R1" 1)" = "awaiting_approval" ] && [ "$(field "$R2" 2)" = "duplicate_unsettled" ] && [ "$(field "$R2" 4)" = "$(field "$R1" 3)" ] && [ $W -ge 2000 ] && [ "$n" = "1" ] \
-  && report G1 PASS "s1=$(field "$R1" 1) (held 3 s); s2 waited ${W}ms then $(field "$R2" 1)/$(field "$R2" 2) blocking=s1 ($(field "$R2" 5)); unsettled rows=$n" \
-  || report G1 FAIL "s1=$R1 s2=$R2 waited=${W}ms unsettled=$n"
+[ "$(field "$R1" 1)" = "awaiting_approval" ] && [ "$(field "$R2" 2)" = "duplicate_unsettled" ] && [ "$(field "$R2" 4)" = "$(field "$R1" 3)" ] && [ "$LW" = "advisory" ] && [ "$n" = "1" ] \
+  && report G1 PASS "s1=$(field "$R1" 1) (held 3 s); s2 waited on the order lock ($LW; ${W}ms informational) then $(field "$R2" 1)/$(field "$R2" 2) blocking=s1 ($(field "$R2" 5)); unsettled rows=$n" \
+  || report G1 FAIL "s1=$R1 s2=$R2 lock waits=$LW (${W}ms) unsettled=$n"
 
 # G2: payout vs payout, order 2
 race "$DB" "$(hold_ex "$DB" $A k157-g2-a payout_release transfer "$(T 2)")" "$(ex "$DB" $B k157-g2-b payout_release transfer "$(T 2)")"
 n=$(unsettled "$DB" 2)
-[ "$(field "$R1" 1)" = "awaiting_approval" ] && [ "$(field "$R2" 2)" = "duplicate_unsettled" ] && [ "$(field "$R2" 4)" = "$(field "$R1" 3)" ] && [ $W -ge 2000 ] && [ "$n" = "1" ] \
-  && report G2 PASS "s1=$(field "$R1" 1) (held 3 s); s2 waited ${W}ms then $(field "$R2" 1)/$(field "$R2" 2) blocking=s1 ($(field "$R2" 5)); unsettled rows=$n" \
-  || report G2 FAIL "s1=$R1 s2=$R2 waited=${W}ms unsettled=$n"
+[ "$(field "$R1" 1)" = "awaiting_approval" ] && [ "$(field "$R2" 2)" = "duplicate_unsettled" ] && [ "$(field "$R2" 4)" = "$(field "$R1" 3)" ] && [ "$LW" = "advisory" ] && [ "$n" = "1" ] \
+  && report G2 PASS "s1=$(field "$R1" 1) (held 3 s); s2 waited on the order lock ($LW; ${W}ms informational) then $(field "$R2" 1)/$(field "$R2" 2) blocking=s1 ($(field "$R2" 5)); unsettled rows=$n" \
+  || report G2 FAIL "s1=$R1 s2=$R2 lock waits=$LW (${W}ms) unsettled=$n"
 
 # G3: refund on P3, then payout on T3 (cross pair)
 race "$DB" "$(hold_ex "$DB" $A k157-g3-a refund_execute payment "$(P 3)")" "$(ex "$DB" $B k157-g3-b payout_release transfer "$(T 3)")"
 n=$(unsettled "$DB" 3)
-[ "$(field "$R1" 1)" = "awaiting_approval" ] && [ "$(field "$R2" 2)" = "duplicate_unsettled" ] && [ "$(field "$R2" 5)" = "cross_type" ] && [ $W -ge 2000 ] && [ "$n" = "1" ] \
-  && report G3 PASS "refund s1=$(field "$R1" 1); payout s2 waited ${W}ms then $(field "$R2" 2) ($(field "$R2" 5)); unsettled rows=$n" \
-  || report G3 FAIL "s1=$R1 s2=$R2 waited=${W}ms unsettled=$n"
+[ "$(field "$R1" 1)" = "awaiting_approval" ] && [ "$(field "$R2" 2)" = "duplicate_unsettled" ] && [ "$(field "$R2" 5)" = "cross_type" ] && [ "$LW" = "advisory" ] && [ "$n" = "1" ] \
+  && report G3 PASS "refund s1=$(field "$R1" 1); payout s2 waited on the order lock ($LW; ${W}ms informational) then $(field "$R2" 2) ($(field "$R2" 5)); unsettled rows=$n" \
+  || report G3 FAIL "s1=$R1 s2=$R2 lock waits=$LW (${W}ms) unsettled=$n"
 # G3R: payout on T4 first, then refund on P4
 race "$DB" "$(hold_ex "$DB" $A k157-g3r-a payout_release transfer "$(T 4)")" "$(ex "$DB" $B k157-g3r-b refund_execute payment "$(P 4)")"
 n=$(unsettled "$DB" 4)
-[ "$(field "$R1" 1)" = "awaiting_approval" ] && [ "$(field "$R2" 2)" = "duplicate_unsettled" ] && [ "$(field "$R2" 5)" = "cross_type" ] && [ $W -ge 2000 ] && [ "$n" = "1" ] \
-  && report G3R PASS "payout s1=$(field "$R1" 1); refund s2 waited ${W}ms then $(field "$R2" 2) ($(field "$R2" 5)); unsettled rows=$n" \
-  || report G3R FAIL "s1=$R1 s2=$R2 waited=${W}ms unsettled=$n"
+[ "$(field "$R1" 1)" = "awaiting_approval" ] && [ "$(field "$R2" 2)" = "duplicate_unsettled" ] && [ "$(field "$R2" 5)" = "cross_type" ] && [ "$LW" = "advisory" ] && [ "$n" = "1" ] \
+  && report G3R PASS "payout s1=$(field "$R1" 1); refund s2 waited on the order lock ($LW; ${W}ms informational) then $(field "$R2" 2) ($(field "$R2" 5)); unsettled rows=$n" \
+  || report G3R FAIL "s1=$R1 s2=$R2 lock waits=$LW (${W}ms) unsettled=$n"
 
 # G4: CONTROL — G1 on the clone without 157. "s2 did not wait" = no lock wait, not a wall-clock bound: s2 runs
 # under lock_timeout 500ms (a wait on s1's 3 s hold would raise) and pg_stat_activity never showed it in a Lock wait.
@@ -178,9 +184,22 @@ n=$(unsettled "$CDB" 1)
 # G5: same-key race, order 5
 race "$DB" "$(hold_ex "$DB" $A k157-g5-same refund_execute payment "$(P 5)")" "$(ex "$DB" $B k157-g5-same refund_execute payment "$(P 5)")"
 rows=$(q "$DB" "select count(*) from ops.action where idempotency_key = 'k157-g5-same'")
-[ "$(field "$R1" 1)" = "awaiting_approval" ] && [ "$(field "$R2" 1)" = "idempotent_replay" ] && [ "$(field "$R2" 3)" = "$(field "$R1" 3)" ] && [ $W -ge 2000 ] && [ "$rows" = "1" ] \
-  && report G5 PASS "same key: s2 waited ${W}ms then $(field "$R2" 1) of s1's action; rows for the key=$rows" \
-  || report G5 FAIL "s1=$R1 s2=$R2 waited=${W}ms rows=$rows"
+[ "$(field "$R1" 1)" = "awaiting_approval" ] && [ "$(field "$R2" 1)" = "idempotent_replay" ] && [ "$(field "$R2" 3)" = "$(field "$R1" 3)" ] && [ "$LW" = "advisory" ] && [ "$rows" = "1" ] \
+  && report G5 PASS "same key: s2 waited on the order lock ($LW; ${W}ms informational) then $(field "$R2" 1) of s1's action; rows for the key=$rows" \
+  || report G5 FAIL "s1=$R1 s2=$R2 lock waits=$LW (${W}ms) rows=$rows"
+
+# G7: same-key race on a NON-MONEY type (no advisory lock): s2's INSERT waits on the unique index, then the handler
+# answers idempotent_replay of s1's committed row (the branch pgTAP 224 T3.6 can only simulate in one session).
+g7() {  # who hold(0|1): case_create with the shared key k157-g7-same
+  local hold=""; [ "$2" = "1" ] && hold="select pg_sleep(3);"
+  printf "begin; %s select 'R=' || concat_ws('|', coalesce(r->>'status',''), coalesce(r->>'reject_reason',''), coalesce(r->>'action_id',''))
+          from (select ops.execute_action('k157-g7-same','case_create','none',null::uuid,'{\"title\":\"rehearsal 157 g7\"}'::jsonb,'rehearsal 157') r) x; %s commit;" "$(as_founder "$1")" "$hold"
+}
+race "$DB" "$(g7 $A 1)" "$(g7 $B 0)"
+rows=$(q "$DB" "select count(*) from ops.action where idempotency_key = 'k157-g7-same'")
+[ "$(field "$R1" 1)" = "succeeded" ] && [ "$(field "$R2" 1)" = "idempotent_replay" ] && [ "$(field "$R2" 3)" = "$(field "$R1" 3)" ] && [ -n "$(field "$R2" 3)" ] && [ "$LW" = "transactionid" ] && [ "$rows" = "1" ] \
+  && report G7 PASS "non-money same key: s1=$(field "$R1" 1) (held); s2 waited on the unique index ($LW; ${W}ms informational), then the handler answered $(field "$R2" 1) of s1's action (id present); rows for the key=$rows" \
+  || report G7 FAIL "s1=$R1 s2=$R2 lock waits=$LW (${W}ms) rows=$rows"
 
 # legacy cross pair on order <n>: two awaiting rows with pending approvals, written directly (as before 157)
 legacy_pair() {
@@ -208,9 +227,9 @@ legacy_pair "$DB" 6
 r1=$(q "$DB" "select id from ops.action where idempotency_key='k157-legacy-ref-6'"); r2=$(q "$DB" "select id from ops.action where idempotency_key='k157-legacy-pay-6'")
 race "$DB" "$(approve "$DB" $B ops.approve_action "$r1" 1)" "$(approve "$DB" $B ops.approve_action "$r2" 0)"
 st=$(q "$DB" "select a.state || '/' || ap.state || '/' || t.status from ops.action a join ops.approval ap on ap.action_id = a.id join public.transfers t on t.id = a.subject_id where a.id = '$r2'")
-[ "$(field "$R1" 1)" = "processing" ] && [ "$(field "$R2" 2)" = "duplicate_unsettled" ] && [ "$(field "$R2" 3)" = "$r1" ] && [ $W -ge 2000 ] && [ "$st" = "awaiting_approval/pending/seller_sent" ] \
-  && report G6 PASS "approve refund s1=$(field "$R1" 1) (held); approve payout s2 waited ${W}ms then $(field "$R2" 2) (blocker $(field "$R2" 4)); payout/approval/transfer=$st" \
-  || report G6 FAIL "s1=$R1 s2=$R2 waited=${W}ms payout=$st"
+[ "$(field "$R1" 1)" = "processing" ] && [ "$(field "$R2" 2)" = "duplicate_unsettled" ] && [ "$(field "$R2" 3)" = "$r1" ] && [ "$LW" = "advisory" ] && [ "$st" = "awaiting_approval/pending/seller_sent" ] \
+  && report G6 PASS "approve refund s1=$(field "$R1" 1) (held); approve payout s2 waited on the order lock ($LW; ${W}ms informational) then $(field "$R2" 2) (blocker $(field "$R2" 4)); payout/approval/transfer=$st" \
+  || report G6 FAIL "s1=$R1 s2=$R2 lock waits=$LW (${W}ms) payout=$st"
 
 # mutant copies for the controls (schema rehearsal157 in the 157 clone; the real ops functions are untouched)
 q "$DB" "drop schema if exists rehearsal157 cascade; create schema rehearsal157; grant usage on schema rehearsal157 to authenticated;" >/dev/null
@@ -234,9 +253,9 @@ end \$m\$;" >/dev/null || { echo "  FAIL controls: could not build the mutant co
 s2=$(ex "$DB" $B k157-c1-b refund_execute payment "$(P 7)" | sed 's/ops\.execute_action(/rehearsal157.execute_action_nolock(/')
 race "$DB" "$(hold_ex "$DB" $A k157-c1-a refund_execute payment "$(P 7)")" "$s2"
 n=$(unsettled "$DB" 7)
-[ "$(field "$R1" 1)" = "awaiting_approval" ] && [ "$(field "$R2" 2)" = "duplicate_unsettled" ] && [ "$(field "$R2" 4)" = "$(field "$R1" 3)" ] && [ -n "$(field "$R2" 3)" ] && [ $W -ge 2000 ] && [ "$n" = "1" ] \
-  && report C1 PASS "CONTROL no lock/no check: s2 waited ${W}ms on the INDEX, then the handler answered $(field "$R2" 1)/$(field "$R2" 2) with its own action id (not idempotent_replay); unsettled rows=$n" \
-  || report C1 FAIL "s1=$R1 s2=$R2 waited=${W}ms unsettled=$n"
+[ "$(field "$R1" 1)" = "awaiting_approval" ] && [ "$(field "$R2" 2)" = "duplicate_unsettled" ] && [ "$(field "$R2" 4)" = "$(field "$R1" 3)" ] && [ -n "$(field "$R2" 3)" ] && [ "$LW" = "transactionid" ] && [ "$n" = "1" ] \
+  && report C1 PASS "CONTROL no lock/no check: s2 waited on the INDEX ($LW, not advisory; ${W}ms informational), then the handler answered $(field "$R2" 1)/$(field "$R2" 2) with its own action id (not idempotent_replay); unsettled rows=$n" \
+  || report C1 FAIL "s1=$R1 s2=$R2 lock waits=$LW (${W}ms) unsettled=$n"
 
 # C2: CONTROL — approve without the advisory lock as session 2, legacy pair on order 8
 legacy_pair "$DB" 8

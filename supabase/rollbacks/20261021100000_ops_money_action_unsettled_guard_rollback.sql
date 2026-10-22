@@ -5,10 +5,24 @@
 --   ops.approve_action  md5 5de6235288b38792c31dca3e6b3f89af
 --   ops.order_detail    md5 04d4e05f6c533fa428c4f7123d20eba8
 --   no ops.action_money_unsettled_uidx; no ops.money_order_id / money_unsettled_blocker / expire_stale_money_approvals.
--- STACKING GUARD (first statement): 158 (20261021110000_ops_listing_relist_expected.sql) is written on 157's bodies and
---   redefines ops.action_dispatch. Unless ops.action_dispatch still has production's md5 bfb8b9dcfaace5ff04009f96b6de7bef
---   this file RAISEs 'roll back 158 (20261021110000) first' before it changes anything: restoring the production
---   bodies under 158 would silently discard 158's change, and the md5 verification below would still pass.
+-- STACKING GUARD (first statement, read-only; three checks, each RAISEs before anything changes):
+--   1. 158 (20261021110000_ops_listing_relist_expected.sql) is written on 157's bodies and redefines ops.action_dispatch.
+--      Unless ops.action_dispatch still has production's md5 bfb8b9dcfaace5ff04009f96b6de7bef this file RAISEs 'roll
+--      back 158 (20261021110000) first': restoring the production bodies under 158 would silently discard 158's
+--      change, and the md5 verification below would still pass.
+--   2. Each of the three bodies must carry 157's md5 (applied: execute_action 0da9bc63…, approve_action
+--      ddcdcd14…, order_detail 4358f577…) or already its production md5 above (a re-run after a
+--      successful rollback is a no-op that re-verifies). Any third body is someone else's change stacked on 157 (a
+--      later migration, a hand edit, a comment-only redefinition): RAISE, nothing changed.
+--   3. No routine other than 157's own (the three bodies and the three helpers) may reference ops.money_order_id,
+--      ops.money_unsettled_blocker or ops.expire_stale_money_approvals: this file drops them. RAISE naming the routine.
+-- LOCKS: DROP INDEX takes ACCESS EXCLUSIVE on ops.action (and on the index) from that statement until COMMIT, a brief
+--   block of every ops.action read AND write (order_detail, list_actions, the console's lists, execute_action,
+--   approve_action, executor_claim, record_action_outcome, detect_refunds) for the rest of this transaction (the three
+--   CREATE OR REPLACE FUNCTION and the verification: milliseconds). lock_timeout 3s bounds the wait for the lock itself:
+--   an open ops.action reader or writer that does not finish within 3 s fails the rollback, and nothing changes. Run it
+--   in a quiet moment, never under an open console session. CREATE OR REPLACE FUNCTION and DROP FUNCTION take no table
+--   lock (pg_proc rows; ACCESS SHARE object locks on the schema, language and owner role).
 -- WHAT: drops the index; restores the three bodies VERBATIM (the production pg_get_functiondef text, byte for byte —
 --   not an older repo migration: the repo chain differs from production in 17 functions); re-states their production
 --   ACL (postgres + authenticated EXECUTE); drops the three helpers; then VERIFIES inside the same transaction that
@@ -28,10 +42,38 @@ BEGIN;
 -- ── stacking guard: refuse (nothing changed) while 158 is applied ───────────
 DO $stack157$
 DECLARE
-  v_md5 text := md5(pg_get_functiondef(to_regprocedure('ops.action_dispatch(ops.action)')));
+  v_md5  text := md5(pg_get_functiondef(to_regprocedure('ops.action_dispatch(ops.action)')));
+  v_bad  text;
+  v_refs text;
 BEGIN
+  -- 1. 158 stacked on these bodies
   IF v_md5 IS DISTINCT FROM 'bfb8b9dcfaace5ff04009f96b6de7bef' THEN
     RAISE EXCEPTION '157 rollback refused (nothing changed): ops.action_dispatch md5 % is not production''s bfb8b9dcfaace5ff04009f96b6de7bef; roll back 158 (20261021110000) first', coalesce(v_md5, '<missing>')
+      USING ERRCODE = 'P0001';
+  END IF;
+  -- 2. each body is 157's (applied) or already production's (re-run); a third body is another change on top of 157
+  SELECT string_agg(c.sig || ' md5 ' || coalesce(c.live, '<missing>') || ' is neither 157''s ' || c.m157 || ' nor production''s ' || c.prod,
+                    '; ' ORDER BY c.sig)
+    INTO v_bad
+    FROM (SELECT v.sig, v.m157, v.prod, md5(pg_get_functiondef(to_regprocedure(v.sig))) AS live
+            FROM (VALUES ('ops.execute_action(text,text,text,uuid,jsonb,text,jsonb,text)', '0da9bc63acb58f1d76a86f8039c0c877', 'e59c158453adabc662431cac9dca1040'),
+                         ('ops.approve_action(uuid,text,text)',                             'ddcdcd1401839910726d20ddd206e40d', '5de6235288b38792c31dca3e6b3f89af'),
+                         ('ops.order_detail(uuid)',                                         '4358f577291f84b25986b8904b38ab36', '04d4e05f6c533fa428c4f7123d20eba8')) v(sig, m157, prod)) c
+   WHERE c.live IS DISTINCT FROM c.m157 AND c.live IS DISTINCT FROM c.prod;
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION '157 rollback refused (nothing changed): %; another change sits on top of 157: roll that back first', v_bad
+      USING ERRCODE = 'P0001';
+  END IF;
+  -- 3. nothing but 157's own routines may reference the helpers this file drops
+  SELECT string_agg(n.nspname || '.' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')', ', ' ORDER BY n.nspname, p.proname)
+    INTO v_refs
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+     AND p.prosrc ~ '(money_order_id|money_unsettled_blocker|expire_stale_money_approvals)\s*\('
+     AND NOT (n.nspname = 'ops' AND p.proname IN ('execute_action', 'approve_action', 'order_detail',
+                                                  'money_order_id', 'money_unsettled_blocker', 'expire_stale_money_approvals'));
+  IF v_refs IS NOT NULL THEN
+    RAISE EXCEPTION '157 rollback refused (nothing changed): % reference(s) a 157 helper this file drops; roll that change back first', v_refs
       USING ERRCODE = 'P0001';
   END IF;
 END

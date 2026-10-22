@@ -7,7 +7,11 @@
 --       blocking.action_id; no second approval; audited; the order advisory lock is taken.
 --   T2  the same for payout_release on a transfer; the request locks the ORDER (its payment id), not the transfer
 --       id, so a refund on P and a payout on P's transfer serialize on one key.
---   T3  replaying the refused key returns idempotent_replay, state rejected, the same action id.
+--   T3  replaying the refused key returns idempotent_replay, state rejected, the same action id. T3.4-T3.8 pin the
+--       unique_violation handler: the constraint on ops.action.idempotency_key is named action_idempotency_key_key
+--       (catalog) and both handlers read exactly that name (static); a same-key collision raised by the INSERT itself
+--       (a BEFORE INSERT trigger plays the racer: one session cannot race itself) answers idempotent_replay through
+--       the accepted-row handler and through the refusal-row handler, and a 23505 on another constraint re-raises.
 --   T4  cross-type, both directions: refund on payment P vs payout_release on P's transfer.
 --   T5  in-flight states block (processing, unknown, succeeded_at_provider); once the blocker is
 --       terminal (failed, succeeded, rejected/denied) a new request is accepted. A refund after a
@@ -57,7 +61,7 @@
 -- or by a writer that bypasses execute_action; every other row comes from the RPCs.
 -- ============================================================================
 BEGIN;
-SELECT plan(141);
+SELECT plan(146);
 SELECT tap.seed_core();
 
 INSERT INTO public.admin_users (user_id, label) VALUES (tap.other_user(), 'FOUNDER B') ON CONFLICT (user_id) DO NOTHING;
@@ -197,6 +201,46 @@ SELECT is((tap._g224('t3') ->> 'status', tap._g224('t3') ->> 'state', tap._g224(
   'T3.1: replaying the refused key => idempotent_replay, state rejected, same action id');
 SELECT is(tap._g224('t3') #>> '{result,reject_reason}', 'duplicate_unsettled', 'T3.2: ...result.reject_reason = duplicate_unsettled');
 SELECT is((SELECT count(*)::int FROM ops.action WHERE idempotency_key = 'k224-t1-refund-b01'), 1, 'T3.3: no new row for the replay');
+-- T3.4-T3.8: the unique_violation handler reads the constraint name; pin the name it reads and the branch it takes.
+SELECT is((SELECT array_agg(conname::text || ' ' || pg_get_constraintdef(oid) ORDER BY conname) FROM pg_constraint
+            WHERE conrelid = 'ops.action'::regclass AND contype = 'u'),
+          ARRAY['action_idempotency_key_key UNIQUE (idempotency_key)'],
+  'T3.4: the one UNIQUE constraint on ops.action is action_idempotency_key_key (idempotency_key): the name the handler reads');
+SELECT is((SELECT (length(d) - length(replace(d, '''action_idempotency_key_key''', ''))) / length('''action_idempotency_key_key''')
+             FROM (SELECT regexp_replace(pg_get_functiondef('ops.execute_action(text,text,text,uuid,jsonb,text,jsonb,text)'::regprocedure), '--[^\n]*', '', 'g') AS d) x),
+          2, 'T3.5: static (comments stripped): execute_action names action_idempotency_key_key in both unique_violation handlers');
+-- A single session cannot race itself, so a BEFORE INSERT trigger on ops.action plays the racer that committed between
+-- execute_action's key lookup and its INSERT: for two keys it inserts the racer's row (terminal, so the money index is
+-- not involved) and the INSERT in flight then raises 23505 on action_idempotency_key_key; for a third key it inserts a
+-- row with the same id, a 23505 on action_pkey that the handler must re-raise. The subtransaction of the handler rolls
+-- the racer's row back with the failed INSERT (a committed racer would survive), so these pin the branch, not the id.
+CREATE FUNCTION tap._racer224() RETURNS trigger LANGUAGE plpgsql AS $f$
+begin
+  if pg_trigger_depth() = 1 then
+    if new.idempotency_key in ('k224-t3-race-a01', 'k224-t3-race-b01') then
+      insert into ops.action (idempotency_key, action_type, subject_kind, subject_id, params, reason, requested_by, state, reject_reason, completed_at)
+      values (new.idempotency_key, new.action_type, new.subject_kind, new.subject_id, new.params, 'racer', new.requested_by, 'rejected', 'denied', now());
+    elsif new.idempotency_key = 'k224-t3-race-c01' then
+      insert into ops.action (id, idempotency_key, action_type, subject_kind, subject_id, params, reason, requested_by, state, reject_reason, completed_at)
+      values (new.id, 'k224-t3-race-c01-racer', new.action_type, new.subject_kind, new.subject_id, new.params, 'racer', new.requested_by, 'rejected', 'denied', now());
+    end if;
+  end if;
+  return new;
+end $f$;
+CREATE TRIGGER zz_tap_racer224 BEFORE INSERT ON ops.action FOR EACH ROW EXECUTE FUNCTION tap._racer224();
+SELECT tap._s224('t3a', tap._ex224(tap.admin_user(), 'k224-t3-race-a01', 'case_create', 'none', NULL, '{"title":"224 race"}'::jsonb));
+SELECT is((tap._g224('t3a') ->> 'status', (SELECT count(*)::int FROM ops.action WHERE idempotency_key = 'k224-t3-race-a01')),
+          ('idempotent_replay'::text, 0),
+  'T3.6: a 23505 on action_idempotency_key_key from the accepted-row INSERT => idempotent_replay (not an error, not duplicate_unsettled)');
+SELECT tap._s224('t3b', tap._ex224(tap.other_user(), 'k224-t3-race-b01', 'refund_execute', 'payment', tap._p224(1)));
+SELECT is((tap._g224('t3b') ->> 'status', (SELECT count(*)::int FROM ops.action WHERE idempotency_key = 'k224-t3-race-b01')),
+          ('idempotent_replay'::text, 0),
+  'T3.7: the same collision from the refusal-row INSERT (a blocker on P1) => idempotent_replay, never a second refusal row');
+SELECT throws_ok($$SELECT tap._ex224(tap.admin_user(), 'k224-t3-race-c01', 'case_create', 'none', NULL, '{"title":"224 race"}'::jsonb)$$,
+          '23505', NULL, 'T3.8: a 23505 on another constraint (action_pkey) is re-raised, not reported as a replay');
+DROP TRIGGER zz_tap_racer224 ON ops.action;
+DROP FUNCTION tap._racer224();
+SELECT tap.logout();
 
 -- ── T2 — same-type payout_release duplicate (order 2) ───────────────────────
 SELECT tap._s224('t2a', tap._ex224(tap.admin_user(), 'k224-t2-payout-a01', 'payout_release', 'transfer', tap._t224(2)));
