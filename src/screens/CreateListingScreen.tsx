@@ -422,6 +422,12 @@ export default function CreateListingScreen({ fixture }: { fixture?: CreateFixtu
     setStartingBid(d.startingBid); setBuyNowEnabled(d.buyNowEnabled); setBuyNowPrice(d.buyNowPrice); setDurationHours(d.durationHours);
     setTicketPlatform(d.ticketPlatform);
     if (d.coverUri) coverUpload.restore(d.coverUri);
+    // Review m1: a tick or a proof chosen while the offer was up is not input (the form counts as empty,
+    // so Continue asks nothing) and belongs to no saved listing — it starts over with the restored one.
+    // So do the field errors of a publish tried before Continue: they described the form being replaced.
+    setSellerCommitmentAccepted(false);
+    proofUpload.reset();
+    setSubmitted(false);
   }
 
   const startingBidNum = parseAmount(startingBid);

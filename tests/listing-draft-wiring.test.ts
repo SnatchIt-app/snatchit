@@ -15,6 +15,8 @@
  *      choice, so a draft saved with it is still offered the next day (review LD-R2).
  *  W9  typing under an undecided offer asks which listing to keep, and Continue over typed input asks
  *      before replacing it, so autosave never sits paused while the seller types (review LD-R3).
+ *  W10 a tick or a proof chosen before Continue, and the field errors of a publish tried then, do not
+ *      survive the restore (review m1).
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -172,6 +174,26 @@ function quantityShown(host: HookHost): { shown: unknown; spoken: string | undef
   const label = el.props.accessibilityLabel as string;
   const value = (el.props.accessibilityValue as { text?: string } | undefined)?.text;
   return { shown: el.props.children, spoken: value ?? label.replace(/^Quantity ?/, '') };
+}
+
+/**
+ * Every field-level error the screen shows: an error line (Text with role alert, the validation summary
+ * included), a field whose `error` prop is set, an upload drawn with `hasError` — and the sticky bar's
+ * own "Fix the highlighted fields" summary, which sits in its `left` prop.
+ */
+function shownErrors(host: HookHost): string[] {
+  const out: string[] = [];
+  const collect = (el: Element) => {
+    const p = el.props;
+    if (el.type === 'Text' && p.accessibilityRole === 'alert') out.push(String(p.children));
+    else if (typeof p.error === 'string' && p.error !== '' && typeof p.label === 'string') out.push(`${p.label}: ${p.error}`);
+    else if (p.hasError === true) out.push(`${String(p.label)}: hasError`);
+    else if (el.type === 'Text' && p.children === 'Fix the highlighted fields before listing.') out.push(`sticky: ${p.children}`);
+    return false;                                           // visit everything
+  };
+  findElement(host.output, collect);
+  findElement(find(host, (el) => el.type === 'StickyBar')?.props.left, collect);
+  return out;
 }
 
 /** Runs the REAL banner the screen rendered, with the props the screen gave it (the harness renders one level). */
@@ -455,6 +477,33 @@ describe('W9 · typing under an undecided offer asks which listing to keep (LD-R
   });
 });
 
+describe('W10 · Continue starts the attestation, the proof and the field errors over (review m1)', () => {
+  it('W10a: a tick and a proof chosen before Continue — and the errors of a publish tried then — do not survive the restore', async () => {
+    h.mem.set(KEY, serializeListingDraft(stored(), NOW));
+    const { host, step } = await mountScreen();
+    h.uploads.proofs.localUri = PROOF;                      // a proof picked while the offer was up
+    (checkbox(host).props.onPress as () => void)();         // the attestation ticked
+    (publishButton(host).props.onPress as () => void)();    // and a publish tried on the still-empty form
+    await step();
+    expect(checkbox(host).props.accessibilityState).toEqual({ checked: true });
+    expect(find(host, (el) => el.type === 'MediaUpload' && el.props.label === 'Proof of ownership')!.props.localUri).toBe(PROOF);
+    expect(shownErrors(host)).toContain('Event name: Event name is required.');   // the fields are speaking
+    expect(banner(host)!.props.formHasInput).toBe(false);   // neither counts as input, so nothing asks first
+    const bh = runBanner(host);
+    (findElement(bh.output, (el) => el.type === 'Button' && el.props.label === 'Continue your listing')!.props.onPress as () => void)();
+    await step();
+    expect(h.alertCalls).toEqual([]);                       // restored at once, no replace question
+    expect(banner(host)).toBeUndefined();
+    expect(byLabel(host, 'Event name')!.props.value).toBe('Weekend pool party');
+    expect(checkbox(host).props.accessibilityState).toEqual({ checked: false });
+    expect(h.uploads.proofs.localUri).toBeNull();
+    expect(h.uploads.proofs.resets).toBe(1);
+    expect(find(host, (el) => el.type === 'MediaUpload' && el.props.label === 'Proof of ownership')!.props.localUri).toBeNull();
+    expect(h.uploads.covers.restored).toEqual([COVER]);     // the cover still comes back
+    expect(shownErrors(host)).toEqual([]);                  // no error left over from before the restore
+  });
+});
+
 describe('W7 · the wiring, as source', () => {
   const src = readFileSync(join(REPO_ROOT, 'src/screens/CreateListingScreen.tsx'), 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
@@ -471,11 +520,14 @@ describe('W7 · the wiring, as source', () => {
     expect(src.match(/listingDraft\.clear\(\)/g)).toHaveLength(1);
   });
 
-  it('W7c: the restore sets neither the attestation nor the proof', () => {
+  it('W7c: the restore never brings back the attestation or the proof — it only clears them (review m1)', () => {
     const start = src.indexOf('function restoreDraft(');
     const body = src.slice(start, src.indexOf('\n  }', start));
     expect(body.length).toBeGreaterThan(100);
-    expect(body).not.toMatch(/setSellerCommitmentAccepted|proofUpload/);
+    expect(body).toContain('setSellerCommitmentAccepted(false)');
+    expect(body).toContain('proofUpload.reset()');
+    expect(body.match(/setSellerCommitmentAccepted\(/g)).toHaveLength(1);
+    expect(body.match(/proofUpload\./g)).toHaveLength(1);
     expect(body).toContain('coverUpload.restore(d.coverUri)');
   });
 });
