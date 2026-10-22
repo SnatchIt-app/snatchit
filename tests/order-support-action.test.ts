@@ -3,8 +3,9 @@
  *
  * Mounts the REAL component under the hook harness. It opens the prefilled mailto through Linking;
  * when the mail app cannot open, it shows the address and the order ID as text (the Support screen
- * shows the address on its own button, so the user is never left without it) and announces that for
- * VoiceOver. It persists nothing: the only state is "the last open failed".
+ * shows the address on its own button, so the user is never left without it) in a polite live region,
+ * and announces it on iOS only — Android already speaks the live region, so an announcement there
+ * would say it twice (C review m2). It persists nothing: the only state is "the last open failed".
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -14,10 +15,12 @@ const h = vi.hoisted(() => ({
   opened: [] as string[],
   announced: [] as string[],
   openImpl: (async () => true) as (url: string) => Promise<unknown>,
+  os: 'ios' as 'ios' | 'android',
 }));
 
 vi.mock('react-native', () => ({
   AccessibilityInfo: { announceForAccessibility: (m: string) => { h.announced.push(m); } },
+  Platform: { get OS() { return h.os; } },
   Linking: { openURL: (url: string) => { h.opened.push(url); return h.openImpl(url); } },
   Text: 'Text', View: 'View',
   StyleSheet: { create: <T,>(s: T) => s },
@@ -66,6 +69,7 @@ beforeEach(() => {
   h.opened.length = 0;
   h.announced.length = 0;
   h.openImpl = async () => true;
+  h.os = 'ios';
 });
 
 describe('OA1 · the control', () => {
@@ -85,8 +89,10 @@ describe('OA1 · the control', () => {
     const url = h.opened[0];
     expect(url.startsWith('mailto:support@snatchitapp.com?subject=Order%203f2a9c1b%20%C2%B7%20Expired&body=')).toBe(true);
     expect(decodeURIComponent(url)).toContain('Role: Seller');
-    // No PII from the row reaches the URL.
-    for (const secret of ['buyer.private', '3055554417', 'Sam', 'Lantern']) expect(decodeURIComponent(url)).not.toContain(secret);
+    // The body is the order reference, its status and the role — nothing else (C review M1).
+    expect(decodeURIComponent(url.slice(url.indexOf('&body=') + '&body='.length)).startsWith(`Order ID: ${ID}\r\n`)).toBe(true);
+    // No PII from the row reaches the URL, and neither does the event name (seller free text).
+    for (const secret of ['buyer.private', '3055554417', 'Sam', 'Lantern', 'Neon', 'Choir', 'Event']) expect(decodeURIComponent(url)).not.toContain(secret);
     // Success shows no fallback and announces nothing.
     expect(textElement(host, "Couldn't open")).toBeUndefined();
     expect(h.announced).toEqual([]);
@@ -128,7 +134,8 @@ describe('OA1 · the control', () => {
 });
 
 describe('OA2 · when the mail app cannot open', () => {
-  it('shows the address and the full order ID as selectable text, and announces it', async () => {
+  it('shows the address and the full order ID as selectable text, and announces it (iOS)', async () => {
+    h.os = 'ios';
     h.openImpl = async () => { throw new Error('Unable to open URL: mailto:…'); };
     const host = await mount({ role: 'buyer', transfer: TRANSFER });
     expect(textElement(host, "Couldn't open")).toBeUndefined();
@@ -154,5 +161,41 @@ describe('OA2 · when the mail app cannot open', () => {
     (button(host)!.props.onPress as () => void)();
     await flush(); host.flush();
     expect(textElement(host, "Couldn't open")).toBeUndefined();
+  });
+});
+
+describe('OA3 · the fallback is spoken once on each platform (C review m2)', () => {
+  async function failOnce(os: 'ios' | 'android') {
+    h.os = os;
+    h.openImpl = async () => { throw new Error('Unable to open URL: mailto:…'); };
+    const host = await mount({ role: 'buyer', transfer: TRANSFER });
+    (button(host)!.props.onPress as () => void)();
+    await flush(); host.flush();
+    const fallback = textElement(host, "Couldn't open");
+    expect(fallback, `${os}: no fallback text`).toBeDefined();
+    return fallback!;
+  }
+
+  it('iOS: the live region is set and VoiceOver hears one announcement (iOS does not speak live regions)', async () => {
+    const fallback = await failOnce('ios');
+    expect(fallback.props.accessibilityLiveRegion).toBe('polite');
+    expect(h.announced).toEqual([String(fallback.props.children)]);
+  });
+
+  it('Android: the polite live region speaks it, so nothing else announces it', async () => {
+    const fallback = await failOnce('android');
+    expect(fallback.props.accessibilityLiveRegion).toBe('polite');
+    expect(fallback.props.selectable).toBe(true);
+    expect(String(fallback.props.children)).toContain(ID);
+    expect(h.announced).toEqual([]);
+  });
+
+  it('Android: a second failed open still adds no announcement', async () => {
+    h.os = 'android';
+    h.openImpl = async () => false;
+    const host = await mount({ role: 'seller', transfer: TRANSFER });
+    for (let i = 0; i < 2; i++) { (button(host)!.props.onPress as () => void)(); await flush(); host.flush(); }
+    expect(textElement(host, "Couldn't open")).toBeDefined();
+    expect(h.announced).toEqual([]);
   });
 });

@@ -330,9 +330,13 @@ describe('the seller\'s send screen — reversed cell and the release line (sour
     const blocks = readFileSync('src/components/transfer/TransferStateBlocks.tsx', 'utf8');
     expect(blocks).toContain('SELLER_REVERSED_COPY.title');
     // The role is still what makes `reversed` read "Payout reversed" here and "Closed" for a buyer.
-    // The call now also carries `buyerConfirmed`, so that a seller-win dispute decision is not
-    // badged "Received" — the role argument is what this pin is about and it is unchanged.
-    expect(src).toContain("transferStatusMeta(transfer.status, 'seller', { buyerConfirmed:");
+    // RETARGETED (C, 2026-10-22, D #133 d4a35ed6): the screen takes its badge from the shared selector
+    // orderBadgeMeta(row, role); the selector is what now carries the role and `buyerConfirmed` (so a
+    // seller-win dispute decision is not badged "Received") into transferStatusMeta. The role argument
+    // is still what this pin is about, and the selector's forwarding is pinned beside it.
+    expect(src).toContain("orderBadgeMeta(transfer, 'seller')");
+    const selector = readFileSync('src/lib/transfer/orderBadge.ts', 'utf8');
+    expect(selector).toContain('transferStatusMeta(status, role, { buyerConfirmed: row.buyer_confirmed_at != null })');
   });
 
   it('TS2: the seller_sent line names the release DECISION time from the server, replacing the old "releases once it clears review" sentence', async () => {

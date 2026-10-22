@@ -5,8 +5,10 @@
  * Mounts the REAL receive and send screens with harness fixtures (no read leaves the app) in every
  * transfer state, presses the action, and reads the mailto it opens: the role is the screen's, and
  * the status word in the subject is the word on the screen's own badge — the email never says
- * something the screen does not. The Support screen no longer asks for a "listing ID" that no
- * screen shows; it points at the order screens' action instead, by its exact label.
+ * something the screen does not. Both screens take that badge from orderBadgeMeta, the selector the
+ * email uses (OW2 pins the source; OW1 is the behavioural check in nine states). The Support screen
+ * no longer asks for a "listing ID" that no screen shows; it points at the order screens' action
+ * instead, by its exact label.
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -140,8 +142,9 @@ for (const [which, role] of [['receive', 'Buyer'], ['send', 'Seller']] as const)
         expect(body).toContain(`Order ID: ${ID}\r\n`);
         expect(body).toContain(`Status: ${badge!.props.label as string}\r\n`);
         expect(body).toContain(`Role: ${role}\r\n`);
-        expect(body.startsWith('Event: Neon Choir\r\n')).toBe(true);
-        for (const secret of ['buyer.private', '3055554417', 'Sam', 'Bea', 'Lantern', 'fixture-seller', 'fixture-buyer', 'fixture-listing']) {
+        // Only the order reference, its status and the role (C review M1): no event name — it is seller free text.
+        expect(body.startsWith(`Order ID: ${ID}\r\n`)).toBe(true);
+        for (const secret of ['Event', 'Neon', 'Choir', 'buyer.private', '3055554417', 'Sam', 'Bea', 'Lantern', 'fixture-seller', 'fixture-buyer', 'fixture-listing']) {
           expect(`${subject}\n${body}`, secret).not.toContain(secret);
         }
       });
@@ -159,6 +162,18 @@ describe('OW2 · source contract on the C-owned screens', () => {
       expect(s).toContain(`<OrderSupportAction role="${role}" transfer={transfer} />`);
       // Not on the loading, offline, error or not-found states: those return before the order renders.
       expect(s.indexOf('<OrderSupportAction ')).toBeGreaterThan(s.indexOf('if (error || !transfer)'));
+    });
+
+    it(`${rel}: the badge comes from orderBadgeMeta(transfer, '${role}') — the email's selector — not an inline expression`, () => {
+      const s = src(rel);
+      expect(s).toContain("import { orderBadgeMeta } from '@/src/lib/transfer/orderBadge';");
+      expect(s.match(/const meta = /g)).toHaveLength(1);
+      expect(s).toContain(`const meta = orderBadgeMeta(transfer, '${role}');`);
+      expect(s.match(/orderBadgeMeta\(/g)).toHaveLength(1);
+      expect(s).toContain('<Badge label={meta.label} tone={meta.tone} />');
+      // The former inline badge expression is gone (both of its branches).
+      expect(s).not.toMatch(/transferStatusMeta\(\s*transfer\.status/);
+      expect(s).not.toMatch(/disputedStateMeta\(/);
     });
   }
 });

@@ -2,18 +2,20 @@
  * src/components/transfer/OrderSupportAction.tsx — "Contact support about this order" (CFT-406, slice 1).
  *
  * One secondary action for the two order screens (buyer receive, seller send), in every transfer
- * state. It opens the support email prefilled with this order's ID, status word, event and the
- * viewer's role (src/lib/support/orderSupport.ts — no PII, built from an allowlist of fields).
+ * state. It opens the support email prefilled with this order's ID, its status word and the viewer's
+ * role — nothing else, not even the event name (src/lib/support/orderSupport.ts — no PII, no seller
+ * free text, built from an allowlist of fields).
  *
- * If the mail app cannot open, the address and the order ID appear as selectable text and are
- * announced, so the user can still write — the Support screen likewise keeps the address visible on
- * its own button. Nothing is sent from the app and nothing is claimed: the email is the user's to
+ * If the mail app cannot open, the address and the order ID appear as selectable text, so the user
+ * can still write — the Support screen likewise keeps the address visible on its own button. The text
+ * is a polite live region, which Android's screen reader speaks; iOS does not speak live regions, so
+ * VoiceOver gets one announcement — on iOS only, or Android would say it twice (C review m2). Nothing is sent from the app and nothing is claimed: the email is the user's to
  * send. The control writes nothing to the server and persists nothing; its only state is "the last
  * open failed".
  */
 
 import { useMemo, useRef, useState } from 'react';
-import { AccessibilityInfo, Linking, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, Linking, Platform, StyleSheet, Text, View } from 'react-native';
 
 import { Button } from '@/src/components/ui';
 import { textStyle } from '@/src/theme/typography';
@@ -45,7 +47,8 @@ export function OrderSupportAction({ role, transfer }: { role: TransferRole; tra
     try {
       const opened = await openOrderSupportMail(url, (u) => Linking.openURL(u));
       setCouldNotOpen(!opened);
-      if (!opened) AccessibilityInfo.announceForAccessibility(ORDER_SUPPORT_COPY.couldNotOpen(orderId));
+      // iOS only: Android already speaks the polite live region below (one announcement, not two).
+      if (!opened && Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(ORDER_SUPPORT_COPY.couldNotOpen(orderId));
     } finally {
       opening.current = false;
     }
