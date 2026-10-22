@@ -6,8 +6,9 @@
  * screen owns `useSavedListing` and hands the result only to the hero it paints once the listing row
  * has loaded — never to the card-handoff hero painted while the row is still loading, and there is no
  * hero at all on the "no longer available" or failed-read screens. Profile reaches the Saved screen
- * from a "Saved" row in its own "Buyer" group — not under the "Seller" heading, where a screen reader
- * would read a buying feature out as a seller one.
+ * from a "Saved listings" row in its own "Buyer" group — not under the "Seller" heading, where a screen
+ * reader would read a buying feature out as a seller one, and not a bare "Saved", which VoiceOver read
+ * like a status (C nit).
  *
  * The hero is mounted for real (the rc10 / v3-listing-stage mocks); the screen and Profile are pinned
  * by source, as their own suites pin them. Not a device result.
@@ -132,15 +133,19 @@ describe('ListingDetailScreen — owns the hook, hands it to the loaded hero onl
 });
 
 describe('Profile — the way in', () => {
-  it('W7: a "Saved" row in its own "Buyer" group opens /saved; the "Seller" group does not hold it', () => {
+  it('W7: a "Saved listings" row in its own "Buyer" group opens /saved; the "Seller" group does not hold it', () => {
     const s = code('app/(tabs)/profile.tsx');
     const sections = [...s.matchAll(/<AccountSection title="([^"]+)">([\s\S]*?)<\/AccountSection>/g)]
       .map((m) => ({ title: m[1], body: m[2] }));
-    const holding = sections.filter((x) => x.body.includes('label="Saved"'));
+    const holding = sections.filter((x) => x.body.includes('label="Saved listings"'));
     expect(holding.map((x) => x.title)).toEqual(['Buyer']);
-    expect(holding[0].body).toMatch(/<SettingsRow label="Saved" onPress=\{\(\) => router\.push\('\/saved'\)\} \/>/);
+    expect(holding[0].body).toMatch(/<SettingsRow label="Saved listings" onPress=\{\(\) => router\.push\('\/saved'\)\} \/>/);
     const seller = sections.find((x) => x.title === 'Seller');
     expect(seller?.body).toContain('label="My listings"');
-    expect(seller?.body).not.toContain('label="Saved"');
+    expect(seller?.body).not.toContain('label="Saved listings"');
+  });
+
+  it('W8: no Profile row is labelled a bare "Saved" — VoiceOver read it like a status (C nit)', () => {
+    expect(code('app/(tabs)/profile.tsx')).not.toContain('label="Saved"');
   });
 });

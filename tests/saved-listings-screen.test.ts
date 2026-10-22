@@ -35,6 +35,8 @@ const h = vi.hoisted(() => ({
   navigated: [] as unknown[],
   dismissedTo: [] as unknown[],
   announced: [] as string[],
+  // Platform.OS as the screen reads it, per test (review m2: only iOS announces).
+  os: 'ios' as 'ios' | 'android',
 }));
 
 vi.mock('@/src/lib/supabase', () => ({
@@ -56,6 +58,7 @@ vi.mock('@/src/lib/supabase', () => ({
 vi.mock('react-native', () => ({
   AccessibilityInfo: { announceForAccessibility: (m: string) => { h.announced.push(m); } },
   FlatList: 'FlatList', RefreshControl: 'RefreshControl', Text: 'Text', View: 'View',
+  Platform: { get OS() { return h.os; } },
   StyleSheet: { create: <T,>(s: T) => s },
 }));
 vi.mock('expo-router', () => ({
@@ -142,6 +145,7 @@ beforeEach(() => {
   h.network = { isOffline: false };
   h.focus.current = null;
   h.pushed = []; h.replaced = []; h.navigated = []; h.dismissedTo = []; h.announced = [];
+  h.os = 'ios';
 });
 
 function deferred<T>() {
@@ -351,6 +355,27 @@ describe('screen — app/saved.tsx', () => {
     focus();
     await tick();
     expect(texts(host)).not.toContain(NOTE);
+  });
+
+  it.each([
+    ['ios', ["Couldn't remove this listing. Try again."]],
+    ['android', []],
+  ] as const)('SC12 (%s): the rollback note is shown on both platforms as an alert and a polite live region; only iOS announces it (review m2)', async (os, announced) => {
+    h.os = os;
+    h.reply = () => ({ data: ROWS, error: null });
+    const host = await mountScreen();
+    await tick();
+    const store = await import('@/src/lib/saved/savedStore');
+    h.focus.current!();
+    await tick();
+    const NOTE = "Couldn't remove this listing. Try again.";
+    store.toggleSaved(USER, 'L3', async () => false);
+    await tick();
+    const note = all(host.output, (el) => el.type === 'Text' && el.props.children === NOTE);
+    expect(note, 'the note is drawn on either platform').toHaveLength(1);
+    expect(note[0].props.accessibilityRole).toBe('alert');
+    expect(note[0].props.accessibilityLiveRegion, 'Android speaks the note itself').toBe('polite');
+    expect(h.announced).toEqual(announced);
   });
 
   it('SC11: a list read sent before a tap never undoes it, even when it answers after the tap has committed', async () => {

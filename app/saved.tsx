@@ -22,6 +22,7 @@
  * A SAVE THAT FAILS AFTER ITS LISTING HAS CLOSED (unsave, then straight back here) puts the row back
  * through the shared state; this screen then says so in the listing's own words (item 11: restore and
  * explain briefly). Only while this screen is focused: when the listing is on top, its own note says it.
+ * Spoken once, as on the listing: announced on iOS only, and on Android the note is a polite live region.
  *
  * "Browse live listings" goes back to the tabs already underneath (dismissTo), never a second copy of
  * them: a NAVIGATE from this root-Stack route to '(tabs)' pushes a new tabs navigator.
@@ -29,7 +30,7 @@
 
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AccessibilityInfo, FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, FlatList, Platform, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 
 import { useAuth } from '@/src/hooks/useAuth';
@@ -139,7 +140,8 @@ export default function SavedScreen() {
       if (e.userId !== userId || !focusedRef.current) return;
       const text = rollbackNote(e.failed);
       setRollbackText(text);
-      AccessibilityInfo.announceForAccessibility(text);
+      // iOS only: Android speaks the note's own live region, below.
+      if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(text);
     });
   }, [userId]);
 
@@ -197,7 +199,7 @@ export default function SavedScreen() {
     <View style={s.root}>
       <SettingsHeader title={SAVED_COPY.screenTitle} />
       {rollbackText && (view.kind === 'list' || view.kind === 'empty') ? (
-        <Text style={[textStyle('bodySm'), s.rollback]} accessibilityRole="alert">{rollbackText}</Text>
+        <Text style={[textStyle('bodySm'), s.rollback]} accessibilityRole="alert" accessibilityLiveRegion="polite">{rollbackText}</Text>
       ) : null}
       {view.kind === 'auth-loading' || view.kind === 'loading' ? (
         <DiscoveryGridSkeleton rows={3} shape="rows" />

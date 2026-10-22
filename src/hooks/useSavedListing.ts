@@ -13,13 +13,15 @@
  * A failed first read shows the control UNSAVED (fails closed, as web does); saving from there is safe
  * because an insert that finds the row already there counts as saved.
  *
- * The note is web's own sentence for the failed direction, shown until the next tap and announced to
- * a screen reader once (the notifications/preferences pattern at this build). There is no offline
- * queue: a save attempted offline fails, rolls back and says so.
+ * The note is web's own sentence for the failed direction, shown until the next tap and spoken to a
+ * screen reader once: VoiceOver hears it through an announcement (iOS only, review m2); on Android the
+ * note itself is a polite live region (SaveNote), so TalkBack speaks it as it appears and announcing
+ * as well would say it twice. There is no offline queue: a save attempted offline fails, rolls back
+ * and says so.
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { AccessibilityInfo } from 'react-native';
+import { AccessibilityInfo, Platform } from 'react-native';
 
 import { readListingSaved, watchSavedSignOut, writeListingSaved } from '@/src/lib/saved/savedListings';
 import { rollbackNote } from '@/src/lib/saved/savedState';
@@ -91,7 +93,8 @@ export function useSavedListing({ userId, listingId, enabled }: UseSavedListingA
       if (`${e.userId}:${e.listingId}` !== key) return;
       const text = rollbackNote(e.failed);
       setNote({ key: `${savedGeneration()}:${key}`, text });
-      AccessibilityInfo.announceForAccessibility(text);
+      // iOS only: Android speaks the note's own live region (SaveNote).
+      if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(text);
     });
   }, [key]);
 
