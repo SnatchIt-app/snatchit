@@ -33,8 +33,8 @@ tracking ref, so the refs below were current when this was written.
 | `origin/main` | `eadd456a` | does not carry 076–102 at all (89 older files) |
 
 No branch for D's Party Pass feature PRs had been pushed yet. Those PRs are covered by the contract
-in §6, not by this list. A's 173–175 were not pushed either. Their registry descriptions touch only
-`public`.
+in §6, not by this list. A's 173 and 174 have since been pushed (#144, #145); A checked their `supabase/` diffs against
+176 directly (§9): no shared object. 175's registry description touches only `public`.
 
 Searches:
 1. `git grep -P '\bticket_types?\b|\binventory_batch(es)?\b'` on each ref, excluding `*.md` and `docs/`.

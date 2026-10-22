@@ -5,9 +5,7 @@
 > draft.** It is applied nowhere: not on production, not on the sandbox, not on any hosted project.
 > Nothing in this branch applies it, exposes `venue_api` or writes data.
 >
-> **Not yet run.** The heavy slot was held by another session when this was written, so the replay,
-> pgTAP 246, the mutants and the rollback cycle have not been run. §7 lists the runs that are owed,
-> each with the result this doc predicts.
+> **Run and reviewed.** The local rehearsal (section "Local rehearsal" below) ran on 2026-10-22: RED 35/50 without 176, GREEN 50/50 with it, mutants M1–M8 all caught, rollback restores 081's bodies. A's independent behavioural review of #143 @ 03463d7e is PASS with no blocking findings (A's report: private-evidence/A-sprint-20261021/r176/REVIEW_REPORT.md). §7's "owed" list is therefore historical: every run it predicts has happened, with the predicted results.
 
 Branch `venue/176-public-arms-published-event`, based on `origin/venue/api-read-views-provisional`
 @ `8ccb26e1` (the fix/154 chain plus 159).
