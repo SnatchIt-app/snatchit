@@ -168,3 +168,14 @@ describe('Tickets screen + block — source contracts', () => {
     expect(screen).toMatch(/ListEmptyComponent=\{\s*<EmptyState title="No tickets yet" body="Tickets you own will show up here\." \/>/);
   });
 });
+
+describe('harness — sample renders only', () => {
+  it('S4: v3-tickets renders the real block from literal rows through pendingOrderItems, under the sample caveat, going nowhere', () => {
+    const h = src('app/_dev/v3-tickets.tsx');
+    expect(h).toMatch(/case 'pending-orders':\s*return <PendingOrdersSample failed=\{variant === 'failed'\} \/>;/);
+    expect(h).toContain('pendingOrderItems(PENDING_ORDER_ROWS)');
+    expect(h).toMatch(/function PendingOrdersSample[\s\S]*?\{SAMPLE_TICKETS_LABEL\}[\s\S]*?<PendingOrdersBlock/);
+    expect(h).toMatch(/onOpen=\{\(\) => \{\}\}/);
+    expect(h).not.toMatch(/function PendingOrdersSample[\s\S]*?router\./);
+  });
+});
