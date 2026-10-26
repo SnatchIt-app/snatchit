@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { STATUS_HELP, STATUS_LABEL, nextStatus, publishBlocker, resaleLabel } from "@/lib/events";
 import { doorHoldback, sessionTotals } from "@/lib/inventory";
 import { usd, venueTime } from "@/lib/format";
@@ -10,7 +11,7 @@ import { LargerScreenBanner } from "@/components/ui/State";
 import { Action, ArrowLink, Block, Detail, Facts, Row, Rows } from "@/components/ui/Page";
 
 /** Spec §7.3–§7.9 — event detail: header counters, sessions, advance status, resale policy, danger zone. */
-export function EventSetup({ event, types, batches, ctx, basePath, timeZone, openManifestSessionIds }: { event: Event; types: TicketType[]; batches: InventoryBatch[]; ctx: PreviewContext; basePath: string; timeZone: string; openManifestSessionIds: Set<string> | null }) {
+export function EventSetup({ event, types, batches, ctx, basePath, timeZone, openManifestSessionIds, commandsSlot }: { event: Event; types: TicketType[]; batches: InventoryBatch[]; ctx: PreviewContext; basePath: string; timeZone: string; openManifestSessionIds: Set<string> | null; commandsSlot?: ReactNode }) {
   const editor = canEditEvents(ctx.role);
   const next = nextStatus(event.status);
   const blocker = next === "on_sale" ? publishBlocker(types, batches) : null;
@@ -146,6 +147,7 @@ export function EventSetup({ event, types, batches, ctx, basePath, timeZone, ope
             {editor && ctx.writesEnabled !== false ? <p className="mt-2">Changing this writes a new version rather than editing the old one, so you can always see which rules a ticket was sold under.</p> : null}
           </Detail>
         ) : null}
+{commandsSlot}
         <Detail summary="Good to know about ticket types">
           <ul className="space-y-1">
             <li>Tiers are separate ticket types. When the first sells out, turn the next one public on the Tickets page (visibility is a command there).</li>

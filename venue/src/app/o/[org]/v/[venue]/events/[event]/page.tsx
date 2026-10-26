@@ -7,6 +7,12 @@ import { withPreview, type SearchParams } from "@/lib/preview";
 import { canReadEvents } from "@/lib/roles";
 import type { InventoryBatch, TicketType } from "@/lib/types";
 import { EventSetup } from "@/components/events/EventSetup";
+import { EventCommandPanel, type EventCommandKeys } from "@/components/events/EventCommandPanel";
+import { commandsGateOpen } from "@/lib/db/command-gate";
+import { mintCommandKey } from "@/lib/db/event-commands";
+import { DATA_SOURCE } from "@/lib/env";
+import { venueTimeZone } from "@/lib/events/zone";
+import { canEditEvents } from "@/lib/roles";
 import { PreviewOutcome, Shell } from "@/components/shell/Shell";
 import { Page } from "@/components/ui/Page";
 import { DataSourceError } from "@/components/ui/DataSourceError";
@@ -53,6 +59,16 @@ export default async function EventPage({ params, searchParams }: { params: Prom
     }
   }
 
+  // The organizer's commands (row 2), only when D's wrappers are exposed and the role may edit.
+  let commands: { ids: { orgId: string; venueId: string; eventId: string }; keys: EventCommandKeys } | null = null;
+  if (event && loaded && ctx.source === "database" && p.scope.ok && canEditEvents(ctx.role) && commandsGateOpen()) {
+    const perSession = async () => Object.fromEntries(await Promise.all(event.sessions.map(async (s) => [s.sessionId, await mintCommandKey()] as const)));
+    commands = {
+      ids: { orgId: p.scope.orgId, venueId: p.scope.venueId, eventId: event.eventId },
+      keys: { details: await mintCommandKey(), publish: await mintCommandKey(), cancel: await mintCommandKey(), sessionNew: await mintCommandKey(), session: await perSession(), capacity: await perSession() },
+    };
+  }
+
   return (
     <Shell ctx={ctx} event={event ? { eventId: event.eventId, title: event.title } : null} active="setup" signedInAs={p.signedInAs}>
       <Page eyebrow={event?.title ?? "Event"} title={event ? "Event setup" : "Event"} art={event?.title}>
@@ -75,7 +91,18 @@ export default async function EventPage({ params, searchParams }: { params: Prom
       ) : failedRead || !loaded ? (
         <ErrorState lost="This event" read={failedRead ?? "catalog.event"} retryHref={withPreview(self, ctx)} />
       ) : (
-        <EventSetup event={event} types={loaded.types} batches={loaded.batches} ctx={ctx} basePath={basePath} timeZone={p.timeZone} openManifestSessionIds={loaded.open} />
+        <EventSetup
+          event={event}
+          types={loaded.types}
+          batches={loaded.batches}
+          ctx={ctx}
+          basePath={basePath}
+          timeZone={p.timeZone}
+          openManifestSessionIds={loaded.open}
+          commandsSlot={
+            commands ? <EventCommandPanel ids={commands.ids} event={event} keys={commands.keys} zone={venueTimeZone(DATA_SOURCE, null)} /> : undefined
+          }
+        />
       )}
       </Page>
     </Shell>
