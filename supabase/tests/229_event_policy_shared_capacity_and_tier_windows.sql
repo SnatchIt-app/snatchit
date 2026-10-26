@@ -873,7 +873,7 @@ SELECT is((SELECT count(*)::int FROM kernel.admin_audit WHERE action = 'ticket_t
 SELECT is((SELECT before::text || ' -> ' || after::text || ' / ' || reason_code || ' / ' || actor_identity::text
              FROM kernel.admin_audit WHERE action = 'ticket_type.sale_window_change'
               AND subject_id = '22900000-0000-4000-8000-000000000021' AND reason_code = 'presale_day'),
-  '{"sale_ends_at": null, "sale_starts_at": null} -> {"sale_ends_at": "' || to_json('2036-11-02 00:00+00'::timestamptz) #>> '{}' || '", "sale_starts_at": "' || to_json('2036-11-01 00:00+00'::timestamptz) #>> '{}' || '"} / presale_day / 22900000-0000-4000-8000-000000000101',
+  '{"sale_ends_at": null, "sale_starts_at": null} -> {"sale_ends_at": "' || (to_json('2036-11-02 00:00+00'::timestamptz) #>> '{}') || '", "sale_starts_at": "' || (to_json('2036-11-01 00:00+00'::timestamptz) #>> '{}') || '"} / presale_day / 22900000-0000-4000-8000-000000000101',
   'W49: the W2 audit row carries before NULL/NULL, after both bounds, the reason and the actor');
 
 -- ── Section P — 176 interplay through venue_api (as a fan) ──────────────────

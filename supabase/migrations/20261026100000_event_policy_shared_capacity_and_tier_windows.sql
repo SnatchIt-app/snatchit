@@ -85,6 +85,7 @@
 --     is null or sale_starts_at <= p_at) AND (sale_ends_at is null or p_at <
 --     sale_ends_at) AND the event's status in ('on_sale','live'). Starts
 --     inclusive, ends exclusive, NULL = open on that side; unknown id -> false;
+--     a NULL p_at -> false (fail closed: an unknown instant is in no window);
 --     door_only counts as on sale (it is sold, at the door). The 081 table
 --     grant (081:988, table grain) already covers the two new columns, so
 --     every role that reads a tier row reads its window — as display_rank (160).
@@ -650,7 +651,9 @@ stable
 security definer
 set search_path = ''
 as $$
-  select coalesce((select tt.visibility <> 'hidden'
+  -- a NULL instant is never inside a window (fail closed; the default is now()).
+  select p_at is not null
+     and coalesce((select tt.visibility <> 'hidden'
                       and (tt.sale_starts_at is null or tt.sale_starts_at <= p_at)
                       and (tt.sale_ends_at   is null or p_at < tt.sale_ends_at)
                       and e.status in ('on_sale','live')
@@ -659,7 +662,7 @@ as $$
                     where tt.ticket_type_id = p_ticket_type_id), false)
 $$;
 comment on function venue.ticket_type_on_sale(uuid, timestamptz) is
-  '162: true iff the tier exists, is not hidden, its sale window contains p_at (starts inclusive, ends exclusive, NULL = open) and its event is on_sale or live. Unknown id -> false. STABLE; the purchase-time call is A''s (185).';
+  '162: true iff the tier exists, is not hidden, its sale window contains p_at (starts inclusive, ends exclusive, NULL = open) and its event is on_sale or live. Unknown id or NULL p_at -> false. STABLE; the purchase-time call is A''s (185).';
 
 -- ============================================================================
 -- PART 9 — R3 on the six venue.* bodies (body-only replaces at the exact
