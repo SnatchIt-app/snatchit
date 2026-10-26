@@ -74,7 +74,15 @@
 --              the device argument is NULL, the command key is verbatim, a NULL
 --              meta arrives as '{}', occurred_at never arrives. (venue.scan has no
 --              device_label column on this chain — 183 adds it — so the argument is
---              the only observable of the label.)
+--              the only observable of the label.) G2b (A's #163 review) pins
+--              scan_meta.credential_version and scan_meta.key_id by name: both reach
+--              venue.record_scan UNCHANGED beside device_label, and nothing else does.
+--   Section I  (runs BEFORE G, on the real venue.record_scan, flag ON from F): the
+--              credential_stale refusal B's 183 adds — CONDITIONAL. When venue.scan has
+--              183's device_label column, a scan whose scan_meta.credential_version is
+--              BEHIND kernel.tickets.credential_version must come back result=invalid,
+--              reason=credential_stale, with no state transition and no admitted row;
+--              until 183 lands the three assertions skip() (the plan stays honest).
 --
 -- Fixture: 227 style, tag 23000000-…, inserted as postgres and rolled back.
 -- Org A (owner, admin) / Room V1 (manager, finance, box_office, scanner,
@@ -104,7 +112,7 @@
 -- = 20 not ok + 1 ok; plan 134 unmet.
 -- ============================================================================
 BEGIN;
-SELECT plan(134);
+SELECT plan(138);
 
 CREATE TABLE tap.memo_230 (k text PRIMARY KEY, v text);
 CREATE FUNCTION tap._store230(k text, v text) RETURNS text
@@ -737,6 +745,39 @@ SELECT ok((SELECT s.occurred_at = now() AND s.server_receipt_at = now() AND s.oc
              FROM venue.scan s WHERE s.ticket_atom_id = '23000000-0000-4000-8000-000000000a11' AND s.result = 'admitted'),
   'F20: …and that row''s occurred_at is the SERVER''s now(), never the client''s 2000-01-01 — a phone clock cannot reach venue.scan on this path');
 
+-- ── Section I — credential_stale refusal (B's 183), CONDITIONAL on this chain ───
+-- A's #163 review. 183 is detected by its venue.scan.device_label column. The atom is
+-- fresh (a12, kernel.tickets.credential_version 3, inserted as postgres with its
+-- custody row) so no other section's rows or counters move; the scanner presents
+-- credential_version 2 (behind). Without 183 the wrapper is NOT called: the three
+-- assertions skip() with the agreed text. The flag is still ON from Section F.
+INSERT INTO kernel.tickets (ticket_atom_id, event_session_id, org_id, ticket_type_id, serial_no, current_owner_id, state, signing_key_id, credential_version) VALUES
+  ('23000000-0000-4000-8000-000000000a12', '23000000-0000-4000-8000-0000000000f1', '23000000-0000-4000-8000-00000000000a', '23000000-0000-4000-8000-000000000011', 12, '23000000-0000-4000-8000-000000000190', 'active', '00000000-0000-0000-0000-0000000000b0', 3);
+INSERT INTO kernel.ticket_ownership_log (ticket_atom_id, sequence, from_identity, to_identity, cause, cause_ref, actor_identity, command_idempotency_key, credential_version_after, state_transition) VALUES
+  ('23000000-0000-4000-8000-000000000a12', 1, NULL, '23000000-0000-4000-8000-000000000190', 'issue', gen_random_uuid(), '23000000-0000-4000-8000-000000000190', 'ck230-issue-12-f1', 3, '{"from":null,"to":"issued"}'::jsonb);
+SELECT tap._store230('has183', (EXISTS (SELECT 1 FROM information_schema.columns
+                                    WHERE table_schema = 'venue' AND table_name = 'scan' AND column_name = 'device_label'))::text);
+SELECT tap.login('23000000-0000-4000-8000-000000000114');
+SELECT tap._store230('i_res', CASE WHEN tap._fetch230('has183') = 'true'
+  THEN venue_cmd.record_scan('23000000-0000-4000-8000-000000000a12', '23000000-0000-4000-8000-0000000000f1',
+         '{"device_label":"Door A","credential_version":2,"key_id":"00000000-0000-0000-0000-0000000000b0"}'::jsonb, 'ck230-i1')::text
+  ELSE '<not called: 183 absent>' END);
+SELECT tap.logout();
+SELECT CASE WHEN tap._fetch230('has183') = 'true'
+  THEN is(tap._fetch230('i_res')::jsonb ->> 'result', 'invalid',
+          'I1: a scan presenting credential_version 2 against an atom at 3 is refused — result invalid (183)')
+  ELSE skip('183 not on this chain — credential_stale is B''s 253 until 183 lands', 1) END;
+SELECT CASE WHEN tap._fetch230('has183') = 'true'
+  THEN is(tap._fetch230('i_res')::jsonb ->> 'reason', 'credential_stale',
+          'I2: …with reason credential_stale (183)')
+  ELSE skip('183 not on this chain — credential_stale is B''s 253 until 183 lands', 1) END;
+SELECT CASE WHEN tap._fetch230('has183') = 'true'
+  THEN is((SELECT t.state || '|' || t.credential_version::text || '|'
+                  || (SELECT count(*) FROM venue.scan s WHERE s.ticket_atom_id = t.ticket_atom_id AND s.result = 'admitted')::text
+             FROM kernel.tickets t WHERE t.ticket_atom_id = '23000000-0000-4000-8000-000000000a12'), 'active|3|0',
+          'I3: …and NO state transition — the atom stays active at credential_version 3 with no admitted row (183)')
+  ELSE skip('183 not on this chain — credential_stale is B''s 253 until 183 lands', 1) END;
+
 -- ── Section G — the pass-through proof: a spy in place of venue.record_scan (LAST) ─
 -- venue.scan has no device_label column on this chain (183 adds it), so the only
 -- observable of "the meta reaches venue.record_scan unchanged" is the argument.
@@ -758,6 +799,11 @@ SELECT is((venue_cmd.record_scan('23000000-0000-4000-8000-000000000a10', '230000
   'G1: the wrapper reaches venue.record_scan (the spy answered)');
 SELECT is(tap._fetch230('spy_meta')::jsonb, '{"device_label":"Door A","credential_version":3,"key_id":"00000000-0000-0000-0000-0000000000b0"}'::jsonb,
   'G2: the legal meta arrives UNCHANGED — the allow-list adds, drops and rewrites nothing');
+SELECT is((tap._fetch230('spy_meta')::jsonb ->> 'credential_version') || '|' || (tap._fetch230('spy_meta')::jsonb ->> 'key_id')
+          || '|' || (tap._fetch230('spy_meta')::jsonb ->> 'device_label')
+          || '|keys=' || (SELECT count(*) FROM jsonb_object_keys(tap._fetch230('spy_meta')::jsonb))::text,
+  '3|00000000-0000-0000-0000-0000000000b0|Door A|keys=3',
+  'G2b: scan_meta.credential_version (3) and scan_meta.key_id reach venue.record_scan UNCHANGED beside device_label, and nothing else does (A''s #163 review)');
 SELECT ok(tap._fetch230('spy_device') = '<null>' AND tap._fetch230('spy_key') = 'ck230-g1'
       AND tap._fetch230('spy_atom') = '23000000-0000-4000-8000-000000000a10' AND tap._fetch230('spy_session') = '23000000-0000-4000-8000-0000000000f1',
   'G3: the device argument is NULL, the command key is verbatim, atom and session are the caller''s');
