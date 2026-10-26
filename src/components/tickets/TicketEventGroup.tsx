@@ -4,8 +4,8 @@
  * Renders a session's owned tickets as a single card. Distinct contract rows
  * (ownership x fulfillment x type) stay distinct inside it — a "2 held / 1 listed"
  * holding shows two clear lines under one event, never a merged number. Upcoming
- * is the loud, artwork-led state; Past is a quieter row. Non-tappable: there is no
- * truthful Ticket Detail action yet (Core gate), so the card does not navigate.
+ * is the loud, artwork-led state; Past is a quieter row. The card navigates only when the screen
+ * hands it `onPress` (2026-10-26: the ticket detail with entry codes, app/ticket/[session].tsx).
  *
  * Both artwork slots are 4:5 posters (owner 2026-09-24). The upcoming card's poster is the card's
  * width, so its height follows the ratio and it is much taller than the 16:9 strip it replaces; the
@@ -16,8 +16,8 @@
  * vocabulary); state is never color-only — every badge carries its word.
  */
 
-import { memo, useMemo } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { memo, useMemo, type ReactNode } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Badge } from '@/src/components/ui';
 import { EventMedia } from '@/src/components/media/EventMedia';
@@ -42,6 +42,34 @@ function rowA11yLabel(r: MyTicketGroup): string {
   const parts = [ticketTypeLine(r), ownershipLabel(r.ownership_status)];
   if (showFulfillmentBadge(r.fulfillment_status)) parts.push(fulfillmentLabel(r.fulfillment_status));
   return parts.join(', ');
+}
+
+/** Spoken after the label when the card opens the ticket detail. */
+const OPEN_HINT = 'Opens your tickets and entry codes for this event';
+
+/**
+ * The card's shell: the plain View it always was, or — when the screen supplies `onPress` — a
+ * button with the same label plus the hint. One label for the group either way.
+ */
+function CardShell({ style, label, onPress, children }: {
+  style: object;
+  label: string;
+  onPress?: () => void;
+  children: ReactNode;
+}) {
+  if (!onPress) return <View style={style} accessible accessibilityLabel={label}>{children}</View>;
+  return (
+    <Pressable
+      style={style}
+      accessible
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityHint={OPEN_HINT}
+      onPress={onPress}
+    >
+      {children}
+    </Pressable>
+  );
 }
 
 function groupA11yLabel(g: EventGroup): string {
@@ -73,9 +101,12 @@ function StateRow({ s, row, quiet }: { s: Styles; row: MyTicketGroup; quiet?: bo
 export const TicketEventGroup = memo(function TicketEventGroup({
   group,
   emphasis,
+  onPress,
 }: {
   group: EventGroup;
   emphasis: 'upcoming' | 'past';
+  /** Opens the ticket detail for this session (2026-10-26). Absent = not tappable, as before. */
+  onPress?: () => void;
 }) {
   const { palette } = useTheme();
   const s = useMemo(() => makeStyles(palette), [palette]);
@@ -84,7 +115,7 @@ export const TicketEventGroup = memo(function TicketEventGroup({
 
   if (emphasis === 'past') {
     return (
-      <View style={s.pastCard} accessible accessibilityLabel={groupA11yLabel(group)}>
+      <CardShell style={s.pastCard} label={groupA11yLabel(group)} onPress={onPress}>
         {/* 64 is the row's HEIGHT budget, so it goes to EventMedia as `height` and the 4:5 poster
             takes the width the ratio gives it. The wrapper carries the dim and nothing else — see
             `pastThumb`. */}
@@ -103,12 +134,12 @@ export const TicketEventGroup = memo(function TicketEventGroup({
             ))}
           </View>
         </View>
-      </View>
+      </CardShell>
     );
   }
 
   return (
-    <View style={s.card} accessible accessibilityLabel={groupA11yLabel(group)}>
+    <CardShell style={s.card} label={groupA11yLabel(group)} onPress={onPress}>
       {/* Here the WIDTH is the constrained edge — the card's — so `fluid` stays and the poster's
           height follows the ratio: at a 343pt card that is a 429pt frame where the 16:9 strip was
           193, flush with the top edge. No radius is passed and none belongs here: the card clips it
@@ -127,7 +158,7 @@ export const TicketEventGroup = memo(function TicketEventGroup({
           ))}
         </View>
       </View>
-    </View>
+    </CardShell>
   );
 });
 

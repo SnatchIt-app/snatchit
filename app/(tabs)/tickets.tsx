@@ -8,8 +8,9 @@
  * artwork-led) and Past (quieter) — with server ordering preserved.
  *
  * Empty ([]) is a SUCCESS state, not an error. Auth failures (42501 / 28000) route
- * to sign-in; other failures show a retry. No Ticket Detail, no QR/barcode, no
- * Apple Wallet, no price — none of those contracts exist yet.
+ * to sign-in; other failures show a retry. A group card opens the ticket detail
+ * (app/ticket/[session].tsx, 2026-10-26), which does its own owner-scoped reads; this
+ * tab still shows no QR, no Apple Wallet and no price.
  *
  * Reloads are QUIET once anything is on screen (src/lib/screens/refreshPolicy.ts):
  * a focus reload or pull-to-refresh swaps rows in place, never unmounts the list,
@@ -187,7 +188,11 @@ export default function TicketsScreen({ fixture }: { fixture?: TicketsFixture } 
             </Text>
           )}
           renderItem={({ item, section }) => (
-            <TicketEventGroup group={item} emphasis={(section as Section).emphasis} />
+            <TicketEventGroup
+              group={item}
+              emphasis={(section as Section).emphasis}
+              onPress={() => router.push(`/ticket/${item.event_session_id}`)}
+            />
           )}
         />
       )}
