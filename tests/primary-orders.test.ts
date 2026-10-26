@@ -98,6 +98,12 @@ describe('orderStatusLine — one honest line per order, in USD from integer min
     expect(orderStatusLine(order({ charge_total_minor: 12.5 as never })).amount).toBeNull();
   });
 
+  it('L7: a pending order as the server returns it today (charge_total_minor NULL until finalize) shows no amount — none derived from face, tier or quote (A, 2026-10-26)', () => {
+    const l = orderStatusLine(order({ status: 'pending', payment_state: 'none', total_minor: 2000, charge_total_minor: null }));
+    expect(l.status).toBe('Awaiting payment confirmation');
+    expect(l.amount).toBeNull();
+  });
+
   it('L6: an unknown status says the status is unavailable', () => {
     expect(orderStatusLine(order({ status: 'disputed' as never })).status).toBe('Status unavailable');
   });
