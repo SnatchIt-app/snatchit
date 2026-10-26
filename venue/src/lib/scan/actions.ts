@@ -8,7 +8,9 @@ import { mapReadError, type ReadResult } from "@/lib/db/read-result";
 import { DATA_SOURCE } from "@/lib/env";
 import { eventInScope, isUuid } from "@/lib/page";
 import { canScan, derivePrincipal } from "@/lib/roles";
-import { classifyToken, outcomeFromRpc, outcomeFromRpcError, type ScanActionResult, type ScanOutcome } from "@/lib/scan/outcome";
+import { keyringFromRows, type Keyring } from "@/lib/scan/keys";
+import { outcomeFromRpc, outcomeFromRpcError, type InvalidWhy, type ScanActionResult, type ScanOutcome } from "@/lib/scan/outcome";
+import { verifyCredential, webcryptoVerify, type VerifyReason } from "@/lib/scan/verify";
 import { createSupabaseServerClient, SupabaseConfigError } from "@/lib/supabase/server";
 
 /**
@@ -29,13 +31,50 @@ import { createSupabaseServerClient, SupabaseConfigError } from "@/lib/supabase/
 const CMD = "venue_cmd";
 const COUNTERS_VIEW = "session_admissions";
 const SCAN_TIMEOUT_MS = 8000;
+/** kernel.signing_key's public projection: the nine granted columns, named (kms_handle_ref is column-fenced; `*` would be refused). B §3. */
+const KEYRING_COLUMNS = "key_id,scope,event_id,venue_id,public_key,algorithm,status,not_before,not_after";
 
 export type ScanInput = { orgId: string; venueId: string; eventId: string; sessionId: string; wire: string; commandKey: string; deviceLabel: string; retried: boolean };
 
 type RpcResponse = { data: unknown; error: { code?: string; message?: string; details?: string } | null; status?: number };
 type CmdClient = { rpc(fn: string, args: Record<string, unknown>): PromiseLike<RpcResponse> };
 
-type Gate = { ok: true; client: CmdClient } | { ok: false; result: ScanActionResult };
+type KeyringClient = { from(table: string): { select(cols: string): PromiseLike<RpcResponse> } };
+type Gate = { ok: true; client: CmdClient; keyringClient: KeyringClient } | { ok: false; result: ScanActionResult };
+
+/** B §3: the trusted keyring is read per scan under the staff session (anon has no kernel USAGE); any malformed row voids it. */
+async function readKeyring(c: KeyringClient): Promise<{ ok: true; keyring: Keyring } | { ok: false; detail: string }> {
+  let r: RpcResponse;
+  try {
+    r = await withTimeout(c.from("signing_key").select(KEYRING_COLUMNS), SCAN_TIMEOUT_MS);
+  } catch (e) {
+    return { ok: false, detail: e instanceof Error ? e.message : "keyring request failed" };
+  }
+  if (r.error) return { ok: false, detail: r.error.message ?? r.error.code ?? "keyring read refused" };
+  const keyring = keyringFromRows(r.data);
+  if (!keyring) return { ok: false, detail: "keyring rows malformed" };
+  return { ok: true, keyring };
+}
+
+/** A verifier refusal in the door's words: never a green, and WRONG EVENT keeps its own word. */
+function outcomeFromVerifyReason(reason: VerifyReason, atomId: string | null, tokenSessionId: string | null): ScanOutcome {
+  const why: Record<VerifyReason, InvalidWhy | "wrong_event"> = {
+    malformed_token: "malformed",
+    wrong_typ: "wrong_type",
+    unsupported_alg: "not_trusted",
+    unknown_key: "not_trusted",
+    key_revoked: "not_trusted",
+    key_window: "not_trusted",
+    alg_mismatch: "not_trusted",
+    malformed_public_key: "not_trusted",
+    signature_invalid: "not_trusted",
+    wrong_session: "wrong_event",
+    expired: "stale_pass",
+  };
+  const w = why[reason];
+  if (w === "wrong_event") return { kind: "wrong_event", atomId: atomId ?? "", tokenSessionId: tokenSessionId ?? "" };
+  return { kind: "invalid", why: w, reason };
+}
 
 /** Signed in, holding a scanning role at the route venue, and the session belongs to the route event. Fail closed. */
 async function gate(input: Pick<ScanInput, "orgId" | "venueId" | "eventId" | "sessionId">): Promise<Gate> {
@@ -53,12 +92,15 @@ async function gate(input: Pick<ScanInput, "orgId" | "venueId" | "eventId" | "se
   if (!event.data || !eventInScope(event.data, { venueId: input.venueId, orgId: input.orgId })) return blocked("no_role");
   if (!event.data.sessions.some((s) => s.sessionId.toLowerCase() === input.sessionId.toLowerCase())) return blocked("no_role");
   let client: CmdClient;
+  let keyringClient: KeyringClient;
   try {
-    client = (await createSupabaseServerClient()).schema(CMD) as unknown as CmdClient;
+    const sb = await createSupabaseServerClient();
+    client = sb.schema(CMD) as unknown as CmdClient;
+    keyringClient = sb.schema("kernel") as unknown as KeyringClient;
   } catch (e) {
     return e instanceof SupabaseConfigError ? blocked("config") : blocked("config");
   }
-  return { ok: true, client };
+  return { ok: true, client, keyringClient };
 }
 
 function withTimeout<T>(p: PromiseLike<T>, ms: number): Promise<T> {
@@ -100,22 +142,24 @@ export async function scanAction(input: ScanInput): Promise<ScanActionResult> {
   if (DATA_SOURCE !== "database") return { kind: "outcome", outcome: { kind: "cannot_verify", why: "demo", retrySameKey: false } };
   const g = await gate(input);
   if (!g.ok) return g.result;
+  // B §3: verify the pass before calling — trusted key, algorithm pin, signature, session, expiry (server clock).
+  const kr = await readKeyring(g.keyringClient);
+  if (!kr.ok) return { kind: "outcome", outcome: { kind: "cannot_verify", why: "keyring", retrySameKey: true, detail: kr.detail } };
   const nowSeconds = Math.floor(Date.now() / 1000);
-  const c = classifyToken(input.wire, input.sessionId, nowSeconds);
-  if (c.kind === "invalid") return { kind: "outcome", outcome: { kind: "invalid", why: c.why } };
-  if (c.kind === "wrong_event") return { kind: "outcome", outcome: { kind: "wrong_event", atomId: c.atomId, tokenSessionId: c.tokenSessionId } };
-  const atomId = c.claims.atomId;
+  const v = await verifyCredential(input.wire, { keyring: kr.keyring, boundSessionId: input.sessionId, nowSeconds, verify: webcryptoVerify });
+  if (!v.ok) return { kind: "outcome", outcome: outcomeFromVerifyReason(v.reason, v.claims?.atomId ?? null, v.claims?.sessionId ?? null) };
+  const atomId = v.claims.atomId;
   if (typeof input.commandKey !== "string" || input.commandKey.length < 8 || input.commandKey.length > 128) return { kind: "outcome", outcome: { kind: "cannot_verify", why: "server_error", retrySameKey: false, detail: "bad command key" } };
-  const deviceLabel = (input.deviceLabel ?? "").trim().slice(0, 40);
+  const deviceLabel = (input.deviceLabel ?? "").trim().slice(0, 64);
   let res: RpcResponse;
   try {
     res = await withTimeout(
       g.client.rpc("record_scan", {
         p_atom_id: atomId,
         p_session_id: input.sessionId,
-        // No occurred_at on the online path: the server writes now() (108 coalesces a client value into
-        // venue.scan.occurred_at, and D's last_admitted_at reads it), so the phone clock must never set it (E, F-R1).
-        p_scan_meta: { device_label: deviceLabel || "phone", client: "venue-web-scanner/1" },
+        // B §4 allow-list, exactly: device_label (≤64, no identity), credential_version, key_id. Never occurred_at
+        // (the server stamps the ledger; E F-R1), never device_id, nothing else (D's wrapper refuses extras).
+        p_scan_meta: { device_label: deviceLabel || "phone", credential_version: v.claims.credentialVersion, key_id: v.claims.keyId },
         p_command_key: input.commandKey,
       }),
       SCAN_TIMEOUT_MS,
@@ -126,7 +170,8 @@ export async function scanAction(input: ScanInput): Promise<ScanActionResult> {
   }
   if (res.error) return outcomeFromRpcError(res.error, res.status);
   const outcome = outcomeFromRpc(res.data, atomId, input.retried);
-  if (outcome.kind === "invalid") return { kind: "outcome", outcome: await resolveInvalid(g.client, atomId, input.sessionId, input.retried) };
+  // Only a reason-less (pre-183) invalid is explained through the read; a reason is the server's own word.
+  if (outcome.kind === "invalid" && outcome.why === "server") return { kind: "outcome", outcome: await resolveInvalid(g.client, atomId, input.sessionId, input.retried) };
   return { kind: "outcome", outcome };
 }
 

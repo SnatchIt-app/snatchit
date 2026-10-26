@@ -17,22 +17,39 @@ export type CannotVerifyWhy =
   | "session_not_admitting" // the session is not in an admitting status
   | "rate_limited"
   | "server_error"
+  | "keyring" // the trusted keyring could not be read: no pass can be verified
   | "demo"; // fixtures mode: there is no admission server
 
 export type ScanOutcome =
   | { kind: "admitted"; atomId: string; scanId: string | null }
   | { kind: "already_used"; atomId: string; prior: ScanPrior | null; possiblyThisPhone: boolean }
   | { kind: "wrong_event"; atomId: string; tokenSessionId: string }
-  | { kind: "invalid"; why: "server" | "malformed" | "stale_pass" | "wrong_type" }
+  | { kind: "invalid"; why: InvalidWhy; reason?: string }
   | { kind: "cannot_verify"; why: CannotVerifyWhy; retrySameKey: boolean; detail?: string };
 
 export type BlockedWhy = "signed_out" | "no_role" | "config";
 export type ScanActionResult = { kind: "outcome"; outcome: ScanOutcome } | { kind: "blocked"; why: BlockedWhy };
 
+/** Why a pass is INVALID: the server's reason (B's 183 vocabulary) or the scanner's own refusal before the call. */
+export type InvalidWhy =
+  | "server" // the server said invalid with no reason (pre-183)
+  | "voided" // refunded or cancelled
+  | "expired" // the ticket's own expiry (server) or the credential past its tolerance (verifier)
+  | "not_active"
+  | "listed_locked"
+  | "credential_stale" // an old version of the pass (re-issued since)
+  | "credential_claims_malformed"
+  | "unknown_atom"
+  | "other"
+  | "malformed" // the code does not decode as a pass
+  | "wrong_type" // a Snatch It credential of another kind
+  | "stale_pass" // past its own exp beyond the tolerance (verifier)
+  | "not_trusted"; // unknown key, revoked/out-of-window key, algorithm mismatch, bad signature
+
 export type Classification =
   | { kind: "ok"; claims: CredentialClaims }
   | { kind: "wrong_event"; atomId: string; tokenSessionId: string }
-  | { kind: "invalid"; why: "malformed" | "stale_pass" | "wrong_type" };
+  | { kind: "invalid"; why: "malformed" | "wrong_type" };
 
 /**
  * What the client may decide on its own, all refusals: a pass that does not
@@ -42,14 +59,14 @@ export type Classification =
  * `credential.app_ttl_interval`; a screenshot does not — asking for a fresh
  * pass costs a tap, admitting an old one costs the door).
  */
-/** A phone clock ahead of the world must not refuse a valid pass: a pass counts as stale only this far past its own exp (E, F-R5). */
-export const EXP_SKEW_SECONDS = 300;
-
-export function classifyToken(wire: unknown, selectedSessionId: string, nowSeconds: number): Classification {
+/**
+ * Expiry is NOT decided on the phone: the server action's verifier applies the reference tolerance with
+ * its own clock (B §3 step 8), so a phone clock far ahead never refuses a valid pass on its own (E, F-R5).
+ */
+export function classifyToken(wire: unknown, selectedSessionId: string): Classification {
   const claims = decodeCredentialWire(wire);
   if (!claims) return { kind: "invalid", why: "malformed" };
   if (claims.typ !== CREDENTIAL_TYP) return { kind: "invalid", why: "wrong_type" };
-  if (claims.exp + EXP_SKEW_SECONDS < nowSeconds) return { kind: "invalid", why: "stale_pass" };
   if (claims.sessionId.toLowerCase() !== selectedSessionId.toLowerCase()) return { kind: "wrong_event", atomId: claims.atomId, tokenSessionId: claims.sessionId };
   return { kind: "ok", claims };
 }
@@ -80,8 +97,13 @@ export function outcomeFromRpc(data: unknown, atomId: string, retried: boolean):
       return { kind: "admitted", atomId, scanId: str(d.scan_id) };
     case "duplicate":
       return { kind: "already_used", atomId, prior: priorFrom(d.prior), possiblyThisPhone: retried };
-    case "invalid":
-      return { kind: "invalid", why: "server" };
+    case "invalid": {
+      // 183 carries a reason; wrong_session is WRONG EVENT in the door's words. No reason = pre-183 "invalid".
+      const reason = str(d.reason);
+      if (reason === "wrong_session") return { kind: "wrong_event", atomId, tokenSessionId: "" };
+      const known: InvalidWhy[] = ["voided", "expired", "not_active", "listed_locked", "credential_stale", "credential_claims_malformed", "unknown_atom", "other"];
+      return reason ? { kind: "invalid", why: (known as string[]).includes(reason) ? (reason as InvalidWhy) : "other", reason } : { kind: "invalid", why: "server" };
+    }
     default:
       return { kind: "cannot_verify", why: "server_error", retrySameKey: true, detail: `result ${String(d.result)}` };
   }
@@ -133,14 +155,24 @@ const CANNOT_VERIFY_COPY: Record<CannotVerifyWhy, string> = {
   session_not_admitting: "This session is not admitting right now (not live, or doors are closed).",
   rate_limited: "Too many requests from this account. Wait a moment, then check again.",
   server_error: "The server could not answer. Check again with the same key.",
+  keyring: "The trusted key list could not be read, so no pass can be verified right now. Check again.",
   demo: "Demo — sample data. There is no admission server behind this screen.",
 };
 
-const INVALID_COPY: Record<Extract<ScanOutcome, { kind: "invalid" }>["why"], string> = {
+const INVALID_COPY: Record<InvalidWhy, string> = {
   server: "Not valid for this session. Refunded, cancelled, listed for resale, or not a pass for tonight.",
+  voided: "Refunded or cancelled. Not valid.",
+  expired: "This ticket expired. Not valid.",
+  not_active: "This ticket is not active (already used, voided or not yet issued). Not valid.",
+  listed_locked: "Listed for resale and locked. Not valid until the listing ends.",
+  credential_stale: "This is an old version of the pass (it was re-issued). Ask the guest to open the Snatch It app for the current one.",
+  credential_claims_malformed: "The pass's claims do not match the ticket. Not valid.",
+  unknown_atom: "Unknown ticket. Not valid.",
+  other: "Not valid for this session.",
   malformed: "This code is not a Snatch It pass.",
   stale_pass: "This pass is out of date. Ask the guest to open it again in the Snatch It app and rescan.",
   wrong_type: "This code is a Snatch It credential of another kind, not a ticket pass.",
+  not_trusted: "This pass is not signed by a trusted Snatch It key. Not valid.",
 };
 
 /** HH:MM in the given zone (the venue's where known, else the phone's). */
@@ -167,7 +199,7 @@ export function outcomeDetail(o: ScanOutcome, timeZone: string | null): string {
       return o.possiblyThisPhone ? `${when} That may be this phone's previous attempt landing: confirm with the guest before refusing.` : when;
     }
     case "wrong_event":
-      return "This pass is for a different session. Not valid at this door.";
+      return "This pass is for a different session or event. Not valid at this door.";
     case "invalid":
       return INVALID_COPY[o.why];
     case "cannot_verify":

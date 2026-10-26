@@ -43,7 +43,7 @@ describe("refusals the client makes alone never touch the server", () => {
     expect(w.outcome?.kind).toBe("wrong_event");
     expect(w.attempt).toBeNull();
     expect(pendingSend(s, w)).toBeNull();
-    expect(scanReducer(s, { type: "decoded", wire: makeWire({ exp: 1, iat: 0 }), commandKey: "k", now: T0 }).outcome).toEqual({ kind: "invalid", why: "stale_pass" });
+    expect(scanReducer(s, { type: "decoded", wire: makeWire({ exp: 1, iat: 0 }), commandKey: "k", now: T0 }).phase).toBe("busy"); // expiry is the server action's verifier's call, not the phone's
     expect(scanReducer(s, { type: "decoded", wire: "nope", commandKey: "k", now: T0 }).outcome).toEqual({ kind: "invalid", why: "malformed" });
     expect(w.admittedHere).toBe(0);
   });

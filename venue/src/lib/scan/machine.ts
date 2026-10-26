@@ -72,7 +72,7 @@ export function scanReducer(s: ScanState, e: ScanEvent): ScanState {
       const last = s.seen[e.wire];
       if (last !== undefined && e.now - last < SAME_WIRE_COOLDOWN_MS) return s;
       const seen = { ...s.seen, [e.wire]: e.now };
-      const c = classifyToken(e.wire, s.sessionId, Math.floor(e.now / 1000));
+      const c = classifyToken(e.wire, s.sessionId);
       if (c.kind === "invalid") return withOutcome({ ...s, seen }, { kind: "invalid", why: c.why }, e.now, false);
       if (c.kind === "wrong_event") return withOutcome({ ...s, seen }, { kind: "wrong_event", atomId: c.atomId, tokenSessionId: c.tokenSessionId }, e.now, false);
       if (!s.online) return withOutcome({ ...s, seen }, { kind: "cannot_verify", why: "offline", retrySameKey: false }, e.now, false);

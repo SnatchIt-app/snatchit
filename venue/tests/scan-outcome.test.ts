@@ -1,30 +1,27 @@
 import { describe, expect, it } from "vitest";
-import { classifyToken, clock, EXP_SKEW_SECONDS, outcomeDetail, outcomeFromRpc, outcomeFromRpcError, OUTCOME_TITLE, OUTCOME_TONE } from "@/lib/scan/outcome";
+import { classifyToken, clock, outcomeDetail, outcomeFromRpc, outcomeFromRpcError, OUTCOME_TITLE, OUTCOME_TONE } from "@/lib/scan/outcome";
 import { ATOM, makeWire, SESS } from "./helpers/credential-wire";
 
-const NOW = 1_799_999_000;
 
 describe("classifyToken — what the client may decide on its own (all refusals)", () => {
   it("a good pass for the selected session is ok with its atom", () => {
-    const c = classifyToken(makeWire(), SESS, NOW);
+    const c = classifyToken(makeWire(), SESS);
     expect(c.kind).toBe("ok");
     if (c.kind === "ok") expect(c.claims.atomId).toBe(ATOM);
   });
   it("another session in the pass's own claim is WRONG EVENT (case-insensitive compare)", () => {
-    const c = classifyToken(makeWire(), SESS.toUpperCase(), NOW);
+    const c = classifyToken(makeWire(), SESS.toUpperCase());
     expect(c.kind).toBe("ok");
-    const other = classifyToken(makeWire({ sess: "5e55e55e-0000-4000-8000-000000000002" }), SESS, NOW);
+    const other = classifyToken(makeWire({ sess: "5e55e55e-0000-4000-8000-000000000002" }), SESS);
     expect(other).toEqual({ kind: "wrong_event", atomId: ATOM, tokenSessionId: "5e55e55e-0000-4000-8000-000000000002" });
   });
-  it("a pass past its own exp is a stale pass; a non-decoding code is malformed; another credential type is wrong_type", () => {
-    expect(classifyToken(makeWire({ exp: NOW - EXP_SKEW_SECONDS - 1 }), SESS, NOW)).toEqual({ kind: "invalid", why: "stale_pass" });
-    // a phone clock a few minutes ahead does not refuse a valid pass on its own
-    expect(classifyToken(makeWire({ exp: NOW - EXP_SKEW_SECONDS + 1 }), SESS, NOW).kind).toBe("ok");
-    expect(classifyToken("hello", SESS, NOW)).toEqual({ kind: "invalid", why: "malformed" });
-    expect(classifyToken(makeWire({ typ: "SNATCHIT-DOOR-MANIFEST-V1" }), SESS, NOW)).toEqual({ kind: "invalid", why: "wrong_type" });
+  it("expiry is not the phone's call: an expired pass still classifies ok here (the server action's verifier decides with its own clock); garbage is malformed; another credential type is wrong_type", () => {
+    expect(classifyToken(makeWire({ exp: 1, iat: 0 }), SESS).kind).toBe("ok");
+    expect(classifyToken("hello", SESS)).toEqual({ kind: "invalid", why: "malformed" });
+    expect(classifyToken(makeWire({ typ: "SNATCHIT-DOOR-MANIFEST-V1" }), SESS)).toEqual({ kind: "invalid", why: "wrong_type" });
   });
   it("nothing the client decides is ever admitted", () => {
-    for (const w of [makeWire(), "x", makeWire({ exp: 0 })]) expect(classifyToken(w, SESS, NOW).kind).not.toBe("admitted");
+    for (const w of [makeWire(), "x", makeWire({ exp: 0, iat: 0 })]) expect(classifyToken(w, SESS).kind).not.toBe("admitted");
   });
 });
 
@@ -39,6 +36,15 @@ describe("outcomeFromRpc — the server's receipt is the only source of a green"
     });
     expect(outcomeFromRpc({ status: "ok", scan_id: "s3", result: "duplicate" }, ATOM, true)).toEqual({ kind: "already_used", atomId: ATOM, prior: null, possiblyThisPhone: true });
     expect(outcomeFromRpc({ status: "ok", scan_id: "s4", result: "invalid" }, ATOM, false)).toEqual({ kind: "invalid", why: "server" });
+  });
+  it("183's invalid reasons: wrong_session is WRONG EVENT, known reasons keep their word, an unknown reason is 'other' with the raw reason kept", () => {
+    expect(outcomeFromRpc({ status: "ok", scan_id: "s5", result: "invalid", reason: "wrong_session" }, ATOM, false)).toEqual({ kind: "wrong_event", atomId: ATOM, tokenSessionId: "" });
+    expect(outcomeFromRpc({ status: "ok", scan_id: "s6", result: "invalid", reason: "voided" }, ATOM, false)).toEqual({ kind: "invalid", why: "voided", reason: "voided" });
+    expect(outcomeFromRpc({ status: "ok", scan_id: null, result: "invalid", reason: "unknown_atom" }, ATOM, false)).toEqual({ kind: "invalid", why: "unknown_atom", reason: "unknown_atom" });
+    expect(outcomeFromRpc({ status: "ok", scan_id: "s7", result: "invalid", reason: "something_new" }, ATOM, false)).toEqual({ kind: "invalid", why: "other", reason: "something_new" });
+    for (const why of ["voided", "expired", "not_active", "listed_locked", "credential_stale", "credential_claims_malformed", "unknown_atom", "other", "not_trusted"] as const) {
+      expect(outcomeDetail({ kind: "invalid", why }, null).toLowerCase()).toMatch(/not valid|ask the guest/);
+    }
   });
   it("anything else is CANNOT VERIFY with a retry on the same key — never admitted", () => {
     for (const d of [null, "ok", {}, { status: "noop" }, { status: "ok", result: "frozen" }, { status: "ok", result: "ADMITTED" }]) {

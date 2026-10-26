@@ -68,6 +68,10 @@ function isNonNegativeInt(v: unknown): v is number {
 
 /** The claims a strictly decoded token carries. `typ` and `algorithm` are informational here (the verifier pins them). */
 export type CredentialClaims = {
+  /** The exact signed bytes: UTF-8 of `<headerB64>.<payloadB64>` verbatim. */
+  claims: Uint8Array;
+  /** Raw signature bytes (64 for a known algorithm: R||S for ES256, raw for EdDSA). */
+  sig: Uint8Array;
   keyId: string;
   typ: string;
   algorithm: string;
@@ -121,5 +125,5 @@ export function decodeCredentialWire(wire: unknown): CredentialClaims | null {
   if (!isNonNegativeInt(exp) || !isNonNegativeInt(iat) || !isNonNegativeInt(ver)) return null;
   if (iat > exp) return null;
   if (KNOWN_ALGORITHMS.has(alg) && sig.length !== 64) return null;
-  return { keyId: kid, typ, algorithm: alg, atomId: atom, sessionId: sess, credentialVersion: ver, exp, iat };
+  return { claims: new TextEncoder().encode(`${h}.${p}`), sig, keyId: kid, typ, algorithm: alg, atomId: atom, sessionId: sess, credentialVersion: ver, exp, iat };
 }
