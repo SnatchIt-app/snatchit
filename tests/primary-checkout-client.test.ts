@@ -165,3 +165,19 @@ describe('checkoutStep — never a success state', () => {
     expect(PRIMARY_CHECKOUT_COPY.submitted.body).toMatch(/confirm/i);
   });
 });
+
+describe('resume and sheet outcomes', () => {
+  it('S1: an intent Stripe reports as succeeded/processing/requires capture is not shown the sheet again', async () => {
+    const { intentAlreadyPaid } = await import('@/src/lib/primary/checkout');
+    for (const st of ['Succeeded', 'Processing', 'RequiresCapture']) expect(intentAlreadyPaid(st), st).toBe(true);
+    for (const st of ['RequiresPaymentMethod', 'RequiresConfirmation', 'RequiresAction', 'Canceled', undefined, null]) expect(intentAlreadyPaid(st as never), String(st)).toBe(false);
+  });
+
+  it('S2: no error is completed; Canceled is canceled; anything else is failed', async () => {
+    const { sheetOutcome } = await import('@/src/lib/primary/checkout');
+    expect(sheetOutcome(undefined)).toBe('completed');
+    expect(sheetOutcome({ code: 'Canceled' })).toBe('canceled');
+    expect(sheetOutcome({ code: 'Failed' })).toBe('failed');
+    expect(sheetOutcome({ code: 'Timeout' })).toBe('failed');
+  });
+});

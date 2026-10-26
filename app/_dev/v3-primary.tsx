@@ -6,7 +6,7 @@
  * layout, copy and contrast only — nothing about the reads, availability or prices on any server — and
  * every variant carries a visible sample caveat. NO WRITES. Gated like every `_dev` route.
  *
- *   /_dev/v3-primary?screen=event&variant=on-sale|sold-out|not-yet|ended|no-fee|not-available|offline|error
+ *   /_dev/v3-primary?screen=event&variant=on-sale|selected|sold-out|not-yet|ended|no-fee|not-available|offline|error
  *   /_dev/v3-primary?screen=list&variant=list|empty|offline
  */
 import { Redirect, useLocalSearchParams } from 'expo-router';
@@ -86,5 +86,11 @@ export default function V3PrimaryHarness() {
       <PrimaryEventsView load={list} whenBySession={{ [SESSION]: when }} refreshing={false} onRefresh={() => {}} onOpen={() => {}} sampleCaveat />
     );
   }
-  return <PrimarySessionView load={event} nowMs={NOW} refreshing={false} onRefresh={() => {}} sampleCaveat />;
+  return (
+    <PrimarySessionView
+      load={event} nowMs={NOW} refreshing={false} onRefresh={() => {}} sampleCaveat
+      selectedTierId={variant === 'selected' ? '00000000-0000-4000-8000-0000000000b2' : null}
+      quantity={2} signedIn onSelectTier={() => {}} onChangeQuantity={() => {}} onContinue={() => {}} onSignIn={() => {}}
+    />
+  );
 }

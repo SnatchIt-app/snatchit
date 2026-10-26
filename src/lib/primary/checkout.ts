@@ -219,3 +219,19 @@ export const PRIMARY_CHECKOUT_COPY = {
     unavailable: 'We couldn’t start checkout. Try again.',
   } satisfies Record<CheckoutRefusal, string>,
 } as const;
+
+/**
+ * Resume after a 3-D Secure redirect or a killed app: the edge replays the same PaymentIntent for the
+ * same command key. If Stripe already reports it succeeded / processing / awaiting capture, the buyer
+ * must not be shown the sheet again — the flow is `submitted` and the ticket page waits for the webhook.
+ * (Stripe's status, read from the SDK; it never authorises anything here, it only stops a second sheet.)
+ */
+export function intentAlreadyPaid(status: string | null | undefined): boolean {
+  return status === 'Succeeded' || status === 'Processing' || status === 'RequiresCapture';
+}
+
+/** The PaymentSheet's result → the flow's sheet outcome. No error = the sheet completed (not "paid"). */
+export function sheetOutcome(error: { code?: string | null } | null | undefined): 'completed' | 'canceled' | 'failed' {
+  if (!error) return 'completed';
+  return error.code === 'Canceled' ? 'canceled' : 'failed';
+}

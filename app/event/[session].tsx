@@ -3,12 +3,16 @@
  * anon + authenticated, DARK until applied). Public: works signed out (deep link `snatchit://event/<id>`).
  *
  * One read, quiet on focus once something is on screen. 0 rows is "not available" (no existence
- * leak); a failure is the failure screen. A failed re-read keeps the event on screen.
+ * leak); a failure is the failure screen. A failed re-read keeps the event on screen. Choosing an
+ * available tier and a quantity continues to app/primary-checkout/[session] (C3); a fresh attempt id
+ * is drawn there. Signed out, the button asks to sign in (the event route is not on the
+ * return-after-sign-in allowlist yet — an E-reviewed change, proposed separately).
  */
 import { useFocusEffect } from '@react-navigation/native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { useAuth } from '@/src/hooks/useAuth';
 import { useNetworkStatus } from '@/src/hooks/useNetworkStatus';
 import { primarySessionRpc, readPrimarySessionDetail, type SessionDetailLoad } from '@/src/lib/primary/discovery';
 import { PrimarySessionView } from '@/src/screens/primary/PrimarySessionView';
@@ -23,6 +27,9 @@ export default function PrimaryEventRoute() {
   const [load, setLoad] = useState<SessionDetailLoad>({ kind: 'loading' });
   const [refreshing, setRefreshing] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [selectedTierId, setSelectedTierId] = useState<string | null>(null);
+  const [quantity, setQuantity] = useState(1);
+  const { user } = useAuth();
   const requestRef = useRef(0);
 
   const read = useCallback(async () => {
@@ -50,6 +57,16 @@ export default function PrimaryEventRoute() {
       refreshing={refreshing}
       onRefresh={onRefresh}
       onBack={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)/home'))}
+      selectedTierId={selectedTierId}
+      quantity={quantity}
+      signedIn={!!user}
+      onSelectTier={(id) => { setSelectedTierId(id); setQuantity(1); }}
+      onChangeQuantity={(q) => setQuantity(Math.max(1, Math.min(10, q)))}
+      onContinue={() => {
+        if (!selectedTierId) return;
+        router.push({ pathname: '/primary-checkout/[session]', params: { session: sessionId, tt: selectedTierId, qty: String(quantity) } });
+      }}
+      onSignIn={() => router.push('/(auth)/login')}
     />
   );
 }

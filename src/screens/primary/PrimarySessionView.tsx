@@ -6,15 +6,17 @@
  * zone named (`whenFromLocal`), venue and neighbourhood, the age note from `age_restriction` (display
  * only — the door checks ID), the description, and each public tier with the server's ALL-IN price
  * (A's rule: face value is never the headline; no price at all until the server provides all-in) and
- * the server's sale status (`tierLine`). No buy action yet: the C3 `primary-checkout` flow is the next
- * package, and a disabled stand-in would claim something that does not exist.
+ * the server's sale status (`tierLine`). Only a tier `tierLine` calls available can be chosen; the
+ * buyer picks a quantity (1–10; the server's hold refuses oversell) and continues to the C3 checkout,
+ * or signs in first. No price is computed here — the checkout quote is the authority.
  */
 import { useMemo } from 'react';
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import ScreenState from '@/src/components/ScreenState';
 import { SettingsHeader } from '@/src/components/account/SettingsHeader';
-import { Badge, EmptyState, Spinner } from '@/src/components/ui';
+import { Badge, Button, EmptyState, Spinner } from '@/src/components/ui';
+import { MAX_PRIMARY_QUANTITY } from '@/src/lib/primary/checkoutRoute';
 import { DISCOVERY_COPY, tierLine, type SessionDetailLoad } from '@/src/lib/primary/discovery';
 import { entryRestrictionLine, whenFromLocal } from '@/src/lib/tickets/ticketWhen';
 import { textStyle } from '@/src/theme/typography';
@@ -25,6 +27,9 @@ import * as v2 from '@/src/theme/v2';
 export const PRIMARY_SESSION_COPY = {
   screenTitle: 'Event',
   sampleCaveat: 'Sample — not a real event',
+  quantityLabel: 'Quantity',
+  continue: 'Continue to checkout',
+  signIn: 'Sign in to buy',
 } as const;
 
 export interface PrimarySessionViewProps {
@@ -33,6 +38,13 @@ export interface PrimarySessionViewProps {
   refreshing: boolean;
   onRefresh: () => void;
   onBack?: () => void;
+  selectedTierId: string | null;
+  quantity: number;
+  signedIn: boolean;
+  onSelectTier: (ticketTypeId: string) => void;
+  onChangeQuantity: (quantity: number) => void;
+  onContinue: () => void;
+  onSignIn: () => void;
   /** Harness only. */
   sampleCaveat?: boolean;
 }
@@ -60,14 +72,15 @@ export function PrimarySessionView(props: PrimarySessionViewProps) {
           {props.sampleCaveat ? (
             <Text style={[textStyle('label'), s.caveat]} accessibilityRole="header">{PRIMARY_SESSION_COPY.sampleCaveat}</Text>
           ) : null}
-          <SessionBody load={load} nowMs={props.nowMs} s={s} />
+          <SessionBody load={load} props={props} s={s} />
         </ScrollView>
       )}
     </View>
   );
 }
 
-function SessionBody({ load, nowMs, s }: { load: Extract<SessionDetailLoad, { kind: 'ready' }>; nowMs: number; s: Styles }) {
+function SessionBody({ load, props, s }: { load: Extract<SessionDetailLoad, { kind: 'ready' }>; props: PrimarySessionViewProps; s: Styles }) {
+  const { nowMs } = props;
   const { facts, description, neighborhood, tiers } = load.detail;
   const when = whenFromLocal({ startsAtLocal: facts.startsAtLocal, doorsAtLocal: facts.doorsAtLocal, timezone: facts.timezone, startsAt: facts.startsAt });
   const restriction = entryRestrictionLine(facts.ageRestriction);
@@ -91,17 +104,46 @@ function SessionBody({ load, nowMs, s }: { load: Extract<SessionDetailLoad, { ki
 
       <View style={s.tiers}>
         <Text style={[textStyle('sectionLabel'), s.tiersHeading]} accessibilityRole="header">{DISCOVERY_COPY.ticketsHeading}</Text>
-        {lines.map(({ id, line }) => (
-          <View key={id} style={s.tierRow} accessible accessibilityLabel={`${line.name}, ${line.price ? `${line.price} including all fees` : 'no price yet'}, ${line.status}`}>
-            <View style={s.tierText}>
-              <Text style={[textStyle('title'), s.tierName]}>{line.name}</Text>
-              {line.price ? <Text style={[textStyle('body'), s.tierPrice]}>{line.price}</Text> : null}
-            </View>
-            <Badge label={line.status} tone={line.available ? 'success' : 'neutral'} />
-          </View>
-        ))}
+        {lines.map(({ id, line }) => {
+          const selected = props.selectedTierId === id && line.available;
+          return (
+            <Pressable
+              key={id}
+              style={[s.tierRow, selected ? s.tierSelected : null]}
+              disabled={!line.available}
+              onPress={() => props.onSelectTier(id)}
+              accessibilityRole="radio"
+              accessibilityState={{ checked: selected, disabled: !line.available }}
+              accessibilityLabel={`${line.name}, ${line.price ? `${line.price} including all fees` : 'no price yet'}, ${line.status}`}
+            >
+              <View style={s.tierText}>
+                <Text style={[textStyle('title'), s.tierName]}>{line.name}</Text>
+                {line.price ? <Text style={[textStyle('body'), s.tierPrice]}>{line.price}</Text> : null}
+              </View>
+              <Badge label={line.status} tone={line.available ? 'success' : 'neutral'} />
+            </Pressable>
+          );
+        })}
         {lines.some(({ line }) => line.price) ? <Text style={[textStyle('bodySm'), s.note]}>{DISCOVERY_COPY.priceNote}</Text> : null}
       </View>
+
+      {lines.some(({ id, line }) => line.available && id === props.selectedTierId) ? (
+        <View style={s.buy}>
+          <View style={s.qtyRow}>
+            <Text style={[textStyle('body'), s.meta]}>{PRIMARY_SESSION_COPY.quantityLabel}</Text>
+            <View style={s.qtyControls}>
+              <Button label="−" variant="secondary" size="sm" accessibilityLabel="Fewer tickets" disabled={props.quantity <= 1} onPress={() => props.onChangeQuantity(props.quantity - 1)} />
+              <Text style={[textStyle('title'), s.qty]} accessibilityLiveRegion="polite" accessibilityLabel={`${props.quantity} tickets`}>{props.quantity}</Text>
+              <Button label="+" variant="secondary" size="sm" accessibilityLabel="More tickets" disabled={props.quantity >= MAX_PRIMARY_QUANTITY} onPress={() => props.onChangeQuantity(props.quantity + 1)} />
+            </View>
+          </View>
+          {props.signedIn ? (
+            <Button label={PRIMARY_SESSION_COPY.continue} variant="primary" onPress={props.onContinue} />
+          ) : (
+            <Button label={PRIMARY_SESSION_COPY.signIn} variant="primary" onPress={props.onSignIn} />
+          )}
+        </View>
+      ) : null}
     </>
   );
 }
@@ -130,7 +172,12 @@ function makeStyles(p: Palette) {
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: p.border.default,
     },
+    tierSelected: { borderBottomColor: p.brand.red, borderBottomWidth: 2 },
     tierText: { flexShrink: 1, gap: 2 },
+    buy: { gap: v2.space.md, paddingTop: v2.space.sm },
+    qtyRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    qtyControls: { flexDirection: 'row', alignItems: 'center', gap: v2.space.md },
+    qty: { color: p.text.primary, minWidth: 24, textAlign: 'center' },
     tierName: { color: p.text.primary },
     tierPrice: { color: p.text.secondary },
     note: { color: p.text.muted },

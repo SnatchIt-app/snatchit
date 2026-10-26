@@ -16,17 +16,19 @@ const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\
 const src = (p: string) => strip(readFileSync(p, 'utf8'));
 
 describe('routes', () => {
-  it('P1: app/events.tsx and app/event/[session].tsx exist and the root Stack registers both', () => {
+  it('P1: the events, event and primary-checkout routes exist and the root Stack registers them', () => {
     expect(src('app/events.tsx')).toContain('export default function');
     expect(src('app/event/[session].tsx')).toContain('export default function');
+    expect(src('app/primary-checkout/[session].tsx')).toContain("export { default } from '@/src/screens/primary/PrimaryCheckoutRoute'");
     const layout = src('app/_layout.tsx');
     expect(layout).toContain('<Stack.Screen name="events" />');
     expect(layout).toContain('<Stack.Screen name="event/[session]" />');
+    expect(layout).toContain('<Stack.Screen name="primary-checkout/[session]" />');
   });
 
   it('P2: neither route is on the return-after-sign-in allowlist yet', () => {
     const rt = src('src/lib/auth/returnTo.ts');
-    expect(rt).not.toMatch(/'event\/\[session\]'|'events'/);
+    expect(rt).not.toMatch(/'event\/\[session\]'|'events'|'primary-checkout/);
     expect(rt).toContain("{ route: 'listing/[id]', scope: 'public' }");   // witness: the list is still read
   });
 
@@ -53,8 +55,12 @@ describe('views — server facts only', () => {
     expect(event).toMatch(/line\.price \? /);
   });
 
-  it('V2: no buy action exists until the C3 checkout package lands', () => {
-    expect(event).not.toMatch(/Buy|Checkout|checkout|reserve_primary_inventory|primary-checkout/);
+  it('V2: only an available tier can be chosen; the view computes no price and never calls payment code', () => {
+    expect(event).toContain('disabled={!line.available}');
+    expect(event).toContain("const selected = props.selectedTierId === id && line.available;");
+    expect(event).not.toMatch(/reserve_primary|primary-checkout|functions\.invoke|price_minor|buyer_fee|fee_bps|\* 1\./);
+    const route = src('app/event/[session].tsx');
+    expect(route).toContain("router.push({ pathname: '/primary-checkout/[session]', params: { session: sessionId, tt: selectedTierId, qty: String(quantity) } })");
   });
 
   it('V3: the list never formats a row time in the device zone — times only through the session facts', () => {
@@ -81,3 +87,47 @@ describe('views — server facts only', () => {
     expect(h).toContain('not a real event');
   });
 });
+
+describe('primary checkout screen — a payments surface (A reviews)', () => {
+  const native = src('src/screens/primary/PrimaryCheckoutEntry.native.tsx');
+  const web = src('src/screens/primary/PrimaryCheckoutEntry.tsx');
+  const view = src('src/screens/primary/PrimaryCheckoutView.tsx');
+
+  it('K1: the web entry never imports Stripe; the native entry uses the same SDK hook as the resale checkout', () => {
+    expect(web).not.toContain('@stripe/stripe-react-native');
+    expect(native).toContain("from '@stripe/stripe-react-native'");
+    expect(native).toContain('useStripe()');
+  });
+
+  it('K2: hold first, then the first quote WITHOUT a shown total; a price change re-quotes with the server total it showed', () => {
+    expect(native).toContain('reservePrimaryTier({');
+    expect(native).toContain('await quoteAndPrepare(null);');
+    expect(native).toContain("quoteAndPrepare(state.kind === 'price_changed' ? state.serverTotalMinor : null)");
+  });
+
+  it('K3: an intent Stripe already reports paid is not shown the sheet again; completion routes to the ticket page, never a success screen', () => {
+    expect(native).toContain('if (intentAlreadyPaid(existing.paymentIntent?.status)) { submitted(params.sessionId); return; }');
+    expect(native).toContain("router.replace(`/ticket/${sessionId}`)");
+    expect(native).toContain("if (outcome === 'completed') { submitted(params.sessionId); return; }");
+    expect(view + native).not.toMatch(/Payment successful|You're in|Tickets confirmed|Order complete/i);
+  });
+
+  it('K4: one attempt id per purchase, kept in the route params; the 3-D Secure return URL carries it; Pay is latched', () => {
+    expect(native).toContain('router.setParams({ attempt: attemptId })');
+    expect(native).toContain('returnURL: buildPrimaryReturnURL({');
+    expect(native).toContain('if (state.kind !== \'review\' || !state.sheetReady || payingRef.current || !params.ok) return;');
+  });
+
+  it('K5: the review headline is the all-in total; tickets and fee are itemised beneath it', () => {
+    expect(view).toMatch(/PRIMARY_CHECKOUT_COPY\.totalLabel[\s\S]*formatUsd\(q\.totalMinor\)/);
+    expect(view).toContain('PRIMARY_CHECKOUT_COPY.faceLabel} ${formatUsd(q.faceMinor)}');
+    expect(view).toContain('`${PRIMARY_CHECKOUT_COPY.payAction} ${formatUsd(q.totalMinor)}`');
+  });
+
+  it('K6: no gated payments file is imported or touched by the primary screens', () => {
+    for (const f of [native, web, view]) {
+      expect(f).not.toMatch(/lib\/payments'|lib\/checkout\/(setupDecision|payControl|holdState)'/);
+    }
+  });
+});
+
