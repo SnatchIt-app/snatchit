@@ -131,3 +131,11 @@ describe('primary checkout screen — a payments surface (A reviews)', () => {
   });
 });
 
+describe('entry point — A’s default: "Events" in the Explore header', () => {
+  it('E1: the Explore header links to /events (not in harness renders); Home is untouched', () => {
+    const explore = src('app/(tabs)/explore.tsx');
+    expect(explore).toContain("onPress={() => router.push('/events')}");
+    expect(explore).toContain('accessibilityLabel="Browse events"');
+    expect(src('app/(tabs)/home.tsx')).not.toContain("'/events'");
+  });
+});
