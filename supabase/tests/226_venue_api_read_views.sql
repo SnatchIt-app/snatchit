@@ -94,7 +94,10 @@ INSERT INTO venue.inventory_batch (batch_id, ticket_type_id, event_session_id, r
 
 -- ── Section A — shape ────────────────────────────────────────────────────────
 SELECT has_schema('venue_api', 'A1: schema venue_api exists');
-SELECT is((SELECT count(*) FROM pg_views WHERE schemaname = 'venue_api'), 8::bigint, 'A2: exactly eight views');
+-- 2026-10-26 (registry 163, D): + venue_api.session_admissions, a security_invoker/security_barrier view over the
+-- set-returning definer venue.list_session_scan_counters() (identity-free scan counters); A2 8 -> 9, F1 + one row,
+-- F5 + five columns, F6 + exp_session_admissions. A3 stays 0: the function lives in venue, not here.
+SELECT is((SELECT count(*) FROM pg_views WHERE schemaname = 'venue_api'), 9::bigint, 'A2: exactly nine views (159''s eight + 163''s session_admissions)');
 SELECT is((SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue_api'), 0::bigint, 'A3: no functions in venue_api (no definer surface)');
 SELECT is((SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'venue_api' AND c.relkind = 'v'
              AND NOT EXISTS (SELECT 1 FROM unnest(c.reloptions) o WHERE o = 'security_invoker=true')), 0::bigint, 'A4: every view is security_invoker');
@@ -288,8 +291,9 @@ SELECT set_eq(
   $$ VALUES ('event_sessions:authenticated:SELECT'), ('events:authenticated:SELECT'),
             ('inventory_batches:authenticated:SELECT'), ('my_org_roles:authenticated:SELECT'),
             ('my_staff_roles:authenticated:SELECT'), ('resale_policies:authenticated:SELECT'),
-            ('ticket_types:authenticated:SELECT'), ('venues:authenticated:SELECT') $$,
-  'F1: venue_api privilege matrix is exactly SELECT to authenticated on the eight views (no write, no column grant, no anon/service_role/PUBLIC)');
+            ('ticket_types:authenticated:SELECT'), ('venues:authenticated:SELECT'),
+            ('session_admissions:authenticated:SELECT') $$,  -- 163
+  'F1: venue_api privilege matrix is exactly SELECT to authenticated on the nine views (no write, no column grant, no anon/service_role/PUBLIC)');
 SELECT set_eq(
   $$ SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE a.grantee::regrole::text END || ':' || a.privilege_type
        FROM pg_namespace n
@@ -329,8 +333,10 @@ SELECT set_eq(
             ('inventory_batches.release_kind'), ('inventory_batches.is_sharded'), ('inventory_batches.remaining'),
             ('inventory_batches.created_at'), ('inventory_batches.updated_at'),
             ('my_staff_roles.venue_id'), ('my_staff_roles.role'),
-            ('my_org_roles.org_id'), ('my_org_roles.role') $$,
-  'F5: the views project exactly these 65 columns (55 of 159 + ticket_types.display_rank of 160 + 162''s nine: events.age_policy/timezone, event_sessions.timezone/*_local x3, ticket_types.sale_starts_at/sale_ends_at/on_sale_now; a widened view fails here before it reaches the API)');
+            ('my_org_roles.org_id'), ('my_org_roles.role'),
+            ('session_admissions.session_id'), ('session_admissions.admitted'), ('session_admissions.duplicate'),
+            ('session_admissions.invalid'), ('session_admissions.last_admitted_at') $$,  -- 163
+  'F5: the views project exactly these 70 columns (55 of 159 + ticket_types.display_rank of 160 + 162''s nine: events.age_policy/timezone, event_sessions.timezone/*_local x3, ticket_types.sale_starts_at/sale_ends_at/on_sale_now + 163''s five: session_admissions.session_id/admitted/duplicate/invalid/last_admitted_at; a widened view fails here before it reaches the API)');
 
 -- F6 pins each view's DEFINITION, not only its column names (F5). The expected
 -- definitions are the eight SELECTs of migration 20261021120000, copied
@@ -379,6 +385,9 @@ CREATE TEMP VIEW exp_my_org_roles AS
   SELECT m.org_id, m.role
     FROM kernel.org_member m
    WHERE m.identity_id = auth.uid();
+CREATE TEMP VIEW exp_session_admissions AS   -- 163: the ninth view, over the set-returning definer (explicit columns)
+  SELECT c.session_id, c.admitted, c.duplicate, c.invalid, c.last_admitted_at
+    FROM venue.list_session_scan_counters() c;
 SELECT set_eq(
   $$ SELECT c.relname::text || ':' || md5(pg_get_viewdef(c.oid))
        FROM pg_class c
@@ -387,7 +396,7 @@ SELECT set_eq(
   $$ SELECT substr(c.relname::text, 5) || ':' || md5(pg_get_viewdef(c.oid))
        FROM pg_class c
       WHERE c.relnamespace = pg_my_temp_schema() AND c.relkind = 'v' AND c.relname::text LIKE 'exp\_%' $$,
-  'F6: each of the eight view definitions is exactly the migration''s SELECT (deparsed md5 per view)');
+  'F6: each of the nine view definitions is exactly its migration''s SELECT (deparsed md5 per view; 162 re-creates events/event_sessions/ticket_types, 163 adds session_admissions over venue.list_session_scan_counters())');
 
 -- F7 is the other half of F3. A schema-scoped default can only ADD to the
 -- global defaults (076, PFA-1), so what a table or view the owner adds here
@@ -424,7 +433,7 @@ SELECT is((SELECT count(*) FROM pg_type t
                                WHERE c.relnamespace = t.typnamespace AND c.relkind = 'v'
                                  AND t.oid IN (rt.oid, rt.typarray))),
           0::bigint,
-          'F8: no type in venue_api other than the eight views'' row types and their array types (an enum, domain, range, composite type or table row type fails here)');
+          'F8: no type in venue_api other than the nine views'' row types and their array types (an enum, domain, range, composite type or table row type fails here)');
 
 SELECT * FROM finish();
 ROLLBACK;

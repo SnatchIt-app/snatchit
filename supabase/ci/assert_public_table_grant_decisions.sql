@@ -165,7 +165,8 @@
 --   left DEFAULTED; the 086/108 grants on venue.record_scan / record_scan_door /
 --   _record_scan_core / validate_ticket_online are unchanged — 230 D12.)
 -- ASSERTED by pgTAP 230 (A10-A12, A15, D5, D10-D12, H3/H4), 228 (the venue_cmd sweep,
--- now nine) and 226 F1 (+ the 163 hunk, F's). Nothing in public changed.
+-- now fourteen on the stacked 160-163 tree: 161's six + 162's five + 163's three) and 226 F1
+-- (+ the 163 hunk, F's). Nothing in public changed.
 --
 -- Table decisions:
 --   no-client-access  deny-all. RLS on, service_role only. ASSERTED: anon and
