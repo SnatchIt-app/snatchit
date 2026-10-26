@@ -10,12 +10,42 @@ import { isPast, labelFor, shortId, transferStateLabel } from "@/lib/format";
 import type { OrderRow } from "@/lib/types";
 
 /**
+ * What the page filter matches on an order row: the name, the references, the
+ * parties and the reviewed labels the row shows (the transfer one row-aware).
+ */
+export function orderFilterText(r: OrderRow): string {
+  return [
+    r.event_name,
+    r.event_date,
+    r.mode ? r.mode.replace(/_/g, " ") : null,
+    r.payment_id,
+    r.stripe_payment_intent_id,
+    r.transfer_id,
+    r.stripe_transfer_id,
+    r.stripe_refund_id,
+    r.listing_id,
+    r.buyer?.display_name,
+    r.seller?.display_name,
+    labelFor("payment", r.payment_status),
+    r.transfer_id ? transferStateLabel({ status: r.transfer_status, buyer_confirmed_at: r.buyer_confirmed_at }) : "No transfer",
+    labelFor("funds", r.seller_funds_state),
+    r.open_cases ? `${r.open_cases} open ${r.open_cases === 1 ? "case" : "cases"}` : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+/**
  * Payment + transfer row (ops.order_row). Shared by /orders, users and listings.
  *
  * The order's name (its event) opens the order; the payment reference stays on
  * the row, copyable, because support and Stripe both speak in ids. Every
  * status uses the reviewed vocabulary verbatim — a qualifier such as "not
  * confirmed settled" is moved under its pill, never dropped.
+ *
+ * Columns sort client-side by the row's recorded values (integer cents, the
+ * status codes, the event name) on this page only; `filterable` adds the page
+ * filter where a page opts in.
  */
 export function OrderTable({
   rows,
@@ -28,6 +58,7 @@ export function OrderTable({
   hideParties = false,
   openHref,
   selectedId,
+  filterable = false,
 }: {
   rows: OrderRow[];
   basePath: string;
@@ -40,9 +71,11 @@ export function OrderTable({
   /** When set, the order name opens a preview (the Orders drawer) instead of the full page. */
   openHref?: (paymentId: string) => string;
   selectedId?: string | null;
+  /** Client-side text filter over the rows on this page. */
+  filterable?: boolean;
 }) {
   const columns: Column<OrderRow>[] = [
-    { key: "order", header: "Order", render: (r) => <OrderName r={r} openHref={openHref} /> },
+    { key: "order", header: "Order", render: (r) => <OrderName r={r} openHref={openHref} />, sortValue: (r) => r.event_name ?? null },
     ...(hideParties
       ? []
       : ([
@@ -59,6 +92,7 @@ export function OrderTable({
                 </span>
               </span>
             ),
+            sortValue: (r) => r.buyer?.display_name ?? null,
           },
         ] as Column<OrderRow>[])),
     {
@@ -73,10 +107,12 @@ export function OrderTable({
           </span>
         </span>
       ),
+      sortValue: (r) => r.amount ?? null,
+      firstSortDir: "desc",
     },
-    { key: "payment_status", header: "Payment", render: (r) => <StatusBadge status={r.payment_status} label={labelFor("payment", r.payment_status)} qualifier="below" /> },
-    { key: "transfer_status", header: "Ticket transfer", render: (r) => <TransferCell r={r} /> },
-    { key: "funds", header: "Seller funds", render: (r) => <FundsCell r={r} /> },
+    { key: "payment_status", header: "Payment", render: (r) => <StatusBadge status={r.payment_status} label={labelFor("payment", r.payment_status)} qualifier="below" />, sortValue: (r) => r.payment_status ?? null },
+    { key: "transfer_status", header: "Ticket transfer", render: (r) => <TransferCell r={r} />, sortValue: (r) => r.transfer_status ?? null },
+    { key: "funds", header: "Seller funds", render: (r) => <FundsCell r={r} />, sortValue: (r) => r.seller_funds_state ?? null },
   ];
 
   return (
@@ -91,6 +127,8 @@ export function OrderTable({
       emptyText={emptyText}
       caption={caption}
       dense
+      filterable={filterable}
+      filterText={orderFilterText}
       isSelected={selectedId ? (r) => r.payment_id === selectedId : undefined}
       card={(r) => (
         <article className="panel p-4">

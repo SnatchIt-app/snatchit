@@ -55,7 +55,7 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
           </select>
         </FilterField>
       </FilterForm>
-      {!res.ok ? <OpsFailureAlert failure={res} fn="list_users" retryHref={selfHref("/users", sp)} /> : <UserTable rows={rows} basePath="/users" searchParams={sp} nextCursor={page?.next_cursor} />}
+      {!res.ok ? <OpsFailureAlert failure={res} fn="list_users" retryHref={selfHref("/users", sp)} /> : <UserTable rows={rows} basePath="/users" searchParams={sp} nextCursor={page?.next_cursor} filterable />}
     </>
   );
 }

@@ -31,6 +31,7 @@ import { ConfirmForm } from "@/components/ui/ConfirmForm";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { IdLink } from "@/components/ui/IdLink";
 import { MetricGrid, MetricTile } from "@/components/ui/MetricTile";
+import { FigureMeta } from "@/components/charts/FigureMeta";
 import { FilterField, FilterSelect } from "@/components/ui/FilterField";
 import { ActionTable } from "@/components/actions/ActionTable";
 import { AuditTable } from "@/components/system/AuditTable";
@@ -93,6 +94,8 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
   const actions = actionsPage ? toActions(actionsPage.items) : [];
   const summary = summaryRes.ok ? toDailySummary(summaryRes.data) : null;
 
+  // Time of this read (server render, per request): the metric row is point in time, so its label says when.
+  const readAt = new Date();
   const failingJobs = health?.ops_jobs.filter((j) => (j.consecutive_failures ?? 0) >= 2).length ?? 0;
   const lastSuccess = health?.ops_jobs.reduce<string | null>((acc, j) => (j.last_success_at && (!acc || j.last_success_at > acc) ? j.last_success_at : acc), null) ?? null;
 
@@ -147,6 +150,7 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
               <MetricTile label="Alerts firing" value={health.alerts.length} definition="ops.alert rows in state firing." href="#alerts" />
               <MetricTile label="Approvals pending" value={approvalsRes.ok ? approvals.length : "—"} note={approvalsRes.ok ? null : "Couldn't be loaded"} definition="Second-founder approvals awaiting a decision." href="#approvals" />
             </MetricGrid>
+            <FigureMeta pointInTime computedAt={health.generated_at} readAt={readAt} className="px-1" />
 
             <Panel eyebrow="Run by the console" title="Console jobs (detectors)">
               <OpsJobTable jobs={health.ops_jobs} canRetry={canRequest(me.role, "job_retry")} />
