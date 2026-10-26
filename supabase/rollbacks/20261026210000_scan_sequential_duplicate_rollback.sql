@@ -10,6 +10,17 @@
 -- pre-183 chain's (planning/2026-10-26-launch/B/evidence/08-rollback-verify.log).
 -- ============================================================================
 begin;
+-- ── PRE-FLIGHT (inverse of 183's guard): the body being restored over must be EXACTLY
+-- 183's body (rollback) or already the 108 body (idempotent re-run); anything else is
+-- a later change this rollback must not destroy — refuse.
+do $pf$
+declare v_md5 text := md5(pg_get_functiondef('venue._record_scan_core(uuid,uuid,uuid,uuid,jsonb,text)'::regprocedure));
+begin
+  if v_md5 not in ('1b7e88e52a7a788081c7623fba62baf6',                         -- 183 body
+                   '9ae362e02023cd0d45df43daef326b11') then -- 108 body (already rolled back)
+    raise exception 'precondition_failed: 183 rollback refuses to overwrite an unexpected venue._record_scan_core body (md5 %)', v_md5;
+  end if;
+end $pf$;
 create or replace function venue._record_scan_core(
   p_atom_id uuid, p_session_id uuid, p_actor_device_id uuid, p_actor_identity_id uuid,
   p_scan_meta jsonb, p_command_key text)

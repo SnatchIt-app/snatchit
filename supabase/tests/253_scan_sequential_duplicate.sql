@@ -2,7 +2,7 @@
 -- 253_scan_sequential_duplicate.sql — migration 20261026210000 (registry 183).
 --   S05 "already used": a SEQUENTIAL rescan of a consumed atom records
 --   result='duplicate' and returns the prior admission facts
---   {prior:{scan_id, occurred_at, device_id}}; every other refusal stays
+--   {prior:{scan_id, occurred_at, device_id, actor_identity_id, device_label}}; every other refusal stays
 --   'invalid' exactly as 108; the first-in-wins ledger invariant (086 C41,
 --   scan_admitted_in_uq) holds on both the door machine path and the staff path;
 --   S07 (timeout after commit → retry with the same command_key) answers
