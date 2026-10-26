@@ -20,6 +20,13 @@
 --   G2 venue_cmd must hold no wrapper OTHER than 161's six and 162's five that
 --      names a function dropped here (a 163+ wrapper over set_event_age_policy,
 --      say) — roll that package back first;
+--   G2b NO function in any schema outside the objects this file drops or restores
+--      may reference a function dropped here, and no view other than 162's own
+--      may depend on one (A, 2026-10-26: 185's reserve_primary_inventory and 182's
+--      buyer reads call venue.ticket_type_on_sale; dropping it under them would
+--      break every buyer hold). Roll those packages back first (185, then 182, …).
+--      The scan reads pg_proc.prosrc (functions call by name, so pg_depend holds no
+--      edge for them) and pg_depend/pg_rewrite for views;
 --   G3 the five columns must carry no data: catalog.venue.timezone all
 --      'America/New_York' (the default), catalog.event.age_policy all NULL,
 --      catalog.event_session.sales_capacity all NULL, venue.ticket_type.
@@ -84,6 +91,40 @@ BEGIN
                      OR p.prosrc LIKE '%set_session_sales_capacity%' OR p.prosrc LIKE '%set_ticket_type_sale_window%'
                      OR p.prosrc LIKE '%ticket_type_on_sale%')) THEN
     RAISE EXCEPTION 'ROLLBACK_162_REFUSED (G2): a later venue_cmd wrapper calls a function dropped here; roll that package back first. Nothing changed.';
+  END IF;
+  -- G2b (A, 2026-10-26): no OUTSIDE caller of a function dropped here — any schema, functions and views.
+  IF EXISTS (
+       SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname NOT IN ('pg_catalog','information_schema')
+          AND p.oid NOT IN (SELECT o FROM unnest(ARRAY[
+                to_regprocedure('venue.ticket_type_on_sale(uuid, timestamptz)'),
+                to_regprocedure('venue.set_ticket_type_sale_window(uuid, timestamptz, timestamptz, text, text)'),
+                to_regprocedure('catalog.set_venue_timezone(uuid, text, text, text)'),
+                to_regprocedure('catalog.set_event_age_policy(uuid, text, text, text)'),
+                to_regprocedure('catalog.set_session_sales_capacity(uuid, integer, text, text)'),
+                to_regprocedure('venue_cmd.ticket_type_on_sale(uuid, timestamptz)'),
+                to_regprocedure('venue_cmd.set_ticket_type_sale_window(uuid, timestamptz, timestamptz, text, text)'),
+                to_regprocedure('venue_cmd.set_venue_timezone(uuid, text, text, text)'),
+                to_regprocedure('venue_cmd.set_event_age_policy(uuid, text, text, text)'),
+                to_regprocedure('venue_cmd.set_session_sales_capacity(uuid, integer, text, text)'),
+                -- the six venue.* bodies this file restores to 160's text (their 162 comments may name the setters)
+                to_regprocedure('venue.create_ticket_type(uuid, text, text, integer, text, text)'),
+                to_regprocedure('venue.set_ticket_type_price(uuid, integer, text, text)'),
+                to_regprocedure('venue.create_inventory_batch(uuid, uuid, text, integer, integer, text)'),
+                to_regprocedure('venue.set_batch_capacity(uuid, integer, text, text)'),
+                to_regprocedure('venue.set_ticket_type_visibility(uuid, text, text, text)'),
+                to_regprocedure('venue.set_ticket_type_rank(uuid, smallint, text)')
+              ]::oid[]) AS o WHERE o IS NOT NULL)
+          AND (p.prosrc LIKE '%ticket_type_on_sale%' OR p.prosrc LIKE '%set_ticket_type_sale_window%'
+               OR p.prosrc LIKE '%set_venue_timezone%' OR p.prosrc LIKE '%set_event_age_policy%'
+               OR p.prosrc LIKE '%set_session_sales_capacity%'))
+  OR EXISTS (
+       SELECT 1 FROM pg_depend d
+         JOIN pg_rewrite r ON d.classid = 'pg_rewrite'::regclass AND d.objid = r.oid
+        WHERE d.refclassid = 'pg_proc'::regclass
+          AND d.refobjid = to_regprocedure('venue.ticket_type_on_sale(uuid, timestamptz)')
+          AND r.ev_class <> to_regclass('venue_api.ticket_types')) THEN
+    RAISE EXCEPTION 'ROLLBACK_162_REFUSED (G2b): a function or view outside 162 calls a function dropped here (e.g. 185''s reserve_primary_inventory or 182''s buyer reads use venue.ticket_type_on_sale); roll that package back first (185, then 182, …). Nothing changed.';
   END IF;
   IF (EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'catalog.venue'::regclass AND attname = 'timezone' AND NOT attisdropped)
       AND EXISTS (SELECT 1 FROM catalog.venue WHERE timezone IS DISTINCT FROM 'America/New_York'))
