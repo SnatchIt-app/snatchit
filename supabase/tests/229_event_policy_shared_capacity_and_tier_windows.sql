@@ -106,8 +106,9 @@ $m$ SELECT v FROM tap.memo_229 WHERE k = $1 $m$;
 CREATE FUNCTION tap._alloc229(s uuid) RETURNS integer LANGUAGE sql SECURITY DEFINER SET search_path = '' AS
 $m$ SELECT coalesce(sum(capacity), 0)::integer FROM venue.inventory_batch WHERE event_session_id = s $m$;
 -- definer read of the session's pool (sales_capacity is withheld from every client role — 229 A41 pins that; this stands in for a postgres read inside a logged-in step)
-CREATE FUNCTION tap._pool229(s uuid) RETURNS integer LANGUAGE sql SECURITY DEFINER SET search_path = '' AS
-$m$ SELECT sales_capacity FROM catalog.event_session WHERE session_id = s $m$;
+-- plpgsql, not sql: a sql body is validated at CREATE time and would abort the whole file on the chain without 162 (no RED run at all).
+CREATE FUNCTION tap._pool229(s uuid) RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS
+$m$ BEGIN RETURN (SELECT sales_capacity FROM catalog.event_session WHERE session_id = s); END $m$;
 GRANT EXECUTE ON FUNCTION tap._store229(text, text), tap._fetch229(text), tap._alloc229(uuid), tap._pool229(uuid) TO authenticated;
 
 -- ── Fixture (synthetic; never a migration) ─────────────────────────────────
