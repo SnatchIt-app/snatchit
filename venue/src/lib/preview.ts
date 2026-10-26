@@ -101,7 +101,7 @@ export const DEMO_DATA_SUBLABEL = "Invented venue and events. Nothing here sells
  */
 export const DEMO_ACTION_LABEL: Record<string, string> = {
   "catalog.create_event": "created a draft event",
-  "catalog.set_event_status": "moved this event to its next status",
+  "catalog.publish_event": "moved this event to its next status",
   "catalog.create_event_session": "added a session",
   "catalog.set_resale_policy": "changed the resale rules for this event",
   "venue.create_ticket_type": "added a ticket type",

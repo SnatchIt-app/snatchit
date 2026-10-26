@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { EventHeader } from "@/components/ui/Event";
 import { RELEASE_LABEL, availability, capacityFloor, doorHoldback, inventoryWarnings, remaining, sessionTotals, warningLabel } from "@/lib/inventory";
 import { usd, venueTime, relative } from "@/lib/format";
@@ -14,7 +15,7 @@ import { PreviewHidden } from "@/components/events/EventSetup";
  * md/sm: read-only status cards with a segmented capacity bar. Holds beside.
  * Counters are staff-scoped; `remaining` is world-readable (note 4).
  */
-export function InventoryOverview({ event, types, batches, holds, ctx, basePath, timeZone, now }: { event: Event; types: TicketType[]; batches: InventoryBatch[]; holds: InventoryHold[]; ctx: PreviewContext; basePath: string; timeZone: string; now: Date }) {
+export function InventoryOverview({ event, types, batches, holds, ctx, basePath, timeZone, now, commandsSlot }: { event: Event; types: TicketType[]; batches: InventoryBatch[]; holds: InventoryHold[]; ctx: PreviewContext; basePath: string; timeZone: string; now: Date; commandsSlot?: ReactNode }) {
   const view = showCounters(ctx.role, ctx) ? "counters" : inventoryView(ctx.role) === "none" ? "none" : "remaining_only";
   const mayRelease = canReleaseHold(ctx.role) && ctx.writesEnabled !== false;
   const session = event.sessions[0];
@@ -188,7 +189,9 @@ export function InventoryOverview({ event, types, batches, holds, ctx, basePath,
       </ul>
 
       <div className="grid gap-6 [grid-template-columns:repeat(auto-fit,minmax(min(26rem,100%),1fr))]">
-        {view === "counters" ? (
+        {commandsSlot ? (
+          commandsSlot
+        ) : view === "counters" ? (
           <Panel title="Changing capacity" eyebrow="Not available in this demo">
             <p className="text-sm text-muted">Changes are audited and refused below what is already held or sold. The floor for each release is shown before you type.</p>
             <ul className="mt-2 text-xs text-dim">

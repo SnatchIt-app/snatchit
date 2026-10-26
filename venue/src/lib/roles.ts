@@ -83,10 +83,15 @@ export function canReadResalePolicy(p: Principal): boolean {
 export function canReadTicketTypes(p: Principal): boolean {
   return ["org_member", "org_owner", "org_admin", "org_finance", "venue_manager", "venue_finance", "venue_scanner", "venue_box_office", "venue_marketing", "org_marketing"].includes(p);
 }
-/** Row 15 (+note 4, §5.1): full counters (capacity/held/sold) vs `remaining` only. */
+/**
+ * Row 15 (+note 4, §5.1): full counters (capacity/held/sold) vs `remaining` only. The counters set is
+ * exactly the authority of the staff read that supplies them, `venue.get_inventory_counters` (D's 160:
+ * org owner/admin/finance, venue manager/finance): a role the server would refuse is not promised the
+ * numbers. Box office reads `remaining` only until the owner rules otherwise (D's evaluation 2026-10-22).
+ */
 export function inventoryView(p: Principal): "counters" | "remaining_only" | "none" {
-  if (["org_owner", "org_admin", "org_finance", "venue_manager", "venue_finance", "venue_box_office"].includes(p)) return "counters";
-  if (["org_member", "venue_scanner"].includes(p)) return "remaining_only";
+  if (["org_owner", "org_admin", "org_finance", "venue_manager", "venue_finance"].includes(p)) return "counters";
+  if (["org_member", "venue_scanner", "venue_box_office"].includes(p)) return "remaining_only";
   return "none";
 }
 /** Counters render only when the role may read them AND the data source can supply them. */
