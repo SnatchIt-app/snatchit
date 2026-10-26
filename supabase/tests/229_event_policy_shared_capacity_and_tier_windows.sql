@@ -259,14 +259,17 @@ SELECT is((SELECT string_agg(p.proname || '=' || p.provolatile::text, ',' ORDER 
                 OR (n.nspname = 'venue'   AND p.proname IN ('set_ticket_type_sale_window','ticket_type_on_sale')))),
   'set_event_age_policy=v,set_session_sales_capacity=v,set_ticket_type_sale_window=v,set_venue_timezone=v,ticket_type_on_sale=s',
   'A22: ticket_type_on_sale is STABLE (a read); the four setters are VOLATILE');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue'), 92,
-  'A23: venue holds NINETY-TWO functions — 90 (160) + set_ticket_type_sale_window + ticket_type_on_sale (144 A15 / 145 A4 / 148 B5 / 179 A8 / 180 A5 / 227 A12 move with it)');
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue'), 96,
+  -- 2026-10-26 (registry 163): 92 -> 96 (+get_session_scan_counters, list_session_scan_counters, record_scan_staff, filter_staff_scan_meta; 94 if 163's PART B is dropped).
+  'A23: venue holds NINETY-SIX functions — 90 (160) + set_ticket_type_sale_window + ticket_type_on_sale + 163''s four (144 A15 / 145 A4 / 148 B5 / 179 A8 / 180 A5 / 227 A12 / 230 A19 move with it)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'catalog'), 20,
   'A24: catalog holds TWENTY functions — 17 + set_venue_timezone, set_event_age_policy, set_session_sales_capacity (154 A10 moves with it)');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 313,
-  'A25: five-schema routine census 313 — 308 post-160 + 162''s five (148 B2 / 156 A20 / 157 A46 / 179 A9 / 180 A6 move with it)');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue_cmd'), 11,
-  'A26: venue_cmd holds ELEVEN functions — 161''s six + 162''s five wrappers (228 A2/A3 move with it)');
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 317,
+  -- 2026-10-26 (registry 163): 313 -> 317 (+4 venue: get_session_scan_counters, list_session_scan_counters, record_scan_staff, filter_staff_scan_meta; 315 if 163's PART B is dropped).
+  'A25: five-schema routine census 317 — 308 post-160 + 162''s five + 163''s four (148 B2 / 156 A20 / 157 A46 / 179 A9 / 180 A6 move with it)');
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue_cmd'), 14,
+  -- 2026-10-26 (registry 163): 11 -> 14 (+get_session_scan_counters, record_scan, validate_ticket_online; 12 if 163's PART B is dropped).
+  'A26: venue_cmd holds FOURTEEN functions — 161''s six + 162''s five + 163''s three wrappers (228 A2/A3 move with it)');
 SELECT set_eq(
   $$ SELECT p.proname || '(' || pg_catalog.oidvectortypes(p.proargtypes) || ')'
        FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue_cmd'
@@ -892,16 +895,18 @@ SELECT is((SELECT before::text || ' -> ' || after::text || ' / ' || reason_code 
 -- (PostgREST: UTC) — clients MUST send ISO-8601 with an offset, converting the venue's local
 -- wall-clock using catalog.venue.timezone. Pinned on t81 (e8 live, public, no window so far; no
 -- other assertion reads t81's window or its audit rows). The session TimeZone is restored after W51.
+-- The helper SELECTs below print a prefixed value ('stored …'), never a bare result line: pg_prove parses any
+-- output line beginning with the TAP result word as a test, so a stored status printed alone would add tests.
 SELECT tap._store229('tz0', current_setting('TimeZone'));
 SELECT tap.login('22900000-0000-4000-8000-000000000101');
 SELECT set_config('TimeZone', 'UTC', true);
-SELECT tap._store229('w50_set_utc', venue.set_ticket_type_sale_window('22900000-0000-4000-8000-000000000081', '2026-11-30 19:00:00-05', NULL, 'tz_utc', 'ck229-w-50a') ->> 'status');
+SELECT 'stored ' || tap._store229('w50_set_utc', venue.set_ticket_type_sale_window('22900000-0000-4000-8000-000000000081', '2026-11-30 19:00:00-05', NULL, 'tz_utc', 'ck229-w-50a') ->> 'status');
 SELECT tap.logout();
 SELECT tap._store229('w50_utc', (SELECT to_char(sale_starts_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') || '+00' FROM venue.ticket_type WHERE ticket_type_id = '22900000-0000-4000-8000-000000000081'));
 SELECT tap.login('22900000-0000-4000-8000-000000000101');
-SELECT tap._store229('w50_clear', venue.set_ticket_type_sale_window('22900000-0000-4000-8000-000000000081', NULL, NULL, 'tz_clear', 'ck229-w-50b') ->> 'status');
+SELECT 'stored ' || tap._store229('w50_clear', venue.set_ticket_type_sale_window('22900000-0000-4000-8000-000000000081', NULL, NULL, 'tz_clear', 'ck229-w-50b') ->> 'status');
 SELECT set_config('TimeZone', 'Pacific/Kiritimati', true);
-SELECT tap._store229('w50_set_kir', venue.set_ticket_type_sale_window('22900000-0000-4000-8000-000000000081', '2026-11-30 19:00:00-05', NULL, 'tz_kiritimati', 'ck229-w-50c') ->> 'status');
+SELECT 'stored ' || tap._store229('w50_set_kir', venue.set_ticket_type_sale_window('22900000-0000-4000-8000-000000000081', '2026-11-30 19:00:00-05', NULL, 'tz_kiritimati', 'ck229-w-50c') ->> 'status');
 SELECT tap.logout();
 SELECT tap._store229('w50_kir', (SELECT to_char(sale_starts_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') || '+00' FROM venue.ticket_type WHERE ticket_type_id = '22900000-0000-4000-8000-000000000081'));
 SELECT is(tap._fetch229('w50_set_utc') || '/' || tap._fetch229('w50_clear') || '/' || tap._fetch229('w50_set_kir')

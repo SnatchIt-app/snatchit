@@ -150,6 +150,24 @@
 -- Those decisions are ASSERTED by pgTAP 229 (A19-A20, A28-A29, A38, A40-A42,
 -- W46). Nothing in public changed; the manifests below are unchanged.
 --
+-- SCOPE NOTE (2026-10-26, registry 163 — D, scanner staff-session wrappers +
+-- identity-free session scan counters; DARK, applied nowhere). Same reasoning:
+-- every object is outside public, so NO row is added here:
+--   venue.get_session_scan_counters(uuid)            authenticated-execute (SECURITY DEFINER, STABLE)
+--   venue.list_session_scan_counters()               authenticated-execute (SECURITY DEFINER, STABLE)
+--   venue.record_scan_staff(uuid, uuid, jsonb, text) authenticated-execute (SECURITY DEFINER; PART B, droppable)
+--   venue.filter_staff_scan_meta(jsonb)              NO grant to any principal (IMMUTABLE helper the definer calls)
+--   venue_api.session_admissions                     SELECT to authenticated only (security_invoker view)
+--   venue_cmd.get_session_scan_counters(uuid)        authenticated-execute (SECURITY INVOKER sql wrappers;
+--   venue_cmd.record_scan(uuid, uuid, jsonb, text)   schema USAGE unchanged from 161)
+--   venue_cmd.validate_ticket_online(uuid, uuid)
+--   (anon, PUBLIC and service_role hold nothing on any of them; no proacl is
+--   left DEFAULTED; the 086/108 grants on venue.record_scan / record_scan_door /
+--   _record_scan_core / validate_ticket_online are unchanged — 230 D12.)
+-- ASSERTED by pgTAP 230 (A10-A12, A15, D5, D10-D12, H3/H4), 228 (the venue_cmd sweep,
+-- now fourteen on the stacked 160-163 tree: 161's six + 162's five + 163's three) and 226 F1
+-- (+ the 163 hunk, F's). Nothing in public changed.
+--
 -- Table decisions:
 --   no-client-access  deny-all. RLS on, service_role only. ASSERTED: anon and
 --                     authenticated must hold zero table privileges.
@@ -531,6 +549,15 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   -- get_my_profile(): binds to auth.uid(), REVOKEd from PUBLIC/anon, EXECUTE to
   -- authenticated only. Asserted in 187.
   ('get_my_tickets()',                                               'authenticated-execute'),
+  -- 182 (20261026200000, D, 2026-10-26): the two owner-scoped C5 buyer reads for the Tickets/QR
+  -- screen. Same shape as get_my_tickets(): bind to auth.uid() (28000 on a NULL subject; another
+  -- buyer's or a forged session id -> 0 rows), REVOKE ALL FROM PUBLIC, anon, authenticated then
+  -- GRANT EXECUTE to authenticated, plus an EXPLICIT GRANT EXECUTE to service_role (A's house posture,
+  -- 2026-10-26: never inherited from a default ACL, which CI's fresh stack does not carry). Resulting
+  -- ACL: authenticated + service_role, no anon, no PUBLIC. This class does not examine service_role.
+  -- Asserted in 252 A10/A11 and 182's post-flight.
+  ('get_my_ticket_atoms(uuid)',                                      'authenticated-execute'),
+  ('get_my_primary_orders(uuid)',                                    'authenticated-execute'),
   ('get_profile_trust_stats(uuid)',                                  'authenticated-execute'),
   ('mark_listing_sold(uuid, uuid)',                                  'authenticated-execute'),
   ('mark_transfer_sent(uuid, uuid)',                                 'authenticated-execute'),
@@ -577,6 +604,16 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   -- for every logged-out read. Boolean only; SECURITY INVOKER (reads nothing itself). Explicit GRANT anon,
   -- authenticated after REVOKE ALL FROM PUBLIC, anon, authenticated (B5).
   ('is_public(listings)',                                            'anon-execute'),
+  -- 182 (20261026200000, D, 2026-10-26): the two C1 buyer DISCOVERY reads — the logged-out surface.
+  -- JUSTIFICATION (written in the migration header): SECURITY DEFINER bodies that RESTATE the
+  -- anon-visible rules (event on_sale/live, never draft/announced, approved room, public tiers only,
+  -- remaining = the public_sale sum; capacity/held/sold never serialised; an unknown/unpublished id
+  -- yields 0 rows, no existence leak); neither takes a user id. Explicit GRANT anon, authenticated
+  -- after REVOKE ALL FROM PUBLIC, anon, authenticated (B5), plus an EXPLICIT GRANT EXECUTE to
+  -- service_role (A's house posture, 2026-10-26). Resulting ACL: anon + authenticated + service_role,
+  -- no PUBLIC. This class does not examine service_role. Asserted in 252 A8/A9 and 182's post-flight.
+  ('list_primary_sessions_on_sale()',                                'anon-execute'),
+  ('get_primary_session(uuid)',                                      'anon-execute'),
 
   -- ── public-execute-known-gap ─────────────────────────────────────────────
   -- Exactly two members, each asserted by name. See B4 for the full reasoning

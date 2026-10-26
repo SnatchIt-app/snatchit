@@ -221,7 +221,13 @@ SELECT is(
                      -- (set_ticket_type_sale_window, a command; ticket_type_on_sale, a STABLE read): EXECUTE to
                      -- authenticated only, anon/PUBLIC revoked (measured on the stacked 160-162 tree). 162's three
                      -- catalog setters are outside this sweep's authenticated schema list and are named in 142 F3.
-                     'set_ticket_type_sale_window','ticket_type_on_sale')))),
+                     'set_ticket_type_sale_window','ticket_type_on_sale',
+                     -- 2026-10-26 (registry 163): the scanner's three caller-authorized venue functions — the two
+                     -- identity-free counters reads (get_session_scan_counters, list_session_scan_counters; STABLE) and
+                     -- record_scan_staff (behind the 086/108 venue.record_scan gate): EXECUTE to authenticated only,
+                     -- anon/PUBLIC revoked (measured on the stacked 160-163 tree). filter_staff_scan_meta holds NO grant;
+                     -- the venue_cmd wrappers (161/162/163) and the venue_api view live outside this sweep — not excepted.
+                     'get_session_scan_counters','list_session_scan_counters','record_scan_staff')))),
   0,
   'PFA-1 witness: zero PUBLIC/anon EXECUTE on ANY walled-schema function, and zero authenticated EXECUTE outside kernel''s name-equality-asserted caller-authorized set (141 F2) — the per-object sweep replacing the impossible per-schema functions belt');
 
