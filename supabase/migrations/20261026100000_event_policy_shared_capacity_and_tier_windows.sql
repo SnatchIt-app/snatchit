@@ -89,11 +89,22 @@
 --     door_only counts as on sale (it is sold, at the door). The 081 table
 --     grant (081:988, table grain) already covers the two new columns, so
 --     every role that reads a tier row reads its window — as display_rank (160).
+--     TIME ZONES: session start and the sale window are absolute instants
+--     (timestamptz); evaluation is timezone-INDEPENDENT (the predicate compares
+--     instants; the caller's session TimeZone never enters it) and
+--     catalog.venue.timezone governs DISPLAY only (the *_local columns of part
+--     7; 229 T27/T31). naive timestamp literals are interpreted in the caller's
+--     session TimeZone (PostgREST: UTC) — clients MUST send ISO-8601 with an
+--     offset, converting the venue's local wall-clock using
+--     catalog.venue.timezone. Pinned by 229 W50/W51 (UTC / America/New_York /
+--     Pacific/Kiritimati).
 --  6. venue_cmd SECURITY INVOKER wrappers (LANGUAGE sql, identical argument
 --     lists and result types) for the four setters and the predicate (part 10).
 --  7. CREATE OR REPLACE VIEW venue_api.ticket_types (160's projection) with
 --     sale_starts_at, sale_ends_at, on_sale_now (= venue.ticket_type_on_sale(
---     ticket_type_id)) appended LAST. venue_api.events (159) + age_policy,
+--     ticket_type_id)) appended LAST. venue_api.events (159 — its eight columns
+--     INCLUDING e.description at ordinal 8, F's 159 rev. 2026-10-26, kept in
+--     place: CREATE OR REPLACE VIEW can only append) + age_policy,
 --     timezone (LEFT JOIN catalog.venue — the row set is unchanged, 226 D1/D4
 --     stay true; a venue row the caller cannot read yields NULLs, never a
 --     missing event). venue_api.event_sessions (159) + timezone,
@@ -1237,6 +1248,7 @@ CREATE OR REPLACE VIEW venue_api.ticket_types
 CREATE OR REPLACE VIEW venue_api.events
   WITH (security_invoker = true, security_barrier = true) AS
   SELECT e.event_id, e.venue_id, e.org_id, e.title, e.status, e.created_at, e.updated_at,
+         e.description,
          e.age_policy, v.timezone
     FROM catalog.event e
     LEFT JOIN catalog.venue v ON v.venue_id = e.venue_id;
@@ -1351,9 +1363,9 @@ end $$;
 DO $post$
 BEGIN
   IF (SELECT count(*) FROM pg_attribute WHERE attrelid = 'venue_api.ticket_types'::regclass AND attnum > 0 AND NOT attisdropped) <> 13
-  OR (SELECT count(*) FROM pg_attribute WHERE attrelid = 'venue_api.events'::regclass AND attnum > 0 AND NOT attisdropped) <> 9
+  OR (SELECT count(*) FROM pg_attribute WHERE attrelid = 'venue_api.events'::regclass AND attnum > 0 AND NOT attisdropped) <> 10
   OR (SELECT count(*) FROM pg_attribute WHERE attrelid = 'venue_api.event_sessions'::regclass AND attnum > 0 AND NOT attisdropped) <> 14 THEN
-    RAISE EXCEPTION '162: a venue_api view does not carry the expected column count (13/9/14).';
+    RAISE EXCEPTION '162: a venue_api view does not carry the expected column count (13/10/14).';
   END IF;
   IF (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
        WHERE n.nspname = 'venue_cmd' AND p.prosecdef) <> 0 THEN

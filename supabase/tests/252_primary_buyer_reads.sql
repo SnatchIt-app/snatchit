@@ -49,7 +49,11 @@
 --              no public tier on sale / future window / pending room never
 --              listed; projections (title, venue, neighborhood, doors_at,
 --              status = event status, age_restriction); starts_at order; the
---              fan sees the same; approving V2 lists f10 (the approval rule).
+--              fan sees the same; approving V2 lists f10 (the approval rule);
+--              the appended timezone / starts_at_local / doors_at_local
+--              (L17 hard-coded for f2; L18 every listed row equals AT TIME
+--              ZONE of its base row, read by a definer oracle; L19 the strings
+--              do not move under session TimeZone Asia/Tokyo).
 --   Section P  get_primary_session: 0 rows for unknown / draft / announced /
 --              cancelled / pending room; f2 one row; ticket_types = the two
 --              public tiers only (hidden, door_only absent); remaining = the
@@ -71,7 +75,47 @@
 --              the structural limitation, pinned as it is); failed /
 --              processing / refunded→succeeded / pending→processing; the other
 --              session's order excluded; newest first; payment_native exists
---              for O1 (written by finalize).
+--              for O1 (written by finalize); charge_total_minor = the linked
+--              payments.total (O1 9000) and NULL with no link (O2).
+--   Section F  buyer_fee_minor / all_in_price_minor against the REAL checkout
+--              (runs last: it creates the fan's orders and a new event, so no
+--              earlier count moves). Fixture as postgres: event ec (on_sale,
+--              V1) / session fc with three public tiers — 2500, 1005 (fee
+--              lands on .5 cent at 1000 bps), 1004 — each with a public_sale
+--              batch and the fan's active holds (inserted as rows, batch held
+--              raised to match, the O1/O7 pattern); the 252 org made payable
+--              (Connect ref + transfers active, the 146 scaffolding UPDATE);
+--              the live-guarded b0 key above already resolves. Every rate is a
+--              NEW VERSION of the append-only catalog.platform_config row
+--              (174/230 pattern), rolled back with the file. HOW THE CHECKOUT
+--              IS CALLED: venue.create_primary_checkout(fc, [{tier, qty}],
+--              [hold], key) as the fan through tap.login (it requires
+--              auth.uid(); EXECUTE is granted to authenticated, 082/093), its
+--              jsonb result stored via tap._store252, then compared with what
+--              get_primary_session returns to anon in the SAME transaction —
+--              same rows, same rate version, same now().
+--              F1/F2 rate unset (JSON null on top) → both NULL, and checkout
+--              refuses service_fee_unset; F3/F4 10001 → NULL, checkout refuses
+--              service_fee_out_of_range; then 1000 bps: F5-F7 the 2500 tier —
+--              all_in = checkout charge_total_minor, fee = checkout
+--              buyer_fee_minor = all_in − price; F8/F9 the 1005 tier —
+--              (101, 1106) both hard-coded (100.5 rounds half-up; half-even or
+--              truncation would give 100) and equal to checkout; F10/F11 1004
+--              → (100, 1104) = checkout (100.4 rounds down: round, not ceil);
+--              F12 two units of the 1005 tier — checkout charges 2211, not
+--              2 × 1106: the fee is rounded per ORDER, which is why the read
+--              is a quantity-1 figure only (header of 182). F13-F15 the order
+--              read's charge_total_minor end to end: a payments row written
+--              exactly as the primary-checkout edge writes it from the 2500
+--              checkout's return (amount = face, buyer_fee, total = charge),
+--              succeeded, then the real finalize → get_my_primary_orders shows
+--              total_minor 2500 and charge_total_minor 2750 = checkout's
+--              charge = payments.total; the three pending orders read NULL
+--              although a rate is set (never recomputed). F16/F17 LAST:
+--              non-numeric text on top → the read is NULL and does not raise,
+--              checkout raises 22P02 (last because checkout casts every
+--              historical row of the key on a seq-scan plan — see the note
+--              above F16 and EVIDENCE-182b).
 --
 -- Expected on 159+176+160+161+162 WITHOUT 182 (RED, predicted before the first
 -- run; reconciled in EVIDENCE-182.md §1): the fixture (tables and the real
@@ -80,9 +124,14 @@
 -- 130); L1 is the first direct call of a 182 function, raises 42883 and aborts
 -- the transaction, so L2 onward is never emitted. Predicted RED run: 18
 -- emitted = 18 not ok + 0 ok; plan unmet; psql reports the 42883.
+-- Expected against the PRE-FOLD-IN 182 (4e45fbc9's body; EVIDENCE-182b §1):
+-- A1-A11 ok, A12 not ok (nine columns, not twelve), A13-A15 ok, A16 not ok
+-- (seven columns, no charge_total_minor), A17-A18 ok, L1-L16 ok, L17
+-- references l.timezone and raises 42703, aborting the run: 34 emitted =
+-- 32 ok + 2 not ok; plan (113) unmet.
 -- ============================================================================
 BEGIN;
-SELECT plan(93);
+SELECT plan(113);
 
 CREATE TABLE tap.memo_252 (k text PRIMARY KEY, v text);
 CREATE FUNCTION tap._store252(k text, v text) RETURNS text
@@ -96,13 +145,20 @@ $m$ SELECT v FROM tap.memo_252 WHERE k = $1 $m$;
 CREATE FUNCTION tap._rem252(tt uuid, s uuid) RETURNS integer LANGUAGE sql SECURITY DEFINER SET search_path = '' AS
 $m$ SELECT coalesce(sum(capacity - held - sold), 0)::integer FROM venue.inventory_batch
      WHERE ticket_type_id = tt AND event_session_id = s AND release_kind = 'public_sale' $m$;
+-- definer oracle for L18: (timezone, starts_at_local, doors_at_local) of a session computed
+-- from its BASE rows (catalog.event_session x catalog.venue) as postgres.
+CREATE FUNCTION tap._loc252(sid uuid) RETURNS text LANGUAGE sql SECURITY DEFINER SET search_path = '' AS
+$m$ SELECT (v.timezone, to_char(s.starts_at AT TIME ZONE v.timezone, 'YYYY-MM-DD HH24:MI'),
+                         to_char(s.doors_at  AT TIME ZONE v.timezone, 'YYYY-MM-DD HH24:MI'))::text
+      FROM catalog.event_session s JOIN catalog.event e ON e.event_id = s.event_id JOIN catalog.venue v ON v.venue_id = e.venue_id
+     WHERE s.session_id = sid $m$;
 -- throwaway P-256 SPKI PEM (suite 176's; generated with openssl, no private half anywhere)
 CREATE FUNCTION tap._pem252() RETURNS text LANGUAGE sql IMMUTABLE AS $f$ SELECT $p$-----BEGIN PUBLIC KEY-----
 MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEo7hfdCPypem8qEenAzd0mmD0GgSS
 OF3URrfCTerouHSWiARzxx7TdWySJhKwFvhcdh8MkgdjmysEJXFDVa8Nuw==
 -----END PUBLIC KEY-----
 $p$ $f$;
-GRANT EXECUTE ON FUNCTION tap._store252(text, text), tap._fetch252(text), tap._rem252(uuid, uuid) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION tap._store252(text, text), tap._fetch252(text), tap._rem252(uuid, uuid), tap._loc252(uuid) TO anon, authenticated;
 
 -- ── Fixture (synthetic; never a migration) ─────────────────────────────────
 INSERT INTO auth.users (id, instance_id, aud, role, email, raw_app_meta_data, raw_user_meta_data, email_confirmed_at, created_at, updated_at) VALUES
@@ -287,9 +343,11 @@ SELECT ok(NOT coalesce(has_function_privilege('anon', to_regprocedure('public.ge
       AND coalesce((SELECT p.proacl IS NOT NULL AND NOT EXISTS (SELECT 1 FROM aclexplode(p.proacl) a WHERE a.grantee = 0)
                       FROM pg_proc p WHERE p.oid = to_regprocedure('public.get_my_primary_orders(uuid)')), false),
   'A11: orders — anon revoked, authenticated EXECUTE, no PUBLIC; service_role keeps the public-schema default (auth.uid() NULL -> 28000 for it)');
-SELECT is((SELECT p.proargnames FROM pg_proc p WHERE p.oid = to_regprocedure('public.list_primary_sessions_on_sale()')),
-  ARRAY['event_id','session_id','title','venue_name','neighborhood','starts_at','doors_at','age_restriction','status']::text[],
-  'A12: list returns exactly (event_id, session_id, title, venue_name, neighborhood, starts_at, doors_at, age_restriction, status)');
+SELECT is((SELECT p.proargnames || (SELECT array_agg(format_type(t, NULL) ORDER BY o) FROM unnest(p.proallargtypes) WITH ORDINALITY u(t, o))
+             FROM pg_proc p WHERE p.oid = to_regprocedure('public.list_primary_sessions_on_sale()')),
+  ARRAY['event_id','session_id','title','venue_name','neighborhood','starts_at','doors_at','age_restriction','status','timezone','starts_at_local','doors_at_local',
+        'uuid','uuid','text','text','text','timestamp with time zone','timestamp with time zone','text','text','text','text','text']::text[],
+  'A12: list returns exactly (event_id, session_id, title, venue_name, neighborhood, starts_at, doors_at, age_restriction, status, timezone, starts_at_local, doors_at_local) with those types — the three local-time columns appended LAST');
 SELECT is((SELECT p.proargnames || (SELECT array_agg(format_type(t, NULL) ORDER BY o) FROM unnest(p.proallargtypes) WITH ORDINALITY u(t, o))
              FROM pg_proc p WHERE p.oid = to_regprocedure('public.get_primary_session(uuid)')),
   ARRAY['p_session_id','session','event','venue','ticket_types','uuid','jsonb','jsonb','jsonb','jsonb']::text[],
@@ -301,8 +359,8 @@ SELECT ok(coalesce((SELECT bool_and(NOT (p.proargnames && ARRAY['signing_key_id'
                       FROM pg_proc p WHERE p.oid IN (to_regprocedure('public.get_my_ticket_atoms(uuid)'), to_regprocedure('public.get_my_primary_orders(uuid)'))), false),
   'A15: neither owner read names signing_key_id / owner ids / org_id / seat refs / KMS or Stripe references');
 SELECT is((SELECT p.proargnames FROM pg_proc p WHERE p.oid = to_regprocedure('public.get_my_primary_orders(uuid)')),
-  ARRAY['p_event_session_id','order_id','status','total_minor','currency','created_at','atoms_issued','payment_state']::text[],
-  'A16: orders returns exactly (order_id, status, total_minor, currency, created_at, atoms_issued, payment_state)');
+  ARRAY['p_event_session_id','order_id','status','total_minor','currency','created_at','atoms_issued','payment_state','charge_total_minor']::text[],
+  'A16: orders returns exactly (order_id, status, total_minor, currency, created_at, atoms_issued, payment_state, charge_total_minor)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
             WHERE n.nspname = 'public' AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = p.oid AND d.deptype = 'e')), 130,
   'A17: GATE-2 public functions = 130 (126 + the four 182 reads; pgtap excluded — the tests/162 P2 query)');
@@ -348,6 +406,21 @@ SELECT is((SELECT count(*)::int FROM public.list_primary_sessions_on_sale() l WH
   'L16: once the room is approved the same on_sale event IS listed (the approval rule, positively)');
 SELECT tap.logout();
 UPDATE catalog.venue SET approval_status = 'pending' WHERE venue_id = '25200000-0000-4000-8000-0000000000a2';
+SELECT tap._store252('tz0', current_setting('TimeZone'));
+SELECT tap.login_anon();
+SELECT is((SELECT (l.timezone, l.starts_at_local, l.doors_at_local)::text FROM public.list_primary_sessions_on_sale() l WHERE l.session_id = '25200000-0000-4000-8000-0000000000f2'),
+  ('America/Chicago', '2026-12-04 21:00', '2026-12-04 20:00')::text,
+  'L17: the f2 row carries timezone America/Chicago and the local strings (03:00Z -> 21:00 and 02:00Z -> 20:00 the day before), the get_primary_session format');
+SELECT is((SELECT count(*)::int FROM public.list_primary_sessions_on_sale() l
+            WHERE l.title LIKE '%252' AND (l.timezone, l.starts_at_local, l.doors_at_local)::text IS NOT DISTINCT FROM tap._loc252(l.session_id)), 3,
+  'L18: every listed 252 row equals (venue.timezone, to_char(starts_at AT TIME ZONE tz), to_char(doors_at AT TIME ZONE tz)) of its base row (NULL doors -> NULL doors_at_local)');
+SELECT set_config('TimeZone', 'Asia/Tokyo', true);
+SELECT is((SELECT (l.timezone, l.starts_at_local, l.doors_at_local, (SELECT l2.doors_at_local IS NULL FROM public.list_primary_sessions_on_sale() l2 WHERE l2.session_id = '25200000-0000-4000-8000-0000000000fb'))::text
+             FROM public.list_primary_sessions_on_sale() l WHERE l.session_id = '25200000-0000-4000-8000-0000000000f2'),
+  ('America/Chicago', '2026-12-04 21:00', '2026-12-04 20:00', true)::text,
+  'L19: under session TimeZone Asia/Tokyo the strings are unchanged (zone-local, not session-local); fb (no doors) reads doors_at_local NULL');
+SELECT set_config('TimeZone', tap._fetch252('tz0'), true);
+SELECT tap.logout();
 
 -- ── Section P — get_primary_session (anon) ──────────────────────────────────
 SELECT tap.login_anon();
@@ -376,9 +449,9 @@ SELECT is((SELECT (e ->> 'remaining')::int FROM public.get_primary_session('2520
 SELECT ok((SELECT bool_and(NOT (e ? 'capacity') AND NOT (e ? 'held') AND NOT (e ? 'sold')) FROM public.get_primary_session('25200000-0000-4000-8000-0000000000f2') g, jsonb_array_elements(g.ticket_types) e),
   'P14: capacity / held / sold keys are ABSENT from every ticket_types element (081 E-29)');
 SELECT ok((SELECT bool_and((SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(e) k) =
-                           ARRAY['currency','display_rank','name','on_sale_now','price_minor','remaining','sale_ends_at','sale_starts_at','ticket_type_id','visibility'])
+                           ARRAY['all_in_price_minor','buyer_fee_minor','currency','display_rank','name','on_sale_now','price_minor','remaining','sale_ends_at','sale_starts_at','ticket_type_id','visibility'])
              FROM public.get_primary_session('25200000-0000-4000-8000-0000000000f2') g, jsonb_array_elements(g.ticket_types) e),
-  'P15: every element carries exactly {ticket_type_id, name, price_minor, currency, visibility, display_rank, sale_starts_at, sale_ends_at, on_sale_now, remaining}');
+  'P15: every element carries exactly {ticket_type_id, name, price_minor, currency, visibility, display_rank, sale_starts_at, sale_ends_at, on_sale_now, remaining, buyer_fee_minor, all_in_price_minor}');
 SELECT ok((SELECT bool_and((e ->> 'on_sale_now')::boolean) FROM public.get_primary_session('25200000-0000-4000-8000-0000000000f2') g, jsonb_array_elements(g.ticket_types) e),
   'P16: on_sale_now is true for both f2 tiers (GA open; Early bird inside its window)');
 SELECT is((SELECT (count(*)::int, bool_and(NOT (e ->> 'on_sale_now')::boolean), sum((e ->> 'remaining')::int)::int)::text FROM public.get_primary_session('25200000-0000-4000-8000-0000000000f8') g, jsonb_array_elements(g.ticket_types) e),
@@ -460,12 +533,12 @@ SELECT is((SELECT count(*)::int FROM kernel.ticket_ownership_log l WHERE l.seque
 SELECT tap.login('25200000-0000-4000-8000-000000000101');
 SELECT is((SELECT count(*)::int FROM public.get_my_primary_orders('25200000-0000-4000-8000-0000000000f2')), 6, 'O1: B1 sees her six orders on f2 (O8 on f6 excluded)');
 SELECT is((SELECT count(*)::int FROM public.get_my_primary_orders('25200000-0000-4000-8000-00000000dead')), 0, 'O2: a forged session id yields 0 rows');
-SELECT is((SELECT (o.status, o.total_minor, o.currency, o.created_at::text, o.atoms_issued, o.payment_state)::text FROM public.get_my_primary_orders('25200000-0000-4000-8000-0000000000f2') o WHERE o.order_id = '25200000-0000-4000-8000-000000000301'),
-  ('paid', 9000, 'USD', '2026-10-20 10:00:00+00'::timestamptz::text, 3, 'succeeded')::text,
-  'O3: O1 (finalized) — paid, 9000 USD, atoms_issued 3, payment_state succeeded (kernel.payment_native written by finalize)');
-SELECT is((SELECT (o.status, o.atoms_issued, o.payment_state)::text FROM public.get_my_primary_orders('25200000-0000-4000-8000-0000000000f2') o WHERE o.order_id = '25200000-0000-4000-8000-000000000302'),
-  ('pending', 0, 'none')::text,
-  'O4: O2 pending with no payment link — atoms_issued 0, payment_state none (no link exists before finalize; see the header)');
+SELECT is((SELECT (o.status, o.total_minor, o.currency, o.created_at::text, o.atoms_issued, o.payment_state, o.charge_total_minor)::text FROM public.get_my_primary_orders('25200000-0000-4000-8000-0000000000f2') o WHERE o.order_id = '25200000-0000-4000-8000-000000000301'),
+  ('paid', 9000, 'USD', '2026-10-20 10:00:00+00'::timestamptz::text, 3, 'succeeded', 9000)::text,
+  'O3: O1 (finalized) — paid, 9000 USD, atoms_issued 3, payment_state succeeded, charge_total_minor 9000 = its linked payments.total (kernel.payment_native written by finalize)');
+SELECT is((SELECT (o.status, o.atoms_issued, o.payment_state, o.charge_total_minor IS NULL)::text FROM public.get_my_primary_orders('25200000-0000-4000-8000-0000000000f2') o WHERE o.order_id = '25200000-0000-4000-8000-000000000302'),
+  ('pending', 0, 'none', true)::text,
+  'O4: O2 pending with no payment link — atoms_issued 0, payment_state none, charge_total_minor NULL (no link exists before finalize; see the header)');
 SELECT is((SELECT (o.status, o.payment_state)::text FROM public.get_my_primary_orders('25200000-0000-4000-8000-0000000000f2') o WHERE o.order_id = '25200000-0000-4000-8000-000000000303'),
   ('cancelled', 'failed')::text, 'O5: payments.failed -> failed');
 SELECT is((SELECT (o.status, o.payment_state)::text FROM public.get_my_primary_orders('25200000-0000-4000-8000-0000000000f2') o WHERE o.order_id = '25200000-0000-4000-8000-000000000304'),
@@ -498,5 +571,135 @@ SELECT tap.logout();
 SELECT is((SELECT (count(*)::int, min(pn.amount_minor))::text FROM kernel.payment_native pn WHERE pn.order_id = '25200000-0000-4000-8000-000000000301'), (1, 9000)::text,
   'O15: fixture — finalize wrote the kernel.payment_native link for O1 (the payment_state source)');
 
+-- ── Section F — all-in price / buyer fee against the REAL checkout (runs last) ──
+-- fixture (postgres): event ec / session fc, three public tiers 2500 / 1005 / 1004, one public_sale batch
+-- each, the fan's active holds (rows; batch held raised to match); the 252 org made payable (146 scaffolding).
+INSERT INTO catalog.event (event_id, venue_id, org_id, title, status) VALUES
+  ('25200000-0000-4000-8000-0000000000ec', '25200000-0000-4000-8000-0000000000a1', '25200000-0000-4000-8000-00000000000a', 'V1 fee 252', 'on_sale');
+INSERT INTO catalog.event_session (session_id, event_id, starts_at, status) VALUES
+  ('25200000-0000-4000-8000-0000000000fc', '25200000-0000-4000-8000-0000000000ec', now() + interval '40 days', 'scheduled');
+INSERT INTO venue.ticket_type (ticket_type_id, event_id, kind, name, price_minor, visibility, display_rank) VALUES
+  ('25200000-0000-4000-8000-000000000f01', '25200000-0000-4000-8000-0000000000ec', 'admission', 'Fee std 252',   2500, 'public', 1),
+  ('25200000-0000-4000-8000-000000000f02', '25200000-0000-4000-8000-0000000000ec', 'admission', 'Fee half 252',  1005, 'public', 2),
+  ('25200000-0000-4000-8000-000000000f03', '25200000-0000-4000-8000-0000000000ec', 'admission', 'Fee below 252', 1004, 'public', 3);
+INSERT INTO venue.inventory_batch (batch_id, ticket_type_id, event_session_id, release_kind, capacity, held, sold) VALUES
+  ('25200000-0000-4000-8000-000000000f11', '25200000-0000-4000-8000-000000000f01', '25200000-0000-4000-8000-0000000000fc', 'public_sale', 50, 1, 0),
+  ('25200000-0000-4000-8000-000000000f12', '25200000-0000-4000-8000-000000000f02', '25200000-0000-4000-8000-0000000000fc', 'public_sale', 50, 3, 0),
+  ('25200000-0000-4000-8000-000000000f13', '25200000-0000-4000-8000-000000000f03', '25200000-0000-4000-8000-0000000000fc', 'public_sale', 50, 1, 0);
+INSERT INTO venue.inventory_hold (hold_id, batch_id, identity_id, quantity, status, expires_at, command_idempotency_key) VALUES
+  ('25200000-0000-4000-8000-000000000f21', '25200000-0000-4000-8000-000000000f11', '25200000-0000-4000-8000-000000000199', 1, 'active', now() + interval '1 hour', 'hf1-252'),
+  ('25200000-0000-4000-8000-000000000f22', '25200000-0000-4000-8000-000000000f12', '25200000-0000-4000-8000-000000000199', 1, 'active', now() + interval '1 hour', 'hf2-252'),
+  ('25200000-0000-4000-8000-000000000f23', '25200000-0000-4000-8000-000000000f13', '25200000-0000-4000-8000-000000000199', 1, 'active', now() + interval '1 hour', 'hf3-252'),
+  ('25200000-0000-4000-8000-000000000f24', '25200000-0000-4000-8000-000000000f12', '25200000-0000-4000-8000-000000000199', 2, 'active', now() + interval '1 hour', 'hf4-252');
+UPDATE kernel.organization SET stripe_connect_account_ref = 'acct_252FEETEST', connect_transfers_active = true
+ WHERE org_id = '25200000-0000-4000-8000-00000000000a';
+-- the rate: explicitly UNSET on top (a new JSON-null version — whatever the base chain carries)
+INSERT INTO catalog.platform_config (key, version, value, visibility)
+SELECT 'fee.buyer_service_bps', coalesce(max(version), 0) + 1, 'null'::jsonb, 'restricted' FROM catalog.platform_config WHERE key = 'fee.buyer_service_bps';
+SELECT tap.login_anon();
+SELECT is((SELECT (count(*)::int, bool_and(e -> 'buyer_fee_minor' = 'null'::jsonb AND e -> 'all_in_price_minor' = 'null'::jsonb))::text
+             FROM public.get_primary_session('25200000-0000-4000-8000-0000000000fc') g, jsonb_array_elements(g.ticket_types) e), (3, true)::text,
+  'F1: rate UNSET (JSON null on top) — buyer_fee_minor and all_in_price_minor are null on every tier (never a default, never 0)');
+SELECT tap.logout();
+SELECT tap.login('25200000-0000-4000-8000-000000000199');
+SELECT throws_ok($$ SELECT venue.create_primary_checkout('25200000-0000-4000-8000-0000000000fc', '[{"ticket_type_id":"25200000-0000-4000-8000-000000000f01","quantity":1}]'::jsonb, ARRAY['25200000-0000-4000-8000-000000000f21']::uuid[], 'ck252-fee-unset') $$,
+  'P0001', 'precondition_failed: service_fee_unset — fee.buyer_service_bps has no value; selling cannot be activated until the owner sets it',
+  'F2: …and in the same state create_primary_checkout refuses service_fee_unset (null display = no quote)');
+SELECT tap.logout();
+INSERT INTO catalog.platform_config (key, version, value, visibility)
+SELECT 'fee.buyer_service_bps', max(version) + 1, '10001'::jsonb, 'restricted' FROM catalog.platform_config WHERE key = 'fee.buyer_service_bps';
+SELECT tap.login_anon();
+SELECT is((SELECT (count(*)::int, bool_and(e -> 'buyer_fee_minor' = 'null'::jsonb AND e -> 'all_in_price_minor' = 'null'::jsonb))::text
+             FROM public.get_primary_session('25200000-0000-4000-8000-0000000000fc') g, jsonb_array_elements(g.ticket_types) e), (3, true)::text,
+  'F3: rate 10001 (out of range) — both null on every tier');
+SELECT tap.logout();
+SELECT tap.login('25200000-0000-4000-8000-000000000199');
+SELECT throws_ok($$ SELECT venue.create_primary_checkout('25200000-0000-4000-8000-0000000000fc', '[{"ticket_type_id":"25200000-0000-4000-8000-000000000f01","quantity":1}]'::jsonb, ARRAY['25200000-0000-4000-8000-000000000f21']::uuid[], 'ck252-fee-oor') $$,
+  'P0001', 'precondition_failed: service_fee_out_of_range — fee.buyer_service_bps must be an integer 0..10000, got 10001',
+  'F4: …and checkout refuses service_fee_out_of_range on the same value');
+SELECT tap.logout();
+-- the rate SET: 1000 bps (10%) as the next version
+INSERT INTO catalog.platform_config (key, version, value, visibility)
+SELECT 'fee.buyer_service_bps', max(version) + 1, '1000'::jsonb, 'restricted' FROM catalog.platform_config WHERE key = 'fee.buyer_service_bps';
+SELECT tap.login('25200000-0000-4000-8000-000000000199');
+SELECT tap._store252('chk_f01', venue.create_primary_checkout('25200000-0000-4000-8000-0000000000fc', '[{"ticket_type_id":"25200000-0000-4000-8000-000000000f01","quantity":1}]'::jsonb, ARRAY['25200000-0000-4000-8000-000000000f21']::uuid[], 'ck252-fee-f01')::text);
+SELECT tap._store252('chk_f02', venue.create_primary_checkout('25200000-0000-4000-8000-0000000000fc', '[{"ticket_type_id":"25200000-0000-4000-8000-000000000f02","quantity":1}]'::jsonb, ARRAY['25200000-0000-4000-8000-000000000f22']::uuid[], 'ck252-fee-f02')::text);
+SELECT tap._store252('chk_f03', venue.create_primary_checkout('25200000-0000-4000-8000-0000000000fc', '[{"ticket_type_id":"25200000-0000-4000-8000-000000000f03","quantity":1}]'::jsonb, ARRAY['25200000-0000-4000-8000-000000000f23']::uuid[], 'ck252-fee-f03')::text);
+SELECT tap._store252('chk_f02x2', venue.create_primary_checkout('25200000-0000-4000-8000-0000000000fc', '[{"ticket_type_id":"25200000-0000-4000-8000-000000000f02","quantity":2}]'::jsonb, ARRAY['25200000-0000-4000-8000-000000000f24']::uuid[], 'ck252-fee-f02x2')::text);
+SELECT tap.logout();
+SELECT is((SELECT (j ->> 'status', (j ->> 'total_minor')::int, (j ->> 'buyer_fee_minor')::int, (j ->> 'charge_total_minor')::int)::text FROM (SELECT tap._fetch252('chk_f01')::jsonb j) x),
+  ('ok', 2500, 250, 2750)::text,
+  'F5: the real checkout at 1000 bps for ONE unit of the 2500 tier (as the fan, with her hold) — status ok, total_minor 2500 = face, buyer_fee_minor 250, charge_total_minor 2750');
+SELECT tap.login_anon();
+SELECT is((SELECT (e ->> 'all_in_price_minor')::int FROM public.get_primary_session('25200000-0000-4000-8000-0000000000fc') g, jsonb_array_elements(g.ticket_types) e
+            WHERE e ->> 'ticket_type_id' = '25200000-0000-4000-8000-000000000f01'),
+          (tap._fetch252('chk_f01')::jsonb ->> 'charge_total_minor')::int,
+  'F6: all_in_price_minor of the 2500 tier = what create_primary_checkout actually charged for quantity 1 (charge_total_minor, same clone, same transaction)');
+SELECT is((SELECT ((e ->> 'buyer_fee_minor')::int, (e ->> 'all_in_price_minor')::int - (e ->> 'price_minor')::int)::text
+             FROM public.get_primary_session('25200000-0000-4000-8000-0000000000fc') g, jsonb_array_elements(g.ticket_types) e
+            WHERE e ->> 'ticket_type_id' = '25200000-0000-4000-8000-000000000f01'),
+          ((tap._fetch252('chk_f01')::jsonb ->> 'buyer_fee_minor')::int, (tap._fetch252('chk_f01')::jsonb ->> 'buyer_fee_minor')::int)::text,
+  'F7: buyer_fee_minor = checkout''s buyer_fee_minor = all_in_price_minor - price_minor');
+SELECT tap.logout();
+SELECT is((SELECT (j ->> 'status', (j ->> 'buyer_fee_minor')::int, (j ->> 'charge_total_minor')::int)::text FROM (SELECT tap._fetch252('chk_f02')::jsonb j) x),
+  ('ok', 101, 1106)::text,
+  'F8: the real checkout for ONE unit of the 1005 tier — 1005 x 1000 / 10000 = 100.5 is charged as 101 (half-up), total 1106');
+SELECT tap.login_anon();
+SELECT is((SELECT ((e ->> 'buyer_fee_minor')::int, (e ->> 'all_in_price_minor')::int)::text
+             FROM public.get_primary_session('25200000-0000-4000-8000-0000000000fc') g, jsonb_array_elements(g.ticket_types) e
+            WHERE e ->> 'ticket_type_id' = '25200000-0000-4000-8000-000000000f02'),
+          (101, 1106)::text,
+  'F9: the .5-cent boundary — the read shows (101, 1106), half-up exactly as checkout charged (half-even or truncation would show 100 / 1105)');
+SELECT is((SELECT ((e ->> 'buyer_fee_minor')::int, (e ->> 'all_in_price_minor')::int)::text
+             FROM public.get_primary_session('25200000-0000-4000-8000-0000000000fc') g, jsonb_array_elements(g.ticket_types) e
+            WHERE e ->> 'ticket_type_id' = '25200000-0000-4000-8000-000000000f03'),
+          ((tap._fetch252('chk_f03')::jsonb ->> 'buyer_fee_minor')::int, (tap._fetch252('chk_f03')::jsonb ->> 'charge_total_minor')::int)::text,
+  'F10: the 1004 tier — (buyer_fee_minor, all_in_price_minor) = checkout''s (buyer_fee_minor, charge_total_minor) for quantity 1');
+SELECT tap.logout();
+SELECT is((SELECT ((j ->> 'buyer_fee_minor')::int, (j ->> 'charge_total_minor')::int)::text FROM (SELECT tap._fetch252('chk_f03')::jsonb j) x),
+  (100, 1104)::text,
+  'F11: …and that is (100, 1104): 100.4 rounds DOWN — round(), not ceil()');
+SELECT is((SELECT ((j ->> 'charge_total_minor')::int, 2 * (SELECT (e ->> 'all_in_price_minor')::int FROM public.get_primary_session('25200000-0000-4000-8000-0000000000fc') g, jsonb_array_elements(g.ticket_types) e
+                                                            WHERE e ->> 'ticket_type_id' = '25200000-0000-4000-8000-000000000f02'))::text
+             FROM (SELECT tap._fetch252('chk_f02x2')::jsonb j) x),
+  (2211, 2212)::text,
+  'F12: TWO units of the 1005 tier — checkout charges 2010 + round(201.0) = 2211, not 2 x 1106 = 2212: the fee is rounded per ORDER, so all_in_price_minor is a quantity-1 figure only');
+-- charge_total_minor on the order read, end to end: the payments row EXACTLY as the primary-checkout edge writes it
+-- from the RPC's return (index.ts:1196-1210: amount = total_minor face, buyer_fee = buyer_fee_minor, total =
+-- charge_total_minor), moved to succeeded as the webhook would, then the real finalize (as postgres, the 252 O1 path).
+INSERT INTO public.payments (id, listing_id, buyer_id, seller_id, amount, buyer_fee, seller_fee, total, stripe_payment_intent_id, status, mode, paid_at)
+SELECT '25200000-0000-4000-8000-000000000f31', NULL, '25200000-0000-4000-8000-000000000199', NULL,
+       (j ->> 'total_minor')::int, (j ->> 'buyer_fee_minor')::int, 0, (j ->> 'charge_total_minor')::int, 'pi_252_fee_f01', 'succeeded', 'native_primary', now()
+  FROM (SELECT tap._fetch252('chk_f01')::jsonb j) x;
+SELECT tap._store252('fin_f01', venue.finalize_primary_order((tap._fetch252('chk_f01')::jsonb ->> 'order_id')::uuid, '25200000-0000-4000-8000-000000000f31', 'ck252-fin-f01', NULL)::text);
+SELECT is((SELECT (j ->> 'status', jsonb_array_length(j -> 'atom_ids'))::text FROM (SELECT tap._fetch252('fin_f01')::jsonb j) x), ('ok', 1)::text,
+  'F13: fixture — the fan''s one-unit 2500 order finalized through the real path against the edge-shaped payments row (one atom minted)');
+SELECT tap.login('25200000-0000-4000-8000-000000000199');
+SELECT is((SELECT (o.status, o.total_minor, o.charge_total_minor, o.payment_state)::text FROM public.get_my_primary_orders('25200000-0000-4000-8000-0000000000fc') o
+            WHERE o.order_id = (tap._fetch252('chk_f01')::jsonb ->> 'order_id')::uuid),
+          ('paid', 2500, (tap._fetch252('chk_f01')::jsonb ->> 'charge_total_minor')::int, 'succeeded')::text,
+  'F14: the finalized order reads total_minor 2500 (face) and charge_total_minor = what create_primary_checkout quoted and the payments row charged (2750)');
+SELECT is((SELECT (count(*)::int, bool_and(o.status = 'pending' AND o.charge_total_minor IS NULL AND o.payment_state = 'none'))::text
+             FROM public.get_my_primary_orders('25200000-0000-4000-8000-0000000000fc') o
+            WHERE o.order_id <> (tap._fetch252('chk_f01')::jsonb ->> 'order_id')::uuid), (3, true)::text,
+  'F15: the fan''s three PENDING orders read charge_total_minor NULL (no payment linked) — never recomputed from the current 1000 bps rate');
+SELECT tap.logout();
+
+-- LAST, deliberately: a non-numeric value stays in the append-only history for the rest of the transaction, and
+-- create_primary_checkout casts EVERY historical row of the key before its ORDER BY / LIMIT on a seq-scan plan
+-- (EVIDENCE-182b: checkout_cast_plan_dependence.txt) — any checkout after this point could raise 22P02 even under
+-- a valid top version. 182's read casts only the top row, so it is unaffected.
+INSERT INTO catalog.platform_config (key, version, value, visibility)
+SELECT 'fee.buyer_service_bps', max(version) + 1, '"ten percent"'::jsonb, 'restricted' FROM catalog.platform_config WHERE key = 'fee.buyer_service_bps';
+SELECT tap.login_anon();
+SELECT is((SELECT (count(*)::int, bool_and(e -> 'buyer_fee_minor' = 'null'::jsonb AND e -> 'all_in_price_minor' = 'null'::jsonb))::text
+             FROM public.get_primary_session('25200000-0000-4000-8000-0000000000fc') g, jsonb_array_elements(g.ticket_types) e), (3, true)::text,
+  'F16: a non-numeric rate ("ten percent") — both null and the detail read does NOT raise');
+SELECT tap.logout();
+SELECT tap.login('25200000-0000-4000-8000-000000000199');
+SELECT throws_ok($$ SELECT venue.create_primary_checkout('25200000-0000-4000-8000-0000000000fc', '[{"ticket_type_id":"25200000-0000-4000-8000-000000000f01","quantity":1}]'::jsonb, ARRAY['25200000-0000-4000-8000-000000000f21']::uuid[], 'ck252-fee-nan') $$,
+  '22P02', NULL,
+  'F17: …while checkout''s ::numeric cast raises 22P02 on it (it refuses to quote either way)');
+SELECT tap.logout();
 SELECT * FROM finish();
 ROLLBACK;

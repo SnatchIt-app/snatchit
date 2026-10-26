@@ -168,6 +168,23 @@
 -- now fourteen on the stacked 160-163 tree: 161's six + 162's five + 163's three) and 226 F1
 -- (+ the 163 hunk, F's). Nothing in public changed.
 --
+-- SCOPE NOTE (2026-10-27, registry 164 — D, the dashboard's route to the catalog
+-- event / session / venue verbs; DARK, applied nowhere). Same reasoning: every
+-- object is outside public, so NO row is added here:
+--   venue_cmd.create_event(uuid, text, jsonb, text)       authenticated-execute (SECURITY INVOKER sql
+--   venue_cmd.update_event(uuid, jsonb, text)               wrappers, one-line delegation to
+--   venue_cmd.create_event_session(uuid, jsonb, text)       catalog.<same name>; schema USAGE
+--   venue_cmd.update_event_session(uuid, jsonb, text)       unchanged from 161)
+--   venue_cmd.publish_event(uuid, text, text)
+--   venue_cmd.cancel_event(uuid, text, text)
+--   venue_cmd.update_venue(uuid, jsonb, text)
+--   (anon, PUBLIC and service_role hold nothing on any of them; no proacl is
+--   left DEFAULTED.) The seven catalog.* targets are UNCHANGED: no grant, no
+--   revoke, no body change — still exactly owner + authenticated (078 PART 7,
+--   079, 081 PART 16, 088 PART 8), which 164's post-flight and 231 A15-A17 pin.
+-- ASSERTED by pgTAP 231 (A1-A18, C1-C9, L1-L9) and 228 (the venue_cmd sweep, now
+-- twenty-one). Nothing in public changed.
+--
 -- SCOPE NOTE (2026-10-26, registry 166 — D, identity-free staff read of the session
 -- sales pool; DARK, applied nowhere). Same reasoning: every object is outside public,
 -- so NO row is added here:
@@ -180,8 +197,8 @@
 --   service_role explicitly; no proacl is left DEFAULTED; catalog.event_session.
 --   sales_capacity and venue.inventory_batch.capacity keep NO client column grant —
 --   the definers read them.)
--- ASSERTED by pgTAP 233 (A11-A16, A19-A22), 228 (the venue_cmd sweep, now fifteen:
--- 161's six + 162's five + 163's three + 166's one) and 226 F1 (+ the 166 hunk, F's).
+-- ASSERTED by pgTAP 233 (A11-A16, A19-A22), 228 (the venue_cmd sweep, now fifteen without 164 /
+-- twenty-two on the stacked tree: 161's six + 162's five + 163's three + 164's seven + 166's one) and 226 F1 (+ the 166 hunk, F's).
 -- Nothing in public changed.
 --
 -- Table decisions:
@@ -568,8 +585,10 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   -- 182 (20261026200000, D, 2026-10-26): the two owner-scoped C5 buyer reads for the Tickets/QR
   -- screen. Same shape as get_my_tickets(): bind to auth.uid() (28000 on a NULL subject; another
   -- buyer's or a forged session id -> 0 rows), REVOKE ALL FROM PUBLIC, anon, authenticated then
-  -- EXECUTE to authenticated (service_role keeps the public-schema default, as get_my_tickets).
-  -- Asserted in 252 A10/A11.
+  -- GRANT EXECUTE to authenticated, plus an EXPLICIT GRANT EXECUTE to service_role (A's house posture,
+  -- 2026-10-26: never inherited from a default ACL, which CI's fresh stack does not carry). Resulting
+  -- ACL: authenticated + service_role, no anon, no PUBLIC. This class does not examine service_role.
+  -- Asserted in 252 A10/A11 and 182's post-flight.
   ('get_my_ticket_atoms(uuid)',                                      'authenticated-execute'),
   ('get_my_primary_orders(uuid)',                                    'authenticated-execute'),
   ('get_profile_trust_stats(uuid)',                                  'authenticated-execute'),
@@ -623,7 +642,9 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   -- anon-visible rules (event on_sale/live, never draft/announced, approved room, public tiers only,
   -- remaining = the public_sale sum; capacity/held/sold never serialised; an unknown/unpublished id
   -- yields 0 rows, no existence leak); neither takes a user id. Explicit GRANT anon, authenticated
-  -- after REVOKE ALL FROM PUBLIC, anon, authenticated (B5). Asserted in 252 A8/A9.
+  -- after REVOKE ALL FROM PUBLIC, anon, authenticated (B5), plus an EXPLICIT GRANT EXECUTE to
+  -- service_role (A's house posture, 2026-10-26). Resulting ACL: anon + authenticated + service_role,
+  -- no PUBLIC. This class does not examine service_role. Asserted in 252 A8/A9 and 182's post-flight.
   ('list_primary_sessions_on_sale()',                                'anon-execute'),
   ('get_primary_session(uuid)',                                      'anon-execute'),
 

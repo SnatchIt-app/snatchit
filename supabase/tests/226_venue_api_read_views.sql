@@ -54,7 +54,7 @@
 -- Fixtures are synthetic, created inside this transaction and rolled back.
 -- ============================================================================
 BEGIN;
-SELECT plan(72);
+SELECT plan(73);
 SELECT tap.seed_core();
 
 -- ── Fixture (synthetic; never a migration) ─────────────────────────────────
@@ -115,7 +115,8 @@ SELECT is((SELECT count(*) FROM information_schema.role_table_grants WHERE table
 -- ── Section B — projection ───────────────────────────────────────────────────
 SELECT is((SELECT count(*) FROM information_schema.columns WHERE table_schema = 'venue_api' AND table_name = 'inventory_batches' AND column_name IN ('capacity','held','sold')), 0::bigint, 'B1: inventory_batches projects no capacity/held/sold');
 SELECT has_column('venue_api', 'inventory_batches', 'remaining', 'B2: inventory_batches projects remaining');
-SELECT is((SELECT count(*) FROM information_schema.columns WHERE table_schema = 'venue_api' AND table_name = 'events' AND column_name IN ('description','hero_image_ref','genre_tags')), 0::bigint, 'B3: events projects no marketing columns');
+SELECT is((SELECT count(*) FROM information_schema.columns WHERE table_schema = 'venue_api' AND table_name = 'events' AND column_name IN ('hero_image_ref','genre_tags')), 0::bigint, 'B3: events projects no marketing media columns');
+SELECT is((SELECT ordinal_position::int FROM information_schema.columns WHERE table_schema = 'venue_api' AND table_name = 'events' AND column_name = 'description'), 8, 'B3b: description is projected as column 8, right after the original seven (078:145 grant; appended 2026-10-26; later migrations append after it, so this pin survives them)');
 SELECT ok((SELECT bool_and(pg_get_viewdef(c.oid) !~* 'security definer') FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'venue_api' AND c.relkind = 'v'), 'B4: view definitions are plain selects');
 
 -- ── Section C — tenant isolation, as the caller ──────────────────────────────
@@ -320,7 +321,8 @@ SELECT set_eq(
   $$ VALUES ('venues.venue_id'), ('venues.org_id'), ('venues.name'), ('venues.neighborhood'), ('venues.approval_status'),
             ('venues.created_at'), ('venues.updated_at'),
             ('events.event_id'), ('events.venue_id'), ('events.org_id'), ('events.title'), ('events.status'),
-            ('events.created_at'), ('events.updated_at'), ('events.age_policy'), ('events.timezone'),  -- 162 (S2) appends age_policy, timezone
+            ('events.created_at'), ('events.updated_at'), ('events.description'),
+            ('events.age_policy'), ('events.timezone'),  -- 162 (S2) appends age_policy, timezone AFTER 159's description
             ('event_sessions.session_id'), ('event_sessions.event_id'), ('event_sessions.session_label'),
             ('event_sessions.starts_at'), ('event_sessions.ends_at'), ('event_sessions.doors_at'),
             ('event_sessions.door_open_at'), ('event_sessions.status'), ('event_sessions.created_at'),
@@ -343,7 +345,8 @@ SELECT set_eq(
             ('session_admissions.invalid'), ('session_admissions.last_admitted_at'),  -- 163
             ('session_capacity.session_id'), ('session_capacity.sales_capacity'), ('session_capacity.allocated'),
             ('session_capacity.remaining_to_allocate'), ('session_capacity.capacity_hint') $$,  -- 166
-  'F5: the views project exactly these 75 columns (55 of 159 + ticket_types.display_rank of 160 + 162''s nine: events.age_policy/timezone, event_sessions.timezone/*_local x3, ticket_types.sale_starts_at/sale_ends_at/on_sale_now + 163''s five: session_admissions.session_id/admitted/duplicate/invalid/last_admitted_at + 166''s five: session_capacity.session_id/sales_capacity/allocated/remaining_to_allocate/capacity_hint; a widened view fails here before it reaches the API)');
+  -- 2026-10-26 (stack 164 -> 166 on #170 13d46b22, measured): 71 (159 rev. 2026-10-26 adds events.description) + 166's five = 76.
+  'F5: the views project exactly these 76 columns (55 of 159 + events.description of 159 rev. 2026-10-26 + ticket_types.display_rank of 160 + 162''s nine: events.age_policy/timezone, event_sessions.timezone/*_local x3, ticket_types.sale_starts_at/sale_ends_at/on_sale_now + 163''s five: session_admissions.session_id/admitted/duplicate/invalid/last_admitted_at + 166''s five: session_capacity.session_id/sales_capacity/allocated/remaining_to_allocate/capacity_hint; a widened view fails here before it reaches the API)');
 
 -- F6 pins each view's DEFINITION, not only its column names (F5). The expected
 -- definitions are the eight SELECTs of migration 20261021120000, copied
@@ -357,7 +360,8 @@ CREATE TEMP VIEW exp_venues AS
     FROM catalog.venue v;
 CREATE TEMP VIEW exp_events AS
   SELECT e.event_id, e.venue_id, e.org_id, e.title, e.status, e.created_at, e.updated_at,
-         e.age_policy, v.timezone   -- 162 (S2): age_policy + the venue's timezone (LEFT JOIN; row set unchanged)
+         e.description,   -- 159 rev. 2026-10-26: description at ordinal 8 (B3b)
+         e.age_policy, v.timezone   -- 162 (S2): age_policy + the venue's timezone appended AFTER it (LEFT JOIN; row set unchanged)
     FROM catalog.event e
     LEFT JOIN catalog.venue v ON v.venue_id = e.venue_id;
 CREATE TEMP VIEW exp_event_sessions AS

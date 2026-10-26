@@ -77,12 +77,11 @@
 --              the only observable of the label.) G2b (A's #163 review) pins
 --              scan_meta.credential_version and scan_meta.key_id by name: both reach
 --              venue.record_scan UNCHANGED beside device_label, and nothing else does.
---   Section I  (runs BEFORE G, on the real venue.record_scan, flag ON from F): the
---              credential_stale refusal B's 183 adds — CONDITIONAL. When venue.scan has
---              183's device_label column, a scan whose scan_meta.credential_version is
---              BEHIND kernel.tickets.credential_version must come back result=invalid,
---              reason=credential_stale, with no state transition and no admitted row;
---              until 183 lands the three assertions skip() (the plan stays honest).
+--   (Section I — the credential_stale refusal B's 183 adds — is NOT in this file on
+--              this chain: B's 183 is not beneath this stack, CI's mask gate bans the
+--              conditional-masking pattern, and B's pgTAP 253 (PR #163) pins the refusal on
+--              the 183 chain. A tracked follow-up re-adds the three assertions live; see the
+--              note where Section I stood, before Section G.)
 --
 -- Fixture: 227 style, tag 23000000-…, inserted as postgres and rolled back.
 -- Org A (owner, admin) / Room V1 (manager, finance, box_office, scanner,
@@ -112,7 +111,7 @@
 -- = 20 not ok + 1 ok; plan 134 unmet.
 -- ============================================================================
 BEGIN;
-SELECT plan(138);
+SELECT plan(135);
 
 CREATE TABLE tap.memo_230 (k text PRIMARY KEY, v text);
 CREATE FUNCTION tap._store230(k text, v text) RETURNS text
@@ -561,10 +560,10 @@ SELECT set_eq(
       WHERE n.nspname = 'venue' AND p.proname IN ('record_scan','record_scan_door','_record_scan_core','validate_ticket_online') AND a.grantee <> p.proowner $$,
   $$ VALUES ('record_scan:authenticated:EXECUTE'), ('record_scan_door:service_role:EXECUTE'), ('validate_ticket_online:authenticated:EXECUTE') $$,
   'D12: the 086/108 grants are UNCHANGED — record_scan authenticated, record_scan_door service_role, _record_scan_core nobody (the door path is not touched)');
-SELECT ok((SELECT count(*) = 15 AND count(*) FILTER (WHERE NOT p.prosecdef AND l.lanname = 'sql') = 15  -- 2026-10-26 (registry 166), stacked over 163: 14 -> 15 (+get_session_capacity); (registry 162, S2, stacked under 163): 9 -> 14 (+162's five wrappers)
+SELECT ok((SELECT count(*) = 22 AND count(*) FILTER (WHERE NOT p.prosecdef AND l.lanname = 'sql') = 22  -- 2026-10-26 (stack 164 -> 166 on #170 13d46b22, measured): 21 -> 22 (+166's get_session_capacity). 2026-10-26 (registry 166): 14 -> 15. 2026-10-27 (registry 164): 14 -> 21 (+164's seven wrappers; pgTAP 231). 2026-10-26 (registry 162, S2, stacked under 163): 9 -> 14 (+162's five wrappers)
              FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace JOIN pg_language l ON l.oid = p.prolang
             WHERE n.nspname = 'venue_cmd'),
-  'D13: venue_cmd holds FIFTEEN functions (161''s six + 162''s five + 163''s three + 166''s one) and EVERY one is LANGUAGE sql + SECURITY INVOKER (228''s invariant survives 162 and 163; 12 if PART B is dropped)');
+  'D13: venue_cmd holds TWENTY-TWO functions (161''s six + 162''s five + 163''s three + 164''s seven + 166''s one) and EVERY one is LANGUAGE sql + SECURITY INVOKER (228''s invariant survives 162, 163, 164 and 166; 20 if 163''s PART B is dropped)');
 SELECT ok((SELECT p.prosrc LIKE '%venue.record_scan(p_atom_id, p_session_id, null::uuid, v_meta, p_command_key)%'
                   AND p.prosrc LIKE '%venue.filter_staff_scan_meta(p_scan_meta)%' AND position('*' IN p.prosrc) = 0
              FROM pg_proc p WHERE p.oid = to_regprocedure('venue.record_scan_staff(uuid, uuid, jsonb, text)')),
@@ -747,38 +746,15 @@ SELECT ok((SELECT s.occurred_at = now() AND s.server_receipt_at = now() AND s.oc
              FROM venue.scan s WHERE s.ticket_atom_id = '23000000-0000-4000-8000-000000000a11' AND s.result = 'admitted'),
   'F20: …and that row''s occurred_at is the SERVER''s now(), never the client''s 2000-01-01 — a phone clock cannot reach venue.scan on this path');
 
--- ── Section I — credential_stale refusal (B's 183), CONDITIONAL on this chain ───
--- A's #163 review. 183 is detected by its venue.scan.device_label column. The atom is
--- fresh (a12, kernel.tickets.credential_version 3, inserted as postgres with its
--- custody row) so no other section's rows or counters move; the scanner presents
--- credential_version 2 (behind). Without 183 the wrapper is NOT called: the three
--- assertions skip() with the agreed text. The flag is still ON from Section F.
-INSERT INTO kernel.tickets (ticket_atom_id, event_session_id, org_id, ticket_type_id, serial_no, current_owner_id, state, signing_key_id, credential_version) VALUES
-  ('23000000-0000-4000-8000-000000000a12', '23000000-0000-4000-8000-0000000000f1', '23000000-0000-4000-8000-00000000000a', '23000000-0000-4000-8000-000000000011', 12, '23000000-0000-4000-8000-000000000190', 'active', '00000000-0000-0000-0000-0000000000b0', 3);
-INSERT INTO kernel.ticket_ownership_log (ticket_atom_id, sequence, from_identity, to_identity, cause, cause_ref, actor_identity, command_idempotency_key, credential_version_after, state_transition) VALUES
-  ('23000000-0000-4000-8000-000000000a12', 1, NULL, '23000000-0000-4000-8000-000000000190', 'issue', gen_random_uuid(), '23000000-0000-4000-8000-000000000190', 'ck230-issue-12-f1', 3, '{"from":null,"to":"issued"}'::jsonb);
-SELECT tap._store230('has183', (EXISTS (SELECT 1 FROM information_schema.columns
-                                    WHERE table_schema = 'venue' AND table_name = 'scan' AND column_name = 'device_label'))::text);
-SELECT tap.login('23000000-0000-4000-8000-000000000114');
-SELECT tap._store230('i_res', CASE WHEN tap._fetch230('has183') = 'true'
-  THEN venue_cmd.record_scan('23000000-0000-4000-8000-000000000a12', '23000000-0000-4000-8000-0000000000f1',
-         '{"device_label":"Door A","credential_version":2,"key_id":"00000000-0000-0000-0000-0000000000b0"}'::jsonb, 'ck230-i1')::text
-  ELSE '<not called: 183 absent>' END);
-SELECT tap.logout();
-SELECT CASE WHEN tap._fetch230('has183') = 'true'
-  THEN is(tap._fetch230('i_res')::jsonb ->> 'result', 'invalid',
-          'I1: a scan presenting credential_version 2 against an atom at 3 is refused — result invalid (183)')
-  ELSE skip('183 not on this chain — credential_stale is B''s 253 until 183 lands', 1) END;
-SELECT CASE WHEN tap._fetch230('has183') = 'true'
-  THEN is(tap._fetch230('i_res')::jsonb ->> 'reason', 'credential_stale',
-          'I2: …with reason credential_stale (183)')
-  ELSE skip('183 not on this chain — credential_stale is B''s 253 until 183 lands', 1) END;
-SELECT CASE WHEN tap._fetch230('has183') = 'true'
-  THEN is((SELECT t.state || '|' || t.credential_version::text || '|'
-                  || (SELECT count(*) FROM venue.scan s WHERE s.ticket_atom_id = t.ticket_atom_id AND s.result = 'admitted')::text
-             FROM kernel.tickets t WHERE t.ticket_atom_id = '23000000-0000-4000-8000-000000000a12'), 'active|3|0',
-          'I3: …and NO state transition — the atom stays active at credential_version 3 with no admitted row (183)')
-  ELSE skip('183 not on this chain — credential_stale is B''s 253 until 183 lands', 1) END;
+-- ── Section I — credential_stale (B's 183): REMOVED on this chain ─────────────
+-- credential_stale refusal is pinned by B's 253 (PR #163); re-add here as live assertions
+-- when 183 is beneath this stack — CI bans the masking call (MASK_MAX_SKIP_CALLS=0), so a
+-- presence-gated block cannot stand in for them. 230's three credential_stale assertions
+-- are a tracked follow-up (re-add live in the first PR with 183 beneath): I1 result invalid,
+-- I2 reason credential_stale, I3 no state transition / no admitted row, on a fresh atom at
+-- kernel.tickets.credential_version 3 scanned with scan_meta.credential_version 2.
+-- G2b below still pins that credential_version and key_id reach venue.record_scan unchanged.
+-- Plan 138 -> 135.
 
 -- ── Section G — the pass-through proof: a spy in place of venue.record_scan (LAST) ─
 -- venue.scan has no device_label column on this chain (183 adds it), so the only
