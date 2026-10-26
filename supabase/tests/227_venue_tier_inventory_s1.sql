@@ -76,7 +76,7 @@
 --   instead of aborting the file before Section B.
 -- ============================================================================
 BEGIN;
-SELECT plan(111);
+SELECT plan(115);
 
 CREATE TABLE tap.memo_227 (k text PRIMARY KEY, v text);
 CREATE FUNCTION tap._store227(k text, v text) RETURNS text
@@ -269,6 +269,22 @@ SELECT tap.logout();
 SELECT tap.login('22700000-0000-4000-8000-000000000201');
 SELECT is((venue.set_ticket_type_price('22700000-0000-4000-8000-000000000051', 4300, 'demand', 'ck227-d-10') ->> 'price_minor'), '4300',
   'B10: STATUS QUO (A to rule) — the NEW operator''s org_owner (B) is accepted on Org A''s event e5 by the unchanged org arm');
+SELECT tap.logout();
+-- STATUS QUO pins for the two NEW setters (A's #166 review, ask 1): the same unchanged org arm, so 162's E-76 flip has a
+-- measured baseline. e5's tier is put back (public, unranked) afterwards so the later sections see the fixture state.
+SELECT tap.login('22700000-0000-4000-8000-000000000101');
+SELECT throws_ok($$SELECT venue.set_ticket_type_visibility('22700000-0000-4000-8000-000000000051', 'door_only', 'status_quo', 'ck227-d-9b')$$,
+  '42501', NULL, 'B9b: STATUS QUO (A to rule; flips in 162) — the event''s OWN org_owner (A) is refused by set_ticket_type_visibility on e5');
+SELECT throws_ok($$SELECT venue.set_ticket_type_rank('22700000-0000-4000-8000-000000000051', 7::smallint, 'ck227-d-9c')$$,
+  '42501', NULL, 'B9c: STATUS QUO (A to rule; flips in 162) — the event''s OWN org_owner (A) is refused by set_ticket_type_rank on e5');
+SELECT tap.logout();
+SELECT tap.login('22700000-0000-4000-8000-000000000201');
+SELECT is((venue.set_ticket_type_visibility('22700000-0000-4000-8000-000000000051', 'door_only', 'status_quo', 'ck227-d-10b') ->> 'status'), 'ok',
+  'B10b: STATUS QUO (A to rule; flips in 162) — the NEW operator''s org_owner (B) is accepted by set_ticket_type_visibility on Org A''s event e5');
+SELECT is((venue.set_ticket_type_rank('22700000-0000-4000-8000-000000000051', 7::smallint, 'ck227-d-10c') ->> 'status'), 'ok',
+  'B10c: STATUS QUO (A to rule; flips in 162) — the NEW operator''s org_owner (B) is accepted by set_ticket_type_rank on Org A''s event e5');
+SELECT venue.set_ticket_type_visibility('22700000-0000-4000-8000-000000000051', 'public', 'status_quo_restore', 'ck227-d-10d');
+SELECT venue.set_ticket_type_rank('22700000-0000-4000-8000-000000000051', NULL::smallint, 'ck227-d-10e');
 SELECT tap.logout();
 SELECT ok(has_function_privilege('authenticated', 'venue.create_ticket_type(uuid, text, text, integer, text, text)', 'EXECUTE')
       AND has_function_privilege('authenticated', 'venue.set_ticket_type_price(uuid, integer, text, text)', 'EXECUTE')
