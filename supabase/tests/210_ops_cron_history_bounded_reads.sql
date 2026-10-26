@@ -464,12 +464,12 @@ SELECT ok((SELECT coalesce(array_agg(x ->> 'ref'), '{}') FROM t210_dj, jsonb_arr
 
 -- ── Section E — catalog unchanged ──────────────────────────────────────────────────────────────────────────
 SELECT is((SELECT row(p.prosecdef, p.provolatile, p.proconfig::text,
-                      pg_get_userbyid(p.proowner) = (SELECT pg_get_userbyid(q.proowner) FROM pg_proc q WHERE q.oid = CASE WHEN to_regprocedure('ops.is_test_payment(uuid)') IS NOT NULL THEN 'ops.today(boolean)'::regprocedure ELSE 'ops.today()'::regprocedure END))::text  -- 180: today(boolean)
+                      pg_get_userbyid(p.proowner) = (SELECT pg_get_userbyid(q.proowner) FROM pg_proc q WHERE q.oid = CASE WHEN to_regprocedure('ops.is_test_payment(uuid)') IS NOT NULL THEN to_regprocedure('ops.today(boolean)') ELSE to_regprocedure('ops.today()') END))::text  -- 180: today(boolean)
              FROM pg_proc p WHERE p.oid = 'ops.job_health()'::regprocedure),
           row(true, 's', '{"search_path=\"\""}', true)::text,
   'E1: job_health stays SECURITY DEFINER, STABLE, search_path='''', owned like the rest of ops');
 SELECT is((SELECT row(p.prosecdef, p.provolatile, p.proconfig::text,
-                      pg_get_userbyid(p.proowner) = (SELECT pg_get_userbyid(q.proowner) FROM pg_proc q WHERE q.oid = CASE WHEN to_regprocedure('ops.is_test_payment(uuid)') IS NOT NULL THEN 'ops.today(boolean)'::regprocedure ELSE 'ops.today()'::regprocedure END))::text  -- 180: today(boolean)
+                      pg_get_userbyid(p.proowner) = (SELECT pg_get_userbyid(q.proowner) FROM pg_proc q WHERE q.oid = CASE WHEN to_regprocedure('ops.is_test_payment(uuid)') IS NOT NULL THEN to_regprocedure('ops.today(boolean)') ELSE to_regprocedure('ops.today()') END))::text  -- 180: today(boolean)
              FROM pg_proc p WHERE p.oid = 'ops.detect_jobs()'::regprocedure),
           row(true, 'v', '{"search_path=\"\""}', true)::text,
   'E2: detect_jobs stays SECURITY DEFINER, VOLATILE, search_path='''', owned like the rest of ops');
