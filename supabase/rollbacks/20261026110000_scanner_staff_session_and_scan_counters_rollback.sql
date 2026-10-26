@@ -3,9 +3,11 @@
 -- mechanical reversal of registry 163 (pgTAP 230). Assigned by Claude A
 -- 2026-10-26 (CONTRACTS.md §4; C7 amendment 2026-10-26).
 --
--- Drops, in dependency order, the view venue_api.session_admissions, the
--- venue_cmd SECURITY INVOKER wrapper get_session_scan_counters and the two
--- counters functions venue.list_session_scan_counters / venue.get_session_scan_counters.
+-- Drops, in dependency order, the view venue_api.session_admissions, the three
+-- venue_cmd SECURITY INVOKER wrappers (get_session_scan_counters, record_scan,
+-- validate_ticket_online), venue.record_scan_staff, its zero-grant helper
+-- venue.filter_staff_scan_meta and the two counters functions
+-- venue.list_session_scan_counters / venue.get_session_scan_counters.
 -- NOTHING ELSE: 163 touched no table, no policy, no 086/108 scan body and no
 -- grant on a pre-existing object, so nothing is restored. Every DROP is IF
 -- EXISTS: the file is idempotent, and it is correct whether or not PART B (the
@@ -22,6 +24,11 @@ BEGIN;
 
 DROP VIEW IF EXISTS venue_api.session_admissions;
 
+DROP FUNCTION IF EXISTS venue_cmd.validate_ticket_online(uuid, uuid);
+DROP FUNCTION IF EXISTS venue_cmd.record_scan(uuid, uuid, jsonb, text);
+DROP FUNCTION IF EXISTS venue.record_scan_staff(uuid, uuid, jsonb, text);
+DROP FUNCTION IF EXISTS venue.filter_staff_scan_meta(jsonb);
+
 DROP FUNCTION IF EXISTS venue_cmd.get_session_scan_counters(uuid);
 DROP FUNCTION IF EXISTS venue.list_session_scan_counters();
 DROP FUNCTION IF EXISTS venue.get_session_scan_counters(uuid);
@@ -33,8 +40,8 @@ BEGIN
   SELECT string_agg(x, ', ' ORDER BY x) INTO v_left FROM (
     SELECT n.nspname || '.' || p.proname || '(' || pg_catalog.oidvectortypes(p.proargtypes) || ')'
       FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-     WHERE (n.nspname = 'venue'     AND p.proname IN ('get_session_scan_counters','list_session_scan_counters'))
-        OR (n.nspname = 'venue_cmd' AND p.proname IN ('get_session_scan_counters'))
+     WHERE (n.nspname = 'venue'     AND p.proname IN ('get_session_scan_counters','list_session_scan_counters','record_scan_staff','filter_staff_scan_meta'))
+        OR (n.nspname = 'venue_cmd' AND p.proname IN ('get_session_scan_counters','record_scan','validate_ticket_online'))
     UNION ALL
     SELECT 'venue_api.' || c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
      WHERE n.nspname = 'venue_api' AND c.relname = 'session_admissions'

@@ -37,9 +37,44 @@
 --              only Org B's; former-operator manager / finance / fan /
 --              unauthenticated -> zero rows and NO raise; anon -> 42501 at the
 --              schema wall; the view equals the function, row for row.
---   Sections D/H/E/F/G (PART B — the staff-session wrappers, the scan_meta filter,
---              the flag-OFF/ON behaviour and the pass-through spy) ride with the
---              DROPPABLE wrapper commit, which appends them and raises the plan.
+--   Section D  shape + ACL of PART B (DROPPABLE): venue.record_scan_staff (definer
+--              plpgsql), venue_cmd.record_scan / validate_ticket_online (sql,
+--              prosecdef=false, same argument lists and results as their
+--              targets, no device parameter); 086/108 grants unchanged;
+--              228's "every venue_cmd function is LANGUAGE sql + invoker"
+--              survives over the whole schema.
+--   Section H  venue.filter_staff_scan_meta, the allow-list tested DIRECTLY as the
+--              owner (zero grants; IMMUTABLE): NULL/{} -> {}; the three legal keys
+--              pass unchanged; occurred_at is STRIPPED (A+E ruling); device_id is
+--              refused with B's exact X-5 text; unknown key / bad label / non-object
+--              refused by name; the 64-char boundary passes. Needs no flag.
+--   Section E  PART B with the flag OFF (as seeded): the same refusals through the
+--              wrapper with their exact texts; command key required; NULL / '{}' /
+--              a legal meta / a meta carrying occurred_at reach the flag gate and get the SAME
+--              feature_disabled text as the direct venue.record_scan call (the
+--              gate is inside); a fan gets feature_disabled too (flag before
+--              role, 108's order — no new oracle); validate_ticket_online wrapper
+--              = direct; nothing is written while dark.
+--   Section F  PART B with the flag ON (version-2 row inserted as postgres):
+--              scanner admits through the wrapper; the row is actor-attributed
+--              (actor = caller, device NULL), server-stamped; the atom is
+--              scanned; the counters move; a second identical call never admits
+--              twice (one admitted+in row — the invariant 183 keeps; the result
+--              value today is 'invalid', 183 makes it 'duplicate'+prior, so only
+--              the invariant is pinned and the value is diag'd); wrong session ->
+--              'invalid' and the counters of the other session show it; fan /
+--              cross-venue scanner / anon refused INSIDE the definer chain
+--              (42501); venue_manager admits; STATUS QUO pin: the former-operator
+--              manager admits through venue.record_scan (no E-76 in 086/108 —
+--              A/B to rule); validate wrapper = direct; a client occurred_at of
+--              2000-01-01 admits and the ledger row carries the SERVER's now().
+--   Section G  the pass-through proof (LAST, a test double inside this rolled-
+--              back transaction): venue.record_scan is replaced by a spy that
+--              records its arguments; the wrapper's legal meta arrives UNCHANGED,
+--              the device argument is NULL, the command key is verbatim, a NULL
+--              meta arrives as '{}', occurred_at never arrives. (venue.scan has no
+--              device_label column on this chain — 183 adds it — so the argument is
+--              the only observable of the label.)
 --
 -- Fixture: 227 style, tag 23000000-…, inserted as postgres and rolled back.
 -- Org A (owner, admin) / Room V1 (manager, finance, box_office, scanner,
@@ -65,11 +100,11 @@
 -- objects are absent, venue holds 90 not 94, venue_api eight views; A5-A18 are
 -- NULL-safe so they read `not ok` instead of aborting); A20 passes (1, by
 -- vacuity). Then B1 — the first call of a missing function — raises 42883 and
--- aborts the transaction; B2-C17 are not emitted. Predicted RED run: 21 emitted
--- = 20 not ok + 1 ok; plan 60 unmet.
+-- aborts the transaction; B2-G4 are not emitted. Predicted RED run: 21 emitted
+-- = 20 not ok + 1 ok; plan 134 unmet.
 -- ============================================================================
 BEGIN;
-SELECT plan(60);
+SELECT plan(134);
 
 CREATE TABLE tap.memo_230 (k text PRIMARY KEY, v text);
 CREATE FUNCTION tap._store230(k text, v text) RETURNS text
@@ -271,8 +306,8 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.
             WHERE n.nspname = 'venue' AND p.proname IN ('get_session_scan_counters','list_session_scan_counters')
               AND position('*' IN p.prosrc) = 0), 2,
   'A18: neither counters body contains a ''*'' — every venue.scan column is named (B: 183 adds device_label; no select * / scan.*)');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue'), 92,
-  'A19: venue holds NINETY-TWO functions — 90 (160) + 163''s get_session_scan_counters, list_session_scan_counters (144 A15 / 145 A4 / 148 B5 / 180 A5 / 227 A12 move with it; 148 B2 / 157 A46 / 180 A6 move 308 -> 310)');
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue'), 94,
+  'A19: venue holds NINETY-FOUR functions — 90 (160) + 163''s get_session_scan_counters, list_session_scan_counters, record_scan_staff, filter_staff_scan_meta (144 A15 / 145 A4 / 148 B5 / 180 A5 / 227 A12 move with it; 148 B2 / 157 A46 / 180 A6 move 308 -> 312; 92 / 310 if PART B is dropped)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue_api'), 0,
   'A20: venue_api still holds no function (226 A3 stays true: the definer bodies live in venue)');
 SELECT is((SELECT count(*)::int FROM pg_views WHERE schemaname = 'venue_api'), 9,
@@ -449,6 +484,288 @@ SELECT is((SELECT count(*)::int FROM venue_api.session_admissions), 3, 'C16: the
 SELECT tap.logout();
 SELECT tap.login('23000000-0000-4000-8000-000000000121');
 SELECT is((SELECT count(*)::int FROM venue_api.session_admissions), 0, 'C17: the view as the former-operator manager = zero rows (E-76 through the view)');
+SELECT tap.logout();
+
+-- ── Section D — shape + ACL of PART B (DROPPABLE) ────────────────────────────
+SELECT has_function('venue'::name, 'record_scan_staff'::name, ARRAY['uuid','uuid','jsonb','text']::name[],
+  'D1: venue.record_scan_staff(uuid, uuid, jsonb, text) exists');
+SELECT has_function('venue_cmd'::name, 'record_scan'::name, ARRAY['uuid','uuid','jsonb','text']::name[],
+  'D2: venue_cmd.record_scan(uuid, uuid, jsonb, text) exists — FOUR arguments, no device');
+SELECT has_function('venue_cmd'::name, 'validate_ticket_online'::name, ARRAY['uuid','uuid']::name[],
+  'D3: venue_cmd.validate_ticket_online(uuid, uuid) exists');
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace JOIN pg_language l ON l.oid = p.prolang
+            WHERE n.nspname = 'venue' AND p.proname = 'record_scan_staff'
+              AND p.prosecdef AND l.lanname = 'plpgsql' AND p.proconfig::text LIKE '%search_path=%' AND p.provolatile = 'v'), 1,
+  'D4: record_scan_staff is SECURITY DEFINER plpgsql, search_path pinned, VOLATILE (a write)');
+SELECT set_eq(
+  $$ SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE a.grantee::regrole::text END || ':' || a.privilege_type
+       FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+      CROSS JOIN LATERAL aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+      WHERE n.nspname = 'venue' AND p.proname = 'record_scan_staff' AND a.grantee <> p.proowner $$,
+  $$ VALUES ('authenticated:EXECUTE') $$,
+  'D5: record_scan_staff grants EXECUTE to authenticated and to NOBODY else');
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace JOIN pg_language l ON l.oid = p.prolang
+            WHERE n.nspname = 'venue_cmd' AND p.proname = 'record_scan'
+              AND NOT p.prosecdef AND l.lanname = 'sql' AND p.proconfig::text LIKE '%search_path=%' AND p.provolatile = 'v'
+              AND p.prosrc LIKE '%venue.record_scan_staff(%'), 1,
+  'D6: venue_cmd.record_scan is SECURITY INVOKER, LANGUAGE sql, search_path pinned, VOLATILE and delegates to venue.record_scan_staff (the NC4 target)');
+SELECT ok(coalesce(pg_get_function_identity_arguments(to_regprocedure('venue_cmd.record_scan(uuid, uuid, jsonb, text)'))
+                 = 'p_atom_id uuid, p_session_id uuid, p_scan_meta jsonb, p_command_key text'
+           AND pg_get_function_identity_arguments(to_regprocedure('venue_cmd.record_scan(uuid, uuid, jsonb, text)'))
+                 = pg_get_function_identity_arguments(to_regprocedure('venue.record_scan_staff(uuid, uuid, jsonb, text)'))
+           AND pg_get_function_result(to_regprocedure('venue_cmd.record_scan(uuid, uuid, jsonb, text)')) = 'jsonb'
+           AND pg_get_function_result(to_regprocedure('venue.record_scan_staff(uuid, uuid, jsonb, text)')) = 'jsonb', false),
+  'D7: the record_scan wrapper''s argument list is exactly (p_atom_id, p_session_id, p_scan_meta, p_command_key) = its target''s; both return jsonb; no p_actor_device_id');
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace JOIN pg_language l ON l.oid = p.prolang
+            WHERE n.nspname = 'venue_cmd' AND p.proname = 'validate_ticket_online'
+              AND NOT p.prosecdef AND l.lanname = 'sql' AND p.proconfig::text LIKE '%search_path=%' AND p.provolatile = 's'
+              AND p.prosrc LIKE '%venue.validate_ticket_online(%'), 1,
+  'D8: venue_cmd.validate_ticket_online is SECURITY INVOKER, LANGUAGE sql, search_path pinned, STABLE (a read) and delegates to venue.validate_ticket_online');
+SELECT ok(coalesce(pg_get_function_identity_arguments(to_regprocedure('venue_cmd.validate_ticket_online(uuid, uuid)'))
+                 = pg_get_function_identity_arguments(to_regprocedure('venue.validate_ticket_online(uuid, uuid)'))
+           AND pg_get_function_result(to_regprocedure('venue_cmd.validate_ticket_online(uuid, uuid)'))
+                 = pg_get_function_result(to_regprocedure('venue.validate_ticket_online(uuid, uuid)')), false),
+  'D9: the validate wrapper''s argument list and result type equal venue.validate_ticket_online''s');
+SELECT set_eq(
+  $$ SELECT p.proname || ':' || CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE a.grantee::regrole::text END || ':' || a.privilege_type
+       FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+      CROSS JOIN LATERAL aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+      WHERE n.nspname = 'venue_cmd' AND p.proname IN ('record_scan','validate_ticket_online') AND a.grantee <> p.proowner $$,
+  $$ VALUES ('record_scan:authenticated:EXECUTE'), ('validate_ticket_online:authenticated:EXECUTE') $$,
+  'D10: the two wrappers grant EXECUTE to authenticated and to NOBODY else — no anon, PUBLIC or service_role (the NC5 target)');
+SELECT ok(NOT coalesce(has_function_privilege('anon', to_regprocedure('venue_cmd.record_scan(uuid, uuid, jsonb, text)'), 'EXECUTE'), true)
+      AND NOT coalesce(has_function_privilege('anon', to_regprocedure('venue_cmd.validate_ticket_online(uuid, uuid)'), 'EXECUTE'), true)
+      AND NOT coalesce(has_function_privilege('anon', to_regprocedure('venue.record_scan_staff(uuid, uuid, jsonb, text)'), 'EXECUTE'), true)
+      AND NOT coalesce(has_function_privilege('service_role', to_regprocedure('venue_cmd.record_scan(uuid, uuid, jsonb, text)'), 'EXECUTE'), true)
+      AND NOT coalesce(has_function_privilege('service_role', to_regprocedure('venue_cmd.validate_ticket_online(uuid, uuid)'), 'EXECUTE'), true)
+      AND NOT coalesce(has_function_privilege('service_role', to_regprocedure('venue.record_scan_staff(uuid, uuid, jsonb, text)'), 'EXECUTE'), true)
+      AND coalesce(has_function_privilege('authenticated', to_regprocedure('venue_cmd.record_scan(uuid, uuid, jsonb, text)'), 'EXECUTE'), false)
+      AND coalesce(has_function_privilege('authenticated', to_regprocedure('venue_cmd.validate_ticket_online(uuid, uuid)'), 'EXECUTE'), false)
+      AND coalesce(has_function_privilege('authenticated', to_regprocedure('venue.record_scan_staff(uuid, uuid, jsonb, text)'), 'EXECUTE'), false),
+  'D11: has_function_privilege — anon and service_role false, authenticated true, on all three PART B functions');
+SELECT set_eq(
+  $$ SELECT p.proname || ':' || CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE a.grantee::regrole::text END || ':' || a.privilege_type
+       FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+      CROSS JOIN LATERAL aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+      WHERE n.nspname = 'venue' AND p.proname IN ('record_scan','record_scan_door','_record_scan_core','validate_ticket_online') AND a.grantee <> p.proowner $$,
+  $$ VALUES ('record_scan:authenticated:EXECUTE'), ('record_scan_door:service_role:EXECUTE'), ('validate_ticket_online:authenticated:EXECUTE') $$,
+  'D12: the 086/108 grants are UNCHANGED — record_scan authenticated, record_scan_door service_role, _record_scan_core nobody (the door path is not touched)');
+SELECT ok((SELECT count(*) = 9 AND count(*) FILTER (WHERE NOT p.prosecdef AND l.lanname = 'sql') = 9
+             FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace JOIN pg_language l ON l.oid = p.prolang
+            WHERE n.nspname = 'venue_cmd'),
+  'D13: venue_cmd holds NINE functions and EVERY one is LANGUAGE sql + SECURITY INVOKER (228''s invariant survives 163; 7 if PART B is dropped)');
+SELECT ok((SELECT p.prosrc LIKE '%venue.record_scan(p_atom_id, p_session_id, null::uuid, v_meta, p_command_key)%'
+                  AND p.prosrc LIKE '%venue.filter_staff_scan_meta(p_scan_meta)%' AND position('*' IN p.prosrc) = 0
+             FROM pg_proc p WHERE p.oid = to_regprocedure('venue.record_scan_staff(uuid, uuid, jsonb, text)')),
+  'D14: record_scan_staff''s body filters the meta through venue.filter_staff_scan_meta and calls venue.record_scan with a literal NULL device (text pin; no ''*'')');
+
+-- ── Section H — venue.filter_staff_scan_meta, the allow-list tested directly (as the owner; no flag needed) ─
+SELECT has_function('venue'::name, 'filter_staff_scan_meta'::name, ARRAY['jsonb']::name[], 'H1: venue.filter_staff_scan_meta(jsonb) exists');
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace JOIN pg_language l ON l.oid = p.prolang
+            WHERE n.nspname = 'venue' AND p.proname = 'filter_staff_scan_meta'
+              AND p.provolatile = 'i' AND NOT p.prosecdef AND l.lanname = 'plpgsql' AND p.proconfig::text LIKE '%search_path=%'
+              AND pg_get_function_result(p.oid) = 'jsonb'), 1,
+  'H2: the filter is IMMUTABLE, SECURITY INVOKER, plpgsql, search_path pinned, returns jsonb');
+SELECT ok(coalesce((SELECT p.proacl IS NOT NULL AND NOT EXISTS (SELECT 1 FROM aclexplode(p.proacl) a WHERE a.grantee <> p.proowner)
+                     FROM pg_proc p WHERE p.oid = to_regprocedure('venue.filter_staff_scan_meta(jsonb)')), false),
+  'H3: the filter grants EXECUTE to NOBODY but its owner (not DEFAULTED: PUBLIC holds nothing) — reachable only through the definer venue.record_scan_staff');
+SELECT ok(NOT coalesce(has_function_privilege('anon', to_regprocedure('venue.filter_staff_scan_meta(jsonb)'), 'EXECUTE'), true)
+      AND NOT coalesce(has_function_privilege('authenticated', to_regprocedure('venue.filter_staff_scan_meta(jsonb)'), 'EXECUTE'), true)
+      AND NOT coalesce(has_function_privilege('service_role', to_regprocedure('venue.filter_staff_scan_meta(jsonb)'), 'EXECUTE'), true),
+  'H4: has_function_privilege is false for anon, authenticated and service_role (outside 140 #27''s caller-authorized sweep)');
+SELECT is(venue.filter_staff_scan_meta(NULL::jsonb), '{}'::jsonb, 'H5: NULL -> {}');
+SELECT is(venue.filter_staff_scan_meta('{}'::jsonb), '{}'::jsonb, 'H6: {} -> {}');
+SELECT is(venue.filter_staff_scan_meta('{"device_label":"Door A","credential_version":3,"key_id":"00000000-0000-0000-0000-0000000000b0"}'::jsonb),
+          '{"device_label":"Door A","credential_version":3,"key_id":"00000000-0000-0000-0000-0000000000b0"}'::jsonb,
+  'H7: the legal three keys pass UNCHANGED (credential_version and key_id as given)');
+SELECT is(venue.filter_staff_scan_meta('{"device_label":"Door A","occurred_at":"2000-01-01T00:00:00Z"}'::jsonb), '{"device_label":"Door A"}'::jsonb,
+  'H8: occurred_at is STRIPPED silently (A+E ruling 2026-10-26) — the server stamps the ledger; the key stays reserved for offline reconcile batches');
+SELECT is(venue.filter_staff_scan_meta('{"occurred_at":"2000-01-01T00:00:00Z"}'::jsonb), '{}'::jsonb, 'H9: an occurred_at-only meta becomes {}');
+SELECT throws_ok($$SELECT venue.filter_staff_scan_meta('{"device_label":"Door A","device_id":"23000000-0000-4000-8000-0000000000d1"}'::jsonb)$$,
+  'P0001', 'invalid_input: scan_meta.device_id is not accepted', 'H10: device_id is REFUSED with the exact text (B''s X-5 parity with record_scan_door), even beside a legal key');
+SELECT throws_ok($$SELECT venue.filter_staff_scan_meta('{"foo":1}'::jsonb)$$,
+  'P0001', 'invalid_input: scan_meta key not accepted: foo', 'H11: any other key is refused by name');
+SELECT throws_ok(format($$SELECT venue.filter_staff_scan_meta(%L::jsonb)$$, jsonb_build_object('device_label', repeat('x', 65))::text),
+  'P0001', 'invalid_input: scan_meta.device_label must be 1-64 chars', 'H12: a 65-char device_label is refused');
+SELECT throws_ok($$SELECT venue.filter_staff_scan_meta('{"device_label":""}'::jsonb)$$,
+  'P0001', 'invalid_input: scan_meta.device_label must be 1-64 chars', 'H13: an empty device_label is refused');
+SELECT throws_ok($$SELECT venue.filter_staff_scan_meta('{"device_label":42}'::jsonb)$$,
+  'P0001', 'invalid_input: scan_meta.device_label must be 1-64 chars', 'H14: a non-string device_label is refused with the same text');
+SELECT throws_ok($$SELECT venue.filter_staff_scan_meta('[1]'::jsonb)$$,
+  'P0001', 'invalid_input: scan_meta must be a JSON object', 'H15: a non-object is refused by name (not by jsonb_object_keys'' own error)');
+SELECT is(length(venue.filter_staff_scan_meta(jsonb_build_object('device_label', repeat('x', 64))) ->> 'device_label'), 64,
+  'H16: a 64-char device_label passes (the boundary)');
+
+-- ── Section E — PART B with the flag OFF (seeded false; 078:1523) ────────────
+SELECT tap.login('23000000-0000-4000-8000-000000000114');
+SELECT throws_ok($$SELECT venue_cmd.record_scan('23000000-0000-4000-8000-000000000a07', '23000000-0000-4000-8000-0000000000f1', '{"device_label":"Door A"}'::jsonb, 'ck230-e1')$$,
+  'P0001', 'precondition_failed: feature_disabled — native scanning is dark',
+  'E1: the scanner through the wrapper while dark -> the definer chain''s feature_disabled, exact text');
+SELECT throws_ok($$SELECT venue.record_scan('23000000-0000-4000-8000-000000000a07', '23000000-0000-4000-8000-0000000000f1', NULL::uuid, '{"device_label":"Door A"}'::jsonb, 'ck230-e2')$$,
+  'P0001', 'precondition_failed: feature_disabled — native scanning is dark',
+  'E2: the DIRECT venue.record_scan call -> the same text (the gate is inside venue.record_scan, not in the wrapper)');
+SELECT throws_ok($$SELECT venue_cmd.record_scan('23000000-0000-4000-8000-000000000a07', '23000000-0000-4000-8000-0000000000f1', '{"device_label":"Door A","device_id":"23000000-0000-4000-8000-0000000000d1"}'::jsonb, 'ck230-e3')$$,
+  'P0001', 'invalid_input: scan_meta.device_id is not accepted',
+  'E3: scan_meta.device_id is refused with the exact text (even beside a legal key)');
+SELECT throws_like($$SELECT venue_cmd.record_scan('23000000-0000-4000-8000-000000000a07', '23000000-0000-4000-8000-0000000000f1', '{"occurred_at":"2000-01-01T00:00:00Z"}'::jsonb, 'ck230-e4')$$,
+  '%feature_disabled%',
+  'E4: a client occurred_at is STRIPPED, not refused — the call passes the allow-list and reaches the flag gate (H8/H9, F19/F20 and G5 pin the strip)');
+SELECT throws_ok($$SELECT venue_cmd.record_scan('23000000-0000-4000-8000-000000000a07', '23000000-0000-4000-8000-0000000000f1', '{"foo":1}'::jsonb, 'ck230-e5')$$,
+  'P0001', 'invalid_input: scan_meta key not accepted: foo',
+  'E5: any other key is refused by name');
+SELECT throws_ok(format($$SELECT venue_cmd.record_scan('23000000-0000-4000-8000-000000000a07', '23000000-0000-4000-8000-0000000000f1', %L::jsonb, 'ck230-e6')$$,
+                        jsonb_build_object('device_label', repeat('x', 65))::text),
+  'P0001', 'invalid_input: scan_meta.device_label must be 1-64 chars',
+  'E6: a 65-char device_label is refused');
+SELECT throws_ok($$SELECT venue_cmd.record_scan('23000000-0000-4000-8000-000000000a07', '23000000-0000-4000-8000-0000000000f1', '{"device_label":""}'::jsonb, 'ck230-e7')$$,
+  'P0001', 'invalid_input: scan_meta.device_label must be 1-64 chars',
+  'E7: an empty device_label is refused');
+SELECT throws_ok($$SELECT venue_cmd.record_scan('23000000-0000-4000-8000-000000000a07', '23000000-0000-4000-8000-0000000000f1', '{"device_label":42}'::jsonb, 'ck230-e8')$$,
+  'P0001', 'invalid_input: scan_meta.device_label must be 1-64 chars',
+  'E8: a non-string device_label is refused with the same text');
+SELECT throws_ok($$SELECT venue_cmd.record_scan('23000000-0000-4000-8000-000000000a07', '23000000-0000-4000-8000-0000000000f1', '[1]'::jsonb, 'ck230-e9')$$,
+  'P0001', 'invalid_input: scan_meta must be a JSON object',
+  'E9: a non-object scan_meta is refused by name (not by jsonb_object_keys'' own error)');
+SELECT throws_ok($$SELECT venue_cmd.record_scan('23000000-0000-4000-8000-000000000a07', '23000000-0000-4000-8000-0000000000f1', '{}'::jsonb, '')$$,
+  'P0001', 'precondition_failed: command key required', 'E10: an empty command key is refused');
+SELECT throws_ok($$SELECT venue_cmd.record_scan('23000000-0000-4000-8000-000000000a07', '23000000-0000-4000-8000-0000000000f1', '{}'::jsonb, NULL)$$,
+  'P0001', 'precondition_failed: command key required', 'E11: a NULL command key is refused');
+SELECT throws_like($$SELECT venue_cmd.record_scan('23000000-0000-4000-8000-000000000a07', '23000000-0000-4000-8000-0000000000f1', NULL::jsonb, 'ck230-e12')$$,
+  '%feature_disabled%', 'E12: a NULL scan_meta passes the allow-list and reaches the flag gate');
+SELECT throws_like($$SELECT venue_cmd.record_scan('23000000-0000-4000-8000-000000000a07', '23000000-0000-4000-8000-0000000000f1', '{}'::jsonb, 'ck230-e13')$$,
+  '%feature_disabled%', 'E13: an empty object passes the allow-list and reaches the flag gate');
+SELECT throws_like($$SELECT venue_cmd.record_scan('23000000-0000-4000-8000-000000000a07', '23000000-0000-4000-8000-0000000000f1', '{"device_label":"Door A","credential_version":3,"key_id":"00000000-0000-0000-0000-0000000000b0"}'::jsonb, 'ck230-e14')$$,
+  '%feature_disabled%', 'E14: the legal {device_label, credential_version, key_id} meta passes the allow-list and reaches the flag gate');
+SELECT tap.logout();
+SELECT tap.login('23000000-0000-4000-8000-000000000199');
+SELECT throws_like($$SELECT venue_cmd.record_scan('23000000-0000-4000-8000-000000000a07', '23000000-0000-4000-8000-0000000000f1', '{}'::jsonb, 'ck230-e15')$$,
+  '%feature_disabled%', 'E15: a fan while dark -> feature_disabled too (108: flag before role, no new oracle — status quo, unchanged by the wrapper)');
+SELECT throws_ok($$SELECT venue_cmd.validate_ticket_online('23000000-0000-4000-8000-000000000a07', '23000000-0000-4000-8000-0000000000f1')$$,
+  '42501', NULL, 'E17: validate_ticket_online through the wrapper as a fan -> 42501 (the definer''s gate)');
+SELECT tap.logout();
+SELECT tap.login('23000000-0000-4000-8000-000000000114');
+SELECT ok(venue_cmd.validate_ticket_online('23000000-0000-4000-8000-000000000a07', '23000000-0000-4000-8000-0000000000f1')
+          = venue.validate_ticket_online('23000000-0000-4000-8000-000000000a07', '23000000-0000-4000-8000-0000000000f1')
+      AND venue_cmd.validate_ticket_online('23000000-0000-4000-8000-000000000a07', '23000000-0000-4000-8000-0000000000f1') ->> 'ticket_state' = 'active',
+  'E16: validate_ticket_online through the wrapper = the direct call (a read; not flag-gated) and sees the active atom');
+SELECT tap.logout();
+SELECT tap.login_anon();
+SELECT throws_ok($$SELECT venue_cmd.record_scan('23000000-0000-4000-8000-000000000a07', '23000000-0000-4000-8000-0000000000f1', '{}'::jsonb, 'ck230-e18')$$,
+  '42501', NULL, 'E18: anon -> 42501 at the schema wall (no USAGE on venue_cmd)');
+SELECT tap.logout();
+SELECT is(tap._raw230('23000000-0000-4000-8000-0000000000f1', 'admitted') + tap._raw230('23000000-0000-4000-8000-0000000000f1', 'duplicate')
+          + tap._raw230('23000000-0000-4000-8000-0000000000f1', 'invalid') + tap._raw230('23000000-0000-4000-8000-0000000000f1', 'frozen')
+          + tap._raw230('23000000-0000-4000-8000-0000000000f1', 'fraud_review'), 10,
+  'E19: nothing was written to venue.scan while dark (f1 still holds its ten fixture rows)');
+
+-- ── Section F — PART B with the flag ON (a version-2 row, as 174; rolled back) ─
+INSERT INTO catalog.platform_config (key, version, value, visibility) VALUES ('feature.native_scanning_enabled', 2, 'true'::jsonb, 'public');
+SELECT tap.login('23000000-0000-4000-8000-000000000114');
+SELECT is((venue_cmd.record_scan('23000000-0000-4000-8000-000000000a07', '23000000-0000-4000-8000-0000000000f1',
+             '{"device_label":"Door A","credential_version":3,"key_id":"00000000-0000-0000-0000-0000000000b0"}'::jsonb, 'ck230-f1') ->> 'result'), 'admitted',
+  'F1: the scanner admits an active atom through the wrapper');
+SELECT tap.logout();
+SELECT is((SELECT count(*)::int FROM venue.scan s
+            WHERE s.ticket_atom_id = '23000000-0000-4000-8000-000000000a07' AND s.event_session_id = '23000000-0000-4000-8000-0000000000f1'
+              AND s.result = 'admitted' AND s.direction = 'in' AND s.device_id IS NULL
+              AND s.actor_identity_id = '23000000-0000-4000-8000-000000000114'), 1,
+  'F2: exactly one admitted+in row — actor-attributed to the CALLER, device_id NULL (scan_attribution_ck holds; the device is never settable from this path)');
+SELECT ok((SELECT s.occurred_at = now() AND s.server_receipt_at = now() FROM venue.scan s WHERE s.ticket_atom_id = '23000000-0000-4000-8000-000000000a07' AND s.result = 'admitted'),
+  'F3: occurred_at AND server_receipt_at are the SERVER''s clock (the client cannot supply either — E4)');
+SELECT is((SELECT t.state FROM kernel.tickets t WHERE t.ticket_atom_id = '23000000-0000-4000-8000-000000000a07'), 'scanned',
+  'F4: the atom is scanned (kernel.mark_ticket_scanned, the single-writer choke point)');
+SELECT tap.login('23000000-0000-4000-8000-000000000114');
+SELECT is((SELECT string_agg(tap._fmt230(c.session_id, c.admitted, c.duplicate, c.invalid, c.last_admitted_at), ';')
+             FROM venue.get_session_scan_counters('23000000-0000-4000-8000-0000000000f1') c),
+  'f1:5|2|3|' || to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS'),
+  'F5: the counters move with the wrapper''s write — admitted 5, last_admitted_at = this scan''s server receipt');
+SELECT tap._store230('f6', (venue_cmd.record_scan('23000000-0000-4000-8000-000000000a07', '23000000-0000-4000-8000-0000000000f1',
+             '{"device_label":"Door A"}'::jsonb, 'ck230-f1') ->> 'result'));
+SELECT ok(tap._fetch230('f6') <> 'admitted'
+      AND (SELECT count(*) FROM venue.scan s WHERE s.ticket_atom_id = '23000000-0000-4000-8000-000000000a07'
+             AND s.event_session_id = '23000000-0000-4000-8000-0000000000f1' AND s.result = 'admitted' AND s.direction = 'in') = 1,
+  'F6: a second identical call NEVER admits twice — still exactly one admitted+in row (the invariant 183 keeps; the result value is diag''d, 183 makes it duplicate+prior)');
+SELECT diag('F6 observed result of the sequential repeat on this chain: ' || coalesce(tap._fetch230('f6'), '<null>'));
+SELECT is((venue_cmd.record_scan('23000000-0000-4000-8000-000000000a08', '23000000-0000-4000-8000-0000000000f2', '{}'::jsonb, 'ck230-f7') ->> 'result'), 'invalid',
+  'F7: an f1 atom presented at session f2 -> invalid (wrong_session inside the core)');
+SELECT is((SELECT string_agg(tap._fmt230(c.session_id, c.admitted, c.duplicate, c.invalid, c.last_admitted_at), ';')
+             FROM venue.get_session_scan_counters('23000000-0000-4000-8000-0000000000f2') c),
+  'f2:0|0|1|-', 'F8: …and f2''s counters show that invalid attempt (0 admitted, 1 invalid, no last_admitted_at)');
+SELECT tap.logout();
+SELECT tap.login('23000000-0000-4000-8000-000000000199');
+SELECT throws_ok($$SELECT venue_cmd.record_scan('23000000-0000-4000-8000-000000000a09', '23000000-0000-4000-8000-0000000000f1', '{}'::jsonb, 'ck230-f9')$$,
+  '42501', NULL, 'F9: a fan through the wrapper -> 42501 from INSIDE venue.record_scan (the wrapper added no authority)');
+SELECT tap.logout();
+SELECT tap.login('23000000-0000-4000-8000-000000000131');
+SELECT throws_ok($$SELECT venue_cmd.record_scan('23000000-0000-4000-8000-000000000a09', '23000000-0000-4000-8000-0000000000f1', '{}'::jsonb, 'ck230-f10')$$,
+  '42501', NULL, 'F10: the V3 scanner through the wrapper on V1''s session -> 42501');
+SELECT tap.logout();
+SELECT tap.login_anon();
+SELECT throws_ok($$SELECT venue_cmd.record_scan('23000000-0000-4000-8000-000000000a09', '23000000-0000-4000-8000-0000000000f1', '{}'::jsonb, 'ck230-f11')$$,
+  '42501', NULL, 'F11: anon with the flag ON -> still 42501 at the schema wall');
+SELECT tap.logout();
+SELECT tap.login('23000000-0000-4000-8000-000000000111');
+SELECT is((venue_cmd.record_scan('23000000-0000-4000-8000-000000000a09', '23000000-0000-4000-8000-0000000000f1', '{"device_label":"Manager phone"}'::jsonb, 'ck230-f12') ->> 'result'), 'admitted',
+  'F12: the venue_manager admits through the wrapper (the 086 gate is venue_scanner OR venue_manager)');
+SELECT tap.logout();
+SELECT is((SELECT s.actor_identity_id FROM venue.scan s WHERE s.ticket_atom_id = '23000000-0000-4000-8000-000000000a09' AND s.result = 'admitted'),
+  '23000000-0000-4000-8000-000000000111'::uuid, 'F13: …attributed to the manager (auth.uid() seen through INVOKER + the two definers), device NULL');
+SELECT tap.login('23000000-0000-4000-8000-000000000121');
+SELECT is((venue_cmd.record_scan('23000000-0000-4000-8000-000000000a52', '23000000-0000-4000-8000-0000000000f5', '{}'::jsonb, 'ck230-f14') ->> 'result'), 'admitted',
+  'F14: STATUS QUO (A/B to rule) — the former-operator manager of Room V2 ADMITS Org A''s e5 atom: venue.record_scan''s 086/108 gate carries no E-76 conjunct (the counters read refuses them; the write does not)');
+SELECT tap.logout();
+SELECT tap.login('23000000-0000-4000-8000-000000000114');
+SELECT is(venue_cmd.validate_ticket_online('23000000-0000-4000-8000-000000000a07', '23000000-0000-4000-8000-0000000000f1'),
+          venue.validate_ticket_online('23000000-0000-4000-8000-000000000a07', '23000000-0000-4000-8000-0000000000f1'),
+  'F15: validate_ticket_online through the wrapper = the direct call on the scanned atom');
+SELECT ok(venue_cmd.validate_ticket_online('23000000-0000-4000-8000-000000000a07', '23000000-0000-4000-8000-0000000000f1') ->> 'ticket_state' = 'scanned'
+      AND (venue_cmd.validate_ticket_online('23000000-0000-4000-8000-000000000a07', '23000000-0000-4000-8000-0000000000f1') ->> 'admissible')::boolean = false,
+  'F16: …and it reads ticket_state scanned, admissible false');
+SELECT is(venue_cmd.validate_ticket_online('23000000-0000-4000-8000-000000000aff', '23000000-0000-4000-8000-0000000000f1'),
+          '{"status":"not_found"}'::jsonb, 'F17: an unknown atom through the validate wrapper -> {status: not_found}, as the direct call');
+SELECT is((SELECT string_agg(k, ',' ORDER BY k) FROM jsonb_object_keys(
+             venue_cmd.record_scan('23000000-0000-4000-8000-000000000a10', '23000000-0000-4000-8000-0000000000f1', '{}'::jsonb, 'ck230-f18w')) k),
+          (SELECT string_agg(k, ',' ORDER BY k) FROM jsonb_object_keys(
+             venue.record_scan('23000000-0000-4000-8000-000000000a06', '23000000-0000-4000-8000-0000000000f1', NULL::uuid, '{}'::jsonb, 'ck230-f18d')) k),
+  'F18: the wrapper''s result shape (result, scan_id, status) equals the direct venue.record_scan result shape');
+SELECT is((venue_cmd.record_scan('23000000-0000-4000-8000-000000000a11', '23000000-0000-4000-8000-0000000000f1',
+             '{"device_label":"Door A","occurred_at":"2000-01-01T00:00:00Z"}'::jsonb, 'ck230-f19') ->> 'result'), 'admitted',
+  'F19: a legal meta carrying a client occurred_at still ADMITS (stripped, not refused)');
+SELECT tap.logout();
+SELECT ok((SELECT s.occurred_at = now() AND s.server_receipt_at = now() AND s.occurred_at > '2000-01-02 00:00:00+00'::timestamptz
+             FROM venue.scan s WHERE s.ticket_atom_id = '23000000-0000-4000-8000-000000000a11' AND s.result = 'admitted'),
+  'F20: …and that row''s occurred_at is the SERVER''s now(), never the client''s 2000-01-01 — a phone clock cannot reach venue.scan on this path');
+
+-- ── Section G — the pass-through proof: a spy in place of venue.record_scan (LAST) ─
+-- venue.scan has no device_label column on this chain (183 adds it), so the only
+-- observable of "the meta reaches venue.record_scan unchanged" is the argument.
+-- The replacement is DDL inside this transaction; the ROLLBACK restores 108's body.
+CREATE OR REPLACE FUNCTION venue.record_scan(
+  p_atom_id uuid, p_session_id uuid, p_actor_device_id uuid, p_scan_meta jsonb, p_command_key text)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $spy$
+BEGIN
+  PERFORM tap._store230('spy_atom',    p_atom_id::text);
+  PERFORM tap._store230('spy_session', p_session_id::text);
+  PERFORM tap._store230('spy_device',  coalesce(p_actor_device_id::text, '<null>'));
+  PERFORM tap._store230('spy_meta',    coalesce(p_scan_meta::text, '<null>'));
+  PERFORM tap._store230('spy_key',     p_command_key);
+  RETURN jsonb_build_object('status', 'spy');
+END $spy$;
+SELECT tap.login('23000000-0000-4000-8000-000000000114');
+SELECT is((venue_cmd.record_scan('23000000-0000-4000-8000-000000000a10', '23000000-0000-4000-8000-0000000000f1',
+             '{"device_label":"Door A","credential_version":3,"key_id":"00000000-0000-0000-0000-0000000000b0"}'::jsonb, 'ck230-g1') ->> 'status'), 'spy',
+  'G1: the wrapper reaches venue.record_scan (the spy answered)');
+SELECT is(tap._fetch230('spy_meta')::jsonb, '{"device_label":"Door A","credential_version":3,"key_id":"00000000-0000-0000-0000-0000000000b0"}'::jsonb,
+  'G2: the legal meta arrives UNCHANGED — the allow-list adds, drops and rewrites nothing');
+SELECT ok(tap._fetch230('spy_device') = '<null>' AND tap._fetch230('spy_key') = 'ck230-g1'
+      AND tap._fetch230('spy_atom') = '23000000-0000-4000-8000-000000000a10' AND tap._fetch230('spy_session') = '23000000-0000-4000-8000-0000000000f1',
+  'G3: the device argument is NULL, the command key is verbatim, atom and session are the caller''s');
+SELECT tap._store230('g4', (venue_cmd.record_scan('23000000-0000-4000-8000-000000000a10', '23000000-0000-4000-8000-0000000000f1', NULL::jsonb, 'ck230-g4') ->> 'status'));
+SELECT is(tap._fetch230('spy_meta')::jsonb, '{}'::jsonb, 'G4: a NULL meta arrives as an empty object (nothing the core would coalesce a client value from)');
+SELECT tap._store230('g5', (venue_cmd.record_scan('23000000-0000-4000-8000-000000000a10', '23000000-0000-4000-8000-0000000000f1',
+             '{"device_label":"Door A","occurred_at":"2000-01-01T00:00:00Z"}'::jsonb, 'ck230-g5') ->> 'status'));
+SELECT is(tap._fetch230('spy_meta')::jsonb, '{"device_label":"Door A"}'::jsonb,
+  'G5: occurred_at NEVER reaches venue.record_scan from this path (stripped before the call); the label does');
 SELECT tap.logout();
 
 SELECT * FROM finish();

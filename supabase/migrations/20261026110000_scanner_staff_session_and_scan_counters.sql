@@ -40,11 +40,61 @@
 --     venue_cmd.get_session_scan_counters(p_session_id uuid) — the 161-form
 --       LANGUAGE sql SECURITY INVOKER wrapper, identical result type, so the
 --       dashboard reaches the single-session read through its command transport.
---   PART B — the staff-session admission path (venue.filter_staff_scan_meta,
---   venue.record_scan_staff, venue_cmd.record_scan, venue_cmd.validate_ticket_online)
---   is a SEPARATE, DROPPABLE commit appended to this file; its design, allow-list,
---   grant decisions and pins are documented by that commit. Nothing in PART A
---   depends on it. The door-session edge path (108) is not touched by either part.
+--   PART B (DROPPABLE — B accepted the staff-session path 2026-10-26 with the
+--   conditions below; A may still drop this part within the sprint; nothing in
+--   PART A depends on it; its rollback lines are IF EXISTS).
+--     venue.record_scan_staff(p_atom_id uuid, p_session_id uuid,
+--                             p_scan_meta jsonb, p_command_key text) returns jsonb
+--       SECURITY DEFINER plpgsql search_path=''. Validates the input and calls
+--       venue.record_scan(p_atom_id, p_session_id, NULL::uuid, <filtered meta>,
+--       p_command_key) — the device is NEVER settable from this path; the actor
+--       is auth.uid() (set inside venue.record_scan); the role gate
+--       (venue_scanner/venue_manager, 086/108) and the feature.native_scanning_enabled
+--       gate stay INSIDE venue.record_scan / venue._record_scan_core (ONE
+--       authority, C7). NO exception handler: 'precondition_failed:
+--       feature_disabled — native scanning is dark' (P0001) and
+--       insufficient_privilege (42501) pass through unchanged.
+--       scan_meta ALLOW-LIST — venue.filter_staff_scan_meta(p_scan_meta jsonb)
+--       returns jsonb, IMMUTABLE, ZERO grants (reachable only through the definer
+--       record_scan_staff; 230 Section H tests it directly as the owner, without
+--       the flag). B's condition 2 as ruled by A+E 2026-10-26: NULL or '{}' -> '{}';
+--         device_label        text, 1..64 chars, else
+--                             'invalid_input: scan_meta.device_label must be 1-64 chars'
+--         credential_version  passed through as given
+--         key_id              passed through as given (B's 183 classifies malformed claims)
+--         device_id           REFUSED 'invalid_input: scan_meta.device_id is not accepted'
+--                             (B's X-5 parity with record_scan_door, 108:214)
+--         occurred_at         STRIPPED silently (A+E ruling, supersedes the earlier
+--                             "refuse"): the ledger gets the server's now();
+--                             scan_meta.occurred_at stays reserved for offline
+--                             reconcile batches (086/108 _reconcile_core). A client
+--                             clock can never reach venue.scan.occurred_at on this
+--                             path — 230 F19/F20 (flag ON), H7/H8 and G5 pin it.
+--         anything else       REFUSED 'invalid_input: scan_meta key not accepted: <key>'
+--         a non-object meta   REFUSED 'invalid_input: scan_meta must be a JSON object'
+--                             (jsonb_object_keys would otherwise raise its own text)
+--       p_command_key required non-empty ('precondition_failed: command key
+--       required'), forwarded verbatim. NOTE: device_label is validated and
+--       forwarded but venue.scan has no column for it on this chain; B's 183 adds
+--       the nullable venue.scan.device_label and stores it from scan_meta. Until
+--       then the scan row is actor-attributed only (actor_identity_id = caller,
+--       device_id NULL — scan_attribution_ck holds).
+--     venue_cmd.record_scan(p_atom_id uuid, p_session_id uuid, p_scan_meta jsonb,
+--                           p_command_key text) returns jsonb
+--       ONE-LINE LANGUAGE sql SECURITY INVOKER wrapper over venue.record_scan_staff
+--       (so 228's "every venue_cmd function is LANGUAGE sql, prosecdef=false"
+--       invariant survives — the logic lives in the definer above). No
+--       p_actor_device_id parameter exists on this surface.
+--     venue_cmd.validate_ticket_online(p_atom_id uuid, p_session_id uuid) returns jsonb
+--       LANGUAGE sql STABLE SECURITY INVOKER over venue.validate_ticket_online
+--       (086:1111; a READ, F renders scan results only). Same grants.
+--   The door-session edge path (venue.record_scan_door, venue.mint_door_session,
+--   kernel.assert_door_session, 108) is NOT touched: it stays the device-bound
+--   authority for later doors. PFA-26 (107, bcrypt door PIN) is IN production.
+--   Limits B recorded for the staff path: a venue-level role (any venue_scanner
+--   of the venue may scan any session of that venue), no rate limiter on the RPC
+--   path, client-side token verification under an honest-staff model (where
+--   token->atom verification runs on the staff path is B's open item, P3/P8).
 --
 -- COUNTING RULE (E + A, 2026-10-26, so the dashboard count equals the ground truth):
 --   admitted         = count of venue.scan rows with result='admitted' AND
@@ -107,8 +157,6 @@
 -- authenticated: 076:78, PART A grants).
 --
 -- GRANT DECISIONS (every one, because the CI grant gates read `public` only;
--- the rows for filter_staff_scan_meta, record_scan_staff, venue_cmd.record_scan and
--- venue_cmd.validate_ticket_online describe PART B's objects — absent until that commit lands;
 -- pgTAP 230 is the gate for these objects, 228 for the venue_cmd schema sweep,
 -- 226 (+ the 163 hunk) for venue_api):
 --   venue.filter_staff_scan_meta(jsonb)      EXECUTE : NOBODY (REVOKE ALL FROM PUBLIC, anon,
@@ -150,19 +198,21 @@
 -- here with its posture and the pgTAP that asserts it. Gate-2 census (ci.yml)
 -- reads `public` only: unchanged 35|126|37|49 (dated comment line). Rollback:
 -- supabase/rollbacks/20261026110000_scanner_staff_session_and_scan_counters_rollback.sql
--- — drops the view, the venue_cmd wrapper and the two venue functions (nothing
--- else), IF EXISTS, idempotent, rc 0.
--- PINS THIS PART MOVES: venue function count 90 -> 92 (144 A15, 145 A4, 148 B5,
--- 180 A5 — A/B patches in D's evidence dir; 227 A12 and 230 A19 — D's, edited
--- here); five-schema routine census 308 -> 310 (148 B2, 157 A46, 180 A6 —
+-- — drops the view, the three venue_cmd wrappers and the four venue functions
+-- (nothing else), IF EXISTS, idempotent, rc 0.
+-- PINS THIS MIGRATION MOVES: venue function count 90 -> 94 (144 A15, 145 A4,
+-- 148 B5, 180 A5 — A/B patches in D's evidence dir; 227 A12 and 230 A19 — D's,
+-- edited here); five-schema routine census 308 -> 312 (148 B2, 157 A46, 180 A6 —
 -- patches); venue_api views 8 -> 9 and the F1/F5/F6 matrices (226 — F's, one
--- hunk delivered as a patch); venue_cmd functions 6 -> 7 (228 A2/A3/A5-A7/
--- A14-A20/A23 — D's, edited here); 140 #27's named caller-authorized venue list
--- + the two counters names (patch). PART B moves them further (94 / 312 / 9).
+-- hunk delivered as a patch); venue_cmd functions 6 -> 9 (228 A2/A3/A5-A7/
+-- A14-A20/A23 — D's, edited here; 7 if PART B is dropped); 140 #27's named
+-- caller-authorized venue list + the three authenticated-execute venue names
+-- (patch; the zero-grant filter is outside that sweep). If PART B is dropped the
+-- venue count is 92 and the routine census 310.
 --
 -- VERIFICATION (after apply):
---   select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='venue';      -- 92 (was 90; 94 with PART B)
---   select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='venue_cmd';  -- 7 (was 6; 9 with PART B)
+--   select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='venue';      -- 94 (was 90)
+--   select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='venue_cmd';  -- 9 (was 6)
 --   select count(*) from pg_views where schemaname='venue_api';                                               -- 9 (was 8)
 --   select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace
 --    where n.nspname in ('venue','venue_cmd') and p.proname in ('get_session_scan_counters','list_session_scan_counters','record_scan_staff','filter_staff_scan_meta','record_scan','validate_ticket_online')
@@ -320,6 +370,136 @@ declare
     'venue.get_session_scan_counters(uuid)',
     'venue.list_session_scan_counters()',
     'venue_cmd.get_session_scan_counters(uuid)'
+  ];
+begin
+  foreach v_fn in array v_all loop
+    execute format('revoke all on function %s from public, anon, authenticated', v_fn);
+    execute format('grant execute on function %s to authenticated', v_fn);
+  end loop;
+end $$;
+
+-- ============================================================================
+-- PART B — the staff-session admission path (DROPPABLE; B's conditions 2026-10-26)
+-- ============================================================================
+
+-- ---------------------------------------------------------------------------
+-- B.0 venue.filter_staff_scan_meta — the allow-list, as a pure function (A+E
+--     ruling 2026-10-26). ZERO grants; the definer below calls it as its owner.
+-- ---------------------------------------------------------------------------
+create or replace function venue.filter_staff_scan_meta(p_scan_meta jsonb)
+returns jsonb
+language plpgsql
+immutable
+set search_path = ''
+as $$
+declare
+  v_key   text;
+  v_label text;
+  v_meta  jsonb := '{}'::jsonb;
+begin
+  if p_scan_meta is null then
+    return v_meta;
+  end if;
+  if jsonb_typeof(p_scan_meta) <> 'object' then
+    raise exception 'invalid_input: scan_meta must be a JSON object';
+  end if;
+  -- the named refusal first, whatever else the object carries (X-5 parity with record_scan_door)
+  if p_scan_meta ? 'device_id' then
+    raise exception 'invalid_input: scan_meta.device_id is not accepted';
+  end if;
+  for v_key in select k from jsonb_object_keys(p_scan_meta) k order by k loop
+    if v_key = 'device_label' then
+      if jsonb_typeof(p_scan_meta -> 'device_label') <> 'string' then
+        raise exception 'invalid_input: scan_meta.device_label must be 1-64 chars';
+      end if;
+      v_label := p_scan_meta ->> 'device_label';
+      if length(v_label) < 1 or length(v_label) > 64 then
+        raise exception 'invalid_input: scan_meta.device_label must be 1-64 chars';
+      end if;
+      v_meta := v_meta || jsonb_build_object('device_label', v_label);
+    elsif v_key = 'credential_version' then
+      v_meta := v_meta || jsonb_build_object('credential_version', p_scan_meta -> 'credential_version');
+    elsif v_key = 'key_id' then
+      v_meta := v_meta || jsonb_build_object('key_id', p_scan_meta -> 'key_id');
+    elsif v_key = 'occurred_at' then
+      null;  -- STRIPPED: the ledger is stamped by the server; reserved for offline reconcile batches
+    else
+      raise exception 'invalid_input: scan_meta key not accepted: %', v_key;
+    end if;
+  end loop;
+  return v_meta;
+end;
+$$;
+comment on function venue.filter_staff_scan_meta(jsonb) is
+  '163 (zero grant): the staff-path scan_meta allow-list. Keeps device_label (1-64 chars), credential_version and key_id as given; STRIPS occurred_at (server stamps time); REFUSES device_id by name, any other key by name, and a non-object. NULL -> {}. Called by venue.record_scan_staff.';
+revoke all on function venue.filter_staff_scan_meta(jsonb) from public, anon, authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- B.1 venue.record_scan_staff — command key, the allow-list, then venue.record_scan
+--     with a NULL device. No authority of its own; no exception handler.
+-- ---------------------------------------------------------------------------
+create or replace function venue.record_scan_staff(
+  p_atom_id uuid, p_session_id uuid, p_scan_meta jsonb, p_command_key text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_meta jsonb;
+begin
+  if p_command_key is null or length(trim(p_command_key)) = 0 then
+    raise exception 'precondition_failed: command key required';
+  end if;
+  v_meta := venue.filter_staff_scan_meta(p_scan_meta);
+  -- ONE authority: the flag gate, the venue_scanner/venue_manager gate and the core
+  -- are venue.record_scan's (086/108). The device is never settable from this path.
+  return venue.record_scan(p_atom_id, p_session_id, null::uuid, v_meta, p_command_key);
+end;
+$$;
+comment on function venue.record_scan_staff(uuid, uuid, jsonb, text) is
+  '163: the staff-session admission entrypoint (C7 amendment). Requires a command key, filters scan_meta through venue.filter_staff_scan_meta (device_label 1-64 chars, credential_version, key_id kept; occurred_at stripped; device_id and other keys refused), then calls venue.record_scan with a NULL device — role gate and native_scanning flag stay inside. No exception handler.';
+
+-- ---------------------------------------------------------------------------
+-- B.2 venue_cmd.record_scan — one line, LANGUAGE sql, SECURITY INVOKER
+-- ---------------------------------------------------------------------------
+create or replace function venue_cmd.record_scan(
+  p_atom_id uuid, p_session_id uuid, p_scan_meta jsonb, p_command_key text)
+returns jsonb
+language sql
+security invoker
+set search_path = ''
+as $$
+  select venue.record_scan_staff(p_atom_id, p_session_id, p_scan_meta, p_command_key)
+$$;
+comment on function venue_cmd.record_scan(uuid, uuid, jsonb, text) is
+  '163: invoker wrapper -> venue.record_scan_staff (no device parameter on this surface; actor = auth.uid()).';
+
+-- ---------------------------------------------------------------------------
+-- B.3 venue_cmd.validate_ticket_online — a READ, one line, STABLE
+-- ---------------------------------------------------------------------------
+create or replace function venue_cmd.validate_ticket_online(p_atom_id uuid, p_session_id uuid)
+returns jsonb
+language sql
+stable
+security invoker
+set search_path = ''
+as $$
+  select venue.validate_ticket_online(p_atom_id, p_session_id)
+$$;
+comment on function venue_cmd.validate_ticket_online(uuid, uuid) is
+  '163: invoker wrapper -> venue.validate_ticket_online (086). venue_scanner/venue_manager gate inside.';
+
+-- ---------------------------------------------------------------------------
+-- B.4 ACLs of PART B
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_fn text;
+  v_all constant text[] := array[
+    'venue.record_scan_staff(uuid, uuid, jsonb, text)',
+    'venue_cmd.record_scan(uuid, uuid, jsonb, text)',
+    'venue_cmd.validate_ticket_online(uuid, uuid)'
   ];
 begin
   foreach v_fn in array v_all loop
