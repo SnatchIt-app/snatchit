@@ -17,7 +17,6 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   bindOwnerFromAuthEvent,
-  issuanceHint,
   mintCredential,
   readMyAtoms,
   readMyPrimaryOrders,
@@ -95,28 +94,17 @@ describe('readMyAtoms — owner-scoped rows or an honest failure', () => {
   });
 });
 
-describe('issuanceHint — A’s rule, nothing more', () => {
-  const order = (over: Partial<PrimaryOrderRow>): PrimaryOrderRow => ({ order_id: 'o', status: 'pending', total_minor: 1000, currency: 'usd', created_at: 'x', atoms_issued: 0, payment_state: 'succeeded', ...over });
+describe('readMyPrimaryOrders — a failed read is null, so the hint is unknown, never none', () => {
+  const order = (over: Partial<PrimaryOrderRow> = {}): PrimaryOrderRow => ({ order_id: 'o', status: 'pending', total_minor: 1000, currency: 'USD', created_at: 'x', atoms_issued: 0, payment_state: 'none', ...over });
 
-  it('H1: pending order with succeeded payment = paid_pending; no orders = none; no read = unknown', () => {
-    expect(issuanceHint([order({})])).toBe('paid_pending');
-    expect(issuanceHint([])).toBe('none');
-    expect(issuanceHint(null)).toBe('unknown');
-  });
-
-  it('H2: a processing payment is payment_processing, never paid_pending; failed/none payments give none', () => {
-    expect(issuanceHint([order({ payment_state: 'processing' })])).toBe('payment_processing');
-    expect(issuanceHint([order({ payment_state: 'failed' })])).toBe('none');
-    expect(issuanceHint([order({ payment_state: 'none' })])).toBe('none');
-  });
-
-  it('H3: an issued order (atoms_issued > 0 or status issued) is none — the atoms read carries it', () => {
-    expect(issuanceHint([order({ status: 'issued', atoms_issued: 2 })])).toBe('none');
-  });
-
-  it('H4: readMyPrimaryOrders returns null on any failure so the hint is unknown, not none', async () => {
+  it('O1: an RPC error or a missing function is null; rows come back as given', async () => {
     expect(await readMyPrimaryOrders(async () => ({ data: null, error: { code: 'PGRST202' } }), SESSION)).toBeNull();
-    expect(await readMyPrimaryOrders(async () => ({ data: [order({})], error: null }), SESSION)).toEqual([order({})]);
+    expect(await readMyPrimaryOrders(async () => ({ data: [order()], error: null }), SESSION)).toEqual([order()]);
+  });
+
+  it('O2: a row without the contract shape is dropped, not guessed', async () => {
+    const bad = { order_id: 'o2', status: 'pending' };
+    expect(await readMyPrimaryOrders(async () => ({ data: [order(), bad], error: null }), SESSION)).toEqual([order()]);
   });
 });
 

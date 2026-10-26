@@ -5,6 +5,9 @@
  * and draws a code ONLY when a server credential is in hand (`credential.kind === 'ready'`). A
  * ready atom without a credential yet shows the pinned loading / refusal copy and a way to ask
  * again; a used, revoked, expired, held or unknown atom never asks.
+ *
+ * C-R4: while a refresh is in flight or after a refresh was refused for a transient reason, the
+ * code already on screen stays (the route decides with `afterMint`); `refreshNote` says so.
  */
 import { memo, useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
@@ -41,6 +44,7 @@ const NO_RETRY: ReadonlySet<string> = new Set(['not_owner', 'atom_terminal']);
 export const ENTITLEMENT_ACTIONS = {
   show: 'Show entry code',
   refresh: 'Refresh code',
+  refreshing: 'Refreshing code',
   retry: 'Try again',
   loading: 'Loading entry code',
 } as const;
@@ -54,7 +58,9 @@ export const EntitlementCard = memo(function EntitlementCard({
   index,
   total,
   credential,
-  qrSize,
+  refreshing,
+  refreshNote,
+  qrAvailable,
   onShowCode,
   onEncodeFailure,
 }: {
@@ -62,7 +68,11 @@ export const EntitlementCard = memo(function EntitlementCard({
   index: number;
   total: number;
   credential: CredentialState;
-  qrSize: number;
+  /** A refresh is in flight while the current code stays on screen. */
+  refreshing: boolean;
+  refreshNote: string | null;
+  /** Width available to the code card, in points. */
+  qrAvailable: number;
   onShowCode: () => void;
   onEncodeFailure: () => void;
 }) {
@@ -86,9 +96,9 @@ export const EntitlementCard = memo(function EntitlementCard({
       {canRequestCredential(display) ? (
         <View style={s.codeArea}>
           {credential.kind === 'ready' ? (
-            <TicketQR token={credential.credential.token} label={qrLabel} size={qrSize} onEncodeFailure={onEncodeFailure} />
+            <TicketQR token={credential.credential.token} label={qrLabel} available={qrAvailable} onEncodeFailure={onEncodeFailure} />
           ) : credential.kind === 'minting' ? (
-            <View style={[s.placeholder, { width: qrSize, height: qrSize }]}>
+            <View style={[s.placeholder, { width: Math.min(qrAvailable, 336), height: Math.min(qrAvailable, 336) }]}>
               <Spinner label={ENTITLEMENT_ACTIONS.loading} />
             </View>
           ) : credential.kind === 'refused' ? (
@@ -104,8 +114,18 @@ export const EntitlementCard = memo(function EntitlementCard({
             <Button label={ENTITLEMENT_ACTIONS.show} variant="primary" size="md" onPress={onShowCode} />
           )}
           <Text style={[textStyle('bodySm'), s.body]}>{copy.body}</Text>
+          {refreshNote && credential.kind === 'ready' ? (
+            <Text style={[textStyle('bodySm'), s.note]} accessibilityLiveRegion="polite">{refreshNote}</Text>
+          ) : null}
           {credential.kind === 'ready' ? (
-            <Button label={ENTITLEMENT_ACTIONS.refresh} variant="ghost" size="sm" onPress={onShowCode} />
+            <Button
+              label={ENTITLEMENT_ACTIONS.refresh}
+              variant="ghost"
+              size="sm"
+              loading={refreshing}
+              pendingLabel={ENTITLEMENT_ACTIONS.refreshing}
+              onPress={onShowCode}
+            />
           ) : null}
         </View>
       ) : (
@@ -137,5 +157,6 @@ function makeStyles(p: Palette) {
     refusal: { alignItems: 'center', gap: v2.space.sm, paddingVertical: v2.space.md },
     refusalText: { color: p.text.primary, textAlign: 'center' },
     body: { color: p.text.secondary, textAlign: 'center' },
+    note: { color: p.status.warning, textAlign: 'center' },
   });
 }

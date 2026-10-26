@@ -44,17 +44,28 @@ describe('route and entry point', () => {
 describe('TicketQR — fixed contrast, quiet zone, accessible', () => {
   const qr = src('src/components/tickets/TicketQR.tsx');
 
-  it('Q1: renders the token through qrSvg into expo-image as an SVG data URI, byte mode, EC M', () => {
-    expect(qr).toContain("from '@/src/lib/qr/qrEncode'");
-    expect(qr).toContain("encodeQr(token, { ec: 'M' })");
+  it('Q1: renders the token through chooseQrRender (C-R2 pitch floor) and qrSvg into expo-image as an SVG data URI', () => {
+    expect(qr).toContain("from '@/src/lib/qr/qrLayout'");
+    expect(qr).toContain('chooseQrRender(token, available - 2 * CARD_MARGIN)');
+    expect(qr).toContain('qrSvg(r.matrix)');
     expect(qr).toContain("'data:image/svg+xml;utf8,'");
     expect(qr).toContain("from 'expo-image'");
+    expect(qr).toContain('cachePolicy="none"');
   });
 
   it('Q2: the symbol never takes theme colours — no palette in the file, white field pinned', () => {
     expect(qr).not.toContain('useTheme');
     expect(qr).not.toContain('palette');
     expect(qr).toContain("backgroundColor: '#FFFFFF'");
+  });
+
+  it('Q2b: C-R3 — the rounded card sits outside the symbol: margin ≥ the depth a radius cuts into a corner, no clipping of the image', () => {
+    const CARD_MARGIN = Number(/export const CARD_MARGIN = (\d+(?:\.\d+)?);/.exec(qr)?.[1]);
+    const CARD_RADIUS = Number(/export const CARD_RADIUS = (\d+(?:\.\d+)?);/.exec(qr)?.[1]);
+    expect(CARD_RADIUS).toBeGreaterThan(0);
+    expect(CARD_MARGIN).toBeGreaterThanOrEqual(CARD_RADIUS * (1 - Math.SQRT1_2));
+    expect(qr).toContain('padding: CARD_MARGIN');
+    expect(qr).not.toContain("overflow: 'hidden'");
   });
 
   it('Q3: the image is labelled for VoiceOver and is not decorative', () => {
@@ -90,6 +101,14 @@ describe('EntitlementCard and the view — a code only from a server credential'
     expect(route).toContain('useFocusEffect(');
     expect(route).not.toContain('AsyncStorage');
     expect(route).not.toContain('SecureStore');
+  });
+
+  it('E4b: C-R4 + C5 — the route decides refresh outcomes with afterMint, keeps a code visible while refreshing, and reads orders + session facts', () => {
+    const route = src('app/ticket/[session].tsx');
+    expect(route).toContain('afterMint(latest, r, now,');
+    expect(route).toMatch(/if \(before\.kind === 'ready'\) setRefreshing/);
+    expect(route).toContain('issuanceHint(orderRows)');
+    expect(route).toContain('readPrimarySession(sessionRpc, sessionId)');
   });
 
   it('E5: the stale rule is the server TTL on a monotonic clock, never Date.now() against not_after', () => {

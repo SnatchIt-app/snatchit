@@ -7,7 +7,10 @@
  *                         `parseCredentialResponse`.
  *   readMyAtoms         → `public.get_my_ticket_atoms(p_event_session_id)`  (registry 182, D; PENDING)
  *   readMyPrimaryOrders → `public.get_my_primary_orders(p_event_session_id)` (registry 182, D; PENDING)
- *   issuanceHint        → A's rule: order `pending` + payment `succeeded` = issuance pending.
+ *   readPrimarySession  → `public.get_primary_session(p_session_id)` (registry 182, D; PENDING): the event
+ *                         facts in the venue's own zone (`timezone`, `*_local`) and the age note. 0 rows
+ *                         (draft/announced/cancelled/unknown) and failures are both `null` facts.
+ *   (orders → words: primaryOrders.ts `issuanceHint`, A's C5 payment_state ruling.)
  *   bindOwnerFromAuthEvent / watchEntitlementSignOut → the cache follows the session (Q04).
  *
  * Failure vocabulary is the app's: a failed read is `failed`, never an empty list (a count of zero
@@ -21,10 +24,12 @@ import {
   type AtomsLoad,
   type Credential,
   type CredentialRefusal,
-  type IssuanceHint,
   type MyTicketAtom,
 } from './entitlement';
 import { bindEntitlementOwner } from './entitlementStore';
+import type { PrimaryOrderRow } from './primaryOrders';
+
+export type { PrimaryOrderRow } from './primaryOrders';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const AUTH_CODES: ReadonlySet<string> = new Set(['42501', '28000', 'PGRST301']);
@@ -114,20 +119,18 @@ export async function readMyAtoms(read: RpcReader, eventSessionId: string, isOff
 export const atomsRpc: RpcReader = (eventSessionId) =>
   supabase.rpc('get_my_ticket_atoms', { p_event_session_id: eventSessionId }) as unknown as Promise<RpcResult>;
 
-export interface PrimaryOrderRow {
-  order_id: string;
-  status: string;
-  total_minor: number;
-  currency: string;
-  created_at: string;
-  atoms_issued: number;
-  payment_state: 'none' | 'processing' | 'succeeded' | 'failed';
-}
-
 function isOrderRow(v: unknown): v is PrimaryOrderRow {
   if (!v || typeof v !== 'object') return false;
   const r = v as Record<string, unknown>;
-  return typeof r.order_id === 'string' && typeof r.status === 'string' && typeof r.payment_state === 'string' && typeof r.atoms_issued === 'number';
+  return (
+    typeof r.order_id === 'string' &&
+    typeof r.status === 'string' &&
+    typeof r.total_minor === 'number' &&
+    typeof r.currency === 'string' &&
+    typeof r.created_at === 'string' &&
+    typeof r.atoms_issued === 'number' &&
+    typeof r.payment_state === 'string'
+  );
 }
 
 /** Null on any failure, so the caller's hint is `unknown` — never `none`. */
@@ -144,12 +147,60 @@ export async function readMyPrimaryOrders(read: RpcReader, eventSessionId: strin
 export const ordersRpc: RpcReader = (eventSessionId) =>
   supabase.rpc('get_my_primary_orders', { p_event_session_id: eventSessionId }) as unknown as Promise<RpcResult>;
 
-export function issuanceHint(orders: PrimaryOrderRow[] | null): IssuanceHint {
-  if (orders === null) return 'unknown';
-  if (orders.some((o) => o.status === 'pending' && o.payment_state === 'succeeded' && o.atoms_issued === 0)) return 'paid_pending';
-  if (orders.some((o) => o.status === 'pending' && o.payment_state === 'processing')) return 'payment_processing';
-  return 'none';
+// ── Session facts (get_primary_session) ─────────────────────────────────────
+
+/** The subset of `get_primary_session` the ticket screen shows. Times are the venue's own clock. */
+export interface SessionFacts {
+  title: string | null;
+  venueName: string | null;
+  address: string | null;
+  sessionLabel: string | null;
+  /** IANA zone of the venue, e.g. 'America/New_York'. */
+  timezone: string | null;
+  /** 'YYYY-MM-DD HH24:MI' in the venue zone (D's 182 format). */
+  startsAtLocal: string | null;
+  doorsAtLocal: string | null;
+  /** Absolute instant, for the zone abbreviation only. */
+  startsAt: string | null;
+  /** all_ages | 18_plus | 21_plus | null (not specified). Display only — the door checks ID. */
+  ageRestriction: string | null;
 }
+
+const str = (v: unknown): string | null => (typeof v === 'string' && v.length > 0 ? v : null);
+
+export function sessionFactsFromRow(row: unknown): SessionFacts | null {
+  if (!row || typeof row !== 'object') return null;
+  const r = row as Record<string, unknown>;
+  const session = (r.session && typeof r.session === 'object' ? r.session : null) as Record<string, unknown> | null;
+  const event = (r.event && typeof r.event === 'object' ? r.event : null) as Record<string, unknown> | null;
+  const venue = (r.venue && typeof r.venue === 'object' ? r.venue : null) as Record<string, unknown> | null;
+  if (!session || !event) return null;
+  return {
+    title: str(event.title),
+    venueName: str(venue?.name),
+    address: str(venue?.address),
+    sessionLabel: str(session.session_label),
+    timezone: str(session.timezone) ?? str(venue?.timezone),
+    startsAtLocal: str(session.starts_at_local),
+    doorsAtLocal: str(session.doors_at_local),
+    startsAt: str(session.starts_at),
+    ageRestriction: str(event.age_restriction),
+  };
+}
+
+/** 0 rows (not available for this session) and any failure are both `null`: the screen falls back. */
+export async function readPrimarySession(read: RpcReader, sessionId: string): Promise<SessionFacts | null> {
+  try {
+    const res = await read(sessionId);
+    if (res.error || !Array.isArray(res.data) || res.data.length === 0) return null;
+    return sessionFactsFromRow(res.data[0]);
+  } catch {
+    return null;
+  }
+}
+
+export const sessionRpc: RpcReader = (sessionId) =>
+  supabase.rpc('get_primary_session', { p_session_id: sessionId }) as unknown as Promise<RpcResult>;
 
 // ── Session binding ──────────────────────────────────────────────────────────
 

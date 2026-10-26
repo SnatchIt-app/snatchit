@@ -14,7 +14,10 @@ import { describe, expect, it } from 'vitest';
 
 import {
   CREDENTIAL_COPY,
+  DETAIL_COPY,
   ENTITLEMENT_COPY,
+  REFRESH_KEPT_NOTE,
+  afterMint,
   canRequestCredential,
   credentialStale,
   detailState,
@@ -95,9 +98,22 @@ describe('detailState — a failed or inconsistent read is never "no tickets"', 
     expect(detailState({ kind: 'ready', atoms: [] }, 'unknown', 2)).toEqual({ kind: 'inconsistent' });
   });
 
-  it('S3: paid but not yet issued is pending issuance; a processing payment is its own state — neither is empty or a code', () => {
-    expect(detailState({ kind: 'ready', atoms: [] }, 'paid_pending', 0)).toEqual({ kind: 'pending_issuance' });
-    expect(detailState({ kind: 'ready', atoms: [] }, 'payment_processing', 0)).toEqual({ kind: 'payment_processing' });
+  it('S3: with no atoms, the order read decides the words — awaiting, processing, issuing, failed, elsewhere; none is empty or a code', () => {
+    const none = { kind: 'ready' as const, atoms: [] };
+    expect(detailState(none, 'awaiting_confirmation', 0)).toEqual({ kind: 'awaiting_confirmation' });
+    expect(detailState(none, 'payment_processing', 0)).toEqual({ kind: 'payment_processing' });
+    expect(detailState(none, 'paid_pending', 0)).toEqual({ kind: 'pending_issuance' });
+    expect(detailState(none, 'payment_failed', 0)).toEqual({ kind: 'payment_failed' });
+    expect(detailState(none, 'issued', 0)).toEqual({ kind: 'not_on_account' });
+    // C5 ruling, pinned in the copy: (pending, none) never reads as unpaid.
+    expect(`${DETAIL_COPY.awaiting_confirmation.title} ${DETAIL_COPY.awaiting_confirmation.body}`.toLowerCase()).not.toMatch(/unpaid|not paid/);
+  });
+
+  it('S3b: atoms on screen win over any order hint — an order never hides or replaces an atom', () => {
+    const a = [atom()];
+    for (const h of ['awaiting_confirmation', 'payment_failed', 'issued', 'unknown'] as const) {
+      expect(detailState({ kind: 'ready', atoms: a }, h, 1), h).toEqual({ kind: 'atoms', atoms: a });
+    }
   });
 
   it('S4: empty only when nothing is expected and nothing is pending', () => {
@@ -142,6 +158,38 @@ describe('parseCredentialResponse — only a well-formed server token becomes a 
     expect(credentialStale(ready, 1_000 + 600_000, 2)).toBe(true);
     expect(credentialStale(ready, 1_000, 3)).toBe(true);
     expect(credentialStale({ kind: 'idle' }, 0, 2)).toBe(false);
+  });
+});
+
+describe('afterMint — C-R4: a refused refresh keeps a still-valid code; only the server withdraws it', () => {
+  const cred = (v = 2) => ({ token: token(), credential_version: v, signing_key_id: 'k', not_after: 'x', ttl_seconds: 600 });
+  const ready = { kind: 'ready' as const, credential: cred(), receivedAtMs: 1_000 };
+
+  it('R1: a successful mint replaces whatever was there, stamped with the receipt time', () => {
+    const next = cred(3);
+    expect(afterMint(ready, { ok: true, credential: next }, 5_000, 3)).toEqual({ state: { kind: 'ready', credential: next, receivedAtMs: 5_000 }, note: null });
+  });
+
+  it('R2: rate-limited, offline, signing-unavailable or unreadable refreshes keep the current code, with a note', () => {
+    for (const reason of ['rate_limited', 'offline', 'signing_unavailable', 'unavailable'] as const) {
+      expect(afterMint(ready, { ok: false, reason }, 2_000, 2), reason).toEqual({ state: ready, note: REFRESH_KEPT_NOTE });
+    }
+    expect(REFRESH_KEPT_NOTE.toLowerCase()).not.toMatch(/valid|admit|guarantee/);
+  });
+
+  it('R3: not_owner, atom_terminal and signed_out withdraw the code at once', () => {
+    for (const reason of ['not_owner', 'atom_terminal', 'signed_out'] as const) {
+      expect(afterMint(ready, { ok: false, reason }, 2_000, 2), reason).toEqual({ state: { kind: 'refused', reason }, note: null });
+    }
+  });
+
+  it('R4: a code past its TTL or behind the atom version is not kept, even on a transient refusal', () => {
+    expect(afterMint(ready, { ok: false, reason: 'rate_limited' }, 1_000 + 600_000, 2).state).toEqual({ kind: 'refused', reason: 'rate_limited' });
+    expect(afterMint(ready, { ok: false, reason: 'offline' }, 2_000, 3).state).toEqual({ kind: 'refused', reason: 'offline' });
+  });
+
+  it('R5: with no code on screen a refusal is shown as the refusal', () => {
+    expect(afterMint({ kind: 'minting' }, { ok: false, reason: 'rate_limited' }, 0, 1)).toEqual({ state: { kind: 'refused', reason: 'rate_limited' }, note: null });
   });
 });
 

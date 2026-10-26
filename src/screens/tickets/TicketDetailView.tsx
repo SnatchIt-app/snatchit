@@ -1,14 +1,16 @@
 /**
  * src/screens/tickets/TicketDetailView.tsx — the buyer's ticket detail, as a pure view.
  *
- * Takes everything it shows as props (the event facts from get_my_tickets, the per-atom state
- * from entitlement.ts, one credential state per atom) so the `_dev/v3-ticket-detail` harness can
- * render every state from literals and app/ticket/[session].tsx owns the reads. The view decides
- * nothing: it maps DetailState to the pinned copy and hands each ready atom an EntitlementCard.
+ * Takes everything it shows as props so the `_dev/v3-ticket-detail` harness can render every
+ * state from literals and app/ticket/[session].tsx owns the reads. The view decides nothing: it
+ * maps DetailState to the pinned copy, hands each ready atom an EntitlementCard, and lists the
+ * buyer's orders for the session with one honest line each.
  *
- * What the event block shows: title, date + doors + start in one named zone (ticketWhen.ts), venue,
- * session label, and the entry restriction ONLY when the session read supplied one (the pending
- * `get_primary_session` contract) — never a guessed "21+".
+ * Event block, in this order of authority (A's time rule, from D's 162/182):
+ *   1. `facts` from get_primary_session — title, venue, the VENUE's local date/doors/start with the
+ *      zone named (`whenFromLocal`), and the age note from `age_restriction` (display only);
+ *   2. otherwise `group` from get_my_tickets — the instant formatted with its zone named.
+ * Never a guessed "21+": no age line without the server's value.
  */
 import { useMemo } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
@@ -18,7 +20,9 @@ import { SettingsHeader } from '@/src/components/account/SettingsHeader';
 import { EntitlementCard } from '@/src/components/tickets/EntitlementCard';
 import { EmptyState, Spinner } from '@/src/components/ui';
 import { DETAIL_COPY, type CredentialState, type DetailState } from '@/src/lib/tickets/entitlement';
-import { entryRestrictionLine, whenLine } from '@/src/lib/tickets/ticketWhen';
+import type { SessionFacts } from '@/src/lib/tickets/entitlementReads';
+import type { OrderLine } from '@/src/lib/tickets/primaryOrders';
+import { entryRestrictionLine, whenFromLocal, whenLine, type WhenLine } from '@/src/lib/tickets/ticketWhen';
 import type { MyTicketGroup } from '@/src/lib/tickets/types';
 import { textStyle } from '@/src/theme/typography';
 import { useTheme } from '@/src/theme/appearance';
@@ -29,20 +33,21 @@ export const TICKET_DETAIL_COPY = {
   screenTitle: 'Ticket',
   signInAction: 'Sign in',
   sampleCaveat: 'Sample — not a ticket',
+  ordersHeading: 'Your orders',
 } as const;
 
-/** From the pending session read; null until it exists. */
-export interface SessionFacts {
-  age_min: number | null;
-  timezone: string | null;
-}
+export type { SessionFacts } from '@/src/lib/tickets/entitlementReads';
 
 export interface TicketDetailViewProps {
   group: Pick<MyTicketGroup, 'event_title' | 'starts_at' | 'doors_at' | 'venue_name' | 'session_label'> | null;
   facts: SessionFacts | null;
   state: DetailState;
+  orders: OrderLine[];
   credentials: Record<string, CredentialState>;
-  refreshing: boolean;
+  /** Atoms whose code is being refreshed while the current one stays on screen. */
+  refreshing: Record<string, boolean>;
+  refreshNotes: Record<string, string | null>;
+  pullRefreshing: boolean;
   onRefresh: () => void;
   onShowCode: (atomId: string) => void;
   onEncodeFailure: (atomId: string) => void;
@@ -52,42 +57,65 @@ export interface TicketDetailViewProps {
   sampleCaveat?: boolean;
 }
 
+/** The event block's text, from the strongest source available. Exported for tests. */
+export function eventBlock(
+  facts: SessionFacts | null,
+  group: TicketDetailViewProps['group'],
+): { title: string | null; when: WhenLine | null; venue: string | null; restriction: string | null } {
+  const title = facts?.title ?? group?.event_title ?? null;
+  const fromLocal = facts
+    ? whenFromLocal({ startsAtLocal: facts.startsAtLocal, doorsAtLocal: facts.doorsAtLocal, timezone: facts.timezone, startsAt: facts.startsAt })
+    : null;
+  const when = fromLocal ?? (group ? whenLine(group.starts_at, group.doors_at, facts?.timezone ?? undefined) : null);
+  const venueName = facts?.venueName ?? group?.venue_name ?? null;
+  const label = facts?.sessionLabel ?? group?.session_label ?? null;
+  const venue = venueName ? `${venueName}${label ? `  -  ${label}` : ''}` : null;
+  return { title, when, venue, restriction: entryRestrictionLine(facts?.ageRestriction) };
+}
+
+const NO_ATOMS_COPY: Partial<Record<DetailState['kind'], { title: string; body: string }>> = {
+  awaiting_confirmation: DETAIL_COPY.awaiting_confirmation,
+  payment_processing: DETAIL_COPY.payment_processing,
+  pending_issuance: DETAIL_COPY.pending_issuance,
+  payment_failed: DETAIL_COPY.payment_failed,
+  not_on_account: DETAIL_COPY.not_on_account,
+  inconsistent: DETAIL_COPY.inconsistent,
+  empty: DETAIL_COPY.empty,
+};
+
 export function TicketDetailView(props: TicketDetailViewProps) {
   const { palette } = useTheme();
   const s = useMemo(() => makeStyles(palette), [palette]);
   const { width } = useWindowDimensions();
-  // The code fills the card width on small phones and caps at 320pt on large ones: a 77-module
-  // symbol at 320pt is ~4pt per module, comfortable for a phone camera at arm's length.
-  const qrSize = Math.min(320, Math.floor(width - 2 * v2.space.lg - 2 * v2.space.lg));
-  const when = props.group ? whenLine(props.group.starts_at, props.group.doors_at, props.facts?.timezone ?? undefined) : null;
-  const restriction = entryRestrictionLine(props.facts?.age_min);
+  // The code card may use the content width inside the entitlement card's own padding.
+  const qrAvailable = Math.floor(width - 2 * v2.space.lg - 2 * v2.space.lg);
+  const ev = eventBlock(props.facts, props.group);
   const { state } = props;
+  const noAtoms = NO_ATOMS_COPY[state.kind];
 
   return (
     <View style={s.root}>
       <SettingsHeader title={TICKET_DETAIL_COPY.screenTitle} onBack={props.onBack} />
       <ScrollView
         contentContainerStyle={s.content}
-        refreshControl={<RefreshControl refreshing={props.refreshing} onRefresh={props.onRefresh} tintColor={palette.brand.red} />}
+        refreshControl={<RefreshControl refreshing={props.pullRefreshing} onRefresh={props.onRefresh} tintColor={palette.brand.red} />}
         showsVerticalScrollIndicator={false}
       >
         {props.sampleCaveat ? (
           <Text style={[textStyle('label'), s.caveat]} accessibilityRole="header">{TICKET_DETAIL_COPY.sampleCaveat}</Text>
         ) : null}
 
-        {props.group ? (
+        {ev.title ? (
           <View style={s.event} accessible accessibilityRole="header">
-            <Text style={[textStyle('nameOrder'), s.title]}>{props.group.event_title}</Text>
-            {when ? (
+            <Text style={[textStyle('nameOrder'), s.title]}>{ev.title}</Text>
+            {ev.when ? (
               <>
-                <Text style={[textStyle('body'), s.meta]}>{when.date}</Text>
-                <Text style={[textStyle('body'), s.meta]}>{when.times}</Text>
+                <Text style={[textStyle('body'), s.meta]}>{ev.when.date}</Text>
+                <Text style={[textStyle('body'), s.meta]}>{ev.when.times}</Text>
               </>
             ) : null}
-            <Text style={[textStyle('body'), s.meta]}>
-              {props.group.venue_name}{props.group.session_label ? `  -  ${props.group.session_label}` : ''}
-            </Text>
-            {restriction ? <Text style={[textStyle('bodySm'), s.restriction]}>{restriction}</Text> : null}
+            {ev.venue ? <Text style={[textStyle('body'), s.meta]}>{ev.venue}</Text> : null}
+            {ev.restriction ? <Text style={[textStyle('bodySm'), s.restriction]}>{ev.restriction}</Text> : null}
           </View>
         ) : null}
 
@@ -103,15 +131,7 @@ export function TicketDetailView(props: TicketDetailViewProps) {
           ) : (
             <ScreenState state={state.failure === 'offline' ? 'offline' : 'error'} onRetry={props.onRefresh} />
           )
-        ) : state.kind === 'pending_issuance' ? (
-          <EmptyState title={DETAIL_COPY.pending_issuance.title} body={DETAIL_COPY.pending_issuance.body} />
-        ) : state.kind === 'payment_processing' ? (
-          <EmptyState title={DETAIL_COPY.payment_processing.title} body={DETAIL_COPY.payment_processing.body} />
-        ) : state.kind === 'inconsistent' ? (
-          <EmptyState title={DETAIL_COPY.inconsistent.title} body={DETAIL_COPY.inconsistent.body} />
-        ) : state.kind === 'empty' ? (
-          <EmptyState title={DETAIL_COPY.empty.title} body={DETAIL_COPY.empty.body} />
-        ) : (
+        ) : state.kind === 'atoms' ? (
           <View style={s.cards}>
             {state.atoms.map((atom, i) => (
               <EntitlementCard
@@ -120,13 +140,29 @@ export function TicketDetailView(props: TicketDetailViewProps) {
                 index={i}
                 total={state.atoms.length}
                 credential={props.credentials[atom.ticket_atom_id] ?? { kind: 'idle' }}
-                qrSize={qrSize}
+                refreshing={props.refreshing[atom.ticket_atom_id] === true}
+                refreshNote={props.refreshNotes[atom.ticket_atom_id] ?? null}
+                qrAvailable={qrAvailable}
                 onShowCode={() => props.onShowCode(atom.ticket_atom_id)}
                 onEncodeFailure={() => props.onEncodeFailure(atom.ticket_atom_id)}
               />
             ))}
           </View>
-        )}
+        ) : noAtoms ? (
+          <EmptyState title={noAtoms.title} body={noAtoms.body} />
+        ) : null}
+
+        {props.orders.length > 0 && state.kind !== 'loading' && !(state.kind === 'failed' && state.failure === 'signed_out') ? (
+          <View style={s.orders}>
+            <Text style={[textStyle('sectionLabel'), s.ordersHeading]} accessibilityRole="header">{TICKET_DETAIL_COPY.ordersHeading}</Text>
+            {props.orders.map((o) => (
+              <View key={o.orderId} style={s.orderRow} accessible accessibilityLabel={`Order, ${o.amount === '—' ? 'amount unavailable' : o.amount}, ${o.status}`}>
+                <Text style={[textStyle('body'), s.orderStatus]} numberOfLines={2}>{o.status}</Text>
+                <Text style={[textStyle('body'), s.orderAmount]}>{o.amount}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
       </ScrollView>
     </View>
   );
@@ -143,5 +179,18 @@ function makeStyles(p: Palette) {
     restriction: { color: p.text.primary, marginTop: v2.space.xs },
     center: { paddingVertical: v2.space.xxl, alignItems: 'center' },
     cards: { gap: v2.space.md },
+    orders: { gap: v2.space.sm },
+    ordersHeading: { color: p.text.secondary },
+    orderRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      gap: v2.space.md,
+      paddingVertical: v2.space.sm,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: p.border.default,
+    },
+    orderStatus: { color: p.text.primary, flexShrink: 1 },
+    orderAmount: { color: p.text.secondary },
   });
 }

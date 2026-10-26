@@ -19,6 +19,8 @@
  * in this tree. Nothing here is a claim that any of it is live.
  */
 
+import { ORDER_COPY, type IssuanceHint } from './primaryOrders';
+
 export type AtomState = 'issued' | 'active' | 'scanned' | 'voided' | 'expired';
 export type ResaleState = 'none' | 'listed' | 'locked' | 'refund_hold' | 'dispute_hold';
 
@@ -75,16 +77,19 @@ export type AtomsLoad =
   | { kind: 'ready'; atoms: MyTicketAtom[] };
 
 /**
- * From the requested order read: `paid_pending` = the order is paid and issuance has not landed;
- * `none` = nothing pending; `unknown` = the read is not available (contract pending or failed).
+ * The order read's verdict (primaryOrders.ts `issuanceHint`, CONTRACTS C5 + A's payment_state ruling).
+ * Re-exported so screens import one vocabulary.
  */
-export type IssuanceHint = 'paid_pending' | 'payment_processing' | 'none' | 'unknown';
+export type { IssuanceHint } from './primaryOrders';
 
 export type DetailState =
   | { kind: 'loading' }
   | { kind: 'failed'; failure: AtomsFailure }
-  | { kind: 'pending_issuance' }
+  | { kind: 'awaiting_confirmation' }
   | { kind: 'payment_processing' }
+  | { kind: 'pending_issuance' }
+  | { kind: 'payment_failed' }
+  | { kind: 'not_on_account' }
   | { kind: 'inconsistent' }
   | { kind: 'empty' }
   | { kind: 'atoms'; atoms: MyTicketAtom[] };
@@ -92,21 +97,31 @@ export type DetailState =
 /**
  * `expectedQuantity` is the group row's quantity from get_my_tickets (what the person was told they
  * own). A per-atom read of zero against an expectation above zero is a contradiction between two
- * server reads, shown as such — never as "no tickets".
+ * server reads, shown as such — never as "no tickets". With atoms on screen the orders add only
+ * their own line (the order list); they never hide an atom or invent one.
  */
 export function detailState(load: AtomsLoad, issuance: IssuanceHint, expectedQuantity: number): DetailState {
   if (load.kind === 'loading') return { kind: 'loading' };
   if (load.kind === 'failed') return { kind: 'failed', failure: load.failure };
   if (load.atoms.length > 0) return { kind: 'atoms', atoms: load.atoms };
-  if (issuance === 'paid_pending') return { kind: 'pending_issuance' };
-  if (issuance === 'payment_processing') return { kind: 'payment_processing' };
+  switch (issuance) {
+    case 'awaiting_confirmation': return { kind: 'awaiting_confirmation' };
+    case 'payment_processing': return { kind: 'payment_processing' };
+    case 'paid_pending': return { kind: 'pending_issuance' };
+    case 'payment_failed': return { kind: 'payment_failed' };
+    case 'issued': return { kind: 'not_on_account' };
+    default: break;
+  }
   if (expectedQuantity > 0) return { kind: 'inconsistent' };
   return { kind: 'empty' };
 }
 
 export const DETAIL_COPY = {
-  payment_processing: { title: 'Payment processing', body: 'Your payment is still being confirmed. Your ticket will be issued once it clears. Pull down to check again.' },
-  pending_issuance: { title: 'Issuance pending', body: 'Your payment is confirmed. Your ticket is being issued — this usually takes a moment. Pull down to check again.' },
+  awaiting_confirmation: ORDER_COPY.awaiting,
+  payment_processing: ORDER_COPY.processing,
+  pending_issuance: ORDER_COPY.paidPending,
+  payment_failed: ORDER_COPY.failed,
+  not_on_account: ORDER_COPY.elsewhere,
   inconsistent: { title: 'Couldn’t load your tickets', body: 'We couldn’t load the tickets for this event. Pull down to try again.' },
   empty: { title: 'No tickets for this event', body: 'Tickets you own for this event will show up here.' },
   offline: { title: 'You’re offline', body: 'Your tickets will load when you’re back online.' },
@@ -207,6 +222,33 @@ export function credentialStale(state: CredentialState, nowMs: number, versionNo
   if (state.credential.credential_version !== versionNow) return true;
   return nowMs - state.receivedAtMs >= state.credential.ttl_seconds * 1000;
 }
+
+/**
+ * Refusals that say the CODE ITSELF is no longer good for this person: the server refused the
+ * ticket (terminal, not theirs) or the session (signed out). A code on screen is withdrawn.
+ */
+const WITHDRAWS_CODE: ReadonlySet<CredentialRefusal> = new Set(['not_owner', 'atom_terminal', 'signed_out']);
+
+/**
+ * C-R4 (E, 2026-10-26): the state after a mint answers. A refresh that is refused for a transient
+ * reason (rate limit, offline, signing briefly unavailable, unreadable answer) keeps a code that
+ * is still within its server TTL and version, with a short note; the code goes only when the
+ * server says the ticket or the session is no longer good, or when `credentialStale` says so.
+ */
+export function afterMint(
+  prev: CredentialState,
+  result: { ok: true; credential: Credential } | { ok: false; reason: CredentialRefusal },
+  nowMs: number,
+  versionNow: number,
+): { state: CredentialState; note: string | null } {
+  if (result.ok) return { state: { kind: 'ready', credential: result.credential, receivedAtMs: nowMs }, note: null };
+  if (prev.kind === 'ready' && !WITHDRAWS_CODE.has(result.reason) && !credentialStale(prev, nowMs, versionNow)) {
+    return { state: prev, note: REFRESH_KEPT_NOTE };
+  }
+  return { state: { kind: 'refused', reason: result.reason }, note: null };
+}
+
+export const REFRESH_KEPT_NOTE = 'Couldn’t refresh the code just now. The code shown is the one you already have.';
 
 export const CREDENTIAL_COPY: Record<CredentialRefusal, string> = {
   not_owner: 'This ticket isn’t on this account.',

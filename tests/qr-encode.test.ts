@@ -62,7 +62,7 @@ describe('encodeQr — an independent decoder reads back exactly what went in', 
         expect(decode(input, ec).text, `ec=${ec} n=${n}`).toBe(input);
       }
     }
-  });
+  }, 60_000);
 
   it('E4: bytes outside ASCII survive (UTF-8 byte mode): the decoder sees the same text', () => {
     const r = decode('Wynwood · 21+ — doors 22:00');
@@ -112,5 +112,82 @@ describe('qrSvg — the on-screen symbol keeps its quiet zone and contrast regar
     const svg = qrSvg(encodeQr('SNATCHIT'));
     expect(svg.includes('\n')).toBe(false);
     expect(svg.startsWith('<svg ')).toBe(true);
+  });
+});
+
+/**
+ * C-R1 (E, 2026-10-26): the decoder proof must cover the path the app renders — `qrSvg` — not only
+ * `qrToRgba`. This rasterises the SVG with a small independent reader of its own markup (viewBox,
+ * the background rect, and the path's M/h/v/z commands, absolute and relative) and decodes it with
+ * jsqr. What remains unproven here is expo-image's own rasterisation on a device (device gate + one
+ * real scan of the rendered screen).
+ */
+function rasteriseSvg(svg: string, scale: number): { data: Uint8ClampedArray; width: number; height: number } {
+  const vb = /viewBox="0 0 (\d+) (\d+)"/.exec(svg);
+  if (!vb) throw new Error('no viewBox');
+  const w = Number(vb[1]) * scale;
+  const h = Number(vb[2]) * scale;
+  const data = new Uint8ClampedArray(w * h * 4);
+  const bg = /<rect[^>]*fill="#([0-9A-Fa-f]{6})"/.exec(svg);
+  const bgv = bg ? parseInt(bg[1], 16) : 0;
+  for (let i = 0; i < w * h; i++) {
+    data[i * 4] = (bgv >> 16) & 255; data[i * 4 + 1] = (bgv >> 8) & 255; data[i * 4 + 2] = bgv & 255; data[i * 4 + 3] = 255;
+  }
+  const pathFill = /<path d="([^"]*)" fill="#([0-9A-Fa-f]{6})"/.exec(svg);
+  if (!pathFill) return { data, width: w, height: h };
+  const fg = parseInt(pathFill[2], 16);
+  const tokens = pathFill[1].match(/[MmHhVvZz]|-?\d+(?:\.\d+)?/g) ?? [];
+  let x = 0, y = 0, sx = 0, sy = 0, cmd = '';
+  let pts: [number, number][] = [];
+  const fillSubpath = () => {
+    if (pts.length < 2) { pts = []; return; }
+    const xs = pts.map((p) => p[0]); const ys = pts.map((p) => p[1]);
+    const x0 = Math.min(...xs) * scale, x1 = Math.max(...xs) * scale, y0 = Math.min(...ys) * scale, y1 = Math.max(...ys) * scale;
+    for (let py = y0; py < y1; py++) for (let px = x0; px < x1; px++) {
+      const i = (py * w + px) * 4;
+      data[i] = (fg >> 16) & 255; data[i + 1] = (fg >> 8) & 255; data[i + 2] = fg & 255;
+    }
+    pts = [];
+  };
+  for (let i = 0; i < tokens.length;) {
+    const t = tokens[i];
+    if (/[A-Za-z]/.test(t)) { cmd = t; i++; if (cmd === 'Z' || cmd === 'z') { x = sx; y = sy; fillSubpath(); } continue; }
+    const n = Number(t); i++;
+    switch (cmd) {
+      case 'M': x = n; y = Number(tokens[i++]); sx = x; sy = y; pts = [[x, y]]; cmd = 'L'; break;
+      case 'm': x += n; y += Number(tokens[i++]); sx = x; sy = y; pts = [[x, y]]; cmd = 'l'; break;
+      case 'h': x += n; pts.push([x, y]); break;
+      case 'H': x = n; pts.push([x, y]); break;
+      case 'v': y += n; pts.push([x, y]); break;
+      case 'V': y = n; pts.push([x, y]); break;
+      default: throw new Error(`unexpected path command ${cmd}`);
+    }
+  }
+  return { data, width: w, height: h };
+}
+
+describe('C-R1 — the SVG the app renders decodes to the exact token', () => {
+  it('V1: a credential-sized token rendered through qrSvg decodes with jsqr at 4 px/module', () => {
+    const t = tokenLike(11);
+    const svg = qrSvg(encodeQr(t, { ec: 'M' }));
+    const { data, width, height } = rasteriseSvg(svg, 4);
+    expect(jsQR(data, width, height)?.data).toBe(t);
+  });
+
+  it('V2: every EC level and several lengths round-trip through the SVG path', () => {
+    for (const ec of ['L', 'M', 'Q', 'H'] as const) {
+      for (const n of [20, 349, 700]) {
+        const t = tokenLike(n + ec.charCodeAt(0)).repeat(3).slice(0, n);
+        const { data, width, height } = rasteriseSvg(qrSvg(encodeQr(t, { ec })), 3);
+        expect(jsQR(data, width, height)?.data, `ec=${ec} n=${n}`).toBe(t);
+      }
+    }
+  }, 60_000);
+
+  it('V3: control — an SVG with the quiet zone removed is NOT what the app draws (the reader is not trivially permissive)', () => {
+    const m = encodeQr('SNATCHIT', { ec: 'M' });
+    const svg = qrSvg(m).replace(/fill="#FFFFFF"/, 'fill="#000000"');   // background dark = no quiet zone
+    const { data, width, height } = rasteriseSvg(svg, 4);
+    expect(jsQR(data, width, height, { inversionAttempts: 'dontInvert' })).toBeNull();
   });
 });
