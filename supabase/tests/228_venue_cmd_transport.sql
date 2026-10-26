@@ -105,25 +105,33 @@ UPDATE catalog.venue SET org_id = '22800000-0000-4000-8000-00000000000b'
 
 -- ── Section A — shape + ACL ──────────────────────────────────────────────────
 SELECT has_schema('venue_cmd', 'A1: schema venue_cmd exists');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue_cmd'), 9,
-  'A2: exactly NINE functions in venue_cmd (161''s six + 163''s get_session_scan_counters, record_scan, validate_ticket_online)');
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue_cmd'), 14,
+  -- 2026-10-26 (registry 163): 11 -> 14 (+get_session_scan_counters, record_scan, validate_ticket_online).
+  -- 2026-10-26 (registry 162, S2): 6 -> 11 (+set_venue_timezone, set_event_age_policy, set_session_sales_capacity, set_ticket_type_sale_window, ticket_type_on_sale).
+  'A2: exactly FOURTEEN functions in venue_cmd (161''s six + 162''s five + 163''s three)');
 SELECT set_eq(
   $$ SELECT p.proname || '(' || pg_catalog.oidvectortypes(p.proargtypes) || ')'
        FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue_cmd' $$,
   $$ VALUES ('create_ticket_type(uuid, text, text, integer, text, text)'), ('set_ticket_type_price(uuid, integer, text, text)'),
             ('set_ticket_type_visibility(uuid, text, text, text)'), ('set_ticket_type_rank(uuid, smallint, text)'),
             ('set_batch_capacity(uuid, integer, text, text)'), ('get_inventory_counters(uuid)'),
+            -- 162 (S2)
+            ('set_venue_timezone(uuid, text, text, text)'), ('set_event_age_policy(uuid, text, text, text)'),
+            ('set_session_sales_capacity(uuid, integer, text, text)'),
+            ('set_ticket_type_sale_window(uuid, timestamp with time zone, timestamp with time zone, text, text)'),
+            ('ticket_type_on_sale(uuid, timestamp with time zone)'),
+            -- 163
             ('get_session_scan_counters(uuid)'), ('record_scan(uuid, uuid, jsonb, text)'), ('validate_ticket_online(uuid, uuid)') $$,
-  'A3: exactly these nine signatures');
+  'A3: exactly these fourteen signatures');
 SELECT hasnt_function('venue_cmd'::name, 'create_inventory_batch'::name, ARRAY['uuid','uuid','text','integer','integer','text']::name[],
   'A4: no create_inventory_batch wrapper (withheld until S2''s E-33 receipt)');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue_cmd' AND NOT p.prosecdef), 9,
-  'A5: every function has prosecdef = false (SECURITY INVOKER) — counted positively, nine');
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue_cmd' AND NOT p.prosecdef), 14,
+  'A5: every function has prosecdef = false (SECURITY INVOKER) — counted positively, fourteen');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace JOIN pg_language l ON l.oid = p.prolang
-            WHERE n.nspname = 'venue_cmd' AND l.lanname = 'sql'), 9,
+            WHERE n.nspname = 'venue_cmd' AND l.lanname = 'sql'), 14,
   'A6: every function is LANGUAGE sql (no logic can hide in a wrapper; 163''s staff-path logic is in venue.record_scan_staff)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-            WHERE n.nspname = 'venue_cmd' AND p.proconfig::text LIKE '%search_path=%'), 9,
+            WHERE n.nspname = 'venue_cmd' AND p.proconfig::text LIKE '%search_path=%'), 14,
   'A7: every function pins search_path');
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'venue_cmd'), 0,
   'A8: venue_cmd holds NO relation of any kind (no table, view, sequence, index)');
@@ -150,43 +158,47 @@ SELECT set_eq(
   $$ VALUES ('create_ticket_type:authenticated:EXECUTE'), ('set_ticket_type_price:authenticated:EXECUTE'),
             ('set_ticket_type_visibility:authenticated:EXECUTE'), ('set_ticket_type_rank:authenticated:EXECUTE'),
             ('set_batch_capacity:authenticated:EXECUTE'), ('get_inventory_counters:authenticated:EXECUTE'),
-            ('get_session_scan_counters:authenticated:EXECUTE'), ('record_scan:authenticated:EXECUTE'), ('validate_ticket_online:authenticated:EXECUTE') $$,
-  'A14: the function ACL matrix is exactly EXECUTE to authenticated on each of the nine (no PUBLIC, anon, service_role)');
+            ('set_venue_timezone:authenticated:EXECUTE'), ('set_event_age_policy:authenticated:EXECUTE'),  -- 162
+            ('set_session_sales_capacity:authenticated:EXECUTE'), ('set_ticket_type_sale_window:authenticated:EXECUTE'),
+            ('ticket_type_on_sale:authenticated:EXECUTE'),
+            ('get_session_scan_counters:authenticated:EXECUTE'), ('record_scan:authenticated:EXECUTE'), ('validate_ticket_online:authenticated:EXECUTE') $$,  -- 163
+  'A14: the function ACL matrix is exactly EXECUTE to authenticated on each of the fourteen (no PUBLIC, anon, service_role)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-            WHERE n.nspname = 'venue_cmd' AND has_function_privilege('authenticated', p.oid, 'EXECUTE')), 9,
-  'A15: has_function_privilege(authenticated, EXECUTE) is true on all nine');
+            WHERE n.nspname = 'venue_cmd' AND has_function_privilege('authenticated', p.oid, 'EXECUTE')), 14,
+  'A15: has_function_privilege(authenticated, EXECUTE) is true on all fourteen');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
             WHERE n.nspname = 'venue_cmd' AND NOT has_function_privilege('anon', p.oid, 'EXECUTE')
-              AND NOT has_function_privilege('service_role', p.oid, 'EXECUTE')), 9,
-  'A16: has_function_privilege(anon|service_role, EXECUTE) is false on all nine');
+              AND NOT has_function_privilege('service_role', p.oid, 'EXECUTE')), 14,
+  'A16: has_function_privilege(anon|service_role, EXECUTE) is false on all fourteen');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
             WHERE n.nspname = 'venue_cmd' AND p.proacl IS NOT NULL
-              AND NOT EXISTS (SELECT 1 FROM aclexplode(p.proacl) a WHERE a.grantee = 0)), 9,
-  'A17: no proacl is DEFAULTED and PUBLIC holds nothing on any of the nine (the SEC-2/F2 failure mode cannot occur here)');
+              AND NOT EXISTS (SELECT 1 FROM aclexplode(p.proacl) a WHERE a.grantee = 0)), 14,
+  'A17: no proacl is DEFAULTED and PUBLIC holds nothing on any of the fourteen (the SEC-2/F2 failure mode cannot occur here)');
 SELECT is((SELECT count(*)::int FROM pg_proc w JOIN pg_namespace n ON n.oid = w.pronamespace
-            JOIN pg_proc t ON t.proname = CASE w.proname WHEN 'record_scan' THEN 'record_scan_staff' ELSE w.proname END
-                          AND t.pronamespace = 'venue'::regnamespace
+            JOIN pg_proc t ON t.proname = CASE w.proname WHEN 'record_scan' THEN 'record_scan_staff' ELSE w.proname END  -- 163: record_scan -> record_scan_staff
+                          AND t.pronamespace IN ('venue'::regnamespace, 'catalog'::regnamespace)  -- 162: three wrappers target catalog.*
             WHERE n.nspname = 'venue_cmd'
-              AND pg_get_function_identity_arguments(w.oid) = pg_get_function_identity_arguments(t.oid)), 9,
-  'A18: each wrapper''s argument list (names and types) equals its venue target''s (163: record_scan -> record_scan_staff)');
+              AND pg_get_function_identity_arguments(w.oid) = pg_get_function_identity_arguments(t.oid)), 14,
+  'A18: each wrapper''s argument list (names and types) equals its venue/catalog target''s (163: record_scan -> record_scan_staff)');
 SELECT is((SELECT count(*)::int FROM pg_proc w JOIN pg_namespace n ON n.oid = w.pronamespace
-            JOIN pg_proc t ON t.proname = CASE w.proname WHEN 'record_scan' THEN 'record_scan_staff' ELSE w.proname END
-                          AND t.pronamespace = 'venue'::regnamespace
+            JOIN pg_proc t ON t.proname = CASE w.proname WHEN 'record_scan' THEN 'record_scan_staff' ELSE w.proname END  -- 163: record_scan -> record_scan_staff
+                          AND t.pronamespace IN ('venue'::regnamespace, 'catalog'::regnamespace)  -- 162: three wrappers target catalog.*
             WHERE n.nspname = 'venue_cmd'
-              AND pg_get_function_result(w.oid) = pg_get_function_result(t.oid)), 9,
-  'A19: each wrapper''s result type equals its venue target''s (163: record_scan -> record_scan_staff)');
+              AND pg_get_function_result(w.oid) = pg_get_function_result(t.oid)), 14,
+  'A19: each wrapper''s result type equals its venue/catalog target''s (163: record_scan -> record_scan_staff)');
 SELECT is((SELECT count(*)::int FROM pg_proc w JOIN pg_namespace n ON n.oid = w.pronamespace
             WHERE n.nspname = 'venue_cmd'
-              AND w.prosrc LIKE '%venue.' || CASE w.proname WHEN 'record_scan' THEN 'record_scan_staff' ELSE w.proname END || '(%'), 9,
-  'A20: each wrapper delegates to venue.<same name> (163: record_scan -> venue.record_scan_staff, the only mapped target)');
+              AND (w.prosrc LIKE '%venue.' || CASE w.proname WHEN 'record_scan' THEN 'record_scan_staff' ELSE w.proname END || '(%'
+                   OR w.prosrc LIKE '%catalog.' || w.proname || '(%')), 14,
+  'A20: each wrapper delegates to venue.<same name> or catalog.<same name> (162); 163: record_scan -> venue.record_scan_staff, the only mapped target');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue_api'), 0,
   'A21: venue_api still holds no function (the transport did not land in the read schema; 226 A3 stays true)');
 SELECT is((SELECT count(*)::int FROM pg_default_acl d JOIN pg_namespace n ON n.oid = d.defaclnamespace WHERE n.nspname = 'venue_cmd'), 0,
   'A22: no default-ACL row is scoped to venue_cmd (the migration stores none; A2/A5/A14/A16/A17 sweep whatever is added later)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
             WHERE n.nspname = 'venue_cmd'
-              AND p.provolatile = CASE WHEN p.proname IN ('get_inventory_counters','get_session_scan_counters','validate_ticket_online') THEN 's' ELSE 'v' END), 9,
-  'A23: the three read wrappers (get_inventory_counters, get_session_scan_counters, validate_ticket_online) are STABLE and the six command wrappers are VOLATILE');
+              AND p.provolatile = CASE WHEN p.proname IN ('get_inventory_counters','ticket_type_on_sale','get_session_scan_counters','validate_ticket_online') THEN 's' ELSE 'v' END), 14,
+  'A23: the four read wrappers (get_inventory_counters, ticket_type_on_sale, get_session_scan_counters, validate_ticket_online) are STABLE and the ten command wrappers are VOLATILE');
 
 -- ── Section B — behaviour as the caller ─────────────────────────────────────
 SELECT tap.login('22800000-0000-4000-8000-000000000111');

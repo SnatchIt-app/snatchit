@@ -132,6 +132,24 @@
 -- swept over EVERY function in venue_cmd, not a fixed list), the way 226 F1/F2
 -- gate venue_api. Nothing in public changed; the manifests below are unchanged.
 --
+-- SCOPE NOTE (2026-10-26, registry 162 — D, S2 event policy / shared capacity /
+-- tier windows; DARK, applied nowhere). Same reasoning: every object 162 creates
+-- lives OUTSIDE public and carries NO row here:
+--   catalog.set_venue_timezone(uuid, text, text, text)                        authenticated-execute
+--   catalog.set_event_age_policy(uuid, text, text, text)                      authenticated-execute
+--   catalog.set_session_sales_capacity(uuid, integer, text, text)             authenticated-execute
+--   venue.set_ticket_type_sale_window(uuid, timestamptz, timestamptz, text, text) authenticated-execute
+--   venue.ticket_type_on_sale(uuid, timestamptz)   STABLE boolean read        authenticated-execute
+--   venue_cmd.* — five more SECURITY INVOKER wrappers (11 in all)             authenticated-execute
+--   catalog.venue.timezone, catalog.event.age_policy   column SELECT          anon + authenticated (the 078
+--                 column lists + one column each; public listing information)
+--   catalog.event_session.sales_capacity               column SELECT          NONE (E-29 posture)
+--   venue.ticket_type.sale_starts_at / sale_ends_at    covered by 081:988's table-grain SELECT
+--   (anon, PUBLIC and service_role hold nothing on any function; the six venue.*
+--   bodies 162 replaces keep their 081/160 grants.)
+-- Those decisions are ASSERTED by pgTAP 229 (A19-A20, A28-A29, A38, A40-A42,
+-- W46). Nothing in public changed; the manifests below are unchanged.
+--
 -- SCOPE NOTE (2026-10-26, registry 163 — D, scanner staff-session wrappers +
 -- identity-free session scan counters; DARK, applied nowhere). Same reasoning:
 -- every object is outside public, so NO row is added here:

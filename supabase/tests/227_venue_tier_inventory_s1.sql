@@ -40,8 +40,8 @@
 --              grants unchanged.
 --   Section B  the four 081 writers: former-operator manager REFUSED by all four
 --              (the E-76 NEGATIVE control, B1-B4); bound V1 manager ACCEPTED by
---              all four (POSITIVE control, B5-B8); STATUS QUO pins of the
---              unchanged org arm on the re-operated room (B9/B10 — A to rule);
+--              all four (POSITIVE control, B5-B8); the org arm on the re-operated
+--              room (B9/B10 — R3, flipped by 162: the EVENT's org, A's ruling);
 --              grants and definer posture unchanged (B11/B12); cross-venue and
 --              cross-org refusals unchanged (B13-B15). Placed before C on purpose:
 --              every assertion that needs no new function runs before the first
@@ -204,9 +204,10 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.
   'A10: all three are SECURITY DEFINER with a pinned search_path (066 invariant)');
 SELECT is((SELECT p.provolatile FROM pg_proc p WHERE p.oid = to_regprocedure('venue.get_inventory_counters(uuid)')), 's',
   'A11: get_inventory_counters is STABLE (a read)');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue'), 94,
-  -- 2026-10-26 (registry 163): 90 -> 94 (+get_session_scan_counters, list_session_scan_counters, record_scan_staff, filter_staff_scan_meta; 92 if 163''s PART B is dropped).
-  'A12: venue holds NINETY-FOUR functions — 87 (144 A15 / 145 A4 / 148 B5 / 180 A5 move with it; 148 B2 / 157 A46 / 180 A6 move 305 -> 312) + 160''s three + 163''s four');
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue'), 96,
+  -- 2026-10-26 (registry 163): 92 -> 96 (+get_session_scan_counters, list_session_scan_counters, record_scan_staff, filter_staff_scan_meta; 94 if 163''s PART B is dropped).
+  -- 2026-10-26 (registry 162, S2): 90 -> 92 (+set_ticket_type_sale_window, ticket_type_on_sale).
+  'A12: venue holds NINETY-SIX functions — 87 (144 A15 / 145 A4 / 148 B5 / 179 A8 / 180 A5 move with it; 148 B2 / 156 A20 / 157 A46 / 179 A9 / 180 A6 move 308 -> 317) + 160''s three + 162''s two + 163''s four');
 SELECT is((SELECT count(*)::int FROM pg_proc p
             WHERE p.oid IN ('venue.create_ticket_type(uuid, text, text, integer, text, text)'::regprocedure,
                             'venue.set_ticket_type_price(uuid, integer, text, text)'::regprocedure,
@@ -216,8 +217,9 @@ SELECT is((SELECT count(*)::int FROM pg_proc p
   'A13: all four 081 writer bodies carry the E-76 conjunct text on the venue arm');
 SELECT is((SELECT string_agg(a.attname, ',' ORDER BY a.attnum) FROM pg_attribute a
             WHERE a.attrelid = 'venue_api.ticket_types'::regclass AND a.attnum > 0 AND NOT a.attisdropped),
-  'ticket_type_id,event_id,kind,name,price_minor,currency,visibility,created_at,updated_at,display_rank',
-  'A14: venue_api.ticket_types projects 159''s nine columns in order with display_rank appended LAST');
+  'ticket_type_id,event_id,kind,name,price_minor,currency,visibility,created_at,updated_at,display_rank,sale_starts_at,sale_ends_at,on_sale_now',
+  -- 2026-10-26 (registry 162, S2): + sale_starts_at, sale_ends_at, on_sale_now appended after display_rank.
+  'A14: venue_api.ticket_types projects 159''s nine columns in order, display_rank (160), then 162''s sale_starts_at, sale_ends_at, on_sale_now LAST');
 SELECT ok((SELECT bool_and(o IN ('security_invoker=true','security_barrier=true')) AND count(*) = 2
              FROM pg_class c CROSS JOIN LATERAL unnest(c.reloptions) o WHERE c.oid = 'venue_api.ticket_types'::regclass),
   'A15: the re-created view is still security_invoker AND security_barrier');
@@ -262,14 +264,16 @@ SELECT is(tap._raw227(tap._fetch227('d7_batch')::uuid), '40|0|0|40',
 SELECT is((venue.set_batch_capacity('22700000-0000-4000-8000-0000000000c1', 150, 'expansion', 'ck227-d-8') ->> 'capacity'), '150',
   'B8: set_batch_capacity ACCEPTS the bound venue_manager');
 SELECT tap.logout();
--- STATUS QUO pins of the UNCHANGED org arm (has_org_role_over_venue resolves the venue's CURRENT org) — A to rule.
+-- R3 (A's ruling 2026-10-26, registry 162): the org arm binds to the EVENT's org (kernel.has_org_role on event.org_id,
+-- the 088:1629 cancel_event helper), no longer the venue's CURRENT operator. Pre-162 these two pinned the 081/160 status
+-- quo the other way round (A refused, B accepted); 162 flips them. On a chain without 162 both read `not ok`.
 SELECT tap.login('22700000-0000-4000-8000-000000000101');
-SELECT throws_ok($$SELECT venue.set_ticket_type_price('22700000-0000-4000-8000-000000000051', 4200, 'demand', 'ck227-d-9')$$,
-  '42501', NULL, 'B9: STATUS QUO (A to rule) — the event''s OWN org_owner (A) is refused on e5: the org arm resolves Room V2 to Org B');
+SELECT is((venue.set_ticket_type_price('22700000-0000-4000-8000-000000000051', 4200, 'demand', 'ck227-d-9') ->> 'price_minor'), '4200',
+  'B9: R3 (162) — the event''s OWN org_owner (A) is ACCEPTED on e5 although Room V2 now belongs to Org B: the org arm is the event''s org');
 SELECT tap.logout();
 SELECT tap.login('22700000-0000-4000-8000-000000000201');
-SELECT is((venue.set_ticket_type_price('22700000-0000-4000-8000-000000000051', 4300, 'demand', 'ck227-d-10') ->> 'price_minor'), '4300',
-  'B10: STATUS QUO (A to rule) — the NEW operator''s org_owner (B) is accepted on Org A''s event e5 by the unchanged org arm');
+SELECT throws_ok($$SELECT venue.set_ticket_type_price('22700000-0000-4000-8000-000000000051', 4300, 'demand', 'ck227-d-10')$$,
+  '42501', NULL, 'B10: R3 (162) — the NEW operator''s org_owner (B) is REFUSED on Org A''s event e5');
 SELECT tap.logout();
 SELECT ok(has_function_privilege('authenticated', 'venue.create_ticket_type(uuid, text, text, integer, text, text)', 'EXECUTE')
       AND has_function_privilege('authenticated', 'venue.set_ticket_type_price(uuid, integer, text, text)', 'EXECUTE')

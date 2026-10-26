@@ -666,6 +666,15 @@ jobs:
           # 87 -> 90 (pgTAP 144 A15 / 145 A4 / 148 B5 / 180 A5) and the five-schema routine census 305 -> 308
           # (148 B2 / 157 A46 / 180 A6); the venue_api / venue / venue_cmd ACLs are pinned by pgTAP 226/227/228.
           # Read from a local PG17 replay of bfc5cf97 + 159 + 160 + 161 (a154c_green clone): still 35|126|37|49.
+          # 2026-10-26 registry 162 (D, S2 event policy / shared capacity / tier windows; DARK, applied nowhere): NO change
+          # to any of the four counters. 162 adds columns on catalog.venue / catalog.event / catalog.event_session /
+          # venue.ticket_type, creates catalog.set_venue_timezone / set_event_age_policy / set_session_sales_capacity and
+          # venue.set_ticket_type_sale_window / ticket_type_on_sale, replaces six venue.* bodies in place (R3 org arm +
+          # the shared-room guard), re-creates three venue_api views and adds five venue_cmd wrappers. Nothing lands in
+          # `public`, and this counter reads `public` only. The venue census moves 90 -> 92 (pgTAP 144 A15 / 145 A4 /
+          # 148 B5 / 179 A8 / 180 A5 / 227 A12), catalog 17 -> 20 (154 A10), the five-schema routine census 308 -> 313
+          # (148 B2 / 156 A20 / 157 A46 / 179 A9 / 180 A6), venue_cmd 6 -> 11 (228); ACLs are pinned by pgTAP 229.
+          # Read from a local PG17 replay of bfc5cf97 + 159 + 176 + 160 + 161 + 162 (a154c_green clone): still 35|126|37|49.
           # 2026-10-26 registry 163 (D, scanner staff-session wrappers + identity-free session scan counters;
           # DARK, applied nowhere): NO change to any of the four counters. 163 creates
           # venue.get_session_scan_counters / list_session_scan_counters / record_scan_staff / filter_staff_scan_meta
