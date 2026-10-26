@@ -37,6 +37,10 @@ const csp = [
   "frame-ancestors 'none'",
 ].join("; ");
 
+/** The scanner page (src/app/o/[org]/v/[venue]/events/[event]/scan): camera for this origin only, everything else still denied. */
+export const SCAN_ROUTE = "/o/:org/v/:venue/events/:event/scan";
+export const SCAN_PERMISSIONS_POLICY = "camera=(self), microphone=(), geolocation=(), payment=(), usb=()";
+
 const securityHeaders = [
   { key: "Content-Security-Policy", value: csp },
   { key: "X-Content-Type-Options", value: "nosniff" },
@@ -52,7 +56,13 @@ const nextConfig: NextConfig = {
   turbopack: { root: path.join(__dirname) },
   poweredByHeader: false,
   async headers() {
-    return [{ source: "/(.*)", headers: securityHeaders }];
+    // The scanner route is the one place a camera is allowed, and only for this
+    // origin. Later entries win for the same header key, so the scan rule follows
+    // the catch-all. Pinned by tests/scan-headers.test.ts.
+    return [
+      { source: "/(.*)", headers: securityHeaders },
+      { source: SCAN_ROUTE, headers: [{ key: "Permissions-Policy", value: SCAN_PERMISSIONS_POLICY }] },
+    ];
   },
 };
 

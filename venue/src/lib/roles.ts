@@ -93,6 +93,15 @@ export function inventoryView(p: Principal): "counters" | "remaining_only" | "no
 export function showCounters(p: Principal, ctx: { countersAvailable?: boolean }): boolean {
   return inventoryView(p) === "counters" && ctx.countersAvailable !== false;
 }
+/**
+ * Who may run the online scanner. Exactly the roles `venue.record_scan` admits
+ * (`kernel.has_venue_role(venue, ['venue_scanner','venue_manager'])`, 108):
+ * an org owner or admin without a venue role is refused by the server, so the
+ * screen does not pretend otherwise. Enforced again server-side on every scan.
+ */
+export function canScan(p: Principal): boolean {
+  return p === "venue_scanner" || p === "venue_manager";
+}
 /** Row 16: create batch / capacity change. */
 export function canChangeCapacity(p: Principal): boolean {
   return FULL_OPERATORS.includes(p);
