@@ -76,7 +76,7 @@
 --   instead of aborting the file before Section B.
 -- ============================================================================
 BEGIN;
-SELECT plan(111);
+SELECT plan(115);
 
 CREATE TABLE tap.memo_227 (k text PRIMARY KEY, v text);
 CREATE FUNCTION tap._store227(k text, v text) RETURNS text
@@ -274,6 +274,26 @@ SELECT tap.logout();
 SELECT tap.login('22700000-0000-4000-8000-000000000201');
 SELECT throws_ok($$SELECT venue.set_ticket_type_price('22700000-0000-4000-8000-000000000051', 4300, 'demand', 'ck227-d-10')$$,
   '42501', NULL, 'B10: R3 (162) — the NEW operator''s org_owner (B) is REFUSED on Org A''s event e5');
+SELECT tap.logout();
+-- R3 (162) for the two NEW setters. A's #166 review (ask 1) pinned the 081/160 STATUS QUO for set_ticket_type_visibility /
+-- set_ticket_type_rank (own org owner refused, new operator's owner accepted); 162 replaces both bodies with the EVENT's
+-- org arm, so the four flip exactly as B9/B10 did. e5's tier is put back (public, unranked) afterwards — as the EVENT's org
+-- owner (…101), the only org principal 162 accepts here. On a chain without 162 all four read `not ok`.
+SELECT tap.login('22700000-0000-4000-8000-000000000101');
+SELECT is((venue.set_ticket_type_visibility('22700000-0000-4000-8000-000000000051', 'door_only', 'status_quo', 'ck227-d-9b') ->> 'status'), 'ok',
+  'B9b: R3 (162) — the event''s OWN org_owner (A) is ACCEPTED by set_ticket_type_visibility on e5 although Room V2 now belongs to Org B (pre-162: refused)');
+SELECT is((venue.set_ticket_type_rank('22700000-0000-4000-8000-000000000051', 7::smallint, 'ck227-d-9c') ->> 'status'), 'ok',
+  'B9c: R3 (162) — the event''s OWN org_owner (A) is ACCEPTED by set_ticket_type_rank on e5 (pre-162: refused)');
+SELECT tap.logout();
+SELECT tap.login('22700000-0000-4000-8000-000000000201');
+SELECT throws_ok($$SELECT venue.set_ticket_type_visibility('22700000-0000-4000-8000-000000000051', 'door_only', 'status_quo', 'ck227-d-10b')$$,
+  '42501', NULL, 'B10b: R3 (162) — the NEW operator''s org_owner (B) is REFUSED by set_ticket_type_visibility on Org A''s event e5 (pre-162: accepted)');
+SELECT throws_ok($$SELECT venue.set_ticket_type_rank('22700000-0000-4000-8000-000000000051', 7::smallint, 'ck227-d-10c')$$,
+  '42501', NULL, 'B10c: R3 (162) — the NEW operator''s org_owner (B) is REFUSED by set_ticket_type_rank on Org A''s event e5 (pre-162: accepted)');
+SELECT tap.logout();
+SELECT tap.login('22700000-0000-4000-8000-000000000101');
+SELECT venue.set_ticket_type_visibility('22700000-0000-4000-8000-000000000051', 'public', 'status_quo_restore', 'ck227-d-10d');
+SELECT venue.set_ticket_type_rank('22700000-0000-4000-8000-000000000051', NULL::smallint, 'ck227-d-10e');
 SELECT tap.logout();
 SELECT ok(has_function_privilege('authenticated', 'venue.create_ticket_type(uuid, text, text, integer, text, text)', 'EXECUTE')
       AND has_function_privilege('authenticated', 'venue.set_ticket_type_price(uuid, integer, text, text)', 'EXECUTE')
