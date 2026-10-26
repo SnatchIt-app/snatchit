@@ -116,6 +116,10 @@ describe('primary checkout screen — a payments surface (A reviews)', () => {
     expect(native).toContain("if (result.reason === 'already_paid') { submitted(params.sessionId); return; }");
   });
 
+  it('K7: a hold refusal offers a retry only when offline or unavailable; every other one (sales unavailable included) goes Back', () => {
+    expect(view).toMatch(/case 'hold_refused':[\s\S]{0,200}action=\{state\.reason === 'offline' \|\| state\.reason === 'unavailable'\s*\?/);
+  });
+
   it('K4: one attempt id per purchase, kept in the route params; the 3-D Secure return URL carries it; Pay is latched', () => {
     expect(native).toContain('router.setParams({ attempt: attemptId })');
     expect(native).toContain('returnURL: buildPrimaryReturnURL({');

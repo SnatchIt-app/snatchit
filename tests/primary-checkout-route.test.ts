@@ -9,12 +9,14 @@
  *     function (PGRST202) is "checkout not available yet", never a crash and never a fake hold.
  *
  * Negative controls (run by hand, each must FAIL): drop `attempt` from the return URL (R1); accept quantity
- * 0 (P2); map PGRST202 to `unavailable` (H3).
+ * 0 (P2); map PGRST202 to `unavailable` (H3); drop the hold_ttl_unset / feature_disabled mapping (H5).
  */
 import { describe, expect, it, vi } from 'vitest';
 
+import { PRIMARY_CHECKOUT_COPY } from '@/src/lib/primary/checkout';
 import {
   buildPrimaryReturnURL,
+  HOLD_COPY,
   parseHoldReply,
   parsePrimaryCheckoutParams,
 } from '@/src/lib/primary/checkoutRoute';
@@ -72,6 +74,18 @@ describe('parseHoldReply — public.reserve_primary_tier (167)', () => {
   it('H3: a missing function (167 not applied) is not_ready; other errors are unavailable', () => {
     expect(parseHoldReply({ data: null, error: { code: 'PGRST202', message: 'Could not find the function' } })).toEqual({ ok: false, reason: 'not_ready' });
     expect(parseHoldReply({ data: null, error: { code: 'XX000', message: 'boom' } })).toEqual({ ok: false, reason: 'unavailable' });
+  });
+
+  it('H5: before the hold config or the flag is set, ticket sales are not available yet — Back, not a retry loop', () => {
+    const err = (message: string) => parseHoldReply({ data: null, error: { code: 'P0001', message } });
+    expect(err('precondition_failed: hold_ttl_unset')).toEqual({ ok: false, reason: 'sales_unavailable' });
+    expect(err('precondition_failed: feature_disabled')).toEqual({ ok: false, reason: 'sales_unavailable' });
+    expect(HOLD_COPY.sales_unavailable).toBe(PRIMARY_CHECKOUT_COPY.refusal.sales_unavailable);
+  });
+
+  it('H6: the cap refusal stays hold_limit, and its copy is true when the cap is unseeded (0) — it never says the buyer holds tickets', () => {
+    expect(parseHoldReply({ data: null, error: { code: 'P0001', message: 'precondition_failed: hold_cap_exceeded' } })).toEqual({ ok: false, reason: 'hold_limit' });
+    expect(HOLD_COPY.hold_limit).not.toMatch(/you already have/i);
   });
 
   it('H4: a reply without a hold id is unavailable — never a fake hold', () => {

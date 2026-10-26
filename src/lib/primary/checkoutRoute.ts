@@ -11,7 +11,13 @@
  * {status: ok | idempotency_replay, hold_id, expires_at, quantity}; refusals carry the same message
  * families as `venue.reserve_primary_inventory` (`oversell_rejected`, `precondition_failed: …`) plus 185's
  * `tier_not_on_sale`. Until 167 is applied PostgREST answers PGRST202 — "checkout isn't available yet".
+ *
+ * Before the hold config or the flag is set, 081 refuses every reserve: the flag check raises
+ * `feature_disabled`; an unseeded cap fails to ZERO, so `hold_cap_exceeded` comes next (before the TTL
+ * check) even for a buyer with no holds; then `hold_ttl_unset`. So `feature_disabled` / `hold_ttl_unset`
+ * read "Ticket sales aren't available yet" (A's review, 2026-10-26), and the cap copy must be true at cap 0.
  */
+import { PRIMARY_CHECKOUT_COPY } from '@/src/lib/primary/checkout';
 import { supabase } from '@/src/lib/supabase';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -42,7 +48,7 @@ export function parsePrimaryCheckoutParams(raw: { session?: unknown; tt?: unknow
   return { ok: true, sessionId: session, ticketTypeId: tt, quantity, attemptId };
 }
 
-export type HoldRefusal = 'sold_out' | 'not_on_sale' | 'hold_limit' | 'signed_out' | 'not_ready' | 'offline' | 'unavailable';
+export type HoldRefusal = 'sold_out' | 'not_on_sale' | 'hold_limit' | 'sales_unavailable' | 'signed_out' | 'not_ready' | 'offline' | 'unavailable';
 export type HoldResult =
   | { ok: true; holdId: string; expiresAt: string | null; quantity: number }
   | { ok: false; reason: HoldRefusal };
@@ -58,6 +64,7 @@ export function parseHoldReply(res: HoldRpcResult): HoldResult {
     if (/oversell_rejected/.test(msg)) return { ok: false, reason: 'sold_out' };
     if (/tier_not_on_sale|not_on_sale/.test(msg)) return { ok: false, reason: 'not_on_sale' };
     if (/hold_limit|per_user_active_hold|hold_cap/.test(msg)) return { ok: false, reason: 'hold_limit' };
+    if (/hold_ttl_unset|feature_disabled/.test(msg)) return { ok: false, reason: 'sales_unavailable' };
     if (/network request failed|failed to fetch/i.test(msg)) return { ok: false, reason: 'offline' };
     return { ok: false, reason: 'unavailable' };
   }
@@ -93,7 +100,8 @@ export const reservePrimaryTier: HoldReserver = async (req) => {
 export const HOLD_COPY: Record<HoldRefusal, string> = {
   sold_out: 'There aren’t enough tickets left for that quantity.',
   not_on_sale: 'These tickets aren’t on sale right now.',
-  hold_limit: 'You already have tickets held. Finish or wait for that hold to end first.',
+  hold_limit: 'You can’t hold more tickets right now. If you have a hold open, finish that purchase or wait for it to end.',
+  sales_unavailable: PRIMARY_CHECKOUT_COPY.refusal.sales_unavailable,
   signed_out: 'Sign in to buy tickets.',
   not_ready: 'Checkout isn’t available for this event yet.',
   offline: 'You’re offline. Connect and try again.',
