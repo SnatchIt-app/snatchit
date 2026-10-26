@@ -72,7 +72,9 @@ describe('the Sell route is keyed by the signed-in account', () => {
     const store = createListingDraftStore(storage);
     const fields = {
       eventName: "A's unsaved listing", venue: 'LIV Miami', neighborhood: 'wynwood', category: 'nightlife',
-      eventDate: new Date(2026, 9, 25), eventTime: new Date(2026, 9, 25, 22), dateChosen: true,
+      // A date relative to today: the store discards a draft whose event day has passed (D-2.4 L1), and a
+      // fixed calendar date made this test expire on 2026-10-26 with nothing else changed.
+      eventDate: new Date(Date.now() + 30 * 86_400_000), eventTime: new Date(Date.now() + 30 * 86_400_000), dateChosen: true,
       ticketType: 'VIP', quantity: 2, transferMethod: null, restrictions: '', startingBid: '40',
       buyNowEnabled: false, buyNowPrice: '', durationHours: 24, ticketPlatform: 'other', coverUri: null,
     } as const;
