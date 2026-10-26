@@ -204,8 +204,9 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.
   'A10: all three are SECURITY DEFINER with a pinned search_path (066 invariant)');
 SELECT is((SELECT p.provolatile FROM pg_proc p WHERE p.oid = to_regprocedure('venue.get_inventory_counters(uuid)')), 's',
   'A11: get_inventory_counters is STABLE (a read)');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue'), 90,
-  'A12: venue holds NINETY functions — 87 (144 A15 / 145 A4 / 148 B5 / 180 A5 move with it; 148 B2 / 157 A46 / 180 A6 move 305 -> 308) + 160''s three');
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue'), 92,
+  -- 2026-10-26 (registry 162, S2): 90 -> 92 (+set_ticket_type_sale_window, ticket_type_on_sale).
+  'A12: venue holds NINETY-TWO functions — 87 (144 A15 / 145 A4 / 148 B5 / 179 A8 / 180 A5 move with it; 148 B2 / 156 A20 / 157 A46 / 179 A9 / 180 A6 move 308 -> 313) + 160''s three + 162''s two');
 SELECT is((SELECT count(*)::int FROM pg_proc p
             WHERE p.oid IN ('venue.create_ticket_type(uuid, text, text, integer, text, text)'::regprocedure,
                             'venue.set_ticket_type_price(uuid, integer, text, text)'::regprocedure,
@@ -215,8 +216,9 @@ SELECT is((SELECT count(*)::int FROM pg_proc p
   'A13: all four 081 writer bodies carry the E-76 conjunct text on the venue arm');
 SELECT is((SELECT string_agg(a.attname, ',' ORDER BY a.attnum) FROM pg_attribute a
             WHERE a.attrelid = 'venue_api.ticket_types'::regclass AND a.attnum > 0 AND NOT a.attisdropped),
-  'ticket_type_id,event_id,kind,name,price_minor,currency,visibility,created_at,updated_at,display_rank',
-  'A14: venue_api.ticket_types projects 159''s nine columns in order with display_rank appended LAST');
+  'ticket_type_id,event_id,kind,name,price_minor,currency,visibility,created_at,updated_at,display_rank,sale_starts_at,sale_ends_at,on_sale_now',
+  -- 2026-10-26 (registry 162, S2): + sale_starts_at, sale_ends_at, on_sale_now appended after display_rank.
+  'A14: venue_api.ticket_types projects 159''s nine columns in order, display_rank (160), then 162''s sale_starts_at, sale_ends_at, on_sale_now LAST');
 SELECT ok((SELECT bool_and(o IN ('security_invoker=true','security_barrier=true')) AND count(*) = 2
              FROM pg_class c CROSS JOIN LATERAL unnest(c.reloptions) o WHERE c.oid = 'venue_api.ticket_types'::regclass),
   'A15: the re-created view is still security_invoker AND security_barrier');

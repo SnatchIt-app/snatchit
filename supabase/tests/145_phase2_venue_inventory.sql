@@ -50,7 +50,8 @@ SELECT is((SELECT string_agg(c.relname,',' ORDER BY c.relname) FROM pg_class c
   'attribution,attribution_review,comp_allocation,door_manifest,door_manifest_delta,door_manifest_entry,door_pin,door_session,export_job,guest_entry,guest_list,holder_mix_bucket,holder_mix_snapshot,inventory_batch,inventory_batch_shard,inventory_hold,inventory_movement,order,order_item,promoter,promoter_code,promoter_code_scope,promoter_link,scan,scan_device,settlement,settlement_line,staff_role,ticket_type',
   'A2: exactly the frozen names — order/order_item (082), 086 door/scan, 087 settlement/settlement_line/export_job present, inventory_unit ABSENT (EXT/C42)');
 SELECT hasnt_table('venue'::name,'inventory_unit'::name, 'A3: venue.inventory_unit is NOT created (EXT/C42)');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='venue'), 90,
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='venue'), 92,
+  -- 2026-10-26 (registry 162, S2): 90 -> 92 (+set_ticket_type_sale_window, ticket_type_on_sale).
   -- 2026-10-22 (registry 160, S1): 87 -> 90 (+set_ticket_type_visibility, set_ticket_type_rank, get_inventory_counters).
   -- 2026-09-05 (package 114): 85 -> 87 (+2 M1 door read + manifest signing context).
   -- 2026-09-05 (package 113): 83 -> 85 (+2 door-manifest core + machine entrypoint).
@@ -59,7 +60,7 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
   -- twelve CRM export/read RPCs (on_payout_settled is a SEAM-2 body-replace, already counted).
   -- 2026-09-01 (package 086): 18 -> 46 (+28 door/scan/comp/guest/manifest/holder-mix
   -- fns incl. the guard trigger fn; append_door_manifest_delta is a body-replace).
-  'A4: venue holds NINETY functions — 60 post-087 + 090''s nineteen + 108''s four + 113''s two + 114''s two + 160''s three');
+  'A4: venue holds NINETY-TWO functions — 60 post-087 + 090''s nineteen + 108''s four + 113''s two + 114''s two + 160''s three + 162''s two');
 SELECT has_function('catalog'::name,'publish_event'::name, ARRAY['uuid','text','text']::name[],
   'A5: catalog.publish_event authored HERE (SEAM-1: reads ticket_type + inventory_batch)');
 SELECT has_function('kernel'::name,'issue_ticket_atoms'::name, ARRAY['jsonb','text']::name[],

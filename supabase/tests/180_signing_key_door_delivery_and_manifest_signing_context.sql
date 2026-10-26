@@ -99,12 +99,14 @@ SELECT ok(NOT EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pro
 SELECT is((SELECT count(*)::int FROM pg_proc p WHERE p.oid IN ('venue.get_signing_keys_door(uuid,uuid,text,uuid)'::regprocedure,
              'venue.get_manifest_signing_context()'::regprocedure) AND p.prosecdef AND p.proconfig::text LIKE '%search_path=%'), 2,
   'A4: both SECURITY DEFINER with pinned search_path (066 invariant)');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='venue'), 90,
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='venue'), 92,
+  -- 2026-10-26 (registry 162, S2): 90 -> 92 (+set_ticket_type_sale_window, ticket_type_on_sale).
   -- 2026-10-22 (registry 160, S1): 87 -> 90 (+set_ticket_type_visibility, set_ticket_type_rank, get_inventory_counters).
-  'A5: venue holds 90 functions — 85 post-113 + 114''s two + 160''s three');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 308,
+  'A5: venue holds 92 functions — 85 post-113 + 114''s two + 160''s three + 162''s two');
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 313,
+  -- 2026-10-26 (registry 162, S2): 308 -> 313 (+2 venue: set_ticket_type_sale_window, ticket_type_on_sale; +3 catalog: set_venue_timezone, set_event_age_policy, set_session_sales_capacity).
   -- 2026-10-22 (registry 160, S1): 305 -> 308 (+3 venue: set_ticket_type_visibility, set_ticket_type_rank, get_inventory_counters).
-  'A6: five-schema routine census 308 (305 pre-160; 294 post-113 + 114''s two = 296; 131 +4 kernel: invalidate_push_bindings_for, trg_push_bindings_on_password_change, trg_push_bindings_on_sessions_gone, push_session_predates_epoch; 135 +3 notify: issue_push_token_challenge, get_push_token_challenge, record_push_token_challenge_delivery; 139 +2 notify: claim_report_delivery, release_report_delivery)');
+  'A6: five-schema routine census 313 (308 pre-162; 305 pre-160; 294 post-113 + 114''s two = 296; 131 +4 kernel: invalidate_push_bindings_for, trg_push_bindings_on_password_change, trg_push_bindings_on_sessions_gone, push_session_predates_epoch; 135 +3 notify: issue_push_token_challenge, get_push_token_challenge, record_push_token_challenge_delivery; 139 +2 notify: claim_report_delivery, release_report_delivery)');
 SELECT is((SELECT array_agg(column_name::text ORDER BY column_name) FROM information_schema.column_privileges
             WHERE table_schema='kernel' AND table_name='signing_key' AND grantee='authenticated' AND privilege_type='SELECT'),
   ARRAY['algorithm','event_id','key_id','not_after','not_before','public_key','scope','status','venue_id'],
