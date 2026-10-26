@@ -74,18 +74,32 @@ alter table venue.scan add constraint scan_device_label_len_ck
 comment on column venue.scan.device_label is
   '183: free-text attribution label supplied by the scanning client (scan_meta.device_label, ≤ 64 chars). Rendered as part of a duplicate response''s `prior`. Never identity, never PII by contract.';
 
+-- ── PRE-FLIGHT (stacking guard, A review 2026-10-26): the body being replaced must be
+-- EXACTLY the 108 body (first apply) or EXACTLY this migration's body (idempotent
+-- re-apply). Any other body means a later _record_scan_core change landed first and
+-- would be silently overwritten — refuse, so the registry order is re-examined.
+do $pf$
+declare v_md5 text := md5(pg_get_functiondef('venue._record_scan_core(uuid,uuid,uuid,uuid,jsonb,text)'::regprocedure));
+begin
+  if v_md5 not in ('9ae362e02023cd0d45df43daef326b11',   -- 108 body (= production, 2026-10-26)
+                   '1b7e88e52a7a788081c7623fba62baf6') then                   -- this migration's body (re-apply)
+    raise exception 'precondition_failed: 183 refuses to overwrite an unexpected venue._record_scan_core body (md5 %) — re-examine the migration order', v_md5;
+  end if;
+end $pf$;
+
 create or replace function venue._record_scan_core(
   p_atom_id uuid, p_session_id uuid, p_actor_device_id uuid, p_actor_identity_id uuid,
   p_scan_meta jsonb, p_command_key text)
 returns jsonb language plpgsql security definer set search_path = ''
 as $$
 declare v_flag boolean; v_session_status text; v_res jsonb; v_result text; v_scan_id uuid;
-        -- 183: prior-admission facts, the caller's label, the credential claims, the refusal reason
+        -- ── 183 BLOCK VARS — prior-admission facts, the caller's label, the credential claims, the refusal reason
         v_prior_scan_id uuid; v_prior_occurred_at timestamptz; v_prior_device_id uuid;
         v_prior_actor uuid; v_prior_label text;
         v_label text := nullif(left(coalesce(p_scan_meta->>'device_label',''), 64), '');
         v_claim_ver integer; v_claim_key uuid; v_cur_ver integer; v_cur_key uuid;
         v_reason text;
+        -- ── 183 BLOCK VARS END
 begin
   select (c.value #>> '{}')::boolean into v_flag from catalog.platform_config c
    where c.key = 'feature.native_scanning_enabled' order by c.version desc limit 1;
@@ -154,35 +168,55 @@ begin
     return jsonb_build_object('status','ok','scan_id', null, 'result','invalid', 'reason','unknown_atom');
   end if;
   -- ── 183 BLOCK C END
-  insert into venue.scan (ticket_atom_id, event_session_id, device_id, actor_identity_id, result, occurred_at, device_label)
+  -- ── 183 BLOCK E — the 108 ledger INSERT with ONE added column (`device_label` ← `v_label`); the
+  -- only 183 lines that cannot sit beside a literal 108 statement (the ledger is append-only, so the
+  -- label must travel in the same INSERT). The two tagged lines are the whole difference.
+  insert into venue.scan (ticket_atom_id, event_session_id, device_id, actor_identity_id, result, occurred_at, device_label)  -- 183 E: +device_label
   values (p_atom_id, p_session_id, p_actor_device_id, p_actor_identity_id, v_result,
-          coalesce((p_scan_meta->>'occurred_at')::timestamptz, now()), v_label)
+          coalesce((p_scan_meta->>'occurred_at')::timestamptz, now()), v_label)  -- 183 E: +v_label
   returning scan_id into v_scan_id;
-  return jsonb_build_object('status','ok','scan_id', v_scan_id, 'result', v_result)
-      || case when v_result = 'invalid' then jsonb_build_object('reason', coalesce(v_reason,'other')) else '{}'::jsonb end
-      || case when v_result = 'duplicate' and v_prior_scan_id is not null then jsonb_build_object('prior', jsonb_build_object(
+  -- ── 183 BLOCK E END
+  -- ── 183 BLOCK D/B — invalid → + `reason`; duplicate → + `prior`. 'admitted' falls through to the
+  -- literal 108 RETURN below, so the response for an admission is byte-identical to production.
+  if v_result = 'invalid' then
+    return jsonb_build_object('status','ok','scan_id', v_scan_id, 'result', v_result, 'reason', coalesce(v_reason,'other'));
+  elsif v_result = 'duplicate' and v_prior_scan_id is not null then
+    return jsonb_build_object('status','ok','scan_id', v_scan_id, 'result', v_result, 'prior', jsonb_build_object(
              'scan_id', v_prior_scan_id, 'occurred_at', v_prior_occurred_at, 'device_id', v_prior_device_id,
-             'actor_identity_id', v_prior_actor, 'device_label', v_prior_label)) else '{}'::jsonb end;
+             'actor_identity_id', v_prior_actor, 'device_label', v_prior_label));
+  end if;
+  -- ── 183 BLOCK D/B END
+  return jsonb_build_object('status','ok','scan_id', v_scan_id, 'result', v_result);
 exception when unique_violation then
   -- C41 first-in-wins: a second admitted inbound scan is a duplicate.
-  insert into venue.scan (ticket_atom_id, event_session_id, device_id, actor_identity_id, result, occurred_at, device_label)
+  -- ── 183 BLOCK E — the 108 race-arm INSERT with the same ONE added column
+  insert into venue.scan (ticket_atom_id, event_session_id, device_id, actor_identity_id, result, occurred_at, device_label)  -- 183 E: +device_label
   values (p_atom_id, p_session_id, p_actor_device_id, p_actor_identity_id, 'duplicate',
-          coalesce((p_scan_meta->>'occurred_at')::timestamptz, now()), v_label)
+          coalesce((p_scan_meta->>'occurred_at')::timestamptz, now()), v_label)  -- 183 E: +v_label
   returning scan_id into v_scan_id;
-  -- 183: the race arm renders like the sequential arm — attach the prior facts.
+  -- ── 183 BLOCK E END
+  -- ── 183 BLOCK B — the race arm renders like the sequential arm: attach `prior` when the admitted
+  -- row is visible; otherwise fall through to the literal 108 RETURN below.
   select s.scan_id, s.occurred_at, s.device_id, s.actor_identity_id, s.device_label
     into v_prior_scan_id, v_prior_occurred_at, v_prior_device_id, v_prior_actor, v_prior_label
     from venue.scan s
    where s.ticket_atom_id = p_atom_id and s.event_session_id = p_session_id
      and s.result = 'admitted' and s.direction = 'in'
    limit 1;
-  return jsonb_build_object('status','ok','scan_id', v_scan_id, 'result', 'duplicate')
-      || case when v_prior_scan_id is not null then jsonb_build_object('prior', jsonb_build_object(
+  if v_prior_scan_id is not null then
+    return jsonb_build_object('status','ok','scan_id', v_scan_id, 'result', 'duplicate', 'prior', jsonb_build_object(
              'scan_id', v_prior_scan_id, 'occurred_at', v_prior_occurred_at, 'device_id', v_prior_device_id,
-             'actor_identity_id', v_prior_actor, 'device_label', v_prior_label)) else '{}'::jsonb end;
+             'actor_identity_id', v_prior_actor, 'device_label', v_prior_label));
+  end if;
+  -- ── 183 BLOCK B END
+  return jsonb_build_object('status','ok','scan_id', v_scan_id, 'result', 'duplicate');
 end;
 $$;
+-- ── 183 BLOCK DOC — the 108 comment, extended
 comment on function venue._record_scan_core(uuid,uuid,uuid,uuid,jsonb,text) is
   'INTERNAL (zero grant): the authorization-free admission body (104/108 + 183). Callers MUST pre-authorize (venue.record_scan role gate, or venue.record_scan_door via kernel.assert_door_session). Flag gate, terminal-session gate, optional credential-currency check (scan_meta.credential_version/key_id vs kernel.tickets), mark_ticket_scanned, first-in-wins. 183: a sequential rescan of a consumed atom is result=duplicate with prior:{scan_id, occurred_at, device_id, actor_identity_id, device_label}; invalid responses carry a reason; an unknown atom answers invalid/unknown_atom without a ledger row.';
+-- ── 183 BLOCK DOC END
+
+revoke all on function venue._record_scan_core(uuid,uuid,uuid,uuid,jsonb,text) from public, anon, authenticated, service_role;
 
 commit;
