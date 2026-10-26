@@ -1,37 +1,31 @@
 -- ============================================================================
 -- supabase/rollbacks/20261026230000_venue_hold_sale_window_rollback.sql
--- Rollback for registry 185 (20261026230000). Restores the APPLIED predecessor bodies of
--- venue.reserve_primary_inventory and venue.create_inventory_hold (081 PART 10 / PART 11, as
--- pg_get_functiondef printed them on the stacked clone) VERBATIM: holds are no longer refused
--- outside a tier's sale window. Nothing else moves — owner, ACL, SECURITY DEFINER and search_path are
+-- Rollback for registry 185 (20261026230000). Restores the APPLIED predecessor body of
+-- venue.reserve_primary_inventory (081 PART 10, as pg_get_functiondef printed it on the stacked clone)
+-- VERBATIM: buyer holds are no longer refused outside a tier's sale window. Nothing else moves — 185
+-- never touched venue.create_inventory_hold (f177b73fadaa60234a6d416fed558d11); owner, ACL, SECURITY DEFINER and search_path are
 -- kept by CREATE OR REPLACE and asserted by the post-restore self-check; no data is touched.
--- Guards: the pre-flight accepts only 185's body (rollback) or the predecessor (idempotent re-run) for
--- each function and refuses anything else with nothing changed.
+-- Guard: the pre-flight accepts only 185's body (rollback) or the predecessor (idempotent re-run) and
+-- refuses anything else with nothing changed.
 --   reserve_primary_inventory  185 d30669daef75abe15725aa0b04a107b0 -> predecessor 3538344c0418c7b322accafdee76f0f6
---   create_inventory_hold      185 ae2d7634878c368d531b96699ff9db99 -> predecessor f177b73fadaa60234a6d416fed558d11
--- ORDER: run this BEFORE 162's rollback (162's drops venue.ticket_type_on_sale, which 185's bodies call).
+-- ORDER: a later rollback of 162 must run after 185's rollback (162's drops venue.ticket_type_on_sale,
+-- which 185's body calls).
 -- ============================================================================
 begin;
 set local lock_timeout = '3s';
 
--- ── PRE-FLIGHT (inverse of 185's guard): each body being restored over must be EXACTLY 185's (rollback)
--- or already its predecessor (idempotent re-run); anything else is a later change this rollback must not
--- destroy — refuse; nothing changes. ACLs captured for the post-restore self-check.
+-- ── PRE-FLIGHT (inverse of 185's guard): the body being restored over must be EXACTLY 185's (rollback) or
+-- already the predecessor (idempotent re-run); anything else is a later change this rollback must not
+-- destroy — refuse; nothing changes. ACL captured for the post-restore self-check.
 do $pf$
 declare
   v_r text := md5(pg_get_functiondef(to_regprocedure('venue.reserve_primary_inventory(uuid, integer, text)')));
-  v_c text := md5(pg_get_functiondef(to_regprocedure('venue.create_inventory_hold(uuid, integer, text, text)')));
 begin
   if v_r is null or v_r not in ('d30669daef75abe15725aa0b04a107b0',   -- 185 body
                                 '3538344c0418c7b322accafdee76f0f6') then -- 081 body (already rolled back)
     raise exception 'precondition_failed: 185 rollback refuses to overwrite an unexpected venue.reserve_primary_inventory body (md5 %); nothing changed', coalesce(v_r, '<missing>');
   end if;
-  if v_c is null or v_c not in ('ae2d7634878c368d531b96699ff9db99',   -- 185 body
-                                'f177b73fadaa60234a6d416fed558d11') then -- 081 body (already rolled back)
-    raise exception 'precondition_failed: 185 rollback refuses to overwrite an unexpected venue.create_inventory_hold body (md5 %); nothing changed', coalesce(v_c, '<missing>');
-  end if;
   perform set_config('a185.acl_r', (select coalesce(proacl::text, '<default>') from pg_proc where oid = 'venue.reserve_primary_inventory(uuid, integer, text)'::regprocedure), true);
-  perform set_config('a185.acl_c', (select coalesce(proacl::text, '<default>') from pg_proc where oid = 'venue.create_inventory_hold(uuid, integer, text, text)'::regprocedure), true);
 end $pf$;
 
 -- ── venue.reserve_primary_inventory: the 081 body, verbatim
@@ -175,106 +169,16 @@ exception when unique_violation then
 end;
 $function$;
 
--- ── venue.create_inventory_hold: the 081 body, verbatim
-CREATE OR REPLACE FUNCTION venue.create_inventory_hold(p_batch_id uuid, p_quantity integer, p_hold_kind text, p_command_key text)
- RETURNS jsonb
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO ''
-AS $function$
-declare
-  v_uid     uuid;
-  v_flag    boolean;
-  v_org_id  uuid;
-  v_venue   uuid;
-  v_held    integer;
-  v_cap     integer;
-  v_sold    integer;
-  v_ttl     interval;
-  v_hold_id uuid;
-  v_expires timestamptz;
-begin
-  v_uid := auth.uid();
-  if v_uid is null then
-    raise exception 'insufficient_privilege: authentication required' using errcode = '42501';
-  end if;
-  if p_command_key is null or length(trim(p_command_key)) = 0 then
-    raise exception 'precondition_failed: command key required';
-  end if;
-  if p_quantity is null or p_quantity <= 0 then
-    raise exception 'precondition_failed: bad_quantity';
-  end if;
-
-  select (c.value #>> '{}')::boolean into v_flag
-    from catalog.platform_config c where c.key = 'feature.native_issuance_enabled'
-   order by c.version desc limit 1;
-  if not coalesce(v_flag, false) then
-    raise exception 'precondition_failed: feature_disabled';
-  end if;
-
-  select e.org_id, e.venue_id, b.held, b.capacity, b.sold
-    into v_org_id, v_venue, v_held, v_cap, v_sold
-    from venue.inventory_batch b
-    join venue.ticket_type tt on tt.ticket_type_id = b.ticket_type_id
-    join catalog.event e on e.event_id = tt.event_id
-   where b.batch_id = p_batch_id
-   for update of b;
-  if v_org_id is null then
-    raise exception 'not_found: batch %', p_batch_id using errcode = 'P0002';
-  end if;
-
-  -- Staff authority (distinct from the buyer hold, never fans).
-  if not (kernel.has_org_role_over_venue(v_venue, array['org_owner','org_admin'])
-          or kernel.has_venue_role(v_venue, array['venue_manager'])) then
-    raise exception 'insufficient_privilege: venue_manager or org_owner/org_admin required'
-      using errcode = '42501';
-  end if;
-
-  begin
-    select (c.value #>> '{}')::interval into v_ttl from catalog.platform_config c
-     where c.key = 'inventory.hold_ttl_interval' order by c.version desc limit 1;
-  exception when others then v_ttl := null;
-  end;
-  if v_ttl is null then
-    raise exception 'precondition_failed: hold_ttl_unset';
-  end if;
-  v_expires := now() + v_ttl;
-
-  if v_held + v_sold + p_quantity > v_cap then
-    raise exception 'precondition_failed: oversell_rejected';
-  end if;
-
-  update venue.inventory_batch set held = held + p_quantity, updated_at = now()
-   where batch_id = p_batch_id;
-
-  insert into venue.inventory_hold
-         (batch_id, identity_id, quantity, status, expires_at, command_idempotency_key)
-  values (p_batch_id, v_uid, p_quantity, 'active', v_expires, p_command_key)
-  returning hold_id into v_hold_id;
-
-  insert into venue.inventory_movement
-         (batch_id, movement_kind, delta_held, delta_sold, cause, cause_ref, actor_identity)
-  values (p_batch_id, 'hold', p_quantity, 0,
-          case p_hold_kind when 'comp' then 'comp' else 'admin_action' end, v_hold_id, v_uid);
-
-  return jsonb_build_object('status','ok','hold_id',v_hold_id);
-exception when unique_violation then
-  raise exception 'precondition_failed: idempotency_replay';
-end;
-$function$;
-
--- ── POST-RESTORE SELF-CHECK: both bodies are EXACTLY the predecessors; definer, search_path and ACL unchanged.
+-- ── POST-RESTORE SELF-CHECK: the body is EXACTLY the predecessor; definer, search_path and ACL unchanged.
 do $pc$
 begin
-  if md5(pg_get_functiondef('venue.reserve_primary_inventory(uuid, integer, text)'::regprocedure)) <> '3538344c0418c7b322accafdee76f0f6'
-  or md5(pg_get_functiondef('venue.create_inventory_hold(uuid, integer, text, text)'::regprocedure)) <> 'f177b73fadaa60234a6d416fed558d11' then
-    raise exception 'precondition_failed: 185 rollback post-restore self-check — a restored body is not the predecessor; this file was modified';
+  if md5(pg_get_functiondef('venue.reserve_primary_inventory(uuid, integer, text)'::regprocedure)) <> '3538344c0418c7b322accafdee76f0f6' then
+    raise exception 'precondition_failed: 185 rollback post-restore self-check — the restored venue.reserve_primary_inventory body is not the predecessor; this file was modified';
   end if;
   if exists (select 1 from pg_proc
-              where oid in ('venue.reserve_primary_inventory(uuid, integer, text)'::regprocedure, 'venue.create_inventory_hold(uuid, integer, text, text)'::regprocedure)
+              where oid = 'venue.reserve_primary_inventory(uuid, integer, text)'::regprocedure
                 and (not prosecdef or proconfig is distinct from array['search_path=""']))
-  or (select coalesce(proacl::text, '<default>') from pg_proc where oid = 'venue.reserve_primary_inventory(uuid, integer, text)'::regprocedure) <> current_setting('a185.acl_r')
-  or (select coalesce(proacl::text, '<default>') from pg_proc where oid = 'venue.create_inventory_hold(uuid, integer, text, text)'::regprocedure) <> current_setting('a185.acl_c') then
+  or (select coalesce(proacl::text, '<default>') from pg_proc where oid = 'venue.reserve_primary_inventory(uuid, integer, text)'::regprocedure) <> current_setting('a185.acl_r') then
     raise exception 'precondition_failed: 185 rollback post-restore self-check — SECURITY DEFINER, search_path or the EXECUTE ACL moved';
   end if;
 end $pc$;
