@@ -109,7 +109,7 @@ SELECT is((SELECT count(*) FROM information_schema.role_table_grants WHERE table
 SELECT is((SELECT count(*) FROM information_schema.columns WHERE table_schema = 'venue_api' AND table_name = 'inventory_batches' AND column_name IN ('capacity','held','sold')), 0::bigint, 'B1: inventory_batches projects no capacity/held/sold');
 SELECT has_column('venue_api', 'inventory_batches', 'remaining', 'B2: inventory_batches projects remaining');
 SELECT is((SELECT count(*) FROM information_schema.columns WHERE table_schema = 'venue_api' AND table_name = 'events' AND column_name IN ('hero_image_ref','genre_tags')), 0::bigint, 'B3: events projects no marketing media columns');
-SELECT is((SELECT column_name::text FROM information_schema.columns WHERE table_schema = 'venue_api' AND table_name = 'events' ORDER BY ordinal_position DESC LIMIT 1), 'description', 'B3b: description is projected, as the LAST column (078:145 grant; appended 2026-10-26 for the dashboard; later views append after it)');
+SELECT is((SELECT ordinal_position::int FROM information_schema.columns WHERE table_schema = 'venue_api' AND table_name = 'events' AND column_name = 'description'), 8, 'B3b: description is projected as column 8, right after the original seven (078:145 grant; appended 2026-10-26; later migrations append after it, so this pin survives them)');
 SELECT ok((SELECT bool_and(pg_get_viewdef(c.oid) !~* 'security definer') FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'venue_api' AND c.relkind = 'v'), 'B4: view definitions are plain selects');
 
 -- ── Section C — tenant isolation, as the caller ──────────────────────────────
