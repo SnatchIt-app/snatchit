@@ -162,19 +162,22 @@
 --       REVOKE ALL FROM PUBLIC, anon, authenticated; GRANT EXECUTE TO
 --       authenticated (manifest 'authenticated-execute'). anon is denied at the
 --       ACL (42501), never served an empty set.
---   service_role (all four): KEEPS the public-schema DEFAULT EXECUTE. This chain
---       carries pg_default_acl `public / functions / postgres -> anon=X,
---       authenticated=X, service_role=X` (Supabase's ALTER DEFAULT PRIVILEGES),
---       so every function created in public is born with the three; the I-7
---       sequence strips and re-grants anon/authenticated and — exactly as
---       20260909000000's get_my_tickets (proacl {postgres,authenticated,
---       service_role}) and 112 of the 126 public functions today — leaves
---       service_role's default standing. Not revoked here on purpose: deviating
---       from the house posture is A's call, not a side effect of this package
---       (FLAGGED in EVIDENCE-182 §9); there is no server-side caller, a
---       service_role call of the two owner reads raises 28000 (auth.uid() is
---       NULL) and of the two discovery reads returns the same public rows. The
---       post-flight and 252 A8-A11 PIN this posture so it is read, not assumed.
+--   service_role (all four): EXECUTE by an EXPLICIT GRANT (A's house-posture
+--       ruling, 2026-10-26). The posture is the same as 20260909000000's
+--       get_my_tickets (proacl {postgres,authenticated,service_role}), but it is
+--       no longer INHERITED from pg_default_acl: CI's fresh Supabase stack carries
+--       no `public / functions -> service_role=X` default entry (the local
+--       replay template and production do), so the inherited grant existed
+--       locally and in production and was ABSENT on CI — 182's post-flight
+--       raised there (service_role=f). An explicit `GRANT EXECUTE ... TO
+--       service_role` makes CI = local = production; where the default entry
+--       exists it is a no-op. There is no server-side caller: a service_role
+--       call of the two owner reads raises 28000 (auth.uid() is NULL) and of the
+--       two discovery reads returns the same public rows. The manifest classes
+--       ('anon-execute' / 'authenticated-execute') are service_role-agnostic
+--       (Part B checks anon, authenticated, PUBLIC and a non-NULL proacl only),
+--       so the rows stand unchanged; their comments say the grant is explicit.
+--       The post-flight and 252 A8-A11 PIN this posture so it is read, not assumed.
 --
 -- FOUR-FILE RULE (CLAUDE.md) — REAL for this package, all four touched/read:
 --   1. supabase/ci/assert_public_table_grant_decisions.sql — four Part-B rows:
@@ -204,8 +207,9 @@
 --      and proname in ('list_primary_sessions_on_sale','get_primary_session',
 --                      'get_my_ticket_atoms','get_my_primary_orders');
 --   -- 4 rows; prosecdef t; provolatile s; proconfig {search_path=""};
---   -- proacl = {postgres, service_role, anon, authenticated}=X for the first two,
---   -- {postgres, service_role, authenticated}=X for the last two (service_role = the kept default).
+--   -- proacl = {postgres, anon, authenticated, service_role}=X for the first two,
+--   -- {postgres, authenticated, service_role}=X for the last two (service_role = the explicit
+--   -- grant; entry order may differ where the default ACL already supplied it).
 --   select count(*) from pg_proc p where p.pronamespace = 'public'::regnamespace
 --      and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e');  -- 130 (was 126)
 --   -- md5(prosrc) of the four bodies as applied (the rollback's G1 targets):
@@ -501,23 +505,28 @@ comment on function public.get_my_primary_orders(uuid) is
   'payment_state none|processing|succeeded|failed from public.payments via kernel.payment_native (refunded -> succeeded; no link -> none). payment_native is written at finalize, so a pending order reads none (no payment linked yet, not "unpaid"). EXECUTE authenticated only.';
 
 -- ============================================================================
--- PART 5 — function ACLs (I-7: strip PUBLIC/anon/authenticated, then grant exactly)
+-- PART 5 — function ACLs (I-7: strip PUBLIC/anon/authenticated, then grant exactly;
+-- service_role explicit on all four — A's house-posture ruling, never left to a default ACL)
 -- ============================================================================
 revoke all on function public.list_primary_sessions_on_sale() from public, anon, authenticated;
 grant execute on function public.list_primary_sessions_on_sale() to anon, authenticated;
+grant execute on function public.list_primary_sessions_on_sale() to service_role;
 
 revoke all on function public.get_primary_session(uuid) from public, anon, authenticated;
 grant execute on function public.get_primary_session(uuid) to anon, authenticated;
+grant execute on function public.get_primary_session(uuid) to service_role;
 
 revoke all on function public.get_my_ticket_atoms(uuid) from public, anon, authenticated;
 grant execute on function public.get_my_ticket_atoms(uuid) to authenticated;
+grant execute on function public.get_my_ticket_atoms(uuid) to service_role;
 
 revoke all on function public.get_my_primary_orders(uuid) from public, anon, authenticated;
 grant execute on function public.get_my_primary_orders(uuid) to authenticated;
+grant execute on function public.get_my_primary_orders(uuid) to service_role;
 
 -- ============================================================================
 -- POST-FLIGHT — refuse to COMMIT unless the four functions carry exactly the
--- decided posture (anon as decided, authenticated, service_role's kept default,
+-- decided posture (anon as decided, authenticated, service_role's explicit grant,
 -- no PUBLIC, non-NULL proacl) and the public census moved by exactly +4
 -- ============================================================================
 DO $post$
@@ -547,7 +556,7 @@ BEGIN
            EXISTS (SELECT 1 FROM pg_proc p CROSS JOIN LATERAL aclexplode(p.proacl) a
                     WHERE p.oid = to_regprocedure(r.sig) AND a.grantee = 0 AND a.privilege_type = 'EXECUTE')
       INTO v_anon, v_auth, v_svc, v_pub;
-    -- v_svc TRUE = the public-schema default ACL kept (the get_my_tickets posture; see GRANT DECISIONS)
+    -- v_svc TRUE = PART 5's explicit service_role grant (the get_my_tickets posture; see GRANT DECISIONS)
     IF v_pub OR NOT v_svc OR NOT v_auth OR (v_anon <> r.anon_ok) THEN
       RAISE EXCEPTION '182_POSTFLIGHT: ACL of % is not the decided posture (anon=% expected %, authenticated=%, service_role=% expected t, PUBLIC=%)',
         r.sig, v_anon, r.anon_ok, v_auth, v_svc, v_pub;
