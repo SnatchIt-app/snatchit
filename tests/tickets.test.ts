@@ -5,7 +5,7 @@
  * sectioning, event grouping) are pinned here. The screen/API/nav are effect- and
  * RN-heavy, so their contract-critical properties are guarded from the shipped
  * source: exact RPC, no owner argument, no .select chaining, no kernel.tickets, no
- * price, no Ticket Detail / QR / Wallet, five-item nav, ownership icon.
+ * price, no QR / Wallet on the tab itself (the detail route owns the code), five-item nav, ownership icon.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -184,8 +184,11 @@ describe('Phase 11 shipped-source guards', () => {
     }
   });
 
-  it('creates no Ticket Detail navigation and constructs no raw image URL', () => {
-    expect(groupCode).not.toMatch(/router\.(push|replace|navigate)|onPress/); // cards do not navigate
+  it('builds no route of its own and constructs no raw image URL (the screen supplies the one onPress)', () => {
+    // 2026-10-26: the ticket detail exists (app/ticket/[session].tsx), so a card may open it — but only
+    // through the `onPress` the Tickets screen hands it. The component itself still knows no route.
+    expect(groupCode).not.toMatch(/router\.(push|replace|navigate)|from 'expo-router'/);
+    expect(groupCode).toContain('onPress?: () => void');
     expect(groupCode).not.toMatch(/https?:\/\//);   // artwork goes through EventMedia, never a hand-built URL
     expect(group).toContain('EventMedia');
   });
