@@ -121,7 +121,9 @@ describe('CFT-604 — loading, failed, empty and filtered are distinct on every 
   });
   it('Tickets: three phases, empty only when loaded with no sections', () => {
     const t = stripComments(read('app/(tabs)/tickets.tsx'));
-    expect(t).toMatch(/phase === 'loading' \? \([\s\S]*phase === 'error' \? \([\s\S]*sections\.length === 0 \? \(/);
+    // 2026-10-26 (c32): the bare empty state needs no sections AND no order in progress — with an order in
+    // flight the list stays up, showing "Orders in progress" above the same "No tickets yet".
+    expect(t).toMatch(/phase === 'loading' \? \([\s\S]*phase === 'error' \? \([\s\S]*sections\.length === 0 && !pendingBlock \? \(/);
   });
 });
 
