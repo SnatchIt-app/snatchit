@@ -89,6 +89,15 @@
 --     door_only counts as on sale (it is sold, at the door). The 081 table
 --     grant (081:988, table grain) already covers the two new columns, so
 --     every role that reads a tier row reads its window — as display_rank (160).
+--     TIME ZONES: session start and the sale window are absolute instants
+--     (timestamptz); evaluation is timezone-INDEPENDENT (the predicate compares
+--     instants; the caller's session TimeZone never enters it) and
+--     catalog.venue.timezone governs DISPLAY only (the *_local columns of part
+--     7; 229 T27/T31). naive timestamp literals are interpreted in the caller's
+--     session TimeZone (PostgREST: UTC) — clients MUST send ISO-8601 with an
+--     offset, converting the venue's local wall-clock using
+--     catalog.venue.timezone. Pinned by 229 W50/W51 (UTC / America/New_York /
+--     Pacific/Kiritimati).
 --  6. venue_cmd SECURITY INVOKER wrappers (LANGUAGE sql, identical argument
 --     lists and result types) for the four setters and the predicate (part 10).
 --  7. CREATE OR REPLACE VIEW venue_api.ticket_types (160's projection) with
