@@ -145,6 +145,15 @@ INSERT INTO _f116 VALUES
   ('ops.transfer_json(public.transfers)', false), ('ops.funds_state(public.transfers,public.payments)', false),
   ('ops.order_row(public.payments,public.transfers)', false), ('ops.subject_label(text,uuid,text)', false),
   ('ops.subject_summary(text,uuid,text)', false), ('ops.case_row(ops."case")', false), ('ops.action_row(ops.action)', false);
+-- 180 (20261022004000, stacked after 158): nine readers (today, list_cases, list_orders, money_overview, list_payouts,
+-- reconciliation_queue, list_listings, list_reports, search) gained a trailing `p_include_test boolean DEFAULT false`, so
+-- their identity signature carries `,boolean`. Resolve an entry to that shape ONLY while 180's predicates exist and the
+-- 116 shape is gone; on a tree without 180 the list is untouched (C1 still demands all 38).
+UPDATE _f116
+   SET sig = CASE WHEN sig LIKE '%()' THEN replace(sig, '()', '(boolean)') ELSE regexp_replace(sig, '\)$', ',boolean)') END
+ WHERE to_regprocedure('ops.is_test_payment(uuid)') IS NOT NULL
+   AND to_regprocedure(sig) IS NULL
+   AND to_regprocedure(CASE WHEN sig LIKE '%()' THEN replace(sig, '()', '(boolean)') ELSE regexp_replace(sig, '\)$', ',boolean)') END) IS NOT NULL;
 
 SELECT is((SELECT count(*)::int FROM _f116 WHERE to_regprocedure(sig) IS NOT NULL), 38, 'C1: all 38 functions of migration 116 exist');
 SELECT ok(has_function_privilege('authenticated', 'ops.order_detail(uuid)', 'EXECUTE'), 'C2: authenticated may EXECUTE ops.order_detail');
