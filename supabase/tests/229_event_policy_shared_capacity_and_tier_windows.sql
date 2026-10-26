@@ -308,8 +308,8 @@ SELECT is((SELECT string_agg(a.attname, ',' ORDER BY a.attnum) FROM pg_attribute
   'A33: venue_api.ticket_types projects 160''s ten columns in order with sale_starts_at, sale_ends_at, on_sale_now appended LAST');
 SELECT is((SELECT string_agg(a.attname, ',' ORDER BY a.attnum) FROM pg_attribute a
             WHERE a.attrelid = 'venue_api.events'::regclass AND a.attnum > 0 AND NOT a.attisdropped),
-  'event_id,venue_id,org_id,title,status,created_at,updated_at,age_policy,timezone',
-  'A34: venue_api.events projects 159''s seven columns in order with age_policy, timezone appended LAST');
+  'event_id,venue_id,org_id,title,status,created_at,updated_at,description,age_policy,timezone',
+  'A34: venue_api.events projects 159''s eight columns in order (description at 8, 159 rev. 2026-10-26) with age_policy, timezone appended LAST');
 SELECT is((SELECT string_agg(a.attname, ',' ORDER BY a.attnum) FROM pg_attribute a
             WHERE a.attrelid = 'venue_api.event_sessions'::regclass AND a.attnum > 0 AND NOT a.attisdropped),
   'session_id,event_id,session_label,starts_at,ends_at,doors_at,door_open_at,status,created_at,updated_at,timezone,starts_at_local,ends_at_local,doors_at_local',

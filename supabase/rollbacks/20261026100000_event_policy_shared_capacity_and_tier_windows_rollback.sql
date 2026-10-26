@@ -27,7 +27,8 @@
 --      and data is not dropped by a rollback (take the owner's call and a
 --      snapshot first).
 -- Verify: the six restored bodies hash to 160's md5 or the file raises; the
--- columns are gone; the views carry 10 / 7 / 10 columns.
+-- columns are gone; the views carry 10 / 8 / 10 columns (events = 159 rev.
+-- 2026-10-26: the original seven + description).
 --
 -- What this re-introduces, on the record: the org arm of the six venue.*
 -- writers/setters again resolves the venue's CURRENT operator (081/160 form:
@@ -130,12 +131,14 @@ CREATE OR REPLACE VIEW venue_api.ticket_types
     FROM venue.ticket_type t;
 COMMENT ON VIEW venue_api.ticket_types IS 'venue.ticket_type; caller''s RLS applies (hidden types are manager/org-plane only).';
 GRANT SELECT ON venue_api.ticket_types TO authenticated;
--- 5.2 venue_api.events — 159's text (20261021120000_venue_api_read_views.sql)
+-- 5.2 venue_api.events — 159's text as revised 2026-10-26 (20261021120000_venue_api_read_views.sql:115-120:
+--     description appended as column 8; comment verbatim)
 CREATE OR REPLACE VIEW venue_api.events
   WITH (security_invoker = true, security_barrier = true) AS
-  SELECT e.event_id, e.venue_id, e.org_id, e.title, e.status, e.created_at, e.updated_at
+  SELECT e.event_id, e.venue_id, e.org_id, e.title, e.status, e.created_at, e.updated_at,
+         e.description
     FROM catalog.event e;
-COMMENT ON VIEW venue_api.events IS 'catalog.event, granted columns only (no description/hero); caller''s RLS applies.';
+COMMENT ON VIEW venue_api.events IS 'catalog.event, granted columns only (description last, 078:145; no hero/genre); caller''s RLS applies.';
 GRANT SELECT ON venue_api.events TO authenticated;
 -- 5.3 venue_api.event_sessions — 159's text
 CREATE OR REPLACE VIEW venue_api.event_sessions
@@ -664,9 +667,9 @@ BEGIN
     RAISE EXCEPTION 'ROLLBACK_162_VERIFY_FAILED: a 162 function or wrapper still exists.';
   END IF;
   IF (SELECT count(*) FROM pg_attribute WHERE attrelid = 'venue_api.ticket_types'::regclass AND attnum > 0 AND NOT attisdropped) <> 10
-  OR (SELECT count(*) FROM pg_attribute WHERE attrelid = 'venue_api.events'::regclass AND attnum > 0 AND NOT attisdropped) <> 7
+  OR (SELECT count(*) FROM pg_attribute WHERE attrelid = 'venue_api.events'::regclass AND attnum > 0 AND NOT attisdropped) <> 8
   OR (SELECT count(*) FROM pg_attribute WHERE attrelid = 'venue_api.event_sessions'::regclass AND attnum > 0 AND NOT attisdropped) <> 10 THEN
-    RAISE EXCEPTION 'ROLLBACK_162_VERIFY_FAILED: a venue_api view does not have its pre-162 column count (10/7/10).';
+    RAISE EXCEPTION 'ROLLBACK_162_VERIFY_FAILED: a venue_api view does not have its pre-162 column count (10/8/10).';
   END IF;
 END $verify$;
 
