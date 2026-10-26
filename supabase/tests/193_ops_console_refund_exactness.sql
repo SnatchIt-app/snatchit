@@ -160,8 +160,9 @@ SELECT ok(NOT has_function_privilege('authenticated', 'ops.build_daily_summary(d
       AND NOT has_function_privilege('authenticated', 'ops.refresh_metrics()', 'EXECUTE')
       AND NOT has_function_privilege('service_role', 'ops.refresh_metrics()', 'EXECUTE'),
   'A.4: build_daily_summary and refresh_metrics keep no client or service grant (unchanged)');
-SELECT ok(has_function_privilege('authenticated', 'ops.money_overview(date,date)', 'EXECUTE')
-      AND NOT has_function_privilege('anon', 'ops.money_overview(date,date)', 'EXECUTE'),
+-- 180 (20261022004000): money_overview gained a trailing `p_include_test boolean`; pin the applied shape while 180's predicates exist.
+SELECT ok(has_function_privilege('authenticated', CASE WHEN to_regprocedure('ops.is_test_payment(uuid)') IS NOT NULL THEN to_regprocedure('ops.money_overview(date,date,boolean)') ELSE to_regprocedure('ops.money_overview(date,date)') END, 'EXECUTE')
+      AND NOT has_function_privilege('anon', CASE WHEN to_regprocedure('ops.is_test_payment(uuid)') IS NOT NULL THEN to_regprocedure('ops.money_overview(date,date,boolean)') ELSE to_regprocedure('ops.money_overview(date,date)') END, 'EXECUTE'),
   'A.5: money_overview keeps authenticated EXECUTE (assert_reader in body) and no anon (unchanged)');
 
 -- ── F. fixture sanity (so no case below passes vacuously) ────────────────────

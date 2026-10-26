@@ -546,7 +546,13 @@ SELECT is((SELECT coalesce(array_agg(v.sig ORDER BY v.sig), '{}'::text[]) FROM (
                        AND md5(pg_get_functiondef(to_regprocedure(v.sig))) = '137f680cff0d54d6c07af2bf49975b6c')
               -- 177 (20261022001000, stacked on 158) redefines action_precheck: its md5 is the one alternative
               AND NOT (v.sig = 'ops.action_precheck(ops.action)'
-                       AND md5(pg_get_functiondef(to_regprocedure(v.sig))) = '20a5ae0386be0644293f5230fad84dde')),
+                       AND md5(pg_get_functiondef(to_regprocedure(v.sig))) = '20a5ae0386be0644293f5230fad84dde')
+              -- 180 (20261022004000, stacked after 158) adds is_test to listing_detail and order_detail: its md5s (read from the
+              -- applied bodies, A/evidence/dc1/self_md5.json) are the one alternative each, only while 180's predicates exist
+              AND NOT (to_regprocedure('ops.is_test_payment(uuid)') IS NOT NULL AND v.sig = 'ops.listing_detail(uuid)'
+                       AND md5(pg_get_functiondef(to_regprocedure(v.sig))) = 'a7366de17ff5b017adaec0854db849d3')
+              AND NOT (to_regprocedure('ops.is_test_payment(uuid)') IS NOT NULL AND v.sig = 'ops.order_detail(uuid)'
+                       AND md5(pg_get_functiondef(to_regprocedure(v.sig))) = '7958264c4f259745954753385613bad5')),
           '{}'::text[],
   'R12.8: neighbours unchanged: action_run, requires_approval, allowed_roles, action_hash, listing_detail (production); precheck (production or 177''s); approve_action, order_detail (157); cancel_listing (production or 170''s)');
 -- static lock check (M1): a single session cannot observe a missing FOR UPDATE. In the listing_relist branch of the
