@@ -16,6 +16,8 @@
  * `feature_disabled`; an unseeded cap fails to ZERO, so `hold_cap_exceeded` comes next (before the TTL
  * check) even for a buyer with no holds; then `hold_ttl_unset`. So `feature_disabled` / `hold_ttl_unset`
  * read "Ticket sales aren't available yet" (A's review, 2026-10-26), and the cap copy must be true at cap 0.
+ * `session_terminal`, `deletion_pending` and `not_found` (no sellable batch) are named too (A, 22:45Z):
+ * "Try again" would only replay the same refusal.
  */
 import { PRIMARY_CHECKOUT_COPY } from '@/src/lib/primary/checkout';
 import { supabase } from '@/src/lib/supabase';
@@ -48,7 +50,9 @@ export function parsePrimaryCheckoutParams(raw: { session?: unknown; tt?: unknow
   return { ok: true, sessionId: session, ticketTypeId: tt, quantity, attemptId };
 }
 
-export type HoldRefusal = 'sold_out' | 'not_on_sale' | 'hold_limit' | 'sales_unavailable' | 'signed_out' | 'not_ready' | 'offline' | 'unavailable';
+export type HoldRefusal =
+  | 'sold_out' | 'not_on_sale' | 'hold_limit' | 'sales_unavailable' | 'ended' | 'account_blocked' | 'not_found'
+  | 'signed_out' | 'not_ready' | 'offline' | 'unavailable';
 export type HoldResult =
   | { ok: true; holdId: string; expiresAt: string | null; quantity: number }
   | { ok: false; reason: HoldRefusal };
@@ -65,6 +69,9 @@ export function parseHoldReply(res: HoldRpcResult): HoldResult {
     if (/tier_not_on_sale|not_on_sale/.test(msg)) return { ok: false, reason: 'not_on_sale' };
     if (/hold_limit|per_user_active_hold|hold_cap/.test(msg)) return { ok: false, reason: 'hold_limit' };
     if (/hold_ttl_unset|feature_disabled/.test(msg)) return { ok: false, reason: 'sales_unavailable' };
+    if (/session_terminal/.test(msg)) return { ok: false, reason: 'ended' };
+    if (/deletion_pending/.test(msg)) return { ok: false, reason: 'account_blocked' };
+    if (code === 'P0002' || /^not_found\b/.test(msg)) return { ok: false, reason: 'not_found' };
     if (/network request failed|failed to fetch/i.test(msg)) return { ok: false, reason: 'offline' };
     return { ok: false, reason: 'unavailable' };
   }
@@ -102,6 +109,9 @@ export const HOLD_COPY: Record<HoldRefusal, string> = {
   not_on_sale: 'These tickets aren’t on sale right now.',
   hold_limit: 'You can’t hold more tickets right now. If you have a hold open, finish that purchase or wait for it to end.',
   sales_unavailable: PRIMARY_CHECKOUT_COPY.refusal.sales_unavailable,
+  ended: PRIMARY_CHECKOUT_COPY.refusal.ended,
+  account_blocked: PRIMARY_CHECKOUT_COPY.refusal.account_blocked,
+  not_found: 'These tickets aren’t available for this event.',
   signed_out: 'Sign in to buy tickets.',
   not_ready: 'Checkout isn’t available for this event yet.',
   offline: 'You’re offline. Connect and try again.',

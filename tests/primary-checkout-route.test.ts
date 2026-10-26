@@ -9,7 +9,8 @@
  *     function (PGRST202) is "checkout not available yet", never a crash and never a fake hold.
  *
  * Negative controls (run by hand, each must FAIL): drop `attempt` from the return URL (R1); accept quantity
- * 0 (P2); map PGRST202 to `unavailable` (H3); drop the hold_ttl_unset / feature_disabled mapping (H5).
+ * 0 (P2); map PGRST202 to `unavailable` (H3); drop the hold_ttl_unset / feature_disabled mapping (H5); drop the session_terminal (H7), deletion_pending
+ * (H8) or not_found (H9) mapping.
  */
 import { describe, expect, it, vi } from 'vitest';
 
@@ -86,6 +87,21 @@ describe('parseHoldReply — public.reserve_primary_tier (167)', () => {
   it('H6: the cap refusal stays hold_limit, and its copy is true when the cap is unseeded (0) — it never says the buyer holds tickets', () => {
     expect(parseHoldReply({ data: null, error: { code: 'P0001', message: 'precondition_failed: hold_cap_exceeded' } })).toEqual({ ok: false, reason: 'hold_limit' });
     expect(HOLD_COPY.hold_limit).not.toMatch(/you already have/i);
+  });
+
+  it('H7: a session that ended or was cancelled is named, with the checkout’s copy — never "try again"', () => {
+    expect(parseHoldReply({ data: null, error: { code: 'P0001', message: 'precondition_failed: session_terminal' } })).toEqual({ ok: false, reason: 'ended' });
+    expect(HOLD_COPY.ended).toBe(PRIMARY_CHECKOUT_COPY.refusal.ended);
+  });
+
+  it('H8: an account with deletion pending is named, with the checkout’s account copy', () => {
+    expect(parseHoldReply({ data: null, error: { code: 'P0001', message: 'precondition_failed: deletion_pending' } })).toEqual({ ok: false, reason: 'account_blocked' });
+    expect(HOLD_COPY.account_blocked).toBe(PRIMARY_CHECKOUT_COPY.refusal.account_blocked);
+  });
+
+  it('H9: no sellable batch for this tier is "not available for this event" — never "try again"', () => {
+    expect(parseHoldReply({ data: null, error: { code: 'P0002', message: 'not_found: batch 99999999-9999-4999-8999-999999999999' } })).toEqual({ ok: false, reason: 'not_found' });
+    expect(HOLD_COPY.not_found).toBe('These tickets aren’t available for this event.');
   });
 
   it('H4: a reply without a hold id is unavailable — never a fake hold', () => {
