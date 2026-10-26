@@ -112,6 +112,10 @@ describe('primary checkout screen — a payments surface (A reviews)', () => {
     expect(view + native).not.toMatch(/Payment successful|You're in|Tickets confirmed|Order complete/i);
   });
 
+  it('K3b: a quote refused as already_paid goes to the ticket page, like an intent Stripe reports paid — never "try again"', () => {
+    expect(native).toContain("if (result.reason === 'already_paid') { submitted(params.sessionId); return; }");
+  });
+
   it('K4: one attempt id per purchase, kept in the route params; the 3-D Secure return URL carries it; Pay is latched', () => {
     expect(native).toContain('router.setParams({ attempt: attemptId })');
     expect(native).toContain('returnURL: buildPrimaryReturnURL({');

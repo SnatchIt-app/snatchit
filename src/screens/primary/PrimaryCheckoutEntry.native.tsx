@@ -8,8 +8,8 @@
  *   1. hold    — `public.reserve_primary_tier` (D's 167, DARK; PGRST202 → "Checkout isn't available yet")
  *   2. quote   — edge `primary-checkout` WITHOUT expected_total_cents (first call); the server creates the
  *                order and the PaymentIntent for its own all-in total
- *   3. resume  — if Stripe already reports that PaymentIntent paid (a 3-D Secure return or a killed app),
- *                no second sheet: go straight to the ticket page
+ *   3. resume  — if the edge answers `already_paid` (409), or Stripe already reports that PaymentIntent
+ *                paid (a 3-D Secure return or a killed app), no second sheet: go straight to the ticket page
  *   4. review  — the all-in total is the headline, itemised beneath; money moves only in the sheet
  *   5. sheet   — completed → the ticket page ("Awaiting payment confirmation" until the webhook issues
  *                tickets); canceled → back to review; failed → review with the failure line
@@ -93,6 +93,7 @@ export default function PrimaryCheckoutNative() {
     });
     if (run !== runRef.current) return;
     if (!result.ok) {
+      if (result.reason === 'already_paid') { submitted(params.sessionId); return; }
       if (result.reason === 'price_changed') setState({ kind: 'price_changed', serverTotalMinor: result.serverTotalMinor });
       else setState({ kind: 'quote_refused', reason: result.reason });
       return;

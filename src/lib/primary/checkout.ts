@@ -12,7 +12,12 @@
  *              total (ALL-IN charge), currency, customerId, customerEphemeralKeySecret }
  *   refusals 401 · 403 identity_erased | deletion_pending · 404 not_found · 409 not_on_sale |
  *            session_terminal | hold_invalid | total_mismatch {server_total_cents} | org_not_eligible |
- *            precondition_failed · 503 service_fee_unset | service_fee_out_of_range · 429 · 500
+ *            precondition_failed | command_key_session_mismatch | already_paid ·
+ *            503 service_fee_unset | service_fee_out_of_range · 429 · 500
+ *
+ * `already_paid` is not a refusal: the order this command key names is paid, so the flow is `submitted`
+ * and the buyer goes to the ticket page (A's review, 2026-10-26). Offering "try again" would replay the
+ * same key into the same 409 forever.
  *
  * Price authority: the server. The edge mints the PaymentIntent for `total`; the client only shows it.
  * `expected_total_cents` is sent only once a total has been SHOWN (an absent value is never a mismatch,
@@ -69,6 +74,7 @@ export type CheckoutRefusal =
 export type QuoteResult =
   | { ok: true; quote: PrimaryQuote }
   | { ok: false; reason: 'price_changed'; serverTotalMinor: number | null }
+  | { ok: false; reason: 'already_paid' }
   | { ok: false; reason: CheckoutRefusal };
 
 const isMinor = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0;
@@ -101,6 +107,7 @@ export function parsePrimaryCheckoutResponse(status: number | null, body: unknow
   if (status === 429) return { ok: false, reason: 'rate_limited' };
   switch (code) {
     case 'total_mismatch': return { ok: false, reason: 'price_changed', serverTotalMinor: isMinor(b.server_total_cents) ? b.server_total_cents : null };
+    case 'already_paid': return { ok: false, reason: 'already_paid' };
     case 'not_on_sale': return { ok: false, reason: 'not_on_sale' };
     case 'session_terminal': return { ok: false, reason: 'ended' };
     case 'hold_invalid': return { ok: false, reason: 'hold_expired' };
@@ -110,7 +117,8 @@ export function parsePrimaryCheckoutResponse(status: number | null, body: unknow
     case 'not_found': return { ok: false, reason: 'not_found' };
     case 'identity_erased':
     case 'deletion_pending': return { ok: false, reason: 'account_blocked' };
-    case 'precondition_failed': return { ok: false, reason: 'refused' };
+    case 'precondition_failed':
+    case 'command_key_session_mismatch': return { ok: false, reason: 'refused' };
     default: return { ok: false, reason: 'unavailable' };
   }
 }
@@ -163,7 +171,7 @@ export type CheckoutState =
   | { kind: 'price_changed'; serverTotalMinor: number | null }
   | { kind: 'paying'; quote: PrimaryQuote }
   | { kind: 'payment_failed'; quote: PrimaryQuote }
-  | { kind: 'submitted'; orderId: string }
+  | { kind: 'submitted'; orderId: string | null }
   | { kind: 'refused'; reason: CheckoutRefusal };
 
 export type CheckoutEvent =
@@ -176,6 +184,7 @@ export function checkoutStep(state: CheckoutState, ev: CheckoutEvent): CheckoutS
     const r = ev.result;
     if (r.ok) return { kind: 'quoted', quote: r.quote };
     if (r.reason === 'price_changed') return { kind: 'price_changed', serverTotalMinor: r.serverTotalMinor };
+    if (r.reason === 'already_paid') return { kind: 'submitted', orderId: null };
     return { kind: 'refused', reason: r.reason };
   }
   if (state.kind !== 'paying') return state;

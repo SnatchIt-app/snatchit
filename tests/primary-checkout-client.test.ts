@@ -115,6 +115,15 @@ describe('parsePrimaryCheckoutResponse', () => {
     expect(parsePrimaryCheckoutResponse(409, { code: 'total_mismatch' })).toEqual({ ok: false, reason: 'price_changed', serverTotalMinor: null });
   });
 
+  it('Q6: already_paid (409) is not a refusal — the order is paid, so there is no "try again" for it', () => {
+    expect(parsePrimaryCheckoutResponse(409, { error: 'server text', code: 'already_paid' })).toEqual({ ok: false, reason: 'already_paid' });
+    expect(Object.keys(PRIMARY_CHECKOUT_COPY.refusal)).not.toContain('already_paid');
+  });
+
+  it('Q7: command_key_session_mismatch (409) is refused — the buyer starts again; the same key is never retried', () => {
+    expect(parsePrimaryCheckoutResponse(409, { error: 'server text', code: 'command_key_session_mismatch' })).toEqual({ ok: false, reason: 'refused' });
+  });
+
   it('Q5: refusal copy never repeats server text and never claims a charge or a ticket', () => {
     for (const v of Object.values(PRIMARY_CHECKOUT_COPY.refusal)) {
       expect(v).not.toContain('server text');
@@ -161,6 +170,10 @@ describe('checkoutStep — never a success state', () => {
     expect(checkoutStep({ kind: 'paying', quote }, { type: 'sheet', outcome: 'completed' })).toEqual({ kind: 'submitted', orderId: 'o' });
     expect(checkoutStep({ kind: 'paying', quote }, { type: 'sheet', outcome: 'canceled' })).toEqual(quoted);
     expect(checkoutStep({ kind: 'paying', quote }, { type: 'sheet', outcome: 'failed' })).toEqual({ kind: 'payment_failed', quote });
+  });
+
+  it('F6: an already-paid order is "submitted" with no order id in hand — the ticket page waits for the webhook', () => {
+    expect(checkoutStep({ kind: 'quoting' }, { type: 'quote', result: { ok: false, reason: 'already_paid' } })).toEqual({ kind: 'submitted', orderId: null });
   });
 
   it('F5: no state is named success, paid or confirmed', () => {
