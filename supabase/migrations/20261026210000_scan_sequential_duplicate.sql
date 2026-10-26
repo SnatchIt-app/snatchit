@@ -219,4 +219,16 @@ comment on function venue._record_scan_core(uuid,uuid,uuid,uuid,jsonb,text) is
 
 revoke all on function venue._record_scan_core(uuid,uuid,uuid,uuid,jsonb,text) from public, anon, authenticated, service_role;
 
+-- ── POST-APPLY SELF-CHECK (A review N6): the body just written must be EXACTLY this
+-- migration's body. A modified copy of this file would pass the pre-flight as an
+-- "idempotent re-apply" and overwrite; this check makes such a copy fail its own
+-- transaction. Outside the function on purpose, so the body md5 does not move.
+do $pc$
+declare v_md5 text := md5(pg_get_functiondef('venue._record_scan_core(uuid,uuid,uuid,uuid,jsonb,text)'::regprocedure));
+begin
+  if v_md5 <> '1b7e88e52a7a788081c7623fba62baf6' then
+    raise exception 'precondition_failed: 183 post-apply self-check — the written venue._record_scan_core body (md5 %) is not this migration''s body; this file was modified', v_md5;
+  end if;
+end $pc$;
+
 commit;
