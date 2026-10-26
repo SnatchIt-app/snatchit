@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyToken, clock, outcomeDetail, outcomeFromRpc, outcomeFromRpcError, OUTCOME_TITLE, OUTCOME_TONE } from "@/lib/scan/outcome";
+import { classifyToken, clock, EXP_SKEW_SECONDS, outcomeDetail, outcomeFromRpc, outcomeFromRpcError, OUTCOME_TITLE, OUTCOME_TONE } from "@/lib/scan/outcome";
 import { ATOM, makeWire, SESS } from "./helpers/credential-wire";
 
 const NOW = 1_799_999_000;
@@ -17,7 +17,9 @@ describe("classifyToken — what the client may decide on its own (all refusals)
     expect(other).toEqual({ kind: "wrong_event", atomId: ATOM, tokenSessionId: "5e55e55e-0000-4000-8000-000000000002" });
   });
   it("a pass past its own exp is a stale pass; a non-decoding code is malformed; another credential type is wrong_type", () => {
-    expect(classifyToken(makeWire({ exp: NOW - 1 }), SESS, NOW)).toEqual({ kind: "invalid", why: "stale_pass" });
+    expect(classifyToken(makeWire({ exp: NOW - EXP_SKEW_SECONDS - 1 }), SESS, NOW)).toEqual({ kind: "invalid", why: "stale_pass" });
+    // a phone clock a few minutes ahead does not refuse a valid pass on its own
+    expect(classifyToken(makeWire({ exp: NOW - EXP_SKEW_SECONDS + 1 }), SESS, NOW).kind).toBe("ok");
     expect(classifyToken("hello", SESS, NOW)).toEqual({ kind: "invalid", why: "malformed" });
     expect(classifyToken(makeWire({ typ: "SNATCHIT-DOOR-MANIFEST-V1" }), SESS, NOW)).toEqual({ kind: "invalid", why: "wrong_type" });
   });

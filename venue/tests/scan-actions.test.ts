@@ -74,7 +74,7 @@ describe("scanAction — the call", () => {
     expect(args.p_command_key).toBe("11111111-2222-4333-8444-555555555555");
     expect(args.p_scan_meta.device_label).toBe("Door A phone");
     expect(args.p_scan_meta).not.toHaveProperty("device_id");
-    expect(typeof args.p_scan_meta.occurred_at).toBe("string");
+    expect(args.p_scan_meta).not.toHaveProperty("occurred_at"); // the server stamps the ledger time, never the phone (E, F-R1)
   });
   it("client-side refusals never reach the server: wrong session claim, stale pass, garbage", async () => {
     expect(await scanAction(input({ wire: makeWire({ sess: "5e55e55e-0000-4000-8000-000000000002", exp: 4_000_000_000 }) }))).toEqual({ kind: "outcome", outcome: { kind: "wrong_event", atomId: ATOM, tokenSessionId: "5e55e55e-0000-4000-8000-000000000002" } });

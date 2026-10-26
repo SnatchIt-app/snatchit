@@ -113,7 +113,9 @@ export async function scanAction(input: ScanInput): Promise<ScanActionResult> {
       g.client.rpc("record_scan", {
         p_atom_id: atomId,
         p_session_id: input.sessionId,
-        p_scan_meta: { device_label: deviceLabel || "phone", occurred_at: new Date().toISOString(), client: "venue-web-scanner/1" },
+        // No occurred_at on the online path: the server writes now() (108 coalesces a client value into
+        // venue.scan.occurred_at, and D's last_admitted_at reads it), so the phone clock must never set it (E, F-R1).
+        p_scan_meta: { device_label: deviceLabel || "phone", client: "venue-web-scanner/1" },
         p_command_key: input.commandKey,
       }),
       SCAN_TIMEOUT_MS,

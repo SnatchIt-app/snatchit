@@ -42,11 +42,14 @@ export type Classification =
  * `credential.app_ttl_interval`; a screenshot does not — asking for a fresh
  * pass costs a tap, admitting an old one costs the door).
  */
+/** A phone clock ahead of the world must not refuse a valid pass: a pass counts as stale only this far past its own exp (E, F-R5). */
+export const EXP_SKEW_SECONDS = 300;
+
 export function classifyToken(wire: unknown, selectedSessionId: string, nowSeconds: number): Classification {
   const claims = decodeCredentialWire(wire);
   if (!claims) return { kind: "invalid", why: "malformed" };
   if (claims.typ !== CREDENTIAL_TYP) return { kind: "invalid", why: "wrong_type" };
-  if (claims.exp < nowSeconds) return { kind: "invalid", why: "stale_pass" };
+  if (claims.exp + EXP_SKEW_SECONDS < nowSeconds) return { kind: "invalid", why: "stale_pass" };
   if (claims.sessionId.toLowerCase() !== selectedSessionId.toLowerCase()) return { kind: "wrong_event", atomId: claims.atomId, tokenSessionId: claims.sessionId };
   return { kind: "ok", claims };
 }

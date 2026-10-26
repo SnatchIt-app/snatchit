@@ -434,7 +434,7 @@ export function ScannerClient({
           {demo
             ? "Demo — sample data: no server counts."
             : counters.kind === "ok" && counters.data
-              ? `This session, every door: ${counters.data.admitted} admitted, ${counters.data.duplicate} already used, ${counters.data.invalid} refused.`
+              ? `This session, every door: ${counters.data.admitted} admitted, ${counters.data.duplicate} already used, ${counters.data.invalid} refused by the server. Refusals decided on a phone (wrong event, stale or unreadable pass, offline) are not counted.`
               : counters.kind === "ok"
                 ? "This session, every door: no scans recorded yet."
                 : counters.kind === "unavailable"

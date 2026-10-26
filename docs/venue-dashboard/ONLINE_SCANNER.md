@@ -14,6 +14,8 @@ One page in the venue dashboard, `/o/<org>/v/<venue>/events/<event>/scan`, for a
 | INVALID | the server refused it (refunded, cancelled, listed for resale, not a pass for this session), or the code is not a pass, or the pass is past its own expiry | red |
 | CANNOT VERIFY | offline, no answer, scanning not enabled on this project, session not admitting, rate-limited, server error, or demo mode. Never an admission. | neutral |
 
+Refusals decided on the phone (WRONG EVENT, a stale or unreadable pass, offline) never reach the server and are not in `venue.scan`; the counts strip's "refused by the server" counts server refusals only (E review F-R2). A pass counts as stale only 5 minutes past its own `exp`, so a phone clock slightly ahead does not refuse valid passes (F-R5).
+
 Rules the code enforces (`venue/src/lib/scan/*`, tested in `venue/tests/scan-*.test.ts`):
 
 - One attempt in flight at a time. Frames decoded while an attempt is in flight are ignored. The same decoded code is not re-sent for 6 s after it was seen or answered.
@@ -32,7 +34,7 @@ Rules the code enforces (`venue/src/lib/scan/*`, tested in `venue/tests/scan-*.t
 | `venue_cmd.validate_ticket_online(p_atom_id, p_session_id)` | resolving a server `invalid` into ALREADY USED vs INVALID | the server's own word (INVALID) is shown |
 | `venue_api.session_admissions` | the per-session counts strip (admitted / already used / refused, last admitted at) | "Attendance counts are not available on this project yet." (never zero) |
 
-`scan_meta` carries `{device_label, occurred_at, client}`; never a device id (the staff path is actor-attributed; `auth.uid()` is the actor). `p_actor_device_id` is not a parameter on this path.
+`scan_meta` carries `{device_label, client}` and **never `occurred_at`** on the online path: the server writes `now()` into `venue.scan.occurred_at` (108 would otherwise coalesce a client value, and `last_admitted_at` reads it), so a phone clock can never set the ledger's time (E review F-R1). Never a device id (the staff path is actor-attributed; `auth.uid()` is the actor).
 
 The atom id comes from ONE strict parse of the pass (the reference decoder, vendored in `venue/src/lib/scan/wire.ts`, proven equal to `supabase/functions/_shared/offline-verify.ts` on every golden token in `tests/fixtures/scanner-contract-v1.json`). The parse is not a signature check. B decides whether verification runs inside the wrapper path or whether the scanner must call a verifier first; the seam is `classifyToken` → `scanAction`. Until then the client refuses, on its own, only what cannot be admitted anyway: a code that does not decode, a credential of another type, a pass for another session, a pass past its own `exp`.
 
