@@ -105,7 +105,10 @@ $m$ SELECT v FROM tap.memo_229 WHERE k = $1 $m$;
 -- definer read of the raw per-session allocation (E-29: no client role may SELECT capacity)
 CREATE FUNCTION tap._alloc229(s uuid) RETURNS integer LANGUAGE sql SECURITY DEFINER SET search_path = '' AS
 $m$ SELECT coalesce(sum(capacity), 0)::integer FROM venue.inventory_batch WHERE event_session_id = s $m$;
-GRANT EXECUTE ON FUNCTION tap._store229(text, text), tap._fetch229(text), tap._alloc229(uuid) TO authenticated;
+-- definer read of the session's pool (sales_capacity is withheld from every client role — 229 A41 pins that; this stands in for a postgres read inside a logged-in step)
+CREATE FUNCTION tap._pool229(s uuid) RETURNS integer LANGUAGE sql SECURITY DEFINER SET search_path = '' AS
+$m$ SELECT sales_capacity FROM catalog.event_session WHERE session_id = s $m$;
+GRANT EXECUTE ON FUNCTION tap._store229(text, text), tap._fetch229(text), tap._alloc229(uuid), tap._pool229(uuid) TO authenticated;
 
 -- ── Fixture (synthetic; never a migration) ─────────────────────────────────
 INSERT INTO auth.users (id, instance_id, aud, role, email, raw_app_meta_data, raw_user_meta_data, email_confirmed_at, created_at, updated_at) VALUES
@@ -188,7 +191,7 @@ UPDATE catalog.venue SET org_id = '22900000-0000-4000-8000-00000000000b'
 -- ── Section A — shape + ACL (NULL-safe) ──────────────────────────────────────
 SELECT col_type_is('catalog'::name, 'venue'::name, 'timezone'::name, 'text', 'A1: catalog.venue.timezone is text');
 SELECT col_not_null('catalog'::name, 'venue'::name, 'timezone'::name, 'A2: timezone is NOT NULL');
-SELECT col_default_is('catalog'::name, 'venue'::name, 'timezone'::name, $$'America/New_York'::text$$, 'A3: timezone defaults to America/New_York (owner decision open; reversible)');
+SELECT col_default_is('catalog'::name, 'venue'::name, 'timezone'::name, 'America/New_York', 'A3: timezone defaults to America/New_York (owner decision open; reversible)');
 SELECT col_type_is('catalog'::name, 'event'::name, 'age_policy'::name, 'text', 'A4: catalog.event.age_policy is text');
 SELECT col_is_null('catalog'::name, 'event'::name, 'age_policy'::name, 'A5: age_policy is nullable (NULL = not specified)');
 SELECT throws_ok($$UPDATE catalog.event SET age_policy = 'adults' WHERE event_id = '22900000-0000-4000-8000-0000000000e1'$$,
@@ -630,8 +633,8 @@ SELECT tap.login('22900000-0000-4000-8000-000000000111');
 SELECT is(catalog.set_session_sales_capacity('22900000-0000-4000-8000-0000000000f1', 50, 'room_size', 'ck229-s-1'),
   jsonb_build_object('status','ok','session_id','22900000-0000-4000-8000-0000000000f1','sales_capacity',50,'allocated',0),
   'S1: the bound manager sets f1''s pool to 50 — {status ok, session_id, sales_capacity, allocated 0}');
-SELECT is((SELECT sales_capacity FROM catalog.event_session WHERE session_id = '22900000-0000-4000-8000-0000000000f1'), 50,
-  'S2: persisted');
+SELECT is(tap._pool229('22900000-0000-4000-8000-0000000000f1'), 50,
+  'S2: persisted (read through a definer helper: the column is withheld from the manager, A41)');
 SELECT tap._store229('s_b1',
   (venue.create_inventory_batch('22900000-0000-4000-8000-000000000011', '22900000-0000-4000-8000-0000000000f1', 'public_sale', 30, 0, 'ck229-s-3') ->> 'batch_id'));
 SELECT is(tap._alloc229('22900000-0000-4000-8000-0000000000f1'), 30,
