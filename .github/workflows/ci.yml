@@ -702,7 +702,14 @@ jobs:
           # 2026-10-15 156 ADDENDUM 3 (old-build purchase safeguard): functions 123 -> 126 — +3
           # public.client_shows_proof_disclosure, public.guard_bid_requires_disclosure,
           # public.guard_reservation_requires_disclosure (all no-client-execute). Read from an actual local replay.
-          EXPECT_FUNCS: 126
+          # 2026-10-26 registry 182 (D, primary buyer reads — A's C1/C5; DARK, applied nowhere): functions 126 -> 130 —
+          # +4 public.list_primary_sessions_on_sale, public.get_primary_session (anon-execute: the logged-out discovery
+          # surface; SECURITY DEFINER bodies restating the anon-visible rules), public.get_my_ticket_atoms,
+          # public.get_my_primary_orders (authenticated-execute: owner-scoped on auth.uid()). Tables / policies /
+          # triggers unchanged. Manifest rows in assert_public_table_grant_decisions.sql; expected_grants.txt
+          # unchanged (no table grant moves); pgTAP tests/162 P2 moved 126 -> 130 in the same package; rollback
+          # md5-asserted. Read from a local PG17 replay of a154c_green + 159 + 176 + 160 + 161 + 162 + 182: 35|130|37|49.
+          EXPECT_FUNCS: 130
           # 2026-10-15 migration 154: policies 37 -> 37 — listings_select_all -> listings_select_visible and
           # bids_select_all -> bids_select_visible, 1-for-1; listing_visibility carries no policy.
           EXPECT_POLICIES: 37
