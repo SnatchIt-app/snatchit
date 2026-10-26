@@ -66,4 +66,12 @@ $$;
 comment on function venue._record_scan_core(uuid,uuid,uuid,uuid,jsonb,text) is
   'INTERNAL (zero grant): the authorization-free admission body (104 record_scan minus the role gate). Callers MUST pre-authorize (venue.record_scan role gate, or venue.record_scan_door via kernel.assert_door_session). Terminal-session gate + mark_ticket_scanned + first-in-wins; actor passed explicitly (NULL on the machine path -> device-attributed).';
 revoke all on function venue._record_scan_core(uuid,uuid,uuid,uuid,jsonb,text) from public, anon, authenticated, service_role;
+-- ── POST-RESTORE SELF-CHECK (A review N6): the restored body must be EXACTLY the 108 body.
+do $pc$
+declare v_md5 text := md5(pg_get_functiondef('venue._record_scan_core(uuid,uuid,uuid,uuid,jsonb,text)'::regprocedure));
+begin
+  if v_md5 <> '9ae362e02023cd0d45df43daef326b11' then
+    raise exception 'precondition_failed: 183 rollback post-restore self-check — the restored body (md5 %) is not the 108 body; this file was modified', v_md5;
+  end if;
+end $pc$;
 commit;
