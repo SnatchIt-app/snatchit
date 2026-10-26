@@ -353,6 +353,32 @@ comment on function venue.get_inventory_counters(uuid) is
 -- the header). The rollback restores the 081 text verbatim.
 -- ============================================================================
 
+-- 5.0 PRE-FLIGHT (A's #166 review; B's 183 N2 pattern). The four bodies about to be replaced
+-- must be exactly 081's (first apply) or 160's own (re-apply). Any other body means a later
+-- migration or a hotfix landed first and `create or replace` would silently overwrite it —
+-- refuse instead; the single transaction then changes nothing. The rollback's G1 is the mirror
+-- guard on the way back. md5(prosrc) values are those listed in the header and the rollback.
+do $$
+declare
+  v_tt text := (select md5(prosrc) from pg_proc where oid = to_regprocedure('venue.create_ticket_type(uuid, text, text, integer, text, text)'));
+  v_px text := (select md5(prosrc) from pg_proc where oid = to_regprocedure('venue.set_ticket_type_price(uuid, integer, text, text)'));
+  v_cb text := (select md5(prosrc) from pg_proc where oid = to_regprocedure('venue.create_inventory_batch(uuid, uuid, text, integer, integer, text)'));
+  v_sc text := (select md5(prosrc) from pg_proc where oid = to_regprocedure('venue.set_batch_capacity(uuid, integer, text, text)'));
+begin
+  if v_tt is null or v_tt not in ('fa7e5142616ff9f4cf7fcfcdedbb6a41', 'bba1f015338953b1b84ab1a8ce6e1ff9') then
+    raise exception 'MIGRATION_160_REFUSED (pre-flight): venue.create_ticket_type body is neither 081''s nor 160''s (md5 %); nothing changed', coalesce(v_tt, '<missing>');
+  end if;
+  if v_px is null or v_px not in ('a09ecad391c8614dc722db33c99f57d3', '0b349a564a50fdda0b721d097a3bb9eb') then
+    raise exception 'MIGRATION_160_REFUSED (pre-flight): venue.set_ticket_type_price body is neither 081''s nor 160''s (md5 %); nothing changed', coalesce(v_px, '<missing>');
+  end if;
+  if v_cb is null or v_cb not in ('a623aa97364549a17eabe414da1ca713', 'abedde3ce19d1a49087ac4a5c6aaacd0') then
+    raise exception 'MIGRATION_160_REFUSED (pre-flight): venue.create_inventory_batch body is neither 081''s nor 160''s (md5 %); nothing changed', coalesce(v_cb, '<missing>');
+  end if;
+  if v_sc is null or v_sc not in ('325c25eb1dc363e3d12ceefd081e8e4e', '76c69e9d8625b056e67e53c1d4e34fd9') then
+    raise exception 'MIGRATION_160_REFUSED (pre-flight): venue.set_batch_capacity body is neither 081''s nor 160''s (md5 %); nothing changed', coalesce(v_sc, '<missing>');
+  end if;
+end $$;
+
 -- 5.1 venue.create_ticket_type (081:175)
 create or replace function venue.create_ticket_type(
   p_event_id uuid, p_kind text, p_name text, p_price_minor integer,
