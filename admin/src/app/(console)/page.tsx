@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { callOps } from "@/lib/ops";
+import { HiddenTestRowsNotice } from "@/components/ui/HiddenTestRowsNotice";
 import { requireOperator } from "@/lib/auth/session";
 import { toToday, type OpsCase } from "@/lib/types";
 import { first, type SearchParams } from "@/lib/search-params";
@@ -107,6 +108,12 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
             <a href="#business" className="link">
               Business snapshot
             </a>
+            {today.test_excluded ? (
+              <>
+                {" · "}
+                <HiddenTestRowsNotice count={Object.values(today.test_excluded).reduce((n, v) => n + v, 0)} breakdown={today.test_excluded} />
+              </>
+            ) : null}
           </>
         }
       />

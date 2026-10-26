@@ -128,6 +128,7 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
           ["#actions", "Actions"],
           ["#audit", "Audit log"],
           ["#summary", "Daily summary"],
+          ["/system/test-data", "Test records (restricted)"],
         ].map(([href, label]) => (
           <a key={href} href={href} className="btn btn-ghost btn-sm">
             {label}

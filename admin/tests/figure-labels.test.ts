@@ -139,20 +139,23 @@ describe("HiddenTestRowsNotice — the single hook for DC-2; renders nothing unt
   it("a non-integer is not a count and renders nothing", () => {
     for (const v of [1.5, -1, NaN, Infinity]) expect(h(createElement(HiddenTestRowsNotice, { count: v })), String(v)).toBe("");
   });
-  it("no page or component invents a count: the only renderer of the notice is the hook itself (DC-1 / migration 180 has not landed)", () => {
+  it("no page or component invents a count: the notice is rendered only from server-sent values (DC-2 wired to A's 180)", () => {
+    // DC-2 wired it: the hook itself, Today (ops.today.test_excluded) and the money KPIs (money_overview.test_excluded) render it,
+    // each from a server-sent value; nothing else does, and no caller passes a literal count.
+    const root = resolve(__dirname, "../src");
     const files: string[] = [];
-    const walk = (dir: string) => {
+    const visit = (dir: string) => {
       for (const name of readdirSync(dir)) {
-        const p = join(dir, name);
-        if (statSync(p).isDirectory()) walk(p);
-        else if (/\.tsx?$/.test(name)) files.push(p);
+        const full = resolve(dir, name);
+        if (statSync(full).isDirectory()) visit(full);
+        else if (/\.(ts|tsx)$/.test(name)) files.push(full);
       }
     };
-    walk(resolve(__dirname, "../src"));
-    // An import or a JSX usage is a renderer; a comment that names the hook is not.
-    const users = files.filter((f) => !f.endsWith("HiddenTestRowsNotice.tsx") && /import[^;]*HiddenTestRowsNotice|<HiddenTestRowsNotice/.test(readFileSync(f, "utf8")));
-    expect(users).toEqual([]);
-  });
+    visit(root);
+    const renderers = files.filter((f) => /<HiddenTestRowsNotice\b|function HiddenTestRowsNotice/.test(readFileSync(f, "utf8"))).map((f) => f.slice(root.length + 1)).sort();
+    expect(renderers).toEqual(["app/(console)/page.tsx", "components/analytics/sections.tsx", "components/ui/HiddenTestRowsNotice.tsx"]);
+    for (const f of renderers) expect(readFileSync(resolve(root, f), "utf8")).not.toMatch(/HiddenTestRowsNotice count=\{\d/);
+   });
 });
 
 // ---------------------------------------------------------------------------

@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { DataTable, type Column, type SearchParamsLike } from "@/components/ui/DataTable";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { TestDataFooter, TestRecordBadge } from "@/components/ui/HiddenTestRowsNotice";
 import { TimeAgo } from "@/components/ui/DateTime";
 import { Money } from "@/components/ui/Money";
 import { PartyLink } from "@/components/ui/IdLink";
@@ -110,13 +111,19 @@ export function OrderTable({
       sortValue: (r) => r.amount ?? null,
       firstSortDir: "desc",
     },
-    { key: "payment_status", header: "Payment", render: (r) => <StatusBadge status={r.payment_status} label={labelFor("payment", r.payment_status)} qualifier="below" />, sortValue: (r) => r.payment_status ?? null },
+    { key: "payment_status", header: "Payment", render: (r) => (
+        <span className="flex flex-wrap items-center gap-1">
+          <StatusBadge status={r.payment_status} label={labelFor("payment", r.payment_status)} qualifier="below" />
+          <TestRecordBadge isTest={r.is_test} />
+        </span>
+      ), sortValue: (r) => r.payment_status ?? null },
     { key: "transfer_status", header: "Ticket transfer", render: (r) => <TransferCell r={r} />, sortValue: (r) => r.transfer_status ?? null },
     { key: "funds", header: "Seller funds", render: (r) => <FundsCell r={r} />, sortValue: (r) => r.seller_funds_state ?? null },
   ];
 
   return (
     <DataTable
+      notice={<TestDataFooter rows={rows} />}
       columns={columns}
       rows={rows}
       rowKey={(r, i) => r.payment_id ?? `${i}`}
