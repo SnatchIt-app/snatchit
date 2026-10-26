@@ -592,9 +592,12 @@ SELECT is(tap._g224('od7') -> 'actions',
               ORDER BY a.requested_at DESC LIMIT 50) a),
   'T10.7: actions is unchanged (the production query, byte for byte)');
 SELECT is((SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(tap._g224('od7')) k),
-          ARRAY['actions','bank_payout','buyer','cases','dispute_resolutions','disputes','evidence','listing','payment','payout_decisions',
-                'refund','seller','seller_funds_state','transfer','unsettled_money_actions'],
-  'T10.8: order_detail keys = production keys + unsettled_money_actions');
+          (SELECT array_agg(k ORDER BY k) FROM unnest(
+             ARRAY['actions','bank_payout','buyer','cases','dispute_resolutions','disputes','evidence','listing','payment','payout_decisions',
+                   'refund','seller','seller_funds_state','transfer','unsettled_money_actions']
+             -- 180 (20261022004000, stacked after 157) adds 'is_test' to order_detail; present iff 180's predicates exist
+             || CASE WHEN to_regprocedure('ops.is_test_payment(uuid)') IS NOT NULL THEN ARRAY['is_test'] ELSE '{}'::text[] END) k),
+  'T10.8: order_detail keys = production keys + unsettled_money_actions (+ is_test once 180 is stacked)');
 -- now() is frozen in this transaction and every other blocker here was requested in it: only a blocker requested
 -- earlier (t10a, 2 days ago) can tell the blocker's requested_at from the current time in the message
 SELECT tap._s224('t10x', tap._ex224(tap.admin_user(), 'k224-t10-refund-a02', 'refund_execute', 'payment', tap._p224(7)));
@@ -747,6 +750,26 @@ SELECT is((
     ('build_daily_summary', 'p_date date', '0b5eefaea2b976c46cbd906e1703695f'),
     ('money_overview', 'p_from date, p_to date', '895b0fa065d7fbdae1cd192d92219b0e'),
     ('refresh_metrics', '', '97be33e2546438353533ec75d0eaa52f')
+  ), stack180(fn, args, md5) AS (VALUES
+    -- 180 (20261022004000, admin test-data classification) stacks AFTER 157 and redefines these 13 readers (8 with a new
+    -- trailing p_include_test parameter); md5s read from the applied bodies (A/evidence/dc1/self_md5.json), never retyped.
+    -- money_overview has two 180 variants (production 118 body / CI-chain parked 126 body). Exempt only while 180 is live.
+    ('today', 'p_include_test boolean', 'd31e8c1c578f15c94ac41deaf85ed74e'),
+    ('list_cases', 'p_filters jsonb, p_cursor text, p_limit integer, p_include_test boolean', '8907693fe649c2ea40bed524236c4a19'),
+    ('case_detail', 'p_case_id uuid', '9108da306c0c2856246c46d7114272ec'),
+    ('list_orders', 'p_filters jsonb, p_cursor text, p_limit integer, p_include_test boolean', 'be2e7e330ab4e49017b7e4108170dde1'),
+    ('order_detail', 'p_payment_id uuid', '7958264c4f259745954753385613bad5'),
+    ('order_timeline', 'p_payment_id uuid', 'd75e81db687a7b1a47b9cc072f0b5542'),
+    ('money_overview', 'p_from date, p_to date, p_include_test boolean', '708abcdfa504ca322d44ef454584ac0b'),
+    ('list_payouts', 'p_filters jsonb, p_cursor text, p_limit integer, p_include_test boolean', 'c50b34115582b4ddfc5e77432e2e4935'),
+    ('reconciliation_queue', 'p_cursor text, p_limit integer, p_include_test boolean', 'c612b57722fb38a876a3ef1851940373'),
+    ('list_listings', 'p_filters jsonb, p_cursor text, p_limit integer, p_include_test boolean', '2b8d34b1b2cb9cf9b24c4f5c80b506c4'),
+    ('listing_detail', 'p_listing_id uuid', 'a7366de17ff5b017adaec0854db849d3'),
+    ('list_reports', 'p_filters jsonb, p_cursor text, p_limit integer, p_include_test boolean', '58ae87ce90b3817ce40e91fa47c347c6'),
+    ('search', 'p_q text, p_limit integer, p_include_test boolean', '96c9a0beeaf6a8d56bcd02e749a1b087'),
+    ('money_overview', 'p_from date, p_to date, p_include_test boolean', '0b8ba90ab806af4f0620cbce2a852bf7')
+  ), stack180_pred(fn, args) AS (VALUES
+    ('is_test_payment', 'p_payment_id uuid'), ('is_test_transfer', 'p_transfer_id uuid'), ('is_test_listing', 'p_listing_id uuid'), ('is_test_report', 'p_report_id uuid'), ('is_test_case', 'p_case_id uuid'), ('is_test_subject', 'p_kind text, p_id uuid')
   ), live AS (
     SELECT p.proname::text AS fn, pg_get_function_identity_arguments(p.oid) AS args, md5(pg_get_functiondef(p.oid)) AS md5
       FROM pg_proc p WHERE p.pronamespace = 'ops'::regnamespace AND p.prokind IN ('f','p'))
@@ -755,12 +778,17 @@ SELECT is((
      WHERE (pr.fn, pr.args, pr.md5) NOT IN (SELECT fn, args, md5 FROM live)
        AND NOT EXISTS (SELECT 1 FROM chain_alt c JOIN live l ON (l.fn, l.args, l.md5) = (c.fn, c.args, c.md5)
                         WHERE (c.fn, c.args) = (pr.fn, pr.args))
+       -- 180 stacked: the reader's 180 signature carries exactly a 180 md5
+       AND NOT (to_regprocedure('ops.is_test_payment(uuid)') IS NOT NULL
+                AND EXISTS (SELECT 1 FROM stack180 s JOIN live l ON (l.fn, l.args, l.md5) = (s.fn, s.args, s.md5) WHERE s.fn = pr.fn))
     UNION ALL
     SELECT 'not in production: ' || fn || '(' || args || ')' FROM live
      WHERE (fn, args) NOT IN (SELECT fn, args FROM prod)
        AND fn NOT IN ('execute_action','approve_action','order_detail',
                       'money_order_id','money_unsettled_blocker','expire_stale_money_approvals',
-                      'refund_facts')) d),
+                      'refund_facts')
+       AND NOT (to_regprocedure('ops.is_test_payment(uuid)') IS NOT NULL
+                AND ((fn, args, md5) IN (SELECT fn, args, md5 FROM stack180) OR (fn, args) IN (SELECT fn, args FROM stack180_pred)))) d),
   '{}'::text[],
   'T12.1: every other ops function keeps its production md5 (prod_functions.json 2026-10-21; the 3 metric bodies: production or chain md5)');
 SELECT is((SELECT count(*)::int FROM (VALUES
