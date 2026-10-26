@@ -132,6 +132,23 @@
 -- swept over EVERY function in venue_cmd, not a fixed list), the way 226 F1/F2
 -- gate venue_api. Nothing in public changed; the manifests below are unchanged.
 --
+-- SCOPE NOTE (2026-10-26, registry 163 — D, scanner staff-session wrappers +
+-- identity-free session scan counters; DARK, applied nowhere). Same reasoning:
+-- every object is outside public, so NO row is added here:
+--   venue.get_session_scan_counters(uuid)            authenticated-execute (SECURITY DEFINER, STABLE)
+--   venue.list_session_scan_counters()               authenticated-execute (SECURITY DEFINER, STABLE)
+--   venue.record_scan_staff(uuid, uuid, jsonb, text) authenticated-execute (SECURITY DEFINER; PART B, droppable)
+--   venue.filter_staff_scan_meta(jsonb)              NO grant to any principal (IMMUTABLE helper the definer calls)
+--   venue_api.session_admissions                     SELECT to authenticated only (security_invoker view)
+--   venue_cmd.get_session_scan_counters(uuid)        authenticated-execute (SECURITY INVOKER sql wrappers;
+--   venue_cmd.record_scan(uuid, uuid, jsonb, text)   schema USAGE unchanged from 161)
+--   venue_cmd.validate_ticket_online(uuid, uuid)
+--   (anon, PUBLIC and service_role hold nothing on any of them; no proacl is
+--   left DEFAULTED; the 086/108 grants on venue.record_scan / record_scan_door /
+--   _record_scan_core / validate_ticket_online are unchanged — 230 D12.)
+-- ASSERTED by pgTAP 230 (A10-A12, A15, D5, D10-D12, H3/H4), 228 (the venue_cmd sweep,
+-- now nine) and 226 F1 (+ the 163 hunk, F's). Nothing in public changed.
+--
 -- Table decisions:
 --   no-client-access  deny-all. RLS on, service_role only. ASSERTED: anon and
 --                     authenticated must hold zero table privileges.
