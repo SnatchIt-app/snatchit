@@ -536,10 +536,10 @@ SELECT is((SELECT coalesce(array_agg(v.sig ORDER BY v.sig), '{}'::text[]) FROM (
              ('ops.action_precheck(ops.action)', 'fbc3d08eae4de831ab3f085e170e8f10'),
              ('ops.action_hash(text,text,uuid,text,jsonb)', 'ad280c19761b428d644281f6e336a7c5'),
              ('ops.listing_detail(uuid)', '5208dbb14d749db54c2fdd62e50ab800'),
-             ('ops.listing_detail(uuid)', 'a7366de17ff5b017adaec0854db849d3')   -- 180 (20261022004000) adds is_test,
+             ('ops.listing_detail(uuid)', 'a7366de17ff5b017adaec0854db849d3'),   -- 180 (20261022004000) adds is_test
              ('ops.approve_action(uuid,text,text)', 'ddcdcd1401839910726d20ddd206e40d'),
              ('ops.order_detail(uuid)', '4358f577291f84b25986b8904b38ab36'),
-             ('ops.order_detail(uuid)', '7958264c4f259745954753385613bad5')   -- 180 (20261022004000) adds is_test,
+             ('ops.order_detail(uuid)', '7958264c4f259745954753385613bad5'),   -- 180 (20261022004000) adds is_test
              ('public.cancel_listing(uuid,uuid)', 'ba31642267e65fefbf9485a144efc753')) v(sig, md5)
             WHERE md5(pg_get_functiondef(to_regprocedure(v.sig))) IS DISTINCT FROM v.md5
               -- 170 (20261021130000_listing_seller_integrity.sql, an independent branch) redefines cancel_listing (E's M1):
