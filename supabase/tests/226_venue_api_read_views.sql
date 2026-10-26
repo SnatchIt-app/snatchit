@@ -54,7 +54,7 @@
 -- Fixtures are synthetic, created inside this transaction and rolled back.
 -- ============================================================================
 BEGIN;
-SELECT plan(72);
+SELECT plan(73);
 SELECT tap.seed_core();
 
 -- ── Fixture (synthetic; never a migration) ─────────────────────────────────
@@ -108,7 +108,8 @@ SELECT is((SELECT count(*) FROM information_schema.role_table_grants WHERE table
 -- ── Section B — projection ───────────────────────────────────────────────────
 SELECT is((SELECT count(*) FROM information_schema.columns WHERE table_schema = 'venue_api' AND table_name = 'inventory_batches' AND column_name IN ('capacity','held','sold')), 0::bigint, 'B1: inventory_batches projects no capacity/held/sold');
 SELECT has_column('venue_api', 'inventory_batches', 'remaining', 'B2: inventory_batches projects remaining');
-SELECT is((SELECT count(*) FROM information_schema.columns WHERE table_schema = 'venue_api' AND table_name = 'events' AND column_name IN ('description','hero_image_ref','genre_tags')), 0::bigint, 'B3: events projects no marketing columns');
+SELECT is((SELECT count(*) FROM information_schema.columns WHERE table_schema = 'venue_api' AND table_name = 'events' AND column_name IN ('hero_image_ref','genre_tags')), 0::bigint, 'B3: events projects no marketing media columns');
+SELECT is((SELECT column_name::text FROM information_schema.columns WHERE table_schema = 'venue_api' AND table_name = 'events' ORDER BY ordinal_position DESC LIMIT 1), 'description', 'B3b: description is projected, as the LAST column (078:145 grant; appended 2026-10-26 for the dashboard; later views append after it)');
 SELECT ok((SELECT bool_and(pg_get_viewdef(c.oid) !~* 'security definer') FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'venue_api' AND c.relkind = 'v'), 'B4: view definitions are plain selects');
 
 -- ── Section C — tenant isolation, as the caller ──────────────────────────────
@@ -311,7 +312,7 @@ SELECT set_eq(
   $$ VALUES ('venues.venue_id'), ('venues.org_id'), ('venues.name'), ('venues.neighborhood'), ('venues.approval_status'),
             ('venues.created_at'), ('venues.updated_at'),
             ('events.event_id'), ('events.venue_id'), ('events.org_id'), ('events.title'), ('events.status'),
-            ('events.created_at'), ('events.updated_at'),
+            ('events.created_at'), ('events.updated_at'), ('events.description'),
             ('event_sessions.session_id'), ('event_sessions.event_id'), ('event_sessions.session_label'),
             ('event_sessions.starts_at'), ('event_sessions.ends_at'), ('event_sessions.doors_at'),
             ('event_sessions.door_open_at'), ('event_sessions.status'), ('event_sessions.created_at'),
@@ -328,7 +329,7 @@ SELECT set_eq(
             ('inventory_batches.created_at'), ('inventory_batches.updated_at'),
             ('my_staff_roles.venue_id'), ('my_staff_roles.role'),
             ('my_org_roles.org_id'), ('my_org_roles.role') $$,
-  'F5: the views project exactly these 55 columns (a widened view fails here before it reaches the API)');
+  'F5: the views project exactly these 56 columns (a widened view fails here before it reaches the API)');
 
 -- F6 pins each view's DEFINITION, not only its column names (F5). The expected
 -- definitions are the eight SELECTs of migration 20261021120000, copied
@@ -341,7 +342,8 @@ CREATE TEMP VIEW exp_venues AS
   SELECT v.venue_id, v.org_id, v.name, v.neighborhood, v.approval_status, v.created_at, v.updated_at
     FROM catalog.venue v;
 CREATE TEMP VIEW exp_events AS
-  SELECT e.event_id, e.venue_id, e.org_id, e.title, e.status, e.created_at, e.updated_at
+  SELECT e.event_id, e.venue_id, e.org_id, e.title, e.status, e.created_at, e.updated_at,
+         e.description
     FROM catalog.event e;
 CREATE TEMP VIEW exp_event_sessions AS
   SELECT s.session_id, s.event_id, s.session_label, s.starts_at, s.ends_at, s.doors_at,

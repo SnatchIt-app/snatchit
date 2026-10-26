@@ -85,7 +85,7 @@ It creates eight views, each `WITH (security_invoker = true, security_barrier = 
 | View | Base object (migration) | Projected columns | Read policy that applies to the caller |
 |---|---|---|---|
 | `venues` | `catalog.venue` (078) | venue_id, org_id, name, neighborhood, approval_status, created_at, updated_at | `catalog_venue_sel_anon` 078:307, `_sel_org` 078:312, `_sel_venue` 080:367 |
-| `events` | `catalog.event` (078) | event_id, venue_id, org_id, title, status, created_at, updated_at | `catalog_event_sel_anon` 078:323, `_sel_org` 078:328, `_sel_venue` 080:381 |
+| `events` | `catalog.event` (078) | event_id, venue_id, org_id, title, status, created_at, updated_at, description (last; appended 2026-10-26) | `catalog_event_sel_anon` 078:323, `_sel_org` 078:328, `_sel_venue` 080:381 |
 | `event_sessions` | `catalog.event_session` (078) | session_id, event_id, session_label, starts_at, ends_at, doors_at, door_open_at, status, created_at, updated_at | `_sel_anon` 078:336, `_sel_org` 078:343, `_sel_venue` 080:397 |
 | `resale_policies` | `catalog.resale_policy` (078) | policy_id, scope_kind, venue_id, event_id, mode, price_cap_bps, royalty_bps, version, effective_from, created_at | `catalog_resale_policy_sel_public` 078:382 only |
 | `ticket_types` | `venue.ticket_type` (081) | ticket_type_id, event_id, kind, name, price_minor, currency, visibility, created_at, updated_at | `venue_ticket_type_sel_public` 081:990, `_sel_venue` 081:999 |
@@ -504,7 +504,7 @@ file's `plan(N)` line. The same count gives 5944 at `3bf24c0b`, which matches th
 ### 5.5 Plan-72 re-run (2026-10-21, tree `977a17a4`)
 
 `977a17a4` is a docs-only commit on `ad728964`: the migration, rollback and 226 are the same
-bytes (migration body sha256 `fb3cf536…1199e70`, rollback body `d191b761…27b7340`).
+bytes (migration body sha256 `a292e863…07ea8be` (was `fb3cf536…1199e70` before `description` was appended on 2026-10-26), rollback body `d191b761…27b7340`).
 
 **Base.** `f_venueapi_pgbase_rehears`: `replay_upto.sh` of the 171 base files plus
 `parity_grants.sql`, run as `postgres` (5 s). Its full-catalog fingerprint is 3745 lines,
