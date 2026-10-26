@@ -895,16 +895,18 @@ SELECT is((SELECT before::text || ' -> ' || after::text || ' / ' || reason_code 
 -- (PostgREST: UTC) — clients MUST send ISO-8601 with an offset, converting the venue's local
 -- wall-clock using catalog.venue.timezone. Pinned on t81 (e8 live, public, no window so far; no
 -- other assertion reads t81's window or its audit rows). The session TimeZone is restored after W51.
+-- The helper SELECTs below print a prefixed value ('stored …'), never a bare result line: pg_prove parses any
+-- output line beginning with the TAP result word as a test, so a stored status printed alone would add tests.
 SELECT tap._store229('tz0', current_setting('TimeZone'));
 SELECT tap.login('22900000-0000-4000-8000-000000000101');
 SELECT set_config('TimeZone', 'UTC', true);
-SELECT tap._store229('w50_set_utc', venue.set_ticket_type_sale_window('22900000-0000-4000-8000-000000000081', '2026-11-30 19:00:00-05', NULL, 'tz_utc', 'ck229-w-50a') ->> 'status');
+SELECT 'stored ' || tap._store229('w50_set_utc', venue.set_ticket_type_sale_window('22900000-0000-4000-8000-000000000081', '2026-11-30 19:00:00-05', NULL, 'tz_utc', 'ck229-w-50a') ->> 'status');
 SELECT tap.logout();
 SELECT tap._store229('w50_utc', (SELECT to_char(sale_starts_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') || '+00' FROM venue.ticket_type WHERE ticket_type_id = '22900000-0000-4000-8000-000000000081'));
 SELECT tap.login('22900000-0000-4000-8000-000000000101');
-SELECT tap._store229('w50_clear', venue.set_ticket_type_sale_window('22900000-0000-4000-8000-000000000081', NULL, NULL, 'tz_clear', 'ck229-w-50b') ->> 'status');
+SELECT 'stored ' || tap._store229('w50_clear', venue.set_ticket_type_sale_window('22900000-0000-4000-8000-000000000081', NULL, NULL, 'tz_clear', 'ck229-w-50b') ->> 'status');
 SELECT set_config('TimeZone', 'Pacific/Kiritimati', true);
-SELECT tap._store229('w50_set_kir', venue.set_ticket_type_sale_window('22900000-0000-4000-8000-000000000081', '2026-11-30 19:00:00-05', NULL, 'tz_kiritimati', 'ck229-w-50c') ->> 'status');
+SELECT 'stored ' || tap._store229('w50_set_kir', venue.set_ticket_type_sale_window('22900000-0000-4000-8000-000000000081', '2026-11-30 19:00:00-05', NULL, 'tz_kiritimati', 'ck229-w-50c') ->> 'status');
 SELECT tap.logout();
 SELECT tap._store229('w50_kir', (SELECT to_char(sale_starts_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') || '+00' FROM venue.ticket_type WHERE ticket_type_id = '22900000-0000-4000-8000-000000000081'));
 SELECT is(tap._fetch229('w50_set_utc') || '/' || tap._fetch229('w50_clear') || '/' || tap._fetch229('w50_set_kir')
