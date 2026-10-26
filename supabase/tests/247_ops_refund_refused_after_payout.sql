@@ -521,6 +521,7 @@ SELECT is((SELECT coalesce(array_agg(z.sig ORDER BY z.sig), '{}'::text[]) FROM (
              ('ops.execute_action(text,text,text,uuid,jsonb,text,jsonb,text)', '24209d0697132d5df7bd12f5cf3e5c0c'),
              ('ops.approve_action(uuid,text,text)', 'ddcdcd1401839910726d20ddd206e40d'),
              ('ops.order_detail(uuid)', '4358f577291f84b25986b8904b38ab36'),
+             ('ops.order_detail(uuid)', '7958264c4f259745954753385613bad5'),   -- 180 (20261022004000) adds is_test on top of 157's body
              -- production: the action pipeline around the two bodies, and the refund executor's functions
              ('ops.action_run(uuid)', '546693f1489c364de19e9416a92c07ed'),
              ('ops.action_requires_approval(text)', '44ab739b9db2c77ef8709fed6c1d5082'),
