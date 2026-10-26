@@ -204,8 +204,9 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.
   'A10: all three are SECURITY DEFINER with a pinned search_path (066 invariant)');
 SELECT is((SELECT p.provolatile FROM pg_proc p WHERE p.oid = to_regprocedure('venue.get_inventory_counters(uuid)')), 's',
   'A11: get_inventory_counters is STABLE (a read)');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue'), 90,
-  'A12: venue holds NINETY functions — 87 (144 A15 / 145 A4 / 148 B5 / 180 A5 move with it; 148 B2 / 157 A46 / 180 A6 move 305 -> 308) + 160''s three');
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue'), 94,
+  -- 2026-10-26 (registry 163): 90 -> 94 (+get_session_scan_counters, list_session_scan_counters, record_scan_staff, filter_staff_scan_meta; 92 if 163''s PART B is dropped).
+  'A12: venue holds NINETY-FOUR functions — 87 (144 A15 / 145 A4 / 148 B5 / 180 A5 move with it; 148 B2 / 157 A46 / 180 A6 move 305 -> 312) + 160''s three + 163''s four');
 SELECT is((SELECT count(*)::int FROM pg_proc p
             WHERE p.oid IN ('venue.create_ticket_type(uuid, text, text, integer, text, text)'::regprocedure,
                             'venue.set_ticket_type_price(uuid, integer, text, text)'::regprocedure,
