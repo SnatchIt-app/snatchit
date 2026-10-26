@@ -61,6 +61,11 @@ export type Whoami = {
   email_masked?: string;
 };
 
+/** `true`/`false` as the server sent it; anything else (absent on a pre-180 server) is null, never a guess. */
+export function boolOrNull(v: unknown): boolean | null {
+  return v === true ? true : v === false ? false : null;
+}
+
 export function toWhoami(v: unknown): Whoami | null {
   if (!isRecord(v)) return null;
   const role = str(v.role);
@@ -85,6 +90,8 @@ export type SearchHitKind =
   | (string & {});
 
 export type SearchHit = {
+  /** DC-1 (180): the server's classification; null on a server without it. Never computed here. */
+  is_test?: boolean | null;
   kind?: SearchHitKind;
   id?: string;
   label?: string;
@@ -95,6 +102,7 @@ export type SearchHit = {
 export function toSearchHits(v: unknown): SearchHit[] {
   const arr = isRecord(v) ? asArray(pick(v, "hits", "items", "results")) : asArray(v);
   return arr.filter(isRecord).map((h) => ({
+    is_test: boolOrNull(h.is_test),
     kind: str(h.kind) ?? undefined,
     id: str(h.id) ?? undefined,
     label: str(h.label) ?? undefined,
@@ -122,6 +130,8 @@ export const CASE_STATUSES: CaseStatus[] = ["open", "in_progress", "waiting", "r
 export const CASE_PRIORITIES: CasePriority[] = ["p1", "p2", "p3", "p4"];
 
 export type OpsCase = {
+  /** DC-1 (180): the server's classification; null on a server without it. Never computed here. */
+  is_test?: boolean | null;
   id?: string;
   case_type?: string;
   subject_kind?: string;
@@ -153,6 +163,7 @@ export type OpsCase = {
 export function toCase(v: unknown): OpsCase | null {
   if (!isRecord(v)) return null;
   return {
+    is_test: boolOrNull(v.is_test),
     id: str(v.id) ?? undefined,
     case_type: str(v.case_type) ?? undefined,
     subject_kind: str(v.subject_kind) ?? undefined,
@@ -201,6 +212,8 @@ export type CaseEvent = {
 export type Operator = { user_id?: string; role?: string; email_masked?: string; display?: string };
 
 export type CaseDetail = {
+  /** DC-1 (180): the server's classification of the subject; null on a server without it. */
+  is_test?: boolean | null;
   case: OpsCase | null;
   notes: CaseNote[];
   events: CaseEvent[];
@@ -214,6 +227,7 @@ export function toCaseDetail(v: unknown): CaseDetail | null {
   if (!isRecord(v)) return null;
   const caseRec = isRecord(v.case) ? v.case : v;
   return {
+    is_test: boolOrNull(v.is_test),
     case: toCase(caseRec),
     notes: asRecords(pick(v, "notes", "case_notes")).map((n) => ({
       id: str(n.id) ?? undefined,
@@ -256,8 +270,25 @@ export type TodayPayload = {
   attention: OpsCase[];
   metrics: MetricTile[];
   computed_at: string | null;
+  /** DC-1 (180): what the server hid from this payload, by kind; null on a server without it. */
+  test_excluded: TestExcluded | null;
   raw: JsonRecord;
 };
+
+export type TestExcluded = { open_cases: number; payments: number; transfers: number; listings: number; reports: number };
+
+/** The five counts, all present and numeric, or nothing: a partial object is not a count. */
+export function toTestExcluded(v: unknown): TestExcluded | null {
+  if (!isRecord(v)) return null;
+  const keys = ["open_cases", "payments", "transfers", "listings", "reports"] as const;
+  const out = {} as Record<(typeof keys)[number], number>;
+  for (const k of keys) {
+    const n = v[k];
+    if (typeof n !== "number" || !Number.isInteger(n) || n < 0) return null;
+    out[k] = n;
+  }
+  return out;
+}
 
 export function toToday(v: unknown): TodayPayload | null {
   if (!isRecord(v)) return null;
@@ -298,7 +329,7 @@ export function toToday(v: unknown): TodayPayload | null {
   const computed_at =
     str(pick(v, "computed_at", "as_of")) ??
     (isRecord(freshness) ? str(pick(freshness, "generated_at", "snapshot_computed_at", "computed_at")) : str(freshness));
-  return { attention, metrics, computed_at, raw: v };
+  return { attention, metrics, computed_at, test_excluded: toTestExcluded(v.test_excluded), raw: v };
 }
 
 // ---------- §3.4 mutation results ----------
@@ -483,6 +514,8 @@ export function toUserSummary(v: unknown): UserSummary | null {
 // ---------- §3.3 list_orders / ops.order_row ----------
 
 export type OrderRow = {
+  /** DC-1 (180): the server's classification; null on a server without it. Never computed here. */
+  is_test?: boolean | null;
   payment_id?: string;
   created_at?: string;
   payment_status?: string;
@@ -528,6 +561,7 @@ function party(v: unknown): { id?: string; display_name?: string | null } | unde
 export function toOrderRow(v: unknown): OrderRow | null {
   if (!isRecord(v)) return null;
   return {
+    is_test: boolOrNull(v.is_test),
     payment_id: str(pick(v, "payment_id", "id")) ?? undefined,
     created_at: str(v.created_at) ?? undefined,
     payment_status: str(v.payment_status) ?? undefined,
@@ -691,6 +725,8 @@ export function toTransfer(v: unknown): Transfer | null {
 }
 
 export type ListingSummary = {
+  /** DC-1 (180): the server's classification; null on a server without it. Never computed here. */
+  is_test?: boolean | null;
   id?: string;
   event_name?: string | null;
   venue?: string | null;
@@ -726,6 +762,7 @@ export type ListingSummary = {
 export function toListingSummary(v: unknown): ListingSummary | null {
   if (!isRecord(v)) return null;
   return {
+    is_test: boolOrNull(v.is_test),
     id: str(v.id) ?? undefined,
     event_name: str(v.event_name),
     venue: str(v.venue),
@@ -826,6 +863,8 @@ export type RefundFacts = {
 };
 
 export type OrderDetail = {
+  /** DC-1 (180): the server's classification of the subject; null on a server without it. */
+  is_test?: boolean | null;
   payment: Payment | null;
   transfer: Transfer | null;
   listing: ListingSummary | null;
@@ -848,6 +887,7 @@ export function toOrderDetail(v: unknown): OrderDetail | null {
   const refund = isRecord(v.refund) ? v.refund : {};
   const bank = isRecord(v.bank_payout) ? v.bank_payout : {};
   return {
+    is_test: boolOrNull(v.is_test),
     payment: toPayment(v.payment),
     transfer: toTransfer(v.transfer),
     listing: toListingSummary(v.listing),
@@ -1052,6 +1092,8 @@ export function toUserListItem(v: unknown): UserListItem | null {
 }
 
 export type Report = {
+  /** DC-1 (180): the server's classification; null on a server without it. Never computed here. */
+  is_test?: boolean | null;
   id?: string;
   reporter_id?: string | null;
   reporter_label?: string | null;
@@ -1069,6 +1111,7 @@ export type Report = {
 export function toReport(v: unknown): Report | null {
   if (!isRecord(v)) return null;
   return {
+    is_test: boolOrNull(v.is_test),
     id: str(v.id) ?? undefined,
     reporter_id: str(v.reporter_id),
     reporter_label: str(v.reporter_label),
@@ -1175,6 +1218,8 @@ export function toUserDetail(v: unknown): UserDetail | null {
 export type Bid = { id?: string; amount?: number | null; bidder_id?: string | null; bidder_display_name?: string | null; created_at?: string | null };
 
 export type ListingDetail = {
+  /** DC-1 (180): the server's classification of the subject; null on a server without it. */
+  is_test?: boolean | null;
   listing: ListingSummary | null;
   seller: UserSummary | null;
   payments: OrderRow[];
@@ -1192,6 +1237,7 @@ export function toListingDetail(v: unknown): ListingDetail | null {
   if (!isRecord(v)) return null;
   const bids = isRecord(v.bids) ? v.bids : {};
   return {
+    is_test: boolOrNull(v.is_test),
     listing: toListingSummary(v.listing),
     seller: toUserSummary(v.seller),
     payments: toOrderRows(v.payments),
@@ -1245,6 +1291,9 @@ export type MoneyOverview = {
   metrics: MoneyMetric[];
   snapshot: { key: string; value: unknown; computed_at: string | null }[];
   snapshot_computed_at: string | null;
+  /** DC-1 (180): whether test captures are in these figures, and how many the server hid in the window; null on a server without it. */
+  includes_test: boolean | null;
+  test_excluded: number | null;
   raw: JsonRecord;
 };
 
@@ -1295,6 +1344,8 @@ export function toMoneyOverview(v: unknown): MoneyOverview | null {
     metrics,
     snapshot: asRecords(v.snapshot).map((s) => ({ key: str(s.key) ?? "", value: s.value, computed_at: str(s.computed_at) })),
     snapshot_computed_at: str(v.snapshot_computed_at),
+    includes_test: boolOrNull(v.includes_test),
+    test_excluded: typeof v.test_excluded === "number" && Number.isInteger(v.test_excluded) && v.test_excluded >= 0 ? v.test_excluded : null,
     raw: v,
   };
 }

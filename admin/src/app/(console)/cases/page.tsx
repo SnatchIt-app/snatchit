@@ -11,6 +11,7 @@ import { StatusBreakdown } from "@/components/ui/StatusBreakdown";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { OpsFailureAlert } from "@/components/ui/Alert";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { TestDataFooter, TestRecordBadge } from "@/components/ui/HiddenTestRowsNotice";
 import { TimeAgo } from "@/components/ui/DateTime";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { NewCaseForm } from "@/components/cases/NewCaseForm";
@@ -196,6 +197,11 @@ export default async function CasesPage({ searchParams }: { searchParams: Promis
             ) : null}
 
             {/* Status and priority of the rows this read returned — one page, labelled as such. */}
+            {res.ok && rows.length > 0 ? (
+              <p className="mt-2 px-1">
+                <TestDataFooter rows={rows} />
+              </p>
+            ) : null}
             {res.ok && rows.length > 0 ? <CaseBreakdowns rows={rows} /> : null}
 
             {!res.ok ? (
@@ -302,6 +308,7 @@ function CaseRow({ c, meId, href, selected }: { c: OpsCase; meId: string; href: 
         <span className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.8125rem] text-muted">
           <StatusBadge status={c.priority} />
           {c.status !== "open" ? <StatusBadge status={c.status} /> : null}
+          <TestRecordBadge isTest={c.is_test} />
           <span title={c.case_type}>{c.case_type ? humanize(c.case_type) : "Manual"}</span>
           <span aria-hidden="true">·</span>
           <span className={who === "me" ? "font-medium text-ink" : ""}>{who ?? "Unassigned"}</span>

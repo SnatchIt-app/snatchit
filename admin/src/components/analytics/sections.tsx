@@ -3,6 +3,7 @@ import type { MetricTile } from "@/lib/types";
 import { metricHref } from "@/lib/routes";
 import { SAMPLE_DATA_LABEL } from "@/lib/env";
 import { readPeriod, readSeries } from "@/lib/analytics";
+import { HiddenTestRowsNotice } from "@/components/ui/HiddenTestRowsNotice";
 import {
   dayCount,
   delta,
@@ -236,7 +237,7 @@ export async function MoneyKpis({ from, to, compact = false }: { from: string; t
     <>
       <ReportFreshness at={cur.overview.computed_at} />
       {/* One read answers every period tile, so the surface's labels are stated once, above the group. */}
-      <FigureMeta range={range} currency={CURRENCY} computedAt={cur.overview.computed_at} readAt={readAt} className="mb-2" />
+      <FigureMeta range={range} currency={CURRENCY} computedAt={cur.overview.computed_at} readAt={readAt} className="mb-2"  notice={cur.overview.includes_test === false ? <HiddenTestRowsNotice count={cur.overview.test_excluded} /> : null} />
       <div className={grid}>{tiles}</div>
       {!compact ? (
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">

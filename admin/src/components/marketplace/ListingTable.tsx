@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { DataTable, type Column, type SearchParamsLike } from "@/components/ui/DataTable";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { TestDataFooter, TestRecordBadge } from "@/components/ui/HiddenTestRowsNotice";
 import { TimeAgo } from "@/components/ui/DateTime";
 import { Money } from "@/components/ui/Money";
 import { PartyLink } from "@/components/ui/IdLink";
@@ -56,7 +57,17 @@ export function ListingTable({
     ...(hideSeller
       ? []
       : ([{ key: "seller", header: "Seller", render: (l) => <PartyLink id={l.seller_id} displayName={l.seller_display_name} />, sortValue: (l) => l.seller_display_name ?? null }] as Column<ListingSummary>[])),
-    { key: "status", header: "Status", render: (l) => <StatusBadge status={l.status} />, sortValue: (l) => l.status ?? null },
+    {
+      key: "status",
+      header: "Status",
+      render: (l) => (
+        <span className="flex flex-wrap items-center gap-1">
+          <StatusBadge status={l.status} />
+          <TestRecordBadge isTest={l.is_test} />
+        </span>
+      ),
+      sortValue: (l) => l.status ?? null,
+    },
     { key: "auction_status", header: "Auction", render: (l) => <StatusBadge status={l.auction_status} />, sortValue: (l) => l.auction_status ?? null },
     { key: "proof_status", header: "Proof", render: (l) => <StatusBadge status={l.proof_status} />, sortValue: (l) => l.proof_status ?? null },
     {
@@ -86,6 +97,7 @@ export function ListingTable({
   ];
   return (
     <DataTable
+      notice={<TestDataFooter rows={rows} />}
       columns={columns}
       rows={rows}
       rowKey={(l, i) => l.id ?? `${i}`}

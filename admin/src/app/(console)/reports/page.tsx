@@ -9,6 +9,7 @@ import { OpsFailureAlert } from "@/components/ui/Alert";
 import { FilterField, FilterForm, FilterSelect } from "@/components/ui/FilterField";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { TestDataFooter, TestRecordBadge } from "@/components/ui/HiddenTestRowsNotice";
 import { DateTime } from "@/components/ui/DateTime";
 import { IdLink } from "@/components/ui/IdLink";
 import { ListOutcomeHost } from "@/components/ui/ConfirmForm";
@@ -63,6 +64,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
       render: (r) => (
         <span className="flex flex-col gap-1">
           <StatusBadge status={r.status} label={labelFor("report", r.status)} />
+          <TestRecordBadge isTest={r.is_test} />
           {r.resolved_at ? (
             <span className="text-[0.6875rem] text-dim">
               resolved <DateTime value={r.resolved_at} relative={false} />
@@ -100,7 +102,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
         {!res.ok ? (
           <OpsFailureAlert failure={res} fn="list_reports" retryHref={selfHref(basePath, sp)} />
         ) : (
-          <DataTable columns={columns} rows={rows} rowKey={(r, i) => r.id ?? `${i}`} basePath={basePath} searchParams={sp} nextCursor={page?.next_cursor} emptyText="No reports match." caption="Reports" />
+          <DataTable notice={<TestDataFooter rows={rows} />} columns={columns} rows={rows} rowKey={(r, i) => r.id ?? `${i}`} basePath={basePath} searchParams={sp} nextCursor={page?.next_cursor} emptyText="No reports match." caption="Reports" />
         )}
       </ListOutcomeHost>
     </>
