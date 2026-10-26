@@ -119,7 +119,7 @@ export async function readMyAtoms(read: RpcReader, eventSessionId: string, isOff
 export const atomsRpc: RpcReader = (eventSessionId) =>
   supabase.rpc('get_my_ticket_atoms', { p_event_session_id: eventSessionId }) as unknown as Promise<RpcResult>;
 
-function isOrderRow(v: unknown): v is PrimaryOrderRow {
+export function isOrderRow(v: unknown): v is PrimaryOrderRow {
   if (!v || typeof v !== 'object') return false;
   const r = v as Record<string, unknown>;
   return (
