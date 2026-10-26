@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { ScannerClient } from "@/components/scan/ScannerClient";
 import ScanPage from "@/app/o/[org]/v/[venue]/events/[event]/scan/page";
 import { EVENTS, ORG, VENUE } from "@/fixtures/venue";
-import { canScan, VENUE_ROLES, ORG_ROLES } from "@/lib/roles";
+import { canScan, canScanGrants, VENUE_ROLES, ORG_ROLES } from "@/lib/roles";
 
 const html = (el: React.ReactElement) => renderToStaticMarkup(el);
 const anchors = (h: string) => h.match(/<a [^>]*>/g) ?? [];
@@ -17,6 +17,18 @@ const page = (role?: string, event = EVENT.eventId) => ScanPage({ params: Promis
 describe("who gets the scanner (fixture mode mirrors the server's role gate)", () => {
   it("exactly venue_scanner and venue_manager may scan; every other principal is refused, as venue.record_scan refuses them", () => {
     expect([...VENUE_ROLES, ...ORG_ROLES, "fan"].filter((r) => canScan(r as never))).toEqual(["venue_manager", "venue_scanner"]);
+  });
+  it("the question is asked of the GRANTS, not the derived principal: an org owner who also holds a venue role may scan", () => {
+    // derivePrincipal collapses this set to "org_owner" by precedence, and canScan("org_owner") is false —
+    // but the server admits the holder of the venue_manager grant, so the dashboard must too. The one
+    // account a sandbox run uses (the org owner, granted venue_manager to work the door) is exactly this.
+    expect(canScanGrants({ venueRoles: ["venue_manager"], orgRoles: ["org_owner"] })).toBe(true);
+    expect(canScanGrants({ venueRoles: ["venue_scanner"], orgRoles: ["org_owner"] })).toBe(true);
+    expect(canScanGrants({ venueRoles: ["venue_scanner"], orgRoles: [] })).toBe(true);
+    // org roles alone never satisfy has_venue_role, whatever their rank
+    expect(canScanGrants({ venueRoles: [], orgRoles: ["org_owner", "org_admin"] })).toBe(false);
+    expect(canScanGrants({ venueRoles: ["venue_finance", "venue_box_office"], orgRoles: ["org_owner"] })).toBe(false);
+    expect(canScanGrants({ venueRoles: [], orgRoles: [] })).toBe(false);
   });
   it("a venue manager sees the setup step, the demo label and a Scanner entry in the event navigation", async () => {
     const h = html(await page());

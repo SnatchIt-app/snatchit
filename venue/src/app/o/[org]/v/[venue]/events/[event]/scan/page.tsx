@@ -4,7 +4,7 @@ import { EntryGate } from "@/components/ui/EntryGate";
 import { DeniedState } from "@/components/ui/State";
 import { readPage, type PageParams } from "@/lib/page";
 import { withPreview, type SearchParams } from "@/lib/preview";
-import { canScan, PRINCIPAL_LABEL } from "@/lib/roles";
+import { canScan, canScanGrants, PRINCIPAL_LABEL } from "@/lib/roles";
 
 export const metadata = { title: "Scanner" };
 export const dynamic = "force-dynamic";
@@ -37,7 +37,10 @@ export default async function ScanPage({ params, searchParams }: { params: Promi
       </Shell>
     );
   }
-  if (!canScan(p.ctx.role)) {
+  // Database mode asks the grants (as the server does); fixtures mode has no
+  // grants, only the previewed principal.
+  const mayScan = p.ctx.source === "database" ? p.entry.kind === "ok" && canScanGrants(p.entry.grants) : canScan(p.ctx.role);
+  if (!mayScan) {
     return (
       <Shell ctx={p.ctx} event={nav} active="scan" signedInAs={p.signedInAs} title="Scanner">
         <DeniedState surface="The scanner" reason="Scanning needs the venue scanner or venue manager role at this venue. The server refuses every other role, so this page does too. Ask a manager to grant it." alternative={{ label: "Back to check-in", href: withPreview(`${basePath}/events/${p.event.eventId}/door`, p.ctx) }} />

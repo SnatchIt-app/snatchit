@@ -7,7 +7,7 @@ import { dbGetEvent, dbMyGrants } from "@/lib/db/adapters";
 import { mapReadError, type ReadResult } from "@/lib/db/read-result";
 import { DATA_SOURCE } from "@/lib/env";
 import { eventInScope, isUuid } from "@/lib/page";
-import { canScan, derivePrincipal } from "@/lib/roles";
+import { canScanGrants } from "@/lib/roles";
 import { keyringFromRows, type Keyring } from "@/lib/scan/keys";
 import { outcomeFromRpc, outcomeFromRpcError, type InvalidWhy, type ScanActionResult, type ScanOutcome } from "@/lib/scan/outcome";
 import { verifyCredential, webcryptoVerify, type VerifyReason } from "@/lib/scan/verify";
@@ -85,8 +85,9 @@ async function gate(input: Pick<ScanInput, "orgId" | "venueId" | "eventId" | "se
   if (!session.user) return blocked("signed_out");
   const grants = await dbMyGrants(input.venueId, input.orgId);
   if (!grants.ok) return grants.kind === "auth" ? blocked("signed_out") : grants.kind === "config" ? blocked("config") : blocked("no_role");
-  const principal = derivePrincipal(grants.data);
-  if (!principal || !canScan(principal)) return blocked("no_role");
+  // The grants, not the derived principal: the server admits any holder of a
+  // venue_manager/venue_scanner grant, including an org_owner who holds one.
+  if (!canScanGrants(grants.data)) return blocked("no_role");
   const event = await dbGetEvent(input.eventId);
   if (!event.ok) return event.kind === "auth" ? blocked("signed_out") : blocked("no_role");
   if (!event.data || !eventInScope(event.data, { venueId: input.venueId, orgId: input.orgId })) return blocked("no_role");

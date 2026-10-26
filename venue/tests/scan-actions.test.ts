@@ -71,6 +71,15 @@ describe("scanAction — the gate", () => {
     expect(await scanAction(input())).toEqual({ kind: "blocked", why: "no_role" });
     expect(mocks.rpc).not.toHaveBeenCalled();
   });
+  it("an org owner who also holds a venue role is admitted, as the server admits them", async () => {
+    mocks.dbMyGrants.mockResolvedValue({ ok: true, data: { venueRoles: ["venue_manager"], orgRoles: ["org_owner"] } });
+    mocks.rpc.mockResolvedValue({ data: { status: "ok", scan_id: "s1", result: "admitted" }, error: null, status: 200 });
+    const r = await scanAction(input());
+    expect(r).toEqual({ kind: "outcome", outcome: { kind: "admitted", atomId: ATOM, scanId: "s1" } });
+    // and an org role with no venue grant is still refused, because has_venue_role refuses it
+    mocks.dbMyGrants.mockResolvedValue({ ok: true, data: { venueRoles: [], orgRoles: ["org_owner"] } });
+    expect(await scanAction(input())).toEqual({ kind: "blocked", why: "no_role" });
+  });
   it("ids that are not uuids are refused before any read", async () => {
     expect(await scanAction(input({ eventId: "smp_evt_sat_music" }))).toEqual({ kind: "blocked", why: "no_role" });
     expect(mocks.probeSession).not.toHaveBeenCalled();
