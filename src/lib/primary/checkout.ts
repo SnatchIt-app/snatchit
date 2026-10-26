@@ -229,6 +229,24 @@ export const PRIMARY_CHECKOUT_COPY = {
   } satisfies Record<CheckoutRefusal, string>,
 } as const;
 
+/** Decimal-dollar string from integer cents, for PassKit — no float math. */
+function decimalUsd(minor: number): string {
+  return `${Math.floor(minor / 100)}.${String(minor % 100).padStart(2, '0')}`;
+}
+
+/**
+ * The Apple Pay sheet's lines, at parity with the resale checkout (A's review, 2026-10-26): Tickets,
+ * Service fee, then the merchant line, which PassKit treats as the grand total, carrying the server's
+ * all-in total. All three come from the quote; nothing is computed but the decimal formatting.
+ */
+export function applePayCartItems(q: PrimaryQuote): { label: string; amount: string }[] {
+  return [
+    { label: PRIMARY_CHECKOUT_COPY.faceLabel, amount: decimalUsd(q.faceMinor) },
+    { label: PRIMARY_CHECKOUT_COPY.feeLabel, amount: decimalUsd(q.buyerFeeMinor) },
+    { label: 'Snatch It', amount: decimalUsd(q.totalMinor) },
+  ];
+}
+
 /**
  * Resume after a 3-D Secure redirect or a killed app: the edge replays the same PaymentIntent for the
  * same command key. If Stripe already reports it succeeded / processing / awaiting capture, the buyer

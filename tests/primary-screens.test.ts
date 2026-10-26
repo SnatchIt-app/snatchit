@@ -116,6 +116,13 @@ describe('primary checkout screen — a payments surface (A reviews)', () => {
     expect(native).toContain("if (result.reason === 'already_paid') { submitted(params.sessionId); return; }");
   });
 
+  it('K8: Apple Pay at parity with resale — probed on iOS only (a throw is unsupported), cart items from the quote, US', () => {
+    expect(native).toContain("Platform.OS === 'ios'");
+    expect(native).toMatch(/try \{\s*applePay = await isPlatformPaySupported\(\);\s*\} catch \{\s*applePay = false;\s*\}/);
+    expect(native).toMatch(/\.\.\.\(applePay \? \{ applePay: \{ merchantCountryCode: 'US', cartItems: applePayCartItems\(quote\)\.map\(/);
+    expect(native).toContain('paymentType: PlatformPay.PaymentType.Immediate');
+  });
+
   it('K7: a hold refusal offers a retry only when offline or unavailable; every other one (sales unavailable included) goes Back', () => {
     expect(view).toMatch(/case 'hold_refused':[\s\S]{0,200}action=\{state\.reason === 'offline' \|\| state\.reason === 'unavailable'\s*\?/);
   });

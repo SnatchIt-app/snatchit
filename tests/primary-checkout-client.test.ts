@@ -21,6 +21,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   PRIMARY_CHECKOUT_COPY,
+  applePayCartItems,
   attemptCommandKey,
   checkoutStep,
   parsePrimaryCheckoutResponse,
@@ -143,6 +144,34 @@ describe('attemptCommandKey — one key per purchase intent', () => {
     const k = attemptCommandKey(SESSION, 'f'.repeat(64));
     expect(k.length).toBeLessThanOrEqual(200);
     expect(k).not.toMatch(/\d{13}/);   // no epoch milliseconds
+  });
+});
+
+describe('applePayCartItems — the Apple Pay sheet shows the same all-in total (A: parity with resale)', () => {
+  const q = (face: number, fee: number): PrimaryQuote => ({
+    orderId: 'o', clientSecret: 's', paymentIntentId: 'pi', faceMinor: face, buyerFeeMinor: fee, totalMinor: face + fee, customerId: 'c', ephemeralKeySecret: 'e',
+  });
+
+  it('AP1: Tickets, Service fee, then the merchant line carrying the all-in total — all from the quote, exact decimal strings', () => {
+    expect(applePayCartItems(q(2000, 200))).toEqual([
+      { label: 'Tickets', amount: '20.00' },
+      { label: 'Service fee', amount: '2.00' },
+      { label: 'Snatch It', amount: '22.00' },
+    ]);
+    expect(applePayCartItems(q(123456, 7))).toEqual([
+      { label: 'Tickets', amount: '1234.56' },
+      { label: 'Service fee', amount: '0.07' },
+      { label: 'Snatch It', amount: '1234.63' },
+    ]);
+  });
+
+  it('AP2: the lines sum exactly to the total in integer cents (no float drift)', () => {
+    for (const [face, fee] of [[1, 2], [10, 20], [1999, 1], [33333, 3334], [5, 0]]) {
+      const items = applePayCartItems(q(face, fee));
+      const cents = (a: string) => Number(a.replace('.', ''));
+      expect(cents(items[0].amount) + cents(items[1].amount)).toBe(cents(items[2].amount));
+      expect(cents(items[2].amount)).toBe(face + fee);
+    }
   });
 });
 

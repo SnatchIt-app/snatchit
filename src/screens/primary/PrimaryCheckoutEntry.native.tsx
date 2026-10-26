@@ -20,13 +20,15 @@
  * challenge (the return URL carries it) replays the same command keys: same hold, same order, same
  * PaymentIntent. Double taps on Pay are absorbed by a ref latch.
  */
-import { useStripe } from '@stripe/stripe-react-native';
+import { isPlatformPaySupported, PlatformPay, useStripe } from '@stripe/stripe-react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Platform } from 'react-native';
 
 import { useAuth } from '@/src/hooks/useAuth';
 import { useNetworkStatus } from '@/src/hooks/useNetworkStatus';
 import {
+  applePayCartItems,
   attemptCommandKey,
   intentAlreadyPaid,
   newAttemptId,
@@ -103,6 +105,13 @@ export default function PrimaryCheckoutNative() {
     if (run !== runRef.current) return;
     if (intentAlreadyPaid(existing.paymentIntent?.status)) { submitted(params.sessionId); return; }
     setState({ kind: 'review', quote, sheetReady: false, paying: false, paymentFailed: false });
+    // Apple Pay as in the resale checkout: iOS only; a probe that throws is "unsupported", and the sheet
+    // still offers cards. The Apple Pay lines carry the same all-in total as the review.
+    let applePay = false;
+    if (Platform.OS === 'ios') {
+      try { applePay = await isPlatformPaySupported(); } catch { applePay = false; }
+    }
+    if (run !== runRef.current) return;
     const { error } = await initPaymentSheet({
       paymentIntentClientSecret: quote.clientSecret,
       merchantDisplayName: 'Snatch It',
@@ -111,6 +120,7 @@ export default function PrimaryCheckoutNative() {
       customerId: quote.customerId,
       customerEphemeralKeySecret: quote.ephemeralKeySecret,
       ...(user?.email ? { defaultBillingDetails: { email: user.email } } : {}),
+      ...(applePay ? { applePay: { merchantCountryCode: 'US', cartItems: applePayCartItems(quote).map((i): PlatformPay.CartSummaryItem => ({ ...i, paymentType: PlatformPay.PaymentType.Immediate })) } } : {}),
     });
     if (run !== runRef.current) return;
     if (error) { setState({ kind: 'quote_refused', reason: 'unavailable' }); return; }
