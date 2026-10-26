@@ -8,8 +8,9 @@
  *     existence leak), distinct from a failed read;
  *   - tier status says only what the server said: on sale now / sold out / not on sale yet / sales ended;
  *     no availability counts (no invented scarcity);
- *   - prices are integer cents in USD, shown as FACE value: the buyer fee is an unset owner decision
- *     (CONTRACTS P7), so no all-in figure is invented before the checkout quote returns it;
+ *   - A's all-in rule (US live-event ticket pricing): a tier shows ONLY the server's `all_in_price_minor`
+ *     (face + buyer fee, server rounding). Face value is never shown as the price. While 182 does not
+ *     carry it, or the fee is unset (null), the tier shows no price and is not purchasable;
  *   - times come from the session's `*_local` strings and named venue zone (A's rule).
  *
  * Negative controls (run by hand, each must FAIL): treat `remaining: 0` with `on_sale_now: true`
@@ -46,7 +47,7 @@ const listRow = (over: Record<string, unknown> = {}) => ({
 
 const tier = (over: Partial<PrimaryTier> = {}): PrimaryTier => ({
   ticket_type_id: '66666666-6666-4666-8666-666666666666', name: 'GA', price_minor: 2000, currency: 'USD', visibility: 'public',
-  display_rank: 1, sale_starts_at: null, sale_ends_at: null, on_sale_now: true, remaining: 40, ...over,
+  display_rank: 1, sale_starts_at: null, sale_ends_at: null, on_sale_now: true, remaining: 40, all_in_price_minor: 2200, ...over,
 });
 
 const sessionRow = (over: Record<string, unknown> = {}) => ({
@@ -106,8 +107,8 @@ describe('parsePrimarySession / readPrimarySessionDetail', () => {
 describe('tierLine — what the server said, nothing more', () => {
   const nowMs = Date.parse('2026-11-10T12:00:00Z');
 
-  it('T1: on sale now with stock reads "On sale" and the face price', () => {
-    expect(tierLine(tier(), nowMs)).toEqual({ name: 'GA', price: '$20.00', status: 'On sale', available: true });
+  it('T1: on sale now with stock reads "On sale" and the ALL-IN price from the server', () => {
+    expect(tierLine(tier(), nowMs)).toEqual({ name: 'GA', price: '$22.00', status: 'On sale', available: true });
   });
 
   it('T2: remaining 0 is "Sold out" even if the window is open; no counts are shown', () => {
@@ -125,15 +126,22 @@ describe('tierLine — what the server said, nothing more', () => {
     expect(tierLine(tier({ on_sale_now: false, sale_starts_at: '2026-11-01T00:00:00Z', sale_ends_at: '2026-12-01T00:00:00Z' }), nowMs).available).toBe(false);
   });
 
-  it('T5: prices are integer cents in USD; anything else is unavailable, never $0.00', () => {
-    expect(tierLine(tier({ price_minor: 2000 }), nowMs).price).toBe('$20.00');
-    expect(tierLine(tier({ price_minor: 123456 }), nowMs).price).toBe('$1,234.56');
-    expect(tierLine(tier({ currency: 'EUR' }), nowMs).price).toBe('—');
-    expect(tierLine(tier({ price_minor: 19.99 as never }), nowMs).price).toBe('—');
+  it('T5: the face price is never the price; all-in is integer cents in USD, anything else shows no price', () => {
+    expect(tierLine(tier({ price_minor: 2000, all_in_price_minor: 2200 }), nowMs).price).toBe('$22.00');
+    expect(tierLine(tier({ all_in_price_minor: 123456 }), nowMs).price).toBe('$1,234.56');
+    expect(tierLine(tier({ currency: 'EUR' }), nowMs).price).toBeNull();
+    expect(tierLine(tier({ all_in_price_minor: 19.99 as never }), nowMs).price).toBeNull();
+    expect(tierLine(tier({ all_in_price_minor: 2200 }), nowMs).price).not.toBe('$20.00');
   });
 
-  it('T6: the face-value note says fees come later; no all-in figure is claimed before the checkout quote', () => {
-    expect(DISCOVERY_COPY.priceNote).toMatch(/fees/i);
-    expect(DISCOVERY_COPY.priceNote.toLowerCase()).not.toMatch(/all-in price is|no fees|total \$/);
+  it('T5b: no all-in from the server (field absent, or null while the fee is unset) → no price and not on sale yet, even inside the window', () => {
+    const absent = tier();
+    delete (absent as Partial<PrimaryTier>).all_in_price_minor;
+    expect(tierLine(absent, nowMs)).toEqual({ name: 'GA', price: null, status: 'Not on sale yet', available: false });
+    expect(tierLine(tier({ all_in_price_minor: null }), nowMs)).toEqual({ name: 'GA', price: null, status: 'Not on sale yet', available: false });
   });
+
+  it('T6: the price note says the figure includes all fees; it never promises a price that is not shown', () => {
+    expect(DISCOVERY_COPY.priceNote).toBe('Prices include all fees.');
+});
 });

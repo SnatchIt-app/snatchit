@@ -11,7 +11,9 @@
  * Rules held here:
  *   - (pending, none) is "Awaiting payment confirmation", never "unpaid", never success;
  *   - nothing here draws or implies a code — atoms (and credential-sign) are the only source;
- *   - amounts are integer minor units in USD; anything else is shown as unavailable, never $0.00;
+ *   - the order's `total_minor` is FACE value (venue entitlement, per the primary-checkout edge) and is
+ *     never shown as what the buyer paid. A's all-in rule: the only amount shown is the CHARGED total
+ *     (`charge_total_minor`, requested from D on this read); without it the line shows no amount;
  *   - an order status the client does not know is "Status unavailable", and the hint is `unknown`.
  */
 
@@ -26,6 +28,8 @@ export interface PrimaryOrderRow {
   created_at: string;
   atoms_issued: number;
   payment_state: PaymentState;
+  /** The charged all-in total (payments.total). Requested from D on 182/167; absent today. */
+  charge_total_minor?: number | null;
 }
 
 const ORDER_STATUSES: ReadonlySet<string> = new Set<OrderStatus>(['pending', 'paid', 'cancelled', 'expired', 'refunded']);
@@ -91,9 +95,9 @@ export const ORDER_COPY = {
   },
 } as const;
 
-function amountLabel(totalMinor: unknown, currency: unknown): string {
-  if (currency !== 'USD' && currency !== 'usd') return '—';
-  if (typeof totalMinor !== 'number' || !Number.isInteger(totalMinor) || totalMinor < 0) return '—';
+function amountLabel(totalMinor: unknown, currency: unknown): string | null {
+  if (currency !== 'USD' && currency !== 'usd') return null;
+  if (typeof totalMinor !== 'number' || !Number.isInteger(totalMinor) || totalMinor < 0) return null;
   return `$${Math.floor(totalMinor / 100).toLocaleString('en-US')}.${String(totalMinor % 100).padStart(2, '0')}`;
 }
 
@@ -104,7 +108,8 @@ function issuedCount(n: number): string {
 export interface OrderLine {
   orderId: string;
   status: string;
-  amount: string;
+  /** The charged all-in total, or null — face value is never shown as the amount paid. */
+  amount: string | null;
 }
 
 /** One line per order for the screen's order list. States only what the row says. */
@@ -132,5 +137,5 @@ export function orderStatusLine(o: PrimaryOrderRow): OrderLine {
     default:
       status = 'Status unavailable';
   }
-  return { orderId: o.order_id, status, amount: amountLabel(o.total_minor, o.currency) };
+  return { orderId: o.order_id, status, amount: amountLabel(o.charge_total_minor, o.currency) };
 }

@@ -6,7 +6,7 @@
  * layout, copy and contrast only — nothing about the reads, availability or prices on any server — and
  * every variant carries a visible sample caveat. NO WRITES. Gated like every `_dev` route.
  *
- *   /_dev/v3-primary?screen=event&variant=on-sale|sold-out|not-yet|ended|not-available|offline|error
+ *   /_dev/v3-primary?screen=event&variant=on-sale|sold-out|not-yet|ended|no-fee|not-available|offline|error
  *   /_dev/v3-primary?screen=list&variant=list|empty|offline
  */
 import { Redirect, useLocalSearchParams } from 'expo-router';
@@ -23,9 +23,10 @@ declare const __DEV__: boolean;
 const SESSION = '00000000-0000-4000-8000-0000000000a1';
 const NOW = Date.parse('2026-11-10T17:00:00Z');
 
+/** Sample all-in figures for layout only — NOT the configured fee (which is unset). */
 const tier = (over: Partial<PrimaryTier>): PrimaryTier => ({
   ticket_type_id: `00000000-0000-4000-8000-0000000000b${over.display_rank ?? 1}`, name: 'GA', price_minor: 2000, currency: 'USD',
-  visibility: 'public', display_rank: 1, sale_starts_at: null, sale_ends_at: null, on_sale_now: true, remaining: 40, ...over,
+  visibility: 'public', display_rank: 1, sale_starts_at: null, sale_ends_at: null, on_sale_now: true, remaining: 40, all_in_price_minor: 2200, ...over,
 });
 
 function sessionRow(tiers: PrimaryTier[]) {
@@ -50,13 +51,14 @@ function eventFixture(variant: string | undefined): SessionDetailLoad {
     case 'sold-out': return ready([tier({ name: 'Early GA', remaining: 0 }), tier({ name: 'GA', display_rank: 2, remaining: 0 })]);
     case 'not-yet': return ready([tier({ name: 'Final GA', on_sale_now: false, sale_starts_at: '2026-11-20T15:00:00Z' })]);
     case 'ended': return ready([tier({ name: 'Early GA', on_sale_now: false, sale_ends_at: '2026-11-01T00:00:00Z' })]);
+    case 'no-fee': return ready([tier({ name: 'GA', all_in_price_minor: null })]);
     case 'not-available': return { kind: 'not_available' };
     case 'offline': return { kind: 'failed', failure: 'offline' };
     case 'error': return { kind: 'failed', failure: 'unavailable' };
     default: return ready([
       tier({ name: 'Early GA', display_rank: 1, remaining: 0 }),
-      tier({ name: 'GA', display_rank: 2, price_minor: 2500 }),
-      tier({ name: 'Final GA', display_rank: 3, price_minor: 3000, on_sale_now: false, sale_starts_at: '2026-11-25T15:00:00Z' }),
+      tier({ name: 'GA', display_rank: 2, price_minor: 2500, all_in_price_minor: 2750 }),
+      tier({ name: 'Final GA', display_rank: 3, price_minor: 3000, all_in_price_minor: 3300, on_sale_now: false, sale_starts_at: '2026-11-25T15:00:00Z' }),
     ]);
   }
 }

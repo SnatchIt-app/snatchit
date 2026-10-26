@@ -65,7 +65,7 @@ describe('issuanceHint — A’s C5 ruling, newest order first', () => {
 
 describe('orderStatusLine — one honest line per order, in USD from integer minor units', () => {
   it('L1: pending + none says awaiting confirmation; the copy never says unpaid or failed', () => {
-    const l = orderStatusLine(order());
+    const l = orderStatusLine(order({ charge_total_minor: 2200 }));
     expect(l.status).toBe('Awaiting payment confirmation');
     expect(l.amount).toBe('$22.00');
     expect(`${l.status} ${ORDER_COPY.awaiting.body}`.toLowerCase()).not.toMatch(/unpaid|not paid|failed|declined/);
@@ -90,10 +90,12 @@ describe('orderStatusLine — one honest line per order, in USD from integer min
     expect(l.status.toLowerCase()).not.toMatch(/charge|refund/);
   });
 
-  it('L5: a non-USD or malformed amount is shown as unavailable, never as $0.00', () => {
-    expect(orderStatusLine(order({ currency: 'EUR' })).amount).toBe('—');
-    expect(orderStatusLine(order({ total_minor: -1 })).amount).toBe('—');
-    expect(orderStatusLine(order({ total_minor: 12.5 as never })).amount).toBe('—');
+  it('L5: the amount is the CHARGED total only — total_minor is face value and is never shown as what the buyer paid', () => {
+    expect(orderStatusLine(order({ total_minor: 2000 })).amount).toBeNull();              // no charge total → no amount
+    expect(orderStatusLine(order({ total_minor: 2000, charge_total_minor: 2200 })).amount).toBe('$22.00');
+    expect(orderStatusLine(order({ currency: 'EUR', charge_total_minor: 2200 })).amount).toBeNull();
+    expect(orderStatusLine(order({ charge_total_minor: -1 })).amount).toBeNull();
+    expect(orderStatusLine(order({ charge_total_minor: 12.5 as never })).amount).toBeNull();
   });
 
   it('L6: an unknown status says the status is unavailable', () => {

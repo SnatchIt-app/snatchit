@@ -59,7 +59,7 @@ const READY: CredentialState = {
 };
 
 const order = (over: Partial<PrimaryOrderRow>): OrderLine => orderStatusLine({
-  order_id: 'fixture-order-1', status: 'pending', total_minor: 2200, currency: 'USD',
+  order_id: 'fixture-order-1', status: 'pending', total_minor: 2000, charge_total_minor: 2200, currency: 'USD',
   created_at: '2026-11-20T18:00:00Z', atoms_issued: 0, payment_state: 'none', ...over,
 });
 

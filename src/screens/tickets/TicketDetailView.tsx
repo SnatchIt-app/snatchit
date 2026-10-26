@@ -156,9 +156,9 @@ export function TicketDetailView(props: TicketDetailViewProps) {
           <View style={s.orders}>
             <Text style={[textStyle('sectionLabel'), s.ordersHeading]} accessibilityRole="header">{TICKET_DETAIL_COPY.ordersHeading}</Text>
             {props.orders.map((o) => (
-              <View key={o.orderId} style={s.orderRow} accessible accessibilityLabel={`Order, ${o.amount === '—' ? 'amount unavailable' : o.amount}, ${o.status}`}>
+              <View key={o.orderId} style={s.orderRow} accessible accessibilityLabel={o.amount ? `Order, ${o.amount} total, ${o.status}` : `Order, ${o.status}`}>
                 <Text style={[textStyle('body'), s.orderStatus]} numberOfLines={2}>{o.status}</Text>
-                <Text style={[textStyle('body'), s.orderAmount]}>{o.amount}</Text>
+                {o.amount ? <Text style={[textStyle('body'), s.orderAmount]}>{o.amount}</Text> : null}
               </View>
             ))}
           </View>

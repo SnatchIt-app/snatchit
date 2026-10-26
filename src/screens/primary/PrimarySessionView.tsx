@@ -4,8 +4,9 @@
  *
  * Shows what the server returned and nothing more: title, the venue's local date/doors/start with the
  * zone named (`whenFromLocal`), venue and neighbourhood, the age note from `age_restriction` (display
- * only — the door checks ID), the description, and each public tier with its FACE price and the
- * server's sale status (`tierLine`). No buy action yet: the C3 `primary-checkout` flow is the next
+ * only — the door checks ID), the description, and each public tier with the server's ALL-IN price
+ * (A's rule: face value is never the headline; no price at all until the server provides all-in) and
+ * the server's sale status (`tierLine`). No buy action yet: the C3 `primary-checkout` flow is the next
  * package, and a disabled stand-in would claim something that does not exist.
  */
 import { useMemo } from 'react';
@@ -71,6 +72,7 @@ function SessionBody({ load, nowMs, s }: { load: Extract<SessionDetailLoad, { ki
   const when = whenFromLocal({ startsAtLocal: facts.startsAtLocal, doorsAtLocal: facts.doorsAtLocal, timezone: facts.timezone, startsAt: facts.startsAt });
   const restriction = entryRestrictionLine(facts.ageRestriction);
   const venueLine = [facts.venueName, neighborhood].filter(Boolean).join(' · ');
+  const lines = tiers.map((t) => ({ id: t.ticket_type_id, line: tierLine(t, nowMs) }));
   return (
     <>
       <View style={s.event} accessible accessibilityRole="header">
@@ -89,19 +91,16 @@ function SessionBody({ load, nowMs, s }: { load: Extract<SessionDetailLoad, { ki
 
       <View style={s.tiers}>
         <Text style={[textStyle('sectionLabel'), s.tiersHeading]} accessibilityRole="header">{DISCOVERY_COPY.ticketsHeading}</Text>
-        {tiers.map((t) => {
-          const line = tierLine(t, nowMs);
-          return (
-            <View key={t.ticket_type_id} style={s.tierRow} accessible accessibilityLabel={`${line.name}, ${line.price === '—' ? 'price unavailable' : line.price} face value, ${line.status}`}>
-              <View style={s.tierText}>
-                <Text style={[textStyle('title'), s.tierName]}>{line.name}</Text>
-                <Text style={[textStyle('body'), s.tierPrice]}>{line.price}</Text>
-              </View>
-              <Badge label={line.status} tone={line.available ? 'success' : 'neutral'} />
+        {lines.map(({ id, line }) => (
+          <View key={id} style={s.tierRow} accessible accessibilityLabel={`${line.name}, ${line.price ? `${line.price} including all fees` : 'no price yet'}, ${line.status}`}>
+            <View style={s.tierText}>
+              <Text style={[textStyle('title'), s.tierName]}>{line.name}</Text>
+              {line.price ? <Text style={[textStyle('body'), s.tierPrice]}>{line.price}</Text> : null}
             </View>
-          );
-        })}
-        <Text style={[textStyle('bodySm'), s.note]}>{DISCOVERY_COPY.priceNote}</Text>
+            <Badge label={line.status} tone={line.available ? 'success' : 'neutral'} />
+          </View>
+        ))}
+        {lines.some(({ line }) => line.price) ? <Text style={[textStyle('bodySm'), s.note]}>{DISCOVERY_COPY.priceNote}</Text> : null}
       </View>
     </>
   );

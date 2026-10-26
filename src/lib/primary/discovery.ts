@@ -13,9 +13,11 @@
  *     rows carry only instants, so the list shows times through the session read (see the screen);
  *   - tiers: the server's `on_sale_now` decides; the device clock never puts a tier on sale. `remaining`
  *     only distinguishes sold out — no counts are shown (no invented scarcity);
- *   - prices: integer cents in USD, shown as FACE value. The buyer fee (`fee.buyer_service_bps`) is an
- *     unset owner decision (CONTRACTS P7), so no all-in figure is shown before the `primary-checkout`
- *     quote returns `expected_total`; the note says fees are added and shown before payment.
+ *   - prices (A's all-in rule, US live-event ticket pricing): a tier shows ONLY the server's
+ *     `all_in_price_minor` — face + buyer fee, computed with the checkout's own rounding (half-up on
+ *     `fee.buyer_service_bps`; requested from D on 182's tier rows). Face value is never shown as the
+ *     price. While the field is absent, or null because the fee is unset, the tier shows no price and
+ *     reads "Not on sale yet" (not purchasable).
  */
 import { supabase } from '@/src/lib/supabase';
 import { isNetworkError } from '@/src/lib/ui/loadState';
@@ -65,6 +67,8 @@ export interface PrimaryTier {
   sale_ends_at: string | null;
   on_sale_now: boolean;
   remaining: number;
+  /** Face + buyer fee in integer cents (server rounding). Absent until 182 carries it; null while the fee is unset. */
+  all_in_price_minor?: number | null;
 }
 
 function isTier(v: unknown): v is PrimaryTier {
@@ -152,15 +156,22 @@ function usd(minor: unknown, currency: unknown): string {
 
 export interface TierLine {
   name: string;
-  price: string;
+  /** The ALL-IN price, or null when the server gave none — face value is never shown here. */
+  price: string | null;
   status: 'On sale' | 'Sold out' | 'Not on sale yet' | 'Sales ended' | 'Not on sale';
   available: boolean;
 }
 
-/** `nowMs` only words a closed window ("yet" vs "ended"); it never opens one — `on_sale_now` decides. */
+/**
+ * `nowMs` only words a closed window ("yet" vs "ended"); it never opens one — `on_sale_now` decides.
+ * Without a server all-in price the tier cannot be bought and shows no price (A's all-in rule).
+ */
 export function tierLine(t: PrimaryTier, nowMs: number): TierLine {
-  const base = { name: t.name, price: usd(t.price_minor, t.currency) };
+  const price = typeof t.all_in_price_minor === 'number' ? usd(t.all_in_price_minor, t.currency) : null;
+  const shown = price === '—' ? null : price;
+  const base = { name: t.name, price: shown };
   if (t.on_sale_now) {
+    if (shown === null) return { ...base, status: 'Not on sale yet', available: false };
     return t.remaining > 0 ? { ...base, status: 'On sale', available: true } : { ...base, status: 'Sold out', available: false };
   }
   const starts = t.sale_starts_at ? Date.parse(t.sale_starts_at) : NaN;
@@ -177,5 +188,5 @@ export const DISCOVERY_COPY = {
   notAvailableTitle: 'This event isn’t available',
   notAvailableBody: 'It may not be on sale yet, or it may have ended.',
   ticketsHeading: 'Tickets',
-  priceNote: 'Face value per ticket. Fees are added and the full price is shown before you pay.',
+  priceNote: 'Prices include all fees.',
 } as const;

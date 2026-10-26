@@ -48,6 +48,9 @@ describe('views — server facts only', () => {
     expect(event).toContain('whenFromLocal({');
     expect(event).toContain('entryRestrictionLine(facts.ageRestriction)');
     expect(event).toContain('DISCOVERY_COPY.priceNote');
+    // A's all-in rule: the view renders only tierLine's price (all-in), and never the face field.
+    expect(event).not.toContain('price_minor');
+    expect(event).toMatch(/line\.price \? /);
   });
 
   it('V2: no buy action exists until the C3 checkout package lands', () => {
