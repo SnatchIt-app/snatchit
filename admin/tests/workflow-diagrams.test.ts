@@ -49,17 +49,30 @@ const sop = sopPath ? plain(readFileSync(sopPath, "utf8")) : null;
 
 const stepText = (s: WorkflowStep) => plain(`${s.title} ${s.detail}`).toLowerCase();
 
-function pinsAgainstSources(path: WorkflowStep[]) {
+/**
+ * Every pin must appear in a cited source that is readable on THIS machine. The
+ * SOP is read only where it is checked out (never in CI's clean checkout), so a
+ * pin that only the SOP carries is verifiable here and unverifiable in CI — the
+ * exact shape of the #158 clean-checkout failure. The function therefore takes
+ * the SOP text as a parameter (null = clean checkout) and returns the titles of
+ * the steps it had to skip because every one of their sources is the SOP, so a
+ * test can pin that set instead of letting it grow silently.
+ */
+function pinsAgainstSources(path: WorkflowStep[], sopText: string | null): string[] {
+  const skipped: string[] = [];
   for (const step of path) {
     expect(step.pins.length, step.title).toBeGreaterThan(0);
     expect(step.sources.length, step.title).toBeGreaterThan(0);
     for (const pin of step.pins) {
       expect(stepText(step), `${step.title}: "${pin}" is in the step's own text`).toContain(pin.toLowerCase());
       const inTree = step.sources.filter((s) => s.file !== SOP_SOURCE).map((s) => sourceText(s.file).toLowerCase());
-      const inSop = step.sources.some((s) => s.file === SOP_SOURCE) && sop ? [sop.toLowerCase()] : [];
+      const inSop = step.sources.some((s) => s.file === SOP_SOURCE) && sopText ? [sopText.toLowerCase()] : [];
       const haystacks = [...inTree, ...inSop];
-      if (haystacks.length === 0) continue; // SOP-only pin with no SOP on this machine: checked by the SOP block below
-      expect(haystacks.some((t) => t.includes(pin.toLowerCase())), `${step.title}: "${pin}" appears in a cited source (${step.sources.map((s) => s.file).join(", ")})`).toBe(true);
+      if (haystacks.length === 0) {
+        if (!skipped.includes(step.title)) skipped.push(step.title);
+        continue; // SOP-only step with no SOP on this machine: its quotes are checked by the SOP block below where the SOP exists
+      }
+      expect(haystacks.some((t) => t.includes(pin.toLowerCase())), `${step.title}: "${pin}" appears in a cited source readable here (${step.sources.map((s) => s.file).join(", ")})`).toBe(true);
     }
     for (const s of step.sources) {
       if (s.file === SOP_SOURCE) continue;
@@ -67,6 +80,7 @@ function pinsAgainstSources(path: WorkflowStep[]) {
       expect(sourceText(s.file), `${step.title}: ${s.file} contains "${s.quote}"`).toContain(plain(s.quote));
     }
   }
+  return skipped;
 }
 
 // ---------------------------------------------------------------------------
@@ -83,7 +97,7 @@ describe("the refund path as it actually is today", () => {
       "Webhook records the result",
     ]);
   });
-  it("every phrase is pinned to the console's copy, the vocabulary or the SOP", () => pinsAgainstSources(REFUND_PATH));
+  it("every phrase is pinned to the console's copy, the vocabulary or the SOP", () => pinsAgainstSources(REFUND_PATH, sop));
   it("uses the reviewed labels verbatim and states that the SOP is a draft and that the console never calls Stripe", () => {
     const text = REFUND_PATH.map(stepText).join(" ");
     expect(text).toContain(ACTION_STATE_LABELS.awaiting_approval.toLowerCase());
@@ -102,7 +116,7 @@ describe("the payout release path", () => {
   it("four steps: seller_sent → release request → second founder approval → the payout worker", () => {
     expect(PAYOUT_RELEASE_PATH.map((s) => s.title)).toEqual([TRANSFER_STATUS_LABELS.seller_sent, "Request release", "Second founder approval", "Payout worker"]);
   });
-  it("every phrase is pinned to the console's copy or the vocabulary", () => pinsAgainstSources(PAYOUT_RELEASE_PATH));
+  it("every phrase is pinned to the console's copy or the vocabulary", () => pinsAgainstSources(PAYOUT_RELEASE_PATH, sop));
   it("uses the reviewed labels verbatim and never calls a connected-account transfer a bank payout or says the seller received money", () => {
     const text = PAYOUT_RELEASE_PATH.map(stepText).join(" ");
     expect(text).toContain(ACTION_TYPE_LABELS.payout_release.toLowerCase());
@@ -110,6 +124,21 @@ describe("the payout release path", () => {
     expect(text).toContain(payoutStateLabel({ status: "buyer_confirmed", payout_released_at: "2026-01-01T00:00:00Z" }).toLowerCase());
     expect(text).toContain("not a bank payout");
     expect(text).not.toContain("received");
+  });
+});
+
+describe("a clean checkout (CI): the SOP file is absent", () => {
+  it("every pin still resolves to a source in this tree; only the manual SOP step is SOP-only, and it says so in its title", () => {
+    // This is the condition CI runs under (actions/checkout has no sibling checkout of admin/manual-refund-sop).
+    // The webhook step's "charge.refunded" pin failed here on a0705318: its in-tree sources did not carry the phrase.
+    const skipped = [...pinsAgainstSources(REFUND_PATH, null), ...pinsAgainstSources(PAYOUT_RELEASE_PATH, null)];
+    expect(skipped).toEqual(["Manual Stripe Dashboard refund (SOP, draft)"]);
+  });
+  it("the webhook step names the event in the console's own copy, not only in the SOP", () => {
+    const webhook = REFUND_PATH.find((s) => s.id === "webhook")!;
+    const inTree = webhook.sources.filter((s) => s.file !== SOP_SOURCE);
+    expect(inTree.some((s) => sourceText(s.file).includes("charge.refunded")), "an in-tree source carries charge.refunded").toBe(true);
+    expect(inTree.some((s) => s.quote.includes("charge.refunded")), "and the cited quote is the sentence that says when the payment flips").toBe(true);
   });
 });
 

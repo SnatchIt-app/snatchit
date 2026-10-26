@@ -4,8 +4,9 @@ import { ACTION_STATE_LABELS, ACTION_TYPE_LABELS, PAYMENT_STATUS_LABELS, TRANSFE
  * Two small static workflow diagrams for the order page (V-1 item 4): the
  * refund path as it actually is today, and the payout release path. Every step
  * is taken from a record in this repo — the console's own copy
- * (OrderActions, the order page), the status vocabulary (lib/format.ts) and the
- * manual refund SOP (a draft, on branch admin/manual-refund-sop) — and cites
+ * (OrderActions, the order page, the action detail page), the status vocabulary
+ * (lib/format.ts) and the manual refund SOP (a draft, on branch
+ * admin/manual-refund-sop) — and cites
  * it; `pins` are the phrases a test checks against those sources, so the
  * diagram cannot drift from them. Nothing here is a new rule, a claim about
  * money that moved, or a promise about what will happen.
@@ -16,6 +17,8 @@ export type WorkflowStep = { id: string; title: string; detail: string; pins: st
 const ORDER_ACTIONS = "components/orders/OrderActions.tsx";
 const ORDER_PAGE = "app/(console)/orders/[paymentId]/page.tsx";
 const FORMAT = "lib/format.ts";
+/** The action detail page: the console's own sentence on when a payment flips to refunded. */
+const ACTIONS_PAGE = "app/(console)/actions/[id]/page.tsx";
 /** The SOP is not in this tree; a reader finds it on its branch. */
 export const SOP_SOURCE = "docs/admin-console/MANUAL_REFUND_SOP.md (branch admin/manual-refund-sop, draft)";
 
@@ -73,6 +76,8 @@ export const REFUND_PATH: WorkflowStep[] = [
       { file: ORDER_PAGE, quote: "“Refund recorded” is set by the Stripe webhook or by the expiry job when a refund is recorded — never by the console." },
       { file: ORDER_PAGE, quote: "confirm the outcome in Stripe" },
       { file: FORMAT, quote: 'refunded: "Refund recorded (not confirmed settled)"' },
+      { file: ACTIONS_PAGE, quote: "the local payment flips to refunded when charge.refunded lands" },
+      { file: ACTIONS_PAGE, quote: "the payment shows “refunded” only after the charge.refunded webhook lands." },
       { file: SOP_SOURCE, quote: "**`charge.refunded`**", at: "§5.1" },
     ],
   },
