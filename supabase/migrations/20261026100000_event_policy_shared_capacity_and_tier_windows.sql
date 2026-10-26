@@ -232,7 +232,9 @@ BEGIN;
 SET LOCAL lock_timeout = '3s';
 
 -- ============================================================================
--- PRE-FLIGHT — 159, 160, 161 present; the six bodies are 160's (md5)
+-- PRE-FLIGHT — 159, 160, 161 present; each of the six bodies is 160's (first apply) or
+-- 162's own (re-apply) by md5 — anything else is a later migration or a hotfix that landed
+-- first and is refused (A's #166 review ask 2 mirrored from 160 PART 5.0; B's 183 N2 pattern)
 -- ============================================================================
 DO $pre$
 BEGIN
@@ -246,20 +248,36 @@ BEGIN
   IF to_regnamespace('venue_cmd') IS NULL THEN
     RAISE EXCEPTION '162_REFUSED: schema venue_cmd (161) is absent; apply 161 first.';
   END IF;
-  IF (SELECT md5(prosrc) FROM pg_proc WHERE oid = 'venue.create_ticket_type(uuid, text, text, integer, text, text)'::regprocedure)
-       IS DISTINCT FROM 'bba1f015338953b1b84ab1a8ce6e1ff9'
-  OR (SELECT md5(prosrc) FROM pg_proc WHERE oid = 'venue.set_ticket_type_price(uuid, integer, text, text)'::regprocedure)
-       IS DISTINCT FROM '0b349a564a50fdda0b721d097a3bb9eb'
-  OR (SELECT md5(prosrc) FROM pg_proc WHERE oid = 'venue.create_inventory_batch(uuid, uuid, text, integer, integer, text)'::regprocedure)
-       IS DISTINCT FROM 'abedde3ce19d1a49087ac4a5c6aaacd0'
-  OR (SELECT md5(prosrc) FROM pg_proc WHERE oid = 'venue.set_batch_capacity(uuid, integer, text, text)'::regprocedure)
-       IS DISTINCT FROM '76c69e9d8625b056e67e53c1d4e34fd9'
-  OR (SELECT md5(prosrc) FROM pg_proc WHERE oid = 'venue.set_ticket_type_visibility(uuid, text, text, text)'::regprocedure)
-       IS DISTINCT FROM 'd3d7f28c126641188ee1e68f312624ed'
-  OR (SELECT md5(prosrc) FROM pg_proc WHERE oid = 'venue.set_ticket_type_rank(uuid, smallint, text)'::regprocedure)
-       IS DISTINCT FROM 'e9aa82f8d38acf2e7fe4e050d596e4fe' THEN
-    RAISE EXCEPTION '162_REFUSED: a venue.* body this migration replaces is not 160''s (md5); a later migration changed it. Nothing changed.';
-  END IF;
+  -- The six bodies PART 9 replaces: exactly 160's (first apply) or 162's own (re-apply); any other md5 means a
+  -- later migration or a hotfix landed first and CREATE OR REPLACE would silently overwrite it — refuse; the single
+  -- transaction then changes nothing. The rollback's G1 is the mirror guard on the way back. Values: header VERIFICATION.
+  DECLARE
+    v_tt text := (SELECT md5(prosrc) FROM pg_proc WHERE oid = to_regprocedure('venue.create_ticket_type(uuid, text, text, integer, text, text)'));
+    v_px text := (SELECT md5(prosrc) FROM pg_proc WHERE oid = to_regprocedure('venue.set_ticket_type_price(uuid, integer, text, text)'));
+    v_cb text := (SELECT md5(prosrc) FROM pg_proc WHERE oid = to_regprocedure('venue.create_inventory_batch(uuid, uuid, text, integer, integer, text)'));
+    v_sc text := (SELECT md5(prosrc) FROM pg_proc WHERE oid = to_regprocedure('venue.set_batch_capacity(uuid, integer, text, text)'));
+    v_vs text := (SELECT md5(prosrc) FROM pg_proc WHERE oid = to_regprocedure('venue.set_ticket_type_visibility(uuid, text, text, text)'));
+    v_rk text := (SELECT md5(prosrc) FROM pg_proc WHERE oid = to_regprocedure('venue.set_ticket_type_rank(uuid, smallint, text)'));
+  BEGIN
+    IF v_tt IS NULL OR v_tt NOT IN ('bba1f015338953b1b84ab1a8ce6e1ff9', 'bfc2972e6aecb2dd5a0b4bd587dcc377') THEN
+      RAISE EXCEPTION 'MIGRATION_162_REFUSED (pre-flight): venue.create_ticket_type body is neither 160''s nor 162''s (md5 %); nothing changed', coalesce(v_tt, '<missing>');
+    END IF;
+    IF v_px IS NULL OR v_px NOT IN ('0b349a564a50fdda0b721d097a3bb9eb', '7d1cc0c9d95b99b94f17ae9ab1f86932') THEN
+      RAISE EXCEPTION 'MIGRATION_162_REFUSED (pre-flight): venue.set_ticket_type_price body is neither 160''s nor 162''s (md5 %); nothing changed', coalesce(v_px, '<missing>');
+    END IF;
+    IF v_cb IS NULL OR v_cb NOT IN ('abedde3ce19d1a49087ac4a5c6aaacd0', '30424f73432699526f4424bbcbf52c73') THEN
+      RAISE EXCEPTION 'MIGRATION_162_REFUSED (pre-flight): venue.create_inventory_batch body is neither 160''s nor 162''s (md5 %); nothing changed', coalesce(v_cb, '<missing>');
+    END IF;
+    IF v_sc IS NULL OR v_sc NOT IN ('76c69e9d8625b056e67e53c1d4e34fd9', '7aa6b6d303276f44125ab91829689542') THEN
+      RAISE EXCEPTION 'MIGRATION_162_REFUSED (pre-flight): venue.set_batch_capacity body is neither 160''s nor 162''s (md5 %); nothing changed', coalesce(v_sc, '<missing>');
+    END IF;
+    IF v_vs IS NULL OR v_vs NOT IN ('d3d7f28c126641188ee1e68f312624ed', '69ded39de3ca710d3f12c738784a2177') THEN
+      RAISE EXCEPTION 'MIGRATION_162_REFUSED (pre-flight): venue.set_ticket_type_visibility body is neither 160''s nor 162''s (md5 %); nothing changed', coalesce(v_vs, '<missing>');
+    END IF;
+    IF v_rk IS NULL OR v_rk NOT IN ('e9aa82f8d38acf2e7fe4e050d596e4fe', 'fa9da73250e877b913bc178b4644f41d') THEN
+      RAISE EXCEPTION 'MIGRATION_162_REFUSED (pre-flight): venue.set_ticket_type_rank body is neither 160''s nor 162''s (md5 %); nothing changed', coalesce(v_rk, '<missing>');
+    END IF;
+  END;
 END $pre$;
 
 -- ============================================================================
