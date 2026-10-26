@@ -296,6 +296,7 @@ SELECT is((WITH want(sig, md5) AS (VALUES
              ('ops.execute_action(text,text,text,uuid,jsonb,text,jsonb,text)', '24209d0697132d5df7bd12f5cf3e5c0c'),
              ('ops.approve_action(uuid,text,text)', 'ddcdcd1401839910726d20ddd206e40d'),
              ('ops.order_detail(uuid)', '4358f577291f84b25986b8904b38ab36'),
+             ('ops.order_detail(uuid)', '7958264c4f259745954753385613bad5'),   -- 180 (20261022004000) adds is_test on top of 157's body
              ('ops.action_dispatch(ops.action)', '530105443dff97cdf1639c12d2bf24f1'),
              ('ops.action_precheck(ops.action)', '20a5ae0386be0644293f5230fad84dde'),
              ('ops.refund_payout_refusal(uuid,text)', '897a1f932f20cd775795e7bea740c3b4'),
