@@ -24,8 +24,16 @@
 -- WHAT THIS MIGRATION IS (A's shapes, verbatim; CONTRACTS.md §C1/§C5):
 --  1. public.list_primary_sessions_on_sale() → rows (event_id uuid, session_id
 --     uuid, title text, venue_name text, neighborhood text, starts_at timestamptz,
---     doors_at timestamptz, age_restriction text, status text). One row per
---     session a buyer may buy into RIGHT NOW:
+--     doors_at timestamptz, age_restriction text, status text, timezone text,
+--     starts_at_local text, doors_at_local text). The last three were appended
+--     2026-10-26 at A's request (US all-in display fold-in, before 182 was ever
+--     applied): timezone = 162's catalog.venue.timezone; *_local =
+--     to_char(x AT TIME ZONE venue.timezone, 'YYYY-MM-DD HH24:MI') — the SAME
+--     expression get_primary_session's session object uses, so a list row and
+--     its detail never disagree; NULL when the instant is NULL (doors_at is
+--     optional). AT TIME ZONE on a timestamptz yields a zone-local timestamp, so
+--     the strings do not depend on the caller's session TimeZone (252 L19 pins
+--     it under Asia/Tokyo). One row per session a buyer may buy into RIGHT NOW:
 --       · catalog.event.status IN ('on_sale','live') — draft, announced,
 --         completed and cancelled events are NEVER listed;
 --       · catalog.event_session.status NOT IN ('cancelled','completed');
@@ -63,7 +71,8 @@
 --       venue        = {venue_id, name, neighborhood, address, timezone}
 --       ticket_types = [{ticket_type_id, name, price_minor, currency,
 --                        visibility, display_rank, sale_starts_at, sale_ends_at,
---                        on_sale_now, remaining}, …]   ('[]' when none)
+--                        on_sale_now, remaining, buyer_fee_minor,
+--                        all_in_price_minor}, …]   ('[]' when none)
 --     ticket_types holds ONLY tiers with visibility = 'public' (hidden and
 --     door_only never appear — not even as a count). `remaining` =
 --     SUM(capacity − held − sold) over venue.inventory_batch rows of (tier,
@@ -77,6 +86,57 @@
 --     venue.timezone, 'YYYY-MM-DD HH24:MI') — 162's venue_api format, text,
 --     NULL when the instant is NULL. ticket_types order: display_rank ASC NULLS
 --     LAST, price_minor ASC, name ASC. EXECUTE anon + authenticated.
+--     buyer_fee_minor / all_in_price_minor — US all-in display (A, 2026-10-26).
+--     NOT a second fee model: the rate is read and gated, and the amount
+--     rounded, with venue.create_primary_checkout's OWN expressions
+--     (093_primary_ticketing.sql), copied character for character because a
+--     money body is out of scope here and cannot be refactored onto a helper:
+--       rate read    093:4091-4094  select (c.value #>> '{}')::numeric
+--                                     from catalog.platform_config c
+--                                    where c.key = 'fee.buyer_service_bps'
+--                                    order by c.version desc limit 1
+--       gates        093:4104-4112  NULL -> service_fee_unset;
+--                                   < 0 or > 10000 or <> trunc(..) ->
+--                                   service_fee_out_of_range
+--       amount       093:4163-4164  round(v_total::numeric * v_fee_bps / 10000)::integer
+--                                   (numeric round = half away from zero =
+--                                   half-up for a non-negative total, 093:4159-4162)
+--                                   charge_total = v_total + fee
+--     Here v_total = tt.price_minor × 1, so per tier:
+--       buyer_fee_minor    = round(price_minor::numeric * bps / 10000)::integer
+--       all_in_price_minor = price_minor + buyer_fee_minor
+--     = exactly the buyer_fee_minor / charge_total_minor create_primary_checkout
+--     returns for a ONE-UNIT order of that tier (252 F5-F11 call checkout for
+--     real on the same clone and compare, including a .5-cent boundary).
+--     BOTH NULL whenever checkout would refuse to quote on the rate: unset
+--     (JSON null or no row — 093 seeds it null), out of range, fractional, or a
+--     value that is not numeric text at all. That last case is the one place
+--     the read is gentler than checkout: checkout's cast raises 22P02 there (it
+--     refuses either way), a discovery read must not take the whole detail
+--     down with it, so the text is pre-checked with pg_input_is_valid(...,
+--     'numeric') (PG 16+; CI/production are 17) and an unparseable value reads
+--     NULL. For every value the cast accepts, the expression is identical.
+--     And the read casts ONLY the top version's text. Checkout's own read
+--     casts in the select list of an ORDER BY ... LIMIT 1 query, which on a
+--     seq-scan plan is evaluated for EVERY historical row of the key: once a
+--     non-numeric value has ever been written (the table is append-only),
+--     checkout raises 22P02 under a valid top version or not, depending on
+--     the plan (EVIDENCE-182b, checkout_cast_plan_dependence.txt). FLAGGED for
+--     A (money path, not touched here); in that state this read shows the top
+--     version's fee while checkout may refuse.
+--     Never a default, never zero for "unknown" (A5: no percentage is invented).
+--     QUANTITY 1 ONLY — SAID PLAINLY: checkout rounds the fee ONCE PER ORDER on
+--     Σ(price × qty) across all items (093:4152, 4163), not per unit. So
+--     n × all_in_price_minor is NOT the charge for n units whenever the unit
+--     fee has a fractional cent ≥ .5 (1005 at 1000 bps: unit all-in 1106, but
+--     two units charge round(201.0) + 2010 = 2211, not 2212 — 252 F12 pins it
+--     against checkout), and the per-tier figures of a mixed-tier cart do not
+--     sum to its charge either. A client must quote a multi-unit or multi-tier
+--     total from checkout's own charge_total_minor, never by multiplying.
+--     DISCLOSURE: the config row stays visibility 'restricted', but anyone who
+--     can read a price and its fee can now derive the rate (fee/price). That is
+--     inherent to all-in display (checkout already shows it to every buyer);
+--     flagged for A, not hidden.
 --  3. public.get_my_ticket_atoms(p_event_session_id uuid) → rows
 --     (ticket_atom_id uuid, serial_no integer, ticket_type_id uuid,
 --     ticket_type_name text, state text, resale_state text, credential_version
@@ -95,7 +155,8 @@
 --     anything from kernel.ticket_ownership_log, any KMS or Stripe reference.
 --  4. public.get_my_primary_orders(p_event_session_id uuid) → rows (order_id
 --     uuid, status text, total_minor integer, currency text, created_at
---     timestamptz, atoms_issued integer, payment_state text) from venue."order"
+--     timestamptz, atoms_issued integer, payment_state text, charge_total_minor
+--     integer) from venue."order"
 --     WHERE buyer_id = auth.uid() AND event_session_id = p_event_session_id,
 --     newest first. NULL uid → 'orders_unauthenticated' (28000). status is the
 --     raw venue.order status (pending|paid|partially_refunded|refunded|
@@ -145,6 +206,29 @@
 --       "awaiting payment confirmation", never "unpaid"; A: a pre-finalize link
 --       (the edge persisting order_id ↔ payment id, or the webhook writing it
 --       before finalize) is the fix, not a wider read here.
+--     charge_total_minor — THE ALL-IN AMOUNT ACTUALLY CHARGED (A, 2026-10-26;
+--       appended LAST, before 182 was ever applied). total_minor stays FACE
+--       value (093:4168-4178: "no column on venue."order" ever carries" the
+--       buyer fee); the only place the database stores the charged all-in
+--       amount is public.payments.total, which the primary-checkout edge writes
+--       from create_primary_checkout's charge_total_minor (amount = face,
+--       buyer_fee = fee, total = the charge — supabase/functions/primary-
+--       checkout/index.ts:1196-1210; finalize re-checks total >= face at
+--       085:1919-1934). So charge_total_minor = public.payments.total of the
+--       SAME link payment_state reads (kernel.payment_native, newest link) —
+--       one lateral row feeds both columns, so they can never describe two
+--       different payments. No link → NULL. Every pending order therefore
+--       reads NULL (the link is written at finalize, 085:2058-2060; the
+--       payments row exists from checkout on but carries no order_id — the
+--       structural limitation above). It is NEVER recomputed from the current
+--       fee.buyer_service_bps: the rate may have changed since the quote, and a
+--       recomputed figure would be an invented charge (A's ruling, 2026-10-26).
+--       Persisting the charge total (and the PaymentIntent) on the order at
+--       checkout is A's C5-1 follow-up, not this read. The value is the
+--       PaymentIntent amount the buyer was quoted and charged; WHETHER money
+--       moved is payment_state (a refunded payment keeps its total; the
+--       synthetic failed/processing links of 252's matrix show the amount that
+--       was attempted). It is the only amount a buyer screen may render.
 --
 -- EVERY FUNCTION: SECURITY DEFINER, SET search_path = '' (all references
 -- schema-qualified; auth.uid() included), STABLE, LANGUAGE sql for the two
@@ -162,19 +246,24 @@
 --       REVOKE ALL FROM PUBLIC, anon, authenticated; GRANT EXECUTE TO
 --       authenticated (manifest 'authenticated-execute'). anon is denied at the
 --       ACL (42501), never served an empty set.
---   service_role (all four): KEEPS the public-schema DEFAULT EXECUTE. This chain
---       carries pg_default_acl `public / functions / postgres -> anon=X,
---       authenticated=X, service_role=X` (Supabase's ALTER DEFAULT PRIVILEGES),
---       so every function created in public is born with the three; the I-7
---       sequence strips and re-grants anon/authenticated and — exactly as
---       20260909000000's get_my_tickets (proacl {postgres,authenticated,
---       service_role}) and 112 of the 126 public functions today — leaves
---       service_role's default standing. Not revoked here on purpose: deviating
---       from the house posture is A's call, not a side effect of this package
---       (FLAGGED in EVIDENCE-182 §9); there is no server-side caller, a
---       service_role call of the two owner reads raises 28000 (auth.uid() is
---       NULL) and of the two discovery reads returns the same public rows. The
---       post-flight and 252 A8-A11 PIN this posture so it is read, not assumed.
+--   service_role (all four): EXECUTE by an EXPLICIT GRANT (A's house-posture
+--       ruling, 2026-10-26). The posture is the same as 20260909000000's
+--       get_my_tickets (proacl {postgres,authenticated,service_role}), but it is
+--       no longer INHERITED from pg_default_acl: CI's fresh Supabase stack carries
+--       no `public / functions -> service_role=X` default entry, while the local
+--       replay template does (scripts/local/replay_shim.sql:489), so the
+--       inherited grant existed locally and was ABSENT on CI — 182's post-flight
+--       raised there (service_role=f). An explicit `GRANT EXECUTE ... TO
+--       service_role` makes the posture independent of whatever default ACL an
+--       environment carries (production's is not asserted here): CI = local =
+--       production by construction, and where a default entry exists the grant
+--       is a no-op. There is no server-side caller: a service_role
+--       call of the two owner reads raises 28000 (auth.uid() is NULL) and of the
+--       two discovery reads returns the same public rows. The manifest classes
+--       ('anon-execute' / 'authenticated-execute') are service_role-agnostic
+--       (Part B checks anon, authenticated, PUBLIC and a non-NULL proacl only),
+--       so the rows stand unchanged; their comments say the grant is explicit.
+--       The post-flight and 252 A8-A11 PIN this posture so it is read, not assumed.
 --
 -- FOUR-FILE RULE (CLAUDE.md) — REAL for this package, all four touched/read:
 --   1. supabase/ci/assert_public_table_grant_decisions.sql — four Part-B rows:
@@ -196,7 +285,10 @@
 -- hidden tiers → the exclusion test fails; serialise capacity → the key-absence
 -- test fails; list drafts → the draft test fails; drop buyer_id = auth.uid() →
 -- the cross-buyer order test fails; sum remaining over every release_kind →
--- the public_sale-only test fails.
+-- the public_sale-only test fails. Fee fold-in (EVIDENCE-182b): half-even
+-- rounding → F9 fails; truncation → F9 fails; ceil → F11 fails; drop the
+-- range gate → F3 fails; default an unset rate to 0 → F1 fails; list
+-- *_local under the session TimeZone (::timestamp) → L19 fails.
 --
 -- VERIFICATION (after apply):
 --   select proname, prosecdef, provolatile, proconfig, proacl from pg_proc
@@ -204,15 +296,16 @@
 --      and proname in ('list_primary_sessions_on_sale','get_primary_session',
 --                      'get_my_ticket_atoms','get_my_primary_orders');
 --   -- 4 rows; prosecdef t; provolatile s; proconfig {search_path=""};
---   -- proacl = {postgres, service_role, anon, authenticated}=X for the first two,
---   -- {postgres, service_role, authenticated}=X for the last two (service_role = the kept default).
+--   -- proacl = {postgres, anon, authenticated, service_role}=X for the first two,
+--   -- {postgres, authenticated, service_role}=X for the last two (service_role = the explicit
+--   -- grant; entry order may differ where the default ACL already supplied it).
 --   select count(*) from pg_proc p where p.pronamespace = 'public'::regnamespace
 --      and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e');  -- 130 (was 126)
 --   -- md5(prosrc) of the four bodies as applied (the rollback's G1 targets):
---   --   list_primary_sessions_on_sale  93debdf3ad599a263a7e6a208ec7e7c9
---   --   get_primary_session            9bfb318898954b958c07982cc7723835
+--   --   list_primary_sessions_on_sale  7a3fcb91976cdd31b32be4e192d09437
+--   --   get_primary_session            5c2f3321170798edd277ef0d639c45e3
 --   --   get_my_ticket_atoms            8f142e0d4f47d197d633d13c33e70312
---   --   get_my_primary_orders          f0ec61fcf60b8125bcb1a43dc4332de6
+--   --   get_my_primary_orders          3a098366bfa9b58a22214718d2f21c30
 -- LOCKS / RUNTIME: four CREATE FUNCTION + grants — catalog rows only,
 -- milliseconds; no table is read or written. lock_timeout 3s so it fails
 -- cleanly rather than queue behind a long reader.
@@ -263,7 +356,10 @@ returns table (
   starts_at       timestamptz,
   doors_at        timestamptz,
   age_restriction text,
-  status          text
+  status          text,
+  timezone        text,
+  starts_at_local text,
+  doors_at_local  text
 )
 language sql
 stable
@@ -278,7 +374,11 @@ as $$
          s.starts_at,
          s.doors_at,
          e.age_policy    as age_restriction,
-         e.status
+         e.status,
+         v.timezone,
+         -- the get_primary_session session-object expression, verbatim
+         to_char(s.starts_at at time zone v.timezone, 'YYYY-MM-DD HH24:MI') as starts_at_local,
+         to_char(s.doors_at  at time zone v.timezone, 'YYYY-MM-DD HH24:MI') as doors_at_local
     from catalog.event_session s
     join catalog.event e on e.event_id = s.event_id
     join catalog.venue v on v.venue_id = e.venue_id
@@ -295,7 +395,8 @@ $$;
 
 comment on function public.list_primary_sessions_on_sale() is
   '182 (C1): buyer discovery — one row per session of an on_sale/live event at an approved venue with at least one public tier on sale now (venue.ticket_type_on_sale). '
-  'Drafts, announced, completed and cancelled events and cancelled/completed sessions are never listed. age_restriction = catalog.event.age_policy (NULL = not specified); status = the event status. '
+  'Drafts, announced, completed and cancelled events and cancelled/completed sessions are never listed. age_restriction = catalog.event.age_policy (NULL = not specified); status = the event status; '
+  'timezone = catalog.venue.timezone, starts_at_local / doors_at_local = the instants in that zone (YYYY-MM-DD HH24:MI, NULL when the instant is NULL). '
   'Frontend-safe fields only; no capacity, owner, credential or payment data. EXECUTE anon + authenticated. Order: starts_at asc.';
 
 -- ============================================================================
@@ -364,7 +465,12 @@ as $$
                                               from venue.inventory_batch b
                                              where b.ticket_type_id   = tt.ticket_type_id
                                                and b.event_session_id = s.session_id
-                                               and b.release_kind     = 'public_sale'), 0)::integer
+                                               and b.release_kind     = 'public_sale'), 0)::integer,
+                 -- US all-in display: venue.create_primary_checkout's fee for a
+                 -- ONE-UNIT order of this tier (093:4163-4164 with v_total =
+                 -- price_minor); NULL while the rate is unset / refused (fee.bps NULL).
+                 'buyer_fee_minor',    round(tt.price_minor::numeric * fee.bps / 10000)::integer,
+                 'all_in_price_minor', tt.price_minor + round(tt.price_minor::numeric * fee.bps / 10000)::integer
                )
                order by tt.display_rank asc nulls last, tt.price_minor asc, tt.name asc)
         from venue.ticket_type tt
@@ -374,6 +480,22 @@ as $$
   from catalog.event_session s
   join catalog.event e on e.event_id = s.event_id
   join catalog.venue v on v.venue_id = e.venue_id
+  -- the buyer service fee rate, read as venue.create_primary_checkout reads it
+  -- (093:4091-4094: highest version wins, `#>> '{}'` maps the seeded JSON null
+  -- to SQL NULL) and gated as it gates (093:4104-4112): any value checkout would
+  -- refuse to quote on reads NULL here. pg_input_is_valid only turns checkout's
+  -- 22P02 (non-numeric text) into NULL instead of an error (see the header).
+  cross join lateral (
+    select case when r.bps is null
+                  or r.bps < 0 or r.bps > 10000 or r.bps <> trunc(r.bps) then null
+                else r.bps
+           end as bps
+      from (select case when pg_input_is_valid(cfg.txt, 'numeric') then cfg.txt::numeric end as bps
+              from (select (select c.value #>> '{}'
+                              from catalog.platform_config c
+                             where c.key = 'fee.buyer_service_bps'
+                             order by c.version desc limit 1) as txt) cfg) r
+  ) fee
  where s.session_id = p_session_id
    and e.status in ('on_sale', 'live', 'completed')
    and s.status <> 'cancelled'
@@ -382,6 +504,7 @@ $$;
 
 comment on function public.get_primary_session(uuid) is
   '182 (C1): buyer detail of one session — (session, event, venue, ticket_types) jsonb; ticket_types = public tiers only with price_minor, currency, visibility, display_rank, sale window, on_sale_now and remaining (= SUM(capacity-held-sold) over public_sale batches of this session; capacity/held/sold never returned). '
+  'buyer_fee_minor / all_in_price_minor = what venue.create_primary_checkout charges for ONE unit of the tier (same rate read, gates and half-up rounding; the fee is rounded per order, so never multiply for n units); both NULL while fee.buyer_service_bps is unset or refused. '
   'Local times via catalog.venue.timezone (*_local, YYYY-MM-DD HH24:MI). ZERO rows (no error) for an unknown id, a draft/announced/cancelled event, a cancelled session or a non-approved venue. EXECUTE anon + authenticated.';
 
 -- ============================================================================
@@ -444,7 +567,8 @@ returns table (
   currency      text,
   created_at    timestamptz,
   atoms_issued  integer,
-  payment_state text
+  payment_state text,
+  charge_total_minor integer
 )
 language plpgsql
 stable
@@ -476,20 +600,25 @@ begin
            where oi.order_id = o.order_id)                       as atoms_issued,
          -- payment_native is written by finalize_primary_order (085:2060): a
          -- pre-finalize order has no link and reads 'none' (see the header).
-         coalesce((select case p.status
-                            when 'pending'    then 'processing'
-                            when 'processing' then 'processing'
-                            when 'succeeded'  then 'succeeded'
-                            when 'refunded'   then 'succeeded'
-                            when 'failed'     then 'failed'
-                            else 'none'
-                          end
-                     from kernel.payment_native pn
-                     join public.payments p on p.id = pn.payment_id
-                    where pn.order_id = o.order_id
-                    order by pn.linked_at desc, pn.id desc
-                    limit 1), 'none')                             as payment_state
+         coalesce(case lp.status
+                    when 'pending'    then 'processing'
+                    when 'processing' then 'processing'
+                    when 'succeeded'  then 'succeeded'
+                    when 'refunded'   then 'succeeded'
+                    when 'failed'     then 'failed'
+                    else 'none'
+                  end, 'none')                                    as payment_state,
+         -- the all-in amount charged = payments.total of the SAME link (the
+         -- edge writes total = charge_total_minor, index.ts:1204); no link ->
+         -- NULL, never recomputed from the current rate (see the header).
+         lp.total                                                 as charge_total_minor
     from venue."order" o
+    left join lateral (select p.status, p.total
+                         from kernel.payment_native pn
+                         join public.payments p on p.id = pn.payment_id
+                        where pn.order_id = o.order_id
+                        order by pn.linked_at desc, pn.id desc
+                        limit 1) lp on true
    where o.buyer_id         = v_uid
      and o.event_session_id = p_event_session_id
    order by o.created_at desc, o.order_id asc;
@@ -498,26 +627,32 @@ $$;
 
 comment on function public.get_my_primary_orders(uuid) is
   '182 (C5): the caller''s own primary orders for one session — binds to auth.uid() (0 rows for others; NULL uid raises 28000 orders_unauthenticated). status = raw venue.order status; atoms_issued = atoms minted for the order (kernel.ticket_ownership_log sequence-1 issue row -> venue.order_item.id); '
-  'payment_state none|processing|succeeded|failed from public.payments via kernel.payment_native (refunded -> succeeded; no link -> none). payment_native is written at finalize, so a pending order reads none (no payment linked yet, not "unpaid"). EXECUTE authenticated only.';
+  'payment_state none|processing|succeeded|failed from public.payments via kernel.payment_native (refunded -> succeeded; no link -> none). payment_native is written at finalize, so a pending order reads none (no payment linked yet, not "unpaid"). '
+  'charge_total_minor = public.payments.total of that same link (the all-in amount charged: face + buyer fee; total_minor stays face); NULL while no payment is linked (every pending order) — never recomputed from the current fee rate. EXECUTE authenticated only.';
 
 -- ============================================================================
--- PART 5 — function ACLs (I-7: strip PUBLIC/anon/authenticated, then grant exactly)
+-- PART 5 — function ACLs (I-7: strip PUBLIC/anon/authenticated, then grant exactly;
+-- service_role explicit on all four — A's house-posture ruling, never left to a default ACL)
 -- ============================================================================
 revoke all on function public.list_primary_sessions_on_sale() from public, anon, authenticated;
 grant execute on function public.list_primary_sessions_on_sale() to anon, authenticated;
+grant execute on function public.list_primary_sessions_on_sale() to service_role;
 
 revoke all on function public.get_primary_session(uuid) from public, anon, authenticated;
 grant execute on function public.get_primary_session(uuid) to anon, authenticated;
+grant execute on function public.get_primary_session(uuid) to service_role;
 
 revoke all on function public.get_my_ticket_atoms(uuid) from public, anon, authenticated;
 grant execute on function public.get_my_ticket_atoms(uuid) to authenticated;
+grant execute on function public.get_my_ticket_atoms(uuid) to service_role;
 
 revoke all on function public.get_my_primary_orders(uuid) from public, anon, authenticated;
 grant execute on function public.get_my_primary_orders(uuid) to authenticated;
+grant execute on function public.get_my_primary_orders(uuid) to service_role;
 
 -- ============================================================================
 -- POST-FLIGHT — refuse to COMMIT unless the four functions carry exactly the
--- decided posture (anon as decided, authenticated, service_role's kept default,
+-- decided posture (anon as decided, authenticated, service_role's explicit grant,
 -- no PUBLIC, non-NULL proacl) and the public census moved by exactly +4
 -- ============================================================================
 DO $post$
@@ -547,7 +682,7 @@ BEGIN
            EXISTS (SELECT 1 FROM pg_proc p CROSS JOIN LATERAL aclexplode(p.proacl) a
                     WHERE p.oid = to_regprocedure(r.sig) AND a.grantee = 0 AND a.privilege_type = 'EXECUTE')
       INTO v_anon, v_auth, v_svc, v_pub;
-    -- v_svc TRUE = the public-schema default ACL kept (the get_my_tickets posture; see GRANT DECISIONS)
+    -- v_svc TRUE = PART 5's explicit service_role grant (the get_my_tickets posture; see GRANT DECISIONS)
     IF v_pub OR NOT v_svc OR NOT v_auth OR (v_anon <> r.anon_ok) THEN
       RAISE EXCEPTION '182_POSTFLIGHT: ACL of % is not the decided posture (anon=% expected %, authenticated=%, service_role=% expected t, PUBLIC=%)',
         r.sig, v_anon, r.anon_ok, v_auth, v_svc, v_pub;

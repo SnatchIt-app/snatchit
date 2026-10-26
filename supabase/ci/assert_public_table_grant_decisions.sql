@@ -569,8 +569,10 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   -- 182 (20261026200000, D, 2026-10-26): the two owner-scoped C5 buyer reads for the Tickets/QR
   -- screen. Same shape as get_my_tickets(): bind to auth.uid() (28000 on a NULL subject; another
   -- buyer's or a forged session id -> 0 rows), REVOKE ALL FROM PUBLIC, anon, authenticated then
-  -- EXECUTE to authenticated (service_role keeps the public-schema default, as get_my_tickets).
-  -- Asserted in 252 A10/A11.
+  -- GRANT EXECUTE to authenticated, plus an EXPLICIT GRANT EXECUTE to service_role (A's house posture,
+  -- 2026-10-26: never inherited from a default ACL, which CI's fresh stack does not carry). Resulting
+  -- ACL: authenticated + service_role, no anon, no PUBLIC. This class does not examine service_role.
+  -- Asserted in 252 A10/A11 and 182's post-flight.
   ('get_my_ticket_atoms(uuid)',                                      'authenticated-execute'),
   ('get_my_primary_orders(uuid)',                                    'authenticated-execute'),
   ('get_profile_trust_stats(uuid)',                                  'authenticated-execute'),
@@ -624,7 +626,9 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   -- anon-visible rules (event on_sale/live, never draft/announced, approved room, public tiers only,
   -- remaining = the public_sale sum; capacity/held/sold never serialised; an unknown/unpublished id
   -- yields 0 rows, no existence leak); neither takes a user id. Explicit GRANT anon, authenticated
-  -- after REVOKE ALL FROM PUBLIC, anon, authenticated (B5). Asserted in 252 A8/A9.
+  -- after REVOKE ALL FROM PUBLIC, anon, authenticated (B5), plus an EXPLICIT GRANT EXECUTE to
+  -- service_role (A's house posture, 2026-10-26). Resulting ACL: anon + authenticated + service_role,
+  -- no PUBLIC. This class does not examine service_role. Asserted in 252 A8/A9 and 182's post-flight.
   ('list_primary_sessions_on_sale()',                                'anon-execute'),
   ('get_primary_session(uuid)',                                      'anon-execute'),
 

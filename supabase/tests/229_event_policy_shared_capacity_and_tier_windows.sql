@@ -72,7 +72,14 @@
 --              side, NULL/NULL clears, ends <= starts refused (setter and CHECK),
 --              hidden never on sale, draft/announced/completed/cancelled never,
 --              on_sale/live yes, door_only yes, unknown id false; authority
---              matrix; audit.
+--              matrix; audit. W50/W51: a window is a pair of absolute instants —
+--              the caller's session TimeZone changes neither what the setter
+--              stores for an offset-qualified literal nor the predicate's verdict
+--              (UTC / America/New_York / Pacific/Kiritimati); the venue timezone
+--              governs display only (T27/T31). naive timestamp literals are
+--              interpreted in the caller's session TimeZone (PostgREST: UTC) —
+--              clients MUST send ISO-8601 with an offset, converting the venue's
+--              local wall-clock using catalog.venue.timezone.
 --   Section P  176 interplay: a PUBLIC tier of a DRAFT event is invisible to a
 --              fan through venue_api; the on-sale public tier is visible with
 --              on_sale_now; hidden/door_only stay invisible.
@@ -93,7 +100,7 @@
 -- Predicted RED run: 53 emitted = 48 not ok + 5 ok; plan unmet.
 -- ============================================================================
 BEGIN;
-SELECT plan(231);
+SELECT plan(233);
 
 CREATE TABLE tap.memo_229 (k text PRIMARY KEY, v text);
 CREATE FUNCTION tap._store229(k text, v text) RETURNS text
@@ -312,8 +319,8 @@ SELECT is((SELECT string_agg(a.attname, ',' ORDER BY a.attnum) FROM pg_attribute
   'A33: venue_api.ticket_types projects 160''s ten columns in order with sale_starts_at, sale_ends_at, on_sale_now appended LAST');
 SELECT is((SELECT string_agg(a.attname, ',' ORDER BY a.attnum) FROM pg_attribute a
             WHERE a.attrelid = 'venue_api.events'::regclass AND a.attnum > 0 AND NOT a.attisdropped),
-  'event_id,venue_id,org_id,title,status,created_at,updated_at,age_policy,timezone',
-  'A34: venue_api.events projects 159''s seven columns in order with age_policy, timezone appended LAST');
+  'event_id,venue_id,org_id,title,status,created_at,updated_at,description,age_policy,timezone',
+  'A34: venue_api.events projects 159''s eight columns in order (description at 8, 159 rev. 2026-10-26) with age_policy, timezone appended LAST');
 SELECT is((SELECT string_agg(a.attname, ',' ORDER BY a.attnum) FROM pg_attribute a
             WHERE a.attrelid = 'venue_api.event_sessions'::regclass AND a.attnum > 0 AND NOT a.attisdropped),
   'session_id,event_id,session_label,starts_at,ends_at,doors_at,door_open_at,status,created_at,updated_at,timezone,starts_at_local,ends_at_local,doors_at_local',
@@ -881,28 +888,63 @@ SELECT is((SELECT before::text || ' -> ' || after::text || ' / ' || reason_code 
   '{"sale_ends_at": null, "sale_starts_at": null} -> {"sale_ends_at": "' || (to_json('2036-11-02 00:00+00'::timestamptz) #>> '{}') || '", "sale_starts_at": "' || (to_json('2036-11-01 00:00+00'::timestamptz) #>> '{}') || '"} / presale_day / 22900000-0000-4000-8000-000000000101',
   'W49: the W2 audit row carries before NULL/NULL, after both bounds, the reason and the actor');
 
+-- ── Section W (TZ) — a window is a pair of absolute instants; the session TimeZone never enters ─
+-- A's readiness question ("are session start and sale windows evaluated in the venue's timezone?"):
+-- no — evaluation is timezone-INDEPENDENT. sale_starts_at / sale_ends_at / starts_at are timestamptz
+-- instants and venue.ticket_type_on_sale compares instants; catalog.venue.timezone governs DISPLAY
+-- only (T27/T31). naive timestamp literals are interpreted in the caller's session TimeZone
+-- (PostgREST: UTC) — clients MUST send ISO-8601 with an offset, converting the venue's local
+-- wall-clock using catalog.venue.timezone. Pinned on t81 (e8 live, public, no window so far; no
+-- other assertion reads t81's window or its audit rows). The session TimeZone is restored after W51.
+-- The helper SELECTs below print a prefixed value ('stored …'), never a bare result line: pg_prove parses any
+-- output line beginning with the TAP result word as a test, so a stored status printed alone would add tests.
+SELECT tap._store229('tz0', current_setting('TimeZone'));
+SELECT tap.login('22900000-0000-4000-8000-000000000101');
+SELECT set_config('TimeZone', 'UTC', true);
+SELECT 'stored ' || tap._store229('w50_set_utc', venue.set_ticket_type_sale_window('22900000-0000-4000-8000-000000000081', '2026-11-30 19:00:00-05', NULL, 'tz_utc', 'ck229-w-50a') ->> 'status');
+SELECT tap.logout();
+SELECT tap._store229('w50_utc', (SELECT to_char(sale_starts_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') || '+00' FROM venue.ticket_type WHERE ticket_type_id = '22900000-0000-4000-8000-000000000081'));
+SELECT tap.login('22900000-0000-4000-8000-000000000101');
+SELECT 'stored ' || tap._store229('w50_clear', venue.set_ticket_type_sale_window('22900000-0000-4000-8000-000000000081', NULL, NULL, 'tz_clear', 'ck229-w-50b') ->> 'status');
+SELECT set_config('TimeZone', 'Pacific/Kiritimati', true);
+SELECT 'stored ' || tap._store229('w50_set_kir', venue.set_ticket_type_sale_window('22900000-0000-4000-8000-000000000081', '2026-11-30 19:00:00-05', NULL, 'tz_kiritimati', 'ck229-w-50c') ->> 'status');
+SELECT tap.logout();
+SELECT tap._store229('w50_kir', (SELECT to_char(sale_starts_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') || '+00' FROM venue.ticket_type WHERE ticket_type_id = '22900000-0000-4000-8000-000000000081'));
+SELECT is(tap._fetch229('w50_set_utc') || '/' || tap._fetch229('w50_clear') || '/' || tap._fetch229('w50_set_kir')
+          || ' UTC:' || tap._fetch229('w50_utc') || ' KIR:' || tap._fetch229('w50_kir'),
+  'ok/ok/ok UTC:2026-12-01 00:00:00+00 KIR:2026-12-01 00:00:00+00',
+  'W50: set_ticket_type_sale_window given the offset-qualified ''2026-11-30 19:00:00-05'' stores the SAME instant (2026-12-01 00:00:00+00) whether the session TimeZone is UTC or Pacific/Kiritimati');
+-- t81's window now starts at 2026-12-01 00:00Z (end open). Two fixed instants 30 min either side of the
+-- boundary, each evaluated under three session zones; the local calendar date differs across the zones
+-- (23:30Z is already Dec 1 in Kiritimati, 00:30Z is still Nov 30 in New York), so any zone-dependent
+-- comparison would flip at least one verdict.
+SELECT set_config('TimeZone', 'UTC', true);
+SELECT tap._store229('w51_utc', venue.ticket_type_on_sale('22900000-0000-4000-8000-000000000081', '2026-11-30 23:30:00+00')::text || ','
+                                || venue.ticket_type_on_sale('22900000-0000-4000-8000-000000000081', '2026-12-01 00:30:00+00')::text);
+SELECT set_config('TimeZone', 'America/New_York', true);
+SELECT tap._store229('w51_ny', venue.ticket_type_on_sale('22900000-0000-4000-8000-000000000081', '2026-11-30 23:30:00+00')::text || ','
+                               || venue.ticket_type_on_sale('22900000-0000-4000-8000-000000000081', '2026-12-01 00:30:00+00')::text);
+SELECT set_config('TimeZone', 'Pacific/Kiritimati', true);
+SELECT tap._store229('w51_kir', venue.ticket_type_on_sale('22900000-0000-4000-8000-000000000081', '2026-11-30 23:30:00+00')::text || ','
+                                || venue.ticket_type_on_sale('22900000-0000-4000-8000-000000000081', '2026-12-01 00:30:00+00')::text);
+SELECT set_config('TimeZone', tap._fetch229('tz0'), true);
+SELECT is('UTC:' || tap._fetch229('w51_utc') || ' NY:' || tap._fetch229('w51_ny') || ' KIR:' || tap._fetch229('w51_kir'),
+  'UTC:false,true NY:false,true KIR:false,true',
+  'W51: venue.ticket_type_on_sale(t81, fixed instant) returns the same verdict under session TimeZone UTC, America/New_York and Pacific/Kiritimati (23:30Z before the 00:00Z start -> false; 00:30Z after -> true)');
+
 -- ── Section P — 176 interplay through venue_api (as a fan) ──────────────────
--- P1 and P3 assert 176's published-event arm (F's #143). 176 is detected from the CATALOG, not a marker:
--- both public arms (venue_ticket_type_sel_public, venue_inventory_batch_sel_public) carry 176's `<> 'draft'`
--- conjunct in their qual (081's arms do not) — the criterion 176's own closing DO block enforces. Without it
--- the two assertions skip() with the reason (never weakened, 176 is never imported here); P2 and P4 hold on
--- 081's arms and stay live. The plan stays 231. With 176 on the chain Section P runs LIVE (control: 231/231).
+-- P1 and P3 assert 176's published-event arm (F's #143). 176 is beneath this whole stack (A's base ruling,
+-- 2026-10-26: 159 -> 176 -> 160 -> 161 -> 162), so Section P runs LIVE and unconditionally: no presence gate
+-- and no masking call (CI's mask gate bans them outright, MASK_MAX_SKIP_CALLS=0). A chain without 176 now
+-- fails P1/P3 loudly instead of passing them silently. P2 and P4 hold on 081's arms as well.
 SELECT tap.login('22900000-0000-4000-8000-000000000199');
-SELECT CASE WHEN (SELECT count(*) FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid JOIN pg_namespace n ON n.oid = c.relnamespace
-                   WHERE n.nspname = 'venue' AND p.polname IN ('venue_ticket_type_sel_public', 'venue_inventory_batch_sel_public')
-                     AND position('<> ''draft''' IN pg_get_expr(p.polqual, p.polrelid)) > 0) = 2
-  THEN is((SELECT count(*)::int FROM venue_api.ticket_types WHERE event_id = '22900000-0000-4000-8000-0000000000e1'), 0,
-          'P1: a PUBLIC tier of a DRAFT event is invisible to a fan through venue_api.ticket_types (176''s published-event arm; the appended columns change nothing)')
-  ELSE skip('176 not on this chain — the published-event arm is F''s #143; Section P runs once 176 lands', 1) END;
+SELECT is((SELECT count(*)::int FROM venue_api.ticket_types WHERE event_id = '22900000-0000-4000-8000-0000000000e1'), 0,
+  'P1: a PUBLIC tier of a DRAFT event is invisible to a fan through venue_api.ticket_types (176''s published-event arm; the appended columns change nothing)');
 SELECT is((SELECT string_agg(ticket_type_id::text || ':' || on_sale_now::text, ',' ORDER BY ticket_type_id) FROM venue_api.ticket_types WHERE event_id = '22900000-0000-4000-8000-0000000000e2'),
   '22900000-0000-4000-8000-000000000021:true',
   'P2: of the on_sale event''s three tiers the fan sees ONLY the public one, on_sale_now true (window cleared in W36); hidden and door_only stay invisible');
-SELECT CASE WHEN (SELECT count(*) FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid JOIN pg_namespace n ON n.oid = c.relnamespace
-                   WHERE n.nspname = 'venue' AND p.polname IN ('venue_ticket_type_sel_public', 'venue_inventory_batch_sel_public')
-                     AND position('<> ''draft''' IN pg_get_expr(p.polqual, p.polrelid)) > 0) = 2
-  THEN is((SELECT count(*)::int FROM venue_api.inventory_batches WHERE event_session_id = '22900000-0000-4000-8000-0000000000f1'), 0,
-          'P3: the draft''s batches (created in Section S) are invisible to the fan (176''s published-event arm)')
-  ELSE skip('176 not on this chain — the published-event arm is F''s #143; Section P runs once 176 lands', 1) END;
+SELECT is((SELECT count(*)::int FROM venue_api.inventory_batches WHERE event_session_id = '22900000-0000-4000-8000-0000000000f1'), 0,
+  'P3: the draft''s batches (created in Section S) are invisible to the fan (176''s published-event arm)');
 SELECT is((SELECT count(*)::int FROM venue_api.events WHERE event_id = '22900000-0000-4000-8000-0000000000e1'), 0,
   'P4: the draft event itself stays invisible (the LEFT JOIN to catalog.venue adds no row)');
 SELECT tap.logout();
