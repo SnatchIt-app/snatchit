@@ -40,8 +40,8 @@
 --              grants unchanged.
 --   Section B  the four 081 writers: former-operator manager REFUSED by all four
 --              (the E-76 NEGATIVE control, B1-B4); bound V1 manager ACCEPTED by
---              all four (POSITIVE control, B5-B8); STATUS QUO pins of the
---              unchanged org arm on the re-operated room (B9/B10 — A to rule);
+--              all four (POSITIVE control, B5-B8); the org arm on the re-operated
+--              room (B9/B10 — R3, flipped by 162: the EVENT's org, A's ruling);
 --              grants and definer posture unchanged (B11/B12); cross-venue and
 --              cross-org refusals unchanged (B13-B15). Placed before C on purpose:
 --              every assertion that needs no new function runs before the first
@@ -261,14 +261,16 @@ SELECT is(tap._raw227(tap._fetch227('d7_batch')::uuid), '40|0|0|40',
 SELECT is((venue.set_batch_capacity('22700000-0000-4000-8000-0000000000c1', 150, 'expansion', 'ck227-d-8') ->> 'capacity'), '150',
   'B8: set_batch_capacity ACCEPTS the bound venue_manager');
 SELECT tap.logout();
--- STATUS QUO pins of the UNCHANGED org arm (has_org_role_over_venue resolves the venue's CURRENT org) — A to rule.
+-- R3 (A's ruling 2026-10-26, registry 162): the org arm binds to the EVENT's org (kernel.has_org_role on event.org_id,
+-- the 088:1629 cancel_event helper), no longer the venue's CURRENT operator. Pre-162 these two pinned the 081/160 status
+-- quo the other way round (A refused, B accepted); 162 flips them. On a chain without 162 both read `not ok`.
 SELECT tap.login('22700000-0000-4000-8000-000000000101');
-SELECT throws_ok($$SELECT venue.set_ticket_type_price('22700000-0000-4000-8000-000000000051', 4200, 'demand', 'ck227-d-9')$$,
-  '42501', NULL, 'B9: STATUS QUO (A to rule) — the event''s OWN org_owner (A) is refused on e5: the org arm resolves Room V2 to Org B');
+SELECT is((venue.set_ticket_type_price('22700000-0000-4000-8000-000000000051', 4200, 'demand', 'ck227-d-9') ->> 'price_minor'), '4200',
+  'B9: R3 (162) — the event''s OWN org_owner (A) is ACCEPTED on e5 although Room V2 now belongs to Org B: the org arm is the event''s org');
 SELECT tap.logout();
 SELECT tap.login('22700000-0000-4000-8000-000000000201');
-SELECT is((venue.set_ticket_type_price('22700000-0000-4000-8000-000000000051', 4300, 'demand', 'ck227-d-10') ->> 'price_minor'), '4300',
-  'B10: STATUS QUO (A to rule) — the NEW operator''s org_owner (B) is accepted on Org A''s event e5 by the unchanged org arm');
+SELECT throws_ok($$SELECT venue.set_ticket_type_price('22700000-0000-4000-8000-000000000051', 4300, 'demand', 'ck227-d-10')$$,
+  '42501', NULL, 'B10: R3 (162) — the NEW operator''s org_owner (B) is REFUSED on Org A''s event e5');
 SELECT tap.logout();
 SELECT ok(has_function_privilege('authenticated', 'venue.create_ticket_type(uuid, text, text, integer, text, text)', 'EXECUTE')
       AND has_function_privilege('authenticated', 'venue.set_ticket_type_price(uuid, integer, text, text)', 'EXECUTE')
