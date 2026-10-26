@@ -114,9 +114,10 @@ COMMENT ON VIEW venue_api.venues IS 'catalog.venue, granted columns only; caller
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE VIEW venue_api.events
   WITH (security_invoker = true, security_barrier = true) AS
-  SELECT e.event_id, e.venue_id, e.org_id, e.title, e.status, e.created_at, e.updated_at
+  SELECT e.event_id, e.venue_id, e.org_id, e.title, e.status, e.created_at, e.updated_at,
+         e.description
     FROM catalog.event e;
-COMMENT ON VIEW venue_api.events IS 'catalog.event, granted columns only (no description/hero); caller''s RLS applies.';
+COMMENT ON VIEW venue_api.events IS 'catalog.event, granted columns only (description last, 078:145; no hero/genre); caller''s RLS applies.';
 
 -- ---------------------------------------------------------------------------
 -- Sessions (catalog.event_session: visibility resolves through the event; 078 §1.3)
