@@ -558,6 +558,18 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   -- Asserted in 252 A10/A11 and 182's post-flight.
   ('get_my_ticket_atoms(uuid)',                                      'authenticated-execute'),
   ('get_my_primary_orders(uuid)',                                    'authenticated-execute'),
+  -- 167 (20261027015500, D, 2026-10-26; registry 167/234): the buyer's reserve / release / all-orders verbs.
+  -- SECURITY DEFINER wrappers bound to auth.uid() (none takes an identity): reserve_primary_tier picks the
+  -- tier's public_sale batch and calls venue.reserve_primary_inventory (its refusals pass through);
+  -- release_primary_hold releases OWN holds only (a foreign id answers like an unknown one);
+  -- list_my_primary_orders calls get_my_primary_orders per own session. REVOKE ALL FROM PUBLIC, anon,
+  -- authenticated; GRANT EXECUTE to authenticated, plus an EXPLICIT GRANT EXECUTE to service_role (182's
+  -- posture; auth.uid() is NULL for it, so it is refused in the bodies). Resulting ACL: authenticated +
+  -- service_role, no anon, no PUBLIC. This class does not examine service_role. Asserted in 234 A7-A9 and
+  -- 167's post-flight.
+  ('reserve_primary_tier(uuid, uuid, integer, text)',                'authenticated-execute'),
+  ('release_primary_hold(uuid, text)',                               'authenticated-execute'),
+  ('list_my_primary_orders()',                                       'authenticated-execute'),
   ('get_profile_trust_stats(uuid)',                                  'authenticated-execute'),
   ('mark_listing_sold(uuid, uuid)',                                  'authenticated-execute'),
   ('mark_transfer_sent(uuid, uuid)',                                 'authenticated-execute'),

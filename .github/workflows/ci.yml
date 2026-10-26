@@ -718,7 +718,14 @@ jobs:
           # triggers unchanged. Manifest rows in assert_public_table_grant_decisions.sql; expected_grants.txt
           # unchanged (no table grant moves); pgTAP tests/162 P2 moved 126 -> 130 in the same package; rollback
           # md5-asserted. Read from a local PG17 replay of a154c_green + 159 + 176 + 160 + 161 + 162 + 182: 35|130|37|49.
-          EXPECT_FUNCS: 130
+          # 2026-10-26 registry 167 (D, buyer holds and order list; DARK, applied nowhere): functions 130 -> 133 —
+          # +3 public.reserve_primary_tier, public.release_primary_hold, public.list_my_primary_orders (all
+          # authenticated-execute: SECURITY DEFINER wrappers bound to auth.uid() over venue.reserve_primary_inventory,
+          # venue.release_inventory_hold and 182's get_my_primary_orders). Tables / policies / triggers unchanged.
+          # Manifest rows added; expected_grants.txt unchanged (no table grant moves); pgTAP tests/162 P2 and 252 A17
+          # moved 130 -> 133 in the same package; rollback md5-asserted. Read from a local PG17 replay of
+          # a154c_green + 159 + 176 + 160 + 161 + 162 + 182 + 167: 35|133|37|49.
+          EXPECT_FUNCS: 133
           # 2026-10-15 migration 154: policies 37 -> 37 — listings_select_all -> listings_select_visible and
           # bids_select_all -> bids_select_visible, 1-for-1; listing_visibility carries no policy.
           EXPECT_POLICIES: 37
