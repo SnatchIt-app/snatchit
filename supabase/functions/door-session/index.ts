@@ -10,13 +10,14 @@
  *                    (`venue.record_scan`), §9.5
  *                    (`venue.reconcile_offline_scans`), §9.6
  *                    (`venue.mint_door_session`).
- * Parked RPC:      `docs/architecture/_governance/POST_FREEZE_AMENDMENTS.md`
- *                    PFA-26 — `mint_door_session` currently RAISES
- *                    `precondition_failed: door_pin_kdf_unavailable … (PFA-26)`
- *                    with ZERO mutation on every call, until a ratified
- *                    slow-KDF mechanism un-parks it. `assert_door_session`
- *                    itself stays live, but with no PIN un-parked there is
- *                    no way to mint a session, so it never sees a live row.
+ * PFA-26 status:   UN-PARKED by migration 107 (`door_pin_kdf_unpark`, in the
+ *                    production ledger): `create_door_pin` stores a pgcrypto
+ *                    bcrypt (cost 12) verifier and `mint_door_session` runs a
+ *                    constant-time compare, mints the 256-bit secret and
+ *                    returns it ONCE (`{door_session_id, secret, expires_at}`).
+ *                    The `isDoorPinKdfUnavailable` → 503 `pin_unavailable`
+ *                    handler below maps a message 107 no longer raises; it is
+ *                    kept as a harmless fail-closed path (2026-10-26, B).
  * Pure helper module: `./pure.ts` — bearer parsing, path dispatch, the
  *   device-id cross-check, the forbidden-`device_id` scan-meta rule, the
  *   rate-limit derived principals (`uuidv5`), and the token_hash wire
