@@ -9,7 +9,7 @@ This document is the classification inventory, the exclusion rules per surface, 
 | Marker | Where | Values | Who set it | Verified lineage |
 |---|---|---|---|---|
 | `payments.stripe_livemode` | migration 045 | `true` live · `false` test · `NULL` unclassified (pre-045 rows) | Stripe, recorded by the webhook/intent path | Stripe's own assertion of the mode the charge ran in. The only explicit environment marker in the schema. |
-| `public.listing_visibility` (154 = `20261015000000`) | side table, deny-all; `listing_is_public(uuid)`; `is_public` computed field | a row present = hidden from every public surface | The owner's 2026-10-15 cleanup: "all old test/beta listings disappear; only the four approved listings stay public; preserve private transaction history". 44 rows at apply (D's post-apply read) | The owner classified these listings as test/beta by that instruction; the four approved listings have no row. |
+| `public.listing_visibility` (154 = `20261015000000`) | side table, deny-all; `listing_is_public(uuid)`; `is_public` computed field | a row present = hidden from every public surface | The owner's 2026-10-15 cleanup: "all old test/beta listings disappear; only the four approved listings stay public; preserve private transaction history". **113 rows** (A's read-only count pack, 2026-10-26, `planning/2026-10-26-launch/A/evidence/dc1/COUNT-PACK-20261026.md`: 106 become test; 7 hidden listings carry a LIVE payment and stay in the normal views; the four approved listings have no row). The 44 cited earlier was D's post-apply read on 2026-10-15; the table has grown since. | The owner classified these listings as test/beta by that instruction; the four approved listings have no row. |
 
 There is **no** `is_test` or environment column on `profiles`, `transfers`, `ops.case`, `reports` or `ops.action`. Their classification can only come from lineage to the two markers above.
 
@@ -52,6 +52,10 @@ Default = test rows excluded. A single read-time switch, **"Show test/beta recor
 | Detectors (`detect_*`) | unchanged in this slice (they may keep opening test cases; those are excluded at read time). A later owner decision can make detectors skip test subjects. | — |
 | Exports | **none exist** in the console (grepped at #121 `2fc0c8f4`: no CSV/download surface). Nothing to change. | — |
 
+Rules confirmed with A and E on 2026-10-26 (DC1-R1, DC1-R3):
+- **Every console table, chart, search and any future export calls the readers with the DEFAULT** (no `p_include_test`) and badges rows from `is_test`. The restricted view is the ONLY caller that passes `p_include_test = true`, and it is still behind `ops.assert_reader` (platform_admin, aal2). No other surface may pass the switch, so a test row can never reach a chart or export by a second path.
+- **`listing_visibility` rows are test/beta markers only.** Before moderation hiding is ever used, the predicate must key on a reason code (`hidden_reason` is free text today); otherwise a real ended listing hidden for moderation, with no live payment, would be classified test and its pending report would leave the default queue. Recorded for the owner; no change until that decision.
+
 What is never hidden: any payment, transfer, refund or audit row (history stays whole in detail pages and `audit_log`); any real unresolved case (its subject is not test); any pending approval; any user.
 
 ## 4. Server contract (A writes; registry number via A — 180 / pgTAP 250 were offered, F asks before using)
@@ -60,7 +64,7 @@ No new table. No data change. One migration:
 1. `ops.is_test_payment(uuid)`, `ops.is_test_transfer(uuid)`, `ops.is_test_listing(uuid)`, `ops.is_test_case(uuid)` — `stable`, `security definer`, `set search_path = ''`, implementing §2 verbatim; plus `ops.is_test_subject(kind text, id uuid)`.
 2. Every read function in §3 marked "excluded" gains `p_include_test boolean default false` and applies the predicate; row payloads gain `is_test boolean` so the console can badge without a second read. Signatures stay otherwise identical (the console's existing calls keep working with the default).
 3. `ops.today` returns `test_excluded` counts alongside, so the console can say "N test records hidden" without a second call.
-4. A read-only **count pack** (before/after, run by A under owner authorisation): per kind, `total`, `test`, `unclassified`, `live`; the 15/1/3 case split; the 44 listing rows and how many carry a live payment.
+4. A read-only **count pack** (before/after, run by A under owner authorisation): per kind, `total`, `test`, `unclassified`, `live`; the case split; the `listing_visibility` rows and how many carry a live payment (2026-10-26: 113 rows, 106 test, 7 with a live payment).
 5. pgTAP: each predicate on fixtures covering every §2 branch; `NULL` livemode never test; the four approved listing ids never test; a hidden listing with a live payment never test; an open case on a real subject always returned by default; a pending approval always returned; the switch returns every excluded row and nothing more; `audit_log` unchanged. Mutants: the `NULL` branch flipped to test; the live-payment guard dropped; the approval list filtered.
 6. Rollback: restore the previous function bodies (the 116/118/144/152 definers; A pins the applied md5s). No data to restore.
 
@@ -77,6 +81,8 @@ Four-file rule: these are `ops` schema functions with `authenticated` execute li
 Today fixtures mode is the **default** when `NEXT_PUBLIC_VENUE_DATA_SOURCE` is not `database`. For a production deployment that is the wrong default: `env.ts` will refuse to start (build-time) when `NEXT_PUBLIC_VERCEL_ENV=production` and the source is not `database`, so sample data can never be served from the production host. Preview and local keep fixtures. Own small PR on #122's base, with tests.
 
 ## 7. Counts to report (A reads; owner authorises)
+
+A's count pack (read-only, counts only, 2026-10-26; `A/evidence/dc1/COUNT-PACK-20261026.md`): payments 57 = 49 test / 8 live / 0 NULL livemode · transfers 36 = 32 test / 4 live · listings 117 = 106 test, 4 with no marker (the four approved), 7 real-with-marker (a live payment; stay visible) · open cases 19 = 15 test / 4 real (the "synthetic" one has no marker → visible, as §2 requires) · pending reports 3 = 1 test / 2 real.
 
 Before: the §4 count pack on production. After the migration applies: the same pack (totals unchanged, since nothing is deleted or modified), plus the default-view counts per surface (what the console now shows) against the switch-on counts (what it shows with the historical view). Backup: A's standard pre-apply dump/snapshot before the apply, as for 152–156.
 
