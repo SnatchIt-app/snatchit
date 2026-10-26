@@ -68,7 +68,7 @@ export function CreateEventWizard({ ctx, basePath, step, venueApproved, venueNam
               </select>
             </label>
             <Field label="Name (unique per event)" name="name" required placeholder="General admission" />
-            <Field label="Price (USD)" name="price" type="number" step="0.01" min="0" required placeholder="25.00" />
+            <Field label="Price (USD)" name="price" type="number" step="0.01" min="0.01" required placeholder="25.00" />
             <label className="block text-sm">
               Visibility
               <select name="visibility" className="field mt-1" defaultValue="public">

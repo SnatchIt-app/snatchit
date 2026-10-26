@@ -44,7 +44,7 @@ export type InventoryWarning = {
 const WARNING_COPY: Record<WarningKind, string> = {
   low: "Low",
   sold_out: "Sold out",
-  all_held: "All held, none sold",
+  all_held: "All held",
   door_untouched: "Door stock untouched",
   holds_expiring: "Holds expiring",
 };

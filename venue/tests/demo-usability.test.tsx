@@ -335,7 +335,7 @@ describe("no backend identifier in a tooltip", () => {
     expect(unknown).toContain("it does nothing at all");
 
     // Every did value the app actually posts is mapped.
-    for (const did of ["catalog.create_event", "catalog.set_event_status", "venue.create_ticket_type", "venue.create_inventory_batch", "venue.release_inventory_hold", "venue.open_door_manifest", "venue.close_door_manifest", "venue.create_door_pin", "venue.revoke_door_pin", "venue.request_export (operations_v1)", "escalate (venue note on venue.scan; adjudication is platform_risk)"]) {
+    for (const did of ["catalog.create_event", "catalog.publish_event on_sale", "venue.create_ticket_type", "venue.create_inventory_batch", "venue.release_inventory_hold", "venue.open_door_manifest", "venue.close_door_manifest", "venue.create_door_pin", "venue.revoke_door_pin", "venue.request_export (operations_v1)", "escalate (venue note on venue.scan; adjudication is platform_risk)"]) {
       expect(demoActionLabel(did), did).not.toBeNull();
     }
   });

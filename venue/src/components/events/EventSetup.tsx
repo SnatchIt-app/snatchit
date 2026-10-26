@@ -31,7 +31,8 @@ export function EventSetup({ event, types, batches, ctx, basePath, timeZone, ope
       <Action href={withPreview(`${self}/door`, ctx)}>Open check-in</Action>
     ) : blocker ? null : editor && ctx.writesEnabled !== false && next ? (
       <form method="get" action={withPreview(self, ctx)} className="hidden lg:block">
-        <input type="hidden" name="did" value="catalog.set_event_status" />
+        <input type="hidden" name="did" value={`catalog.publish_event ${next}`} />
+        <input type="hidden" name="target_status" value={next} />
         <PreviewHidden ctx={ctx} />
         <button className="btn btn-primary" type="submit">
           Set to {STATUS_LABEL[next]}
@@ -64,7 +65,7 @@ export function EventSetup({ event, types, batches, ctx, basePath, timeZone, ope
         ) : null}
         {!editor ? <p className="mt-3 text-sm text-dim">Your role can view this event but not change its status.</p> : null}
         {editor && ctx.writesEnabled === false && next ? (
-          <p className="mt-3 max-w-2xl text-sm text-dim">Status changes are not available in database mode: the write path is not wired in this slice. Nothing you see here is a saved change.</p>
+          <p className="mt-3 max-w-2xl text-sm text-dim">Status changes are not available in database mode yet: the publish command (catalog.publish_event) has no dashboard wrapper in this slice. Nothing you see here is a saved change.</p>
         ) : null}
         {editor && ctx.writesEnabled !== false ? <div className="mt-4"><LargerScreenBanner /></div> : null}
       </Block>
@@ -147,9 +148,8 @@ export function EventSetup({ event, types, batches, ctx, basePath, timeZone, ope
         ) : null}
         <Detail summary="Good to know about ticket types">
           <ul className="space-y-1">
-            <li>Tiers are separate ticket types today. Turn the next one public when the first sells out.</li>
+            <li>Tiers are separate ticket types. When the first sells out, turn the next one public on the Tickets page (visibility is a command there).</li>
             <li>Snatch It handles the deposit on a table. The balance at the table settles with you, off-platform.</li>
-            <li>Purchase limit: 8 per person, set by Snatch It.</li>
           </ul>
         </Detail>
         {editor && ctx.writesEnabled !== false && event.status !== "cancelled" && event.status !== "completed" ? (
