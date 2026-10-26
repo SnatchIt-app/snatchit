@@ -902,12 +902,13 @@ SELECT is((venue_cmd.set_ticket_type_sale_window('22900000-0000-4000-8000-000000
 SELECT is(venue_cmd.ticket_type_on_sale('22900000-0000-4000-8000-000000000021', '2036-11-01 00:00+00'),
           venue.ticket_type_on_sale('22900000-0000-4000-8000-000000000021', '2036-11-01 00:00+00'),
   'C5: ticket_type_on_sale through the wrapper equals the direct call');
-SELECT is((SELECT actor_identity FROM kernel.admin_audit WHERE action = 'event_session.sales_capacity_change' AND subject_id = '22900000-0000-4000-8000-0000000000f1' AND reason_code = 'wrap'),
-          '22900000-0000-4000-8000-000000000101'::uuid,
-  'C6: the wrapper''s audit row names the caller as actor (SECURITY INVOKER + the definer''s auth.uid())');
 SELECT throws_like($$SELECT venue_cmd.set_session_sales_capacity('22900000-0000-4000-8000-0000000000f1', 10, 'x', 'ck229-c-7')$$,
   'precondition_failed: below_allocated%', 'C7: below_allocated propagates unchanged through the wrapper');
 SELECT tap.logout();
+-- read as postgres (kernel.admin_audit is granted to no client role)
+SELECT is((SELECT actor_identity FROM kernel.admin_audit WHERE action = 'event_session.sales_capacity_change' AND subject_id = '22900000-0000-4000-8000-0000000000f1' AND reason_code = 'wrap'),
+          '22900000-0000-4000-8000-000000000101'::uuid,
+  'C6: the wrapper''s audit row names the caller as actor (SECURITY INVOKER + the definer''s auth.uid())');
 SELECT tap.login('22900000-0000-4000-8000-000000000199');
 SELECT throws_ok($$SELECT venue_cmd.set_event_age_policy('22900000-0000-4000-8000-0000000000e1', '21_plus', 'x', 'ck229-c-8')$$,
   '42501', NULL, 'C8: a fan through the wrapper: 42501 (the definer''s refusal, unchanged)');
