@@ -243,7 +243,7 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.
                 OR (n.nspname = 'venue'   AND p.proname IN ('set_ticket_type_sale_window','ticket_type_on_sale')))
               AND p.prosecdef AND p.proconfig::text LIKE '%search_path=%'), 5,
   'A21: all five are SECURITY DEFINER with a pinned search_path (066 invariant)');
-SELECT is((SELECT string_agg(p.proname || '=' || p.provolatile, ',' ORDER BY p.proname) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+SELECT is((SELECT string_agg(p.proname || '=' || p.provolatile::text, ',' ORDER BY p.proname) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
             WHERE ((n.nspname = 'catalog' AND p.proname IN ('set_venue_timezone','set_event_age_policy','set_session_sales_capacity'))
                 OR (n.nspname = 'venue'   AND p.proname IN ('set_ticket_type_sale_window','ticket_type_on_sale')))),
   'set_event_age_policy=v,set_session_sales_capacity=v,set_ticket_type_sale_window=v,set_venue_timezone=v,ticket_type_on_sale=s',
@@ -293,7 +293,7 @@ SELECT is((SELECT count(*)::int FROM pg_proc w JOIN pg_namespace n ON n.oid = w.
               AND ((w.proname IN ('set_venue_timezone','set_event_age_policy','set_session_sales_capacity') AND w.prosrc LIKE '%catalog.' || w.proname || '(%')
                 OR (w.proname IN ('set_ticket_type_sale_window','ticket_type_on_sale') AND w.prosrc LIKE '%venue.' || w.proname || '(%'))), 5,
   'A31: each wrapper delegates to <target schema>.<same name>');
-SELECT is((SELECT string_agg(p.proname || '=' || p.provolatile, ',' ORDER BY p.proname) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+SELECT is((SELECT string_agg(p.proname || '=' || p.provolatile::text, ',' ORDER BY p.proname) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
             WHERE n.nspname = 'venue_cmd'
               AND p.proname IN ('set_venue_timezone','set_event_age_policy','set_session_sales_capacity','set_ticket_type_sale_window','ticket_type_on_sale')),
   'set_event_age_policy=v,set_session_sales_capacity=v,set_ticket_type_sale_window=v,set_venue_timezone=v,ticket_type_on_sale=s',
