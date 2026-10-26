@@ -311,8 +311,8 @@ SELECT is((SELECT string_agg(a.attname, ',' ORDER BY a.attnum) FROM pg_attribute
   'A33: venue_api.ticket_types projects 160''s ten columns in order with sale_starts_at, sale_ends_at, on_sale_now appended LAST');
 SELECT is((SELECT string_agg(a.attname, ',' ORDER BY a.attnum) FROM pg_attribute a
             WHERE a.attrelid = 'venue_api.events'::regclass AND a.attnum > 0 AND NOT a.attisdropped),
-  'event_id,venue_id,org_id,title,status,created_at,updated_at,age_policy,timezone',
-  'A34: venue_api.events projects 159''s seven columns in order with age_policy, timezone appended LAST');
+  'event_id,venue_id,org_id,title,status,created_at,updated_at,description,age_policy,timezone',
+  'A34: venue_api.events projects 159''s eight columns in order (description at 8, 159 rev. 2026-10-26) with age_policy, timezone appended LAST');
 SELECT is((SELECT string_agg(a.attname, ',' ORDER BY a.attnum) FROM pg_attribute a
             WHERE a.attrelid = 'venue_api.event_sessions'::regclass AND a.attnum > 0 AND NOT a.attisdropped),
   'session_id,event_id,session_label,starts_at,ends_at,doors_at,door_open_at,status,created_at,updated_at,timezone,starts_at_local,ends_at_local,doors_at_local',
@@ -881,27 +881,18 @@ SELECT is((SELECT before::text || ' -> ' || after::text || ' / ' || reason_code 
   'W49: the W2 audit row carries before NULL/NULL, after both bounds, the reason and the actor');
 
 -- ── Section P — 176 interplay through venue_api (as a fan) ──────────────────
--- P1 and P3 assert 176's published-event arm (F's #143). 176 is detected from the CATALOG, not a marker:
--- both public arms (venue_ticket_type_sel_public, venue_inventory_batch_sel_public) carry 176's `<> 'draft'`
--- conjunct in their qual (081's arms do not) — the criterion 176's own closing DO block enforces. Without it
--- the two assertions skip() with the reason (never weakened, 176 is never imported here); P2 and P4 hold on
--- 081's arms and stay live. The plan stays 231. With 176 on the chain Section P runs LIVE (control: 231/231).
+-- P1 and P3 assert 176's published-event arm (F's #143). 176 is beneath this whole stack (A's base ruling,
+-- 2026-10-26: 159 -> 176 -> 160 -> 161 -> 162), so Section P runs LIVE and unconditionally: no presence gate
+-- and no masking call (CI's mask gate bans them outright, MASK_MAX_SKIP_CALLS=0). A chain without 176 now
+-- fails P1/P3 loudly instead of passing them silently. P2 and P4 hold on 081's arms as well. Plan stays 231.
 SELECT tap.login('22900000-0000-4000-8000-000000000199');
-SELECT CASE WHEN (SELECT count(*) FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid JOIN pg_namespace n ON n.oid = c.relnamespace
-                   WHERE n.nspname = 'venue' AND p.polname IN ('venue_ticket_type_sel_public', 'venue_inventory_batch_sel_public')
-                     AND position('<> ''draft''' IN pg_get_expr(p.polqual, p.polrelid)) > 0) = 2
-  THEN is((SELECT count(*)::int FROM venue_api.ticket_types WHERE event_id = '22900000-0000-4000-8000-0000000000e1'), 0,
-          'P1: a PUBLIC tier of a DRAFT event is invisible to a fan through venue_api.ticket_types (176''s published-event arm; the appended columns change nothing)')
-  ELSE skip('176 not on this chain — the published-event arm is F''s #143; Section P runs once 176 lands', 1) END;
+SELECT is((SELECT count(*)::int FROM venue_api.ticket_types WHERE event_id = '22900000-0000-4000-8000-0000000000e1'), 0,
+  'P1: a PUBLIC tier of a DRAFT event is invisible to a fan through venue_api.ticket_types (176''s published-event arm; the appended columns change nothing)');
 SELECT is((SELECT string_agg(ticket_type_id::text || ':' || on_sale_now::text, ',' ORDER BY ticket_type_id) FROM venue_api.ticket_types WHERE event_id = '22900000-0000-4000-8000-0000000000e2'),
   '22900000-0000-4000-8000-000000000021:true',
   'P2: of the on_sale event''s three tiers the fan sees ONLY the public one, on_sale_now true (window cleared in W36); hidden and door_only stay invisible');
-SELECT CASE WHEN (SELECT count(*) FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid JOIN pg_namespace n ON n.oid = c.relnamespace
-                   WHERE n.nspname = 'venue' AND p.polname IN ('venue_ticket_type_sel_public', 'venue_inventory_batch_sel_public')
-                     AND position('<> ''draft''' IN pg_get_expr(p.polqual, p.polrelid)) > 0) = 2
-  THEN is((SELECT count(*)::int FROM venue_api.inventory_batches WHERE event_session_id = '22900000-0000-4000-8000-0000000000f1'), 0,
-          'P3: the draft''s batches (created in Section S) are invisible to the fan (176''s published-event arm)')
-  ELSE skip('176 not on this chain — the published-event arm is F''s #143; Section P runs once 176 lands', 1) END;
+SELECT is((SELECT count(*)::int FROM venue_api.inventory_batches WHERE event_session_id = '22900000-0000-4000-8000-0000000000f1'), 0,
+  'P3: the draft''s batches (created in Section S) are invisible to the fan (176''s published-event arm)');
 SELECT is((SELECT count(*)::int FROM venue_api.events WHERE event_id = '22900000-0000-4000-8000-0000000000e1'), 0,
   'P4: the draft event itself stays invisible (the LEFT JOIN to catalog.venue adds no row)');
 SELECT tap.logout();
