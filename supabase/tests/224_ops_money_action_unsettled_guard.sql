@@ -15,7 +15,8 @@
 --   T4  cross-type, both directions: refund on payment P vs payout_release on P's transfer.
 --   T5  in-flight states block (processing, unknown, succeeded_at_provider); once the blocker is
 --       terminal (failed, succeeded, rejected/denied) a new request is accepted. A refund after a
---       SETTLED payout is not blocked (it stays REFUNDED_AFTER_PAYOUT detection, by design).
+--       SETTLED payout is not blocked by 157's guard (no duplicate_unsettled); 177 (20261022001000, stacked on 158)
+--       refuses it as payout_released, so T5.16 asserts 157's answer without 177 and 177's with it.
 --   T6  expired approvals: a new request on the order sweeps them exactly as ops.approve_action
 --       expires one (cross-type and same-type), and is accepted; other orders are not swept; the
 --       swept row equals an approve_action-expired row field by field, and its approval.expired audit
@@ -47,7 +48,8 @@
 --       with different bodies than the repo chain (126 refund metrics): each must carry its
 --       production md5 or its chain md5 (replay/fp_chain/functions.json), nothing else.
 --       refund_facts is the one ops function production lacks (chain only) and the only exclusion.
---       action_dispatch: production's md5 or 158's (158 is stacked on 157 and replaces only its listing_relist branch).
+--       action_dispatch: production's md5 or 158's (158 is stacked on 157 and replaces only its listing_relist branch)
+--       or 177's (stacked on 158: its refund_execute branch); action_precheck: production's or 177's.
 --       The three redefined bodies are live; the index definition is exact. T12.4 pins approve_action's LOCK
 --       ORDER statically (no single-session test can observe it): in its live definition, comments stripped, the
 --       first pg_advisory_xact_lock comes before the first FOR UPDATE (an approve_action that locks the row first
@@ -327,8 +329,9 @@ SELECT tap._s224('t5f', tap._ex224(tap.admin_user(), 'k224-t5-payout-a02', 'payo
 SELECT is((tap._g224('t5f') ->> 'status', tap._g224('t5f') ->> 'reject_reason'), ('rejected'::text, 'stale_state'::text),
   'T5.15: a new payout after a succeeded one is not a duplicate: the domain precheck answers stale_state');
 SELECT tap._s224('t5g', tap._ex224(tap.admin_user(), 'k224-t5-refund-a07', 'refund_execute', 'payment', tap._p224(2)));
-SELECT is(tap._g224('t5g') ->> 'status', 'awaiting_approval',
-  'T5.16: a refund after a SETTLED payout is not blocked (REFUNDED_AFTER_PAYOUT stays detection-only)');
+SELECT is(tap._g224('t5g') ->> 'status' || '/' || coalesce(tap._g224('t5g') ->> 'reject_reason', ''),
+          CASE WHEN to_regprocedure('ops.refund_payout_refusal(uuid,text)') IS NULL THEN 'awaiting_approval/' ELSE 'rejected/payout_released' END,
+  'T5.16: a refund after a SETTLED payout is not refused by 157''s guard; with 177 (20261022001000) applied it is refused payout_released');
 
 -- ── T6 — expired approvals are swept by the next request on the order ───────
 -- order 8: an expired awaiting payout that NO request touches (scope control), later expired by approve_action
@@ -767,7 +770,11 @@ SELECT is((
     -- 158 (20261021110000, stacked on 157) replaces action_dispatch's listing_relist branch. This suite runs on 157
     -- alone (production's dispatch, bfb8b9dc above: the state between the two applies and after a 158 rollback) and
     -- on 157 + 158 (this md5, pg_get_functiondef of 158's body); any third value still fails.
-    ('action_dispatch', 'p_action ops.action', '7f507fc880c02617c53d1e4f679c608c')
+    ('action_dispatch', 'p_action ops.action', '7f507fc880c02617c53d1e4f679c608c'),
+    -- 177 (20261022001000, stacked on 158) redefines action_dispatch (refund_execute branch) and action_precheck
+    -- and adds the internal ops.refund_payout_refusal (excluded below).
+    ('action_dispatch', 'p_action ops.action', '530105443dff97cdf1639c12d2bf24f1'),
+    ('action_precheck', 'p_action ops.action', '20a5ae0386be0644293f5230fad84dde')
   ), live AS (
     SELECT p.proname::text AS fn, pg_get_function_identity_arguments(p.oid) AS args, md5(pg_get_functiondef(p.oid)) AS md5
       FROM pg_proc p WHERE p.pronamespace = 'ops'::regnamespace AND p.prokind IN ('f','p'))
@@ -781,9 +788,9 @@ SELECT is((
      WHERE (fn, args) NOT IN (SELECT fn, args FROM prod)
        AND fn NOT IN ('execute_action','approve_action','order_detail',
                       'money_order_id','money_unsettled_blocker','expire_stale_money_approvals',
-                      'refund_facts')) d),
+                      'refund_facts','refund_payout_refusal')) d),
   '{}'::text[],
-  'T12.1: every other ops function keeps its production md5 (prod_functions.json 2026-10-21; the 3 metric bodies: production or chain md5; action_dispatch: production or 158''s md5)');
+  'T12.1: every other ops function keeps its production md5 (prod_functions.json 2026-10-21; the 3 metric bodies: production or chain md5; action_dispatch: production, 158''s or 177''s md5; action_precheck: production or 177''s)');
 SELECT is((SELECT count(*)::int FROM (VALUES
              ('ops.execute_action(text,text,text,uuid,jsonb,text,jsonb,text)', 'e59c158453adabc662431cac9dca1040'),
              ('ops.approve_action(uuid,text,text)', '5de6235288b38792c31dca3e6b3f89af'),
