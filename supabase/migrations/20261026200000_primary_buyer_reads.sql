@@ -166,12 +166,14 @@
 --       ruling, 2026-10-26). The posture is the same as 20260909000000's
 --       get_my_tickets (proacl {postgres,authenticated,service_role}), but it is
 --       no longer INHERITED from pg_default_acl: CI's fresh Supabase stack carries
---       no `public / functions -> service_role=X` default entry (the local
---       replay template and production do), so the inherited grant existed
---       locally and in production and was ABSENT on CI — 182's post-flight
+--       no `public / functions -> service_role=X` default entry, while the local
+--       replay template does (scripts/local/replay_shim.sql:489), so the
+--       inherited grant existed locally and was ABSENT on CI — 182's post-flight
 --       raised there (service_role=f). An explicit `GRANT EXECUTE ... TO
---       service_role` makes CI = local = production; where the default entry
---       exists it is a no-op. There is no server-side caller: a service_role
+--       service_role` makes the posture independent of whatever default ACL an
+--       environment carries (production's is not asserted here): CI = local =
+--       production by construction, and where a default entry exists the grant
+--       is a no-op. There is no server-side caller: a service_role
 --       call of the two owner reads raises 28000 (auth.uid() is NULL) and of the
 --       two discovery reads returns the same public rows. The manifest classes
 --       ('anon-execute' / 'authenticated-execute') are service_role-agnostic
