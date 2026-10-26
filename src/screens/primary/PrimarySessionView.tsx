@@ -114,11 +114,11 @@ function SessionBody({ load, props, s }: { load: Extract<SessionDetailLoad, { ki
               onPress={() => props.onSelectTier(id)}
               accessibilityRole="radio"
               accessibilityState={{ checked: selected, disabled: !line.available }}
-              accessibilityLabel={`${line.name}, ${line.price ? `${line.price} including all fees` : 'no price yet'}, ${line.status}`}
+              accessibilityLabel={`${line.name}, ${line.price ? `${line.price} ${DISCOVERY_COPY.perTicket}, including all fees` : 'no price yet'}, ${line.status}`}
             >
               <View style={s.tierText}>
                 <Text style={[textStyle('title'), s.tierName]}>{line.name}</Text>
-                {line.price ? <Text style={[textStyle('body'), s.tierPrice]}>{line.price}</Text> : null}
+                {line.price ? <Text style={[textStyle('body'), s.tierPrice]}>{`${line.price} ${DISCOVERY_COPY.perTicket}`}</Text> : null}
               </View>
               <Badge label={line.status} tone={line.available ? 'success' : 'neutral'} />
             </Pressable>

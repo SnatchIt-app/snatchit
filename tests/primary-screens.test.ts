@@ -88,6 +88,39 @@ describe('views — server facts only', () => {
   });
 });
 
+describe('A’s one-ticket rule — `all_in_price_minor` is a ONE-ticket figure (2026-10-26)', () => {
+  // Checkout rounds the buyer fee once per ORDER, so 2 tickets can cost a cent less than 2 × the
+  // one-ticket all-in price: a multi-ticket total exists only as the checkout quote's `total`.
+  const SURFACE = [
+    'src/lib/primary/discovery.ts', 'src/lib/primary/checkout.ts', 'src/lib/primary/checkoutRoute.ts',
+    'src/screens/primary/PrimarySessionView.tsx', 'src/screens/primary/PrimaryEventsView.tsx',
+    'src/screens/primary/PrimaryCheckoutView.tsx', 'src/screens/primary/PrimaryCheckoutEntry.native.tsx',
+    'app/event/[session].tsx', 'app/events.tsx', 'app/primary-checkout/[session].tsx',
+  ];
+
+  it('V7: the tier price is the per-ticket all-in price, labelled per ticket on screen and for VoiceOver', () => {
+    const event = src('src/screens/primary/PrimarySessionView.tsx');
+    expect(src('src/lib/primary/discovery.ts')).toContain("perTicket: 'per ticket',");
+    expect(event).toContain('{`${line.price} ${DISCOVERY_COPY.perTicket}`}');
+    expect(event).toContain('`${line.price} ${DISCOVERY_COPY.perTicket}, including all fees`');
+  });
+
+  it('V8: no multiplied figure is rendered — nothing multiplies by quantity, and every pre-quote screen shows only the one-ticket price', () => {
+    for (const f of SURFACE) {
+      const code = src(f);
+      expect(code, f).not.toMatch(/\b(quantity|qty)\b\s*\*|\*\s*(?:props\.|params\.|state\.)?\b(quantity|qty)\b/);
+      if (f !== 'src/lib/primary/discovery.ts') expect(code, f).not.toContain('all_in_price_minor');
+    }
+    // The event page (tiers, quantity picker, Continue) formats no money of its own: its one figure is line.price.
+    expect(src('src/screens/primary/PrimarySessionView.tsx')).not.toMatch(/formatUsd|usd\(|toFixed|toLocaleString/);
+    // The checkout screen formats only the quote's figures or the server's new total.
+    const view = src('src/screens/primary/PrimaryCheckoutView.tsx');
+    const args = [...view.matchAll(/formatUsd\(([^)]*)\)/g)].map((m) => m[1].trim());
+    expect(args.length).toBeGreaterThan(0);
+    for (const a of args) expect(a).toMatch(/^(q\.(totalMinor|faceMinor|buyerFeeMinor)|state\.serverTotalMinor)$/);
+  });
+});
+
 describe('primary checkout screen — a payments surface (A reviews)', () => {
   const native = src('src/screens/primary/PrimaryCheckoutEntry.native.tsx');
   const web = src('src/screens/primary/PrimaryCheckoutEntry.tsx');

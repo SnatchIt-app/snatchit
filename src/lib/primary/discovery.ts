@@ -189,4 +189,7 @@ export const DISCOVERY_COPY = {
   notAvailableBody: 'It may not be on sale yet, or it may have ended.',
   ticketsHeading: 'Tickets',
   priceNote: 'Prices include all fees.',
+  /** `all_in_price_minor` is a ONE-ticket figure (A, 2026-10-26): checkout rounds the fee once per order,
+   *  so it is never multiplied — a multi-ticket total exists only as the checkout quote's `total`. */
+  perTicket: 'per ticket',
 } as const;
