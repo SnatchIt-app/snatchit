@@ -40,8 +40,9 @@
 --              functions exist, SECURITY DEFINER, search_path='', STABLE; the
 --              exact EXECUTE ACL (list/detail: anon + authenticated, explicit,
 --              no PUBLIC; atoms/orders: anon revoked, authenticated; service_role
---              keeps the public-schema default ACL on all four — the
---              get_my_tickets posture, pinned not assumed);
+--              EXECUTE on all four by 182's EXPLICIT grant (PART 5) — the
+--              get_my_tickets posture, no longer inherited from a default ACL;
+--              pinned not assumed);
 --              output column lists verbatim; forbidden names absent; public
 --              census 133 since 167 (130 with 182 alone; pgtap-excluded, the
 --              tests/162 P2 query); comments.
@@ -325,25 +326,25 @@ SELECT ok(coalesce(has_function_privilege('anon', to_regprocedure('public.list_p
       AND coalesce(has_function_privilege('service_role', to_regprocedure('public.list_primary_sessions_on_sale()'), 'EXECUTE'), false)
       AND coalesce((SELECT p.proacl IS NOT NULL AND NOT EXISTS (SELECT 1 FROM aclexplode(p.proacl) a WHERE a.grantee = 0)
                       FROM pg_proc p WHERE p.oid = to_regprocedure('public.list_primary_sessions_on_sale()')), false),
-  'A8: list — EXECUTE anon + authenticated (explicit grant, non-NULL proacl, no PUBLIC entry); service_role keeps the public-schema default (get_my_tickets posture)');
+  'A8: list — EXECUTE anon + authenticated (explicit grant, non-NULL proacl, no PUBLIC entry); service_role EXECUTE by an explicit grant (182 PART 5; the get_my_tickets posture)');
 SELECT ok(coalesce(has_function_privilege('anon', to_regprocedure('public.get_primary_session(uuid)'), 'EXECUTE'), false)
       AND coalesce(has_function_privilege('authenticated', to_regprocedure('public.get_primary_session(uuid)'), 'EXECUTE'), false)
       AND coalesce(has_function_privilege('service_role', to_regprocedure('public.get_primary_session(uuid)'), 'EXECUTE'), false)
       AND coalesce((SELECT p.proacl IS NOT NULL AND NOT EXISTS (SELECT 1 FROM aclexplode(p.proacl) a WHERE a.grantee = 0)
                       FROM pg_proc p WHERE p.oid = to_regprocedure('public.get_primary_session(uuid)')), false),
-  'A9: detail — EXECUTE anon + authenticated (explicit, non-NULL proacl, no PUBLIC); service_role keeps the public-schema default');
+  'A9: detail — EXECUTE anon + authenticated (explicit, non-NULL proacl, no PUBLIC); service_role EXECUTE by an explicit grant (182 PART 5)');
 SELECT ok(NOT coalesce(has_function_privilege('anon', to_regprocedure('public.get_my_ticket_atoms(uuid)'), 'EXECUTE'), true)
       AND coalesce(has_function_privilege('authenticated', to_regprocedure('public.get_my_ticket_atoms(uuid)'), 'EXECUTE'), false)
       AND coalesce(has_function_privilege('service_role', to_regprocedure('public.get_my_ticket_atoms(uuid)'), 'EXECUTE'), false)
       AND coalesce((SELECT p.proacl IS NOT NULL AND NOT EXISTS (SELECT 1 FROM aclexplode(p.proacl) a WHERE a.grantee = 0)
                       FROM pg_proc p WHERE p.oid = to_regprocedure('public.get_my_ticket_atoms(uuid)')), false),
-  'A10: atoms — anon revoked, authenticated EXECUTE, no PUBLIC; service_role keeps the public-schema default (auth.uid() NULL -> 28000 for it)');
+  'A10: atoms — anon revoked, authenticated EXECUTE, no PUBLIC; service_role EXECUTE by an explicit grant (182 PART 5; auth.uid() NULL -> 28000 for it)');
 SELECT ok(NOT coalesce(has_function_privilege('anon', to_regprocedure('public.get_my_primary_orders(uuid)'), 'EXECUTE'), true)
       AND coalesce(has_function_privilege('authenticated', to_regprocedure('public.get_my_primary_orders(uuid)'), 'EXECUTE'), false)
       AND coalesce(has_function_privilege('service_role', to_regprocedure('public.get_my_primary_orders(uuid)'), 'EXECUTE'), false)
       AND coalesce((SELECT p.proacl IS NOT NULL AND NOT EXISTS (SELECT 1 FROM aclexplode(p.proacl) a WHERE a.grantee = 0)
                       FROM pg_proc p WHERE p.oid = to_regprocedure('public.get_my_primary_orders(uuid)')), false),
-  'A11: orders — anon revoked, authenticated EXECUTE, no PUBLIC; service_role keeps the public-schema default (auth.uid() NULL -> 28000 for it)');
+  'A11: orders — anon revoked, authenticated EXECUTE, no PUBLIC; service_role EXECUTE by an explicit grant (182 PART 5; auth.uid() NULL -> 28000 for it)');
 SELECT is((SELECT p.proargnames || (SELECT array_agg(format_type(t, NULL) ORDER BY o) FROM unnest(p.proallargtypes) WITH ORDINALITY u(t, o))
              FROM pg_proc p WHERE p.oid = to_regprocedure('public.list_primary_sessions_on_sale()')),
   ARRAY['event_id','session_id','title','venue_name','neighborhood','starts_at','doors_at','age_restriction','status','timezone','starts_at_local','doors_at_local',
