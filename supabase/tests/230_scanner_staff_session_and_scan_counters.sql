@@ -671,9 +671,12 @@ SELECT is(tap._raw230('23000000-0000-4000-8000-0000000000f1', 'admitted') + tap.
 -- ── Section F — PART B with the flag ON (a version-2 row, as 174; rolled back) ─
 INSERT INTO catalog.platform_config (key, version, value, visibility) VALUES ('feature.native_scanning_enabled', 2, 'true'::jsonb, 'public');
 SELECT tap.login('23000000-0000-4000-8000-000000000114');
+-- F1's claims are the atom's REAL ones (credential_version 0 = the kernel.tickets default for these
+-- fixture atoms; key b0 = their signing_key_id): with B's 183 beneath, venue._record_scan_core checks
+-- supplied claims against the row (BLOCK A) and a mismatch is invalid/credential_stale (A's N10, 2026-10-27).
 SELECT is((venue_cmd.record_scan('23000000-0000-4000-8000-000000000a07', '23000000-0000-4000-8000-0000000000f1',
-             '{"device_label":"Door A","credential_version":3,"key_id":"00000000-0000-0000-0000-0000000000b0"}'::jsonb, 'ck230-f1') ->> 'result'), 'admitted',
-  'F1: the scanner admits an active atom through the wrapper');
+             '{"device_label":"Door A","credential_version":0,"key_id":"00000000-0000-0000-0000-0000000000b0"}'::jsonb, 'ck230-f1') ->> 'result'), 'admitted',
+  'F1: the scanner admits an active atom through the wrapper (its claims equal the atom''s credential_version and signing key)');
 SELECT tap.logout();
 SELECT is((SELECT count(*)::int FROM venue.scan s
             WHERE s.ticket_atom_id = '23000000-0000-4000-8000-000000000a07' AND s.event_session_id = '23000000-0000-4000-8000-0000000000f1'
