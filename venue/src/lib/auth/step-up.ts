@@ -84,17 +84,25 @@ export async function verifyTotpCode(code: string, factorId?: string): Promise<S
     const { data: list, error: listErr } = await supabase.auth.mfa.listFactors();
     if (listErr) return { ok: false, message: listErr.message };
 
+    const state = pickTotpFactor(list);
+    if (state.kind === "none") return { ok: false, message: "This account has no authenticator yet.", needsEnroll: true };
+
     // The browser may name the factor it just enrolled, so the verify lands on
-    // that exact one. Honoured only if it is the caller's own; otherwise it is
-    // discarded and we use our own reading. A client cannot nominate a factor
-    // belonging to anyone else, and cannot conjure one that does not exist.
-    const hinted = factorId && ownsFactor(list, factorId) ? factorId.trim() : undefined;
-    let id = hinted;
-    if (!id) {
-      const state = pickTotpFactor(list);
-      if (state.kind === "none") return { ok: false, message: "This account has no authenticator yet.", needsEnroll: true };
-      id = state.factorId;
-    }
+    // that exact one rather than on whatever a fresh list returns first. Two
+    // bounds, and the hint is only ever a hint:
+    //
+    //   - it must be the caller's OWN factor (`ownsFactor` reads this session's
+    //     own list), so no client can nominate anybody else's or conjure one;
+    //   - it may not reach past a VERIFIED factor. Once one exists it is the
+    //     only factor step-up may use, which is the same policy
+    //     `beginTotpEnroll` enforces when it refuses to enrol over a verified
+    //     factor. Without this bound, a hint naming a stray pending factor
+    //     completed a second enrolment that the enrol path would have refused —
+    //     the two paths disagreed about one policy. Found by E on 77bf774e.
+    //
+    // First enrolment is unaffected: no verified factor exists then.
+    const hinted = state.kind !== "verified" && factorId && ownsFactor(list, factorId) ? factorId.trim() : undefined;
+    const id = hinted ?? state.factorId;
     const { data: challenge, error: chErr } = await supabase.auth.mfa.challenge({ factorId: id });
     if (chErr || !challenge?.id) return { ok: false, message: chErr?.message ?? GENERIC };
     const { error: vErr } = await supabase.auth.mfa.verify({ factorId: id, challengeId: challenge.id, code: digits });
