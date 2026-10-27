@@ -55,6 +55,8 @@
 -- Fan 199. Events: e01/e02 at V1 (Org A; K, M controls); e06 at V2 (Org A's;
 -- F, M, W, C targets); e09 at V2 (Org B's, inserted after the move; B); e16 at V2
 -- (Org A's; O). Session times are fixed instants in 2027 (no now() drift).
+-- Every positive-path call goes through tap._val232 (the returned text, or 'ERROR
+-- <SQLSTATE>|<SQLERRM>'), so a wrongful refusal reads `not ok` instead of aborting.
 --
 -- Expected on the 167 tree WITHOUT 165 (RED, predicted before the first run):
 -- A1-A4 fail (the predecessors' md5s), A5-A9 pass, A10 fails (no body carries the
@@ -79,7 +81,12 @@ $m$ SELECT v FROM tap.memo_232 WHERE k = $1 $m$;
 CREATE FUNCTION tap._err232(q text) RETURNS text
 LANGUAGE plpgsql AS
 $m$ BEGIN EXECUTE q; RETURN 'no error'; EXCEPTION WHEN OTHERS THEN RETURN SQLSTATE || '|' || SQLERRM; END $m$;
-GRANT EXECUTE ON FUNCTION tap._store232(text, text), tap._fetch232(text), tap._err232(text) TO authenticated;
+-- the text a statement returns AS THE CALLER, or 'ERROR <SQLSTATE>|<SQLERRM>' — so a positive-path assertion
+-- that is wrongly refused reads `not ok` instead of aborting the file (NC3 found the abort, 2026-10-27)
+CREATE FUNCTION tap._val232(q text) RETURNS text
+LANGUAGE plpgsql AS
+$m$ DECLARE v text; BEGIN EXECUTE q INTO v; RETURN v; EXCEPTION WHEN OTHERS THEN RETURN 'ERROR ' || SQLSTATE || '|' || SQLERRM; END $m$;
+GRANT EXECUTE ON FUNCTION tap._store232(text, text), tap._fetch232(text), tap._err232(text), tap._val232(text) TO authenticated;
 
 -- ── Fixture (synthetic; never a migration) ─────────────────────────────────
 INSERT INTO auth.users (id, instance_id, aud, role, email, raw_app_meta_data, raw_user_meta_data, email_confirmed_at, created_at, updated_at) VALUES
@@ -176,13 +183,13 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.
 SELECT tap.login('23200000-0000-4000-8000-000000000111');
 SELECT is(current_user::text || '|' || auth.uid()::text, 'authenticated|23200000-0000-4000-8000-000000000111',
   'K0: V1 manager block runs as authenticated with its own auth.uid()');
-SELECT is((catalog.update_event('23200000-0000-4000-8000-00000000e001', '{"title":"e01 retitled by V1 manager"}', 'ck232-k-1') ->> 'status'), 'ok',
+SELECT is(tap._val232($$SELECT catalog.update_event('23200000-0000-4000-8000-00000000e001', '{"title":"e01 retitled by V1 manager"}', 'ck232-k-1') ->> 'status'$$), 'ok',
   'K1: control — the current operator''s manager still runs update_event');
-SELECT is((catalog.create_event_session('23200000-0000-4000-8000-00000000e001', '{"starts_at":"2027-02-11T01:00:00Z"}', 'ck232-k-2') ->> 'status'), 'ok',
+SELECT is(tap._val232($$SELECT catalog.create_event_session('23200000-0000-4000-8000-00000000e001', '{"starts_at":"2027-02-11T01:00:00Z"}', 'ck232-k-2') ->> 'status'$$), 'ok',
   'K2: control — …create_event_session');
-SELECT is((catalog.update_event_session('23200000-0000-4000-8000-00000000f001', '{"starts_at":"2027-01-11T02:00:00Z"}', 'ck232-k-3') ->> 'status'), 'ok',
+SELECT is(tap._val232($$SELECT catalog.update_event_session('23200000-0000-4000-8000-00000000f001', '{"starts_at":"2027-01-11T02:00:00Z"}', 'ck232-k-3') ->> 'status'$$), 'ok',
   'K3: control — …update_event_session');
-SELECT is((catalog.publish_event('23200000-0000-4000-8000-00000000e002', 'announced', 'ck232-k-4') ->> 'event_status'), 'announced',
+SELECT is(tap._val232($$SELECT catalog.publish_event('23200000-0000-4000-8000-00000000e002', 'announced', 'ck232-k-4') ->> 'event_status'$$), 'announced',
   'K4: control — …publish_event');
 SELECT tap.logout();
 
@@ -245,9 +252,9 @@ SELECT tap.logout();
 SELECT tap.login('23200000-0000-4000-8000-000000000115');
 SELECT is(current_user::text || '|' || auth.uid()::text, 'authenticated|23200000-0000-4000-8000-000000000115',
   'M3: V1 venue_marketing block runs as authenticated with its own auth.uid()');
-SELECT is((catalog.update_event('23200000-0000-4000-8000-00000000e001', '{"description":"V1 marketing copy"}', 'ck232-m-4') ->> 'status'), 'ok',
+SELECT is(tap._val232($$SELECT catalog.update_event('23200000-0000-4000-8000-00000000e001', '{"description":"V1 marketing copy"}', 'ck232-m-4') ->> 'status'$$), 'ok',
   'M4: control — the current operator''s venue_marketing still makes a description patch');
-SELECT is((catalog.update_event_session('23200000-0000-4000-8000-00000000f001', '{"session_label":"V1 label"}', 'ck232-m-5') ->> 'status'), 'ok',
+SELECT is(tap._val232($$SELECT catalog.update_event_session('23200000-0000-4000-8000-00000000f001', '{"session_label":"V1 label"}', 'ck232-m-5') ->> 'status'$$), 'ok',
   'M5: control — …and a session_label patch');
 SELECT tap.logout();
 
@@ -255,13 +262,13 @@ SELECT tap.logout();
 SELECT tap.login('23200000-0000-4000-8000-000000000121');
 SELECT is(current_user::text || '|' || auth.uid()::text, 'authenticated|23200000-0000-4000-8000-000000000121',
   'B0: former-operator manager block (again) runs as authenticated with its own auth.uid()');
-SELECT is((catalog.update_event('23200000-0000-4000-8000-00000000e009', '{"title":"e09 retitled"}', 'ck232-b-1') ->> 'status'), 'ok',
+SELECT is(tap._val232($$SELECT catalog.update_event('23200000-0000-4000-8000-00000000e009', '{"title":"e09 retitled"}', 'ck232-b-1') ->> 'status'$$), 'ok',
   'B1: RESIDUAL — on Org B''s event at V2 the same manager is accepted (venue.org_id = event.org_id; his role row outlived the move; revocation is the frozen transfer path''s)');
-SELECT is((catalog.create_event_session('23200000-0000-4000-8000-00000000e009', '{"starts_at":"2027-02-19T01:00:00Z"}', 'ck232-b-2') ->> 'status'), 'ok',
+SELECT is(tap._val232($$SELECT catalog.create_event_session('23200000-0000-4000-8000-00000000e009', '{"starts_at":"2027-02-19T01:00:00Z"}', 'ck232-b-2') ->> 'status'$$), 'ok',
   'B2: RESIDUAL — …create_event_session');
-SELECT is((catalog.update_event_session('23200000-0000-4000-8000-00000000f009', '{"starts_at":"2027-01-19T02:00:00Z"}', 'ck232-b-3') ->> 'status'), 'ok',
+SELECT is(tap._val232($$SELECT catalog.update_event_session('23200000-0000-4000-8000-00000000f009', '{"starts_at":"2027-01-19T02:00:00Z"}', 'ck232-b-3') ->> 'status'$$), 'ok',
   'B3: RESIDUAL — …update_event_session');
-SELECT is((catalog.publish_event('23200000-0000-4000-8000-00000000e009', 'announced', 'ck232-b-4') ->> 'event_status'), 'announced',
+SELECT is(tap._val232($$SELECT catalog.publish_event('23200000-0000-4000-8000-00000000e009', 'announced', 'ck232-b-4') ->> 'event_status'$$), 'announced',
   'B4: RESIDUAL — …publish_event');
 SELECT tap.logout();
 
@@ -269,13 +276,13 @@ SELECT tap.logout();
 SELECT tap.login('23200000-0000-4000-8000-000000000101');
 SELECT is(current_user::text || '|' || auth.uid()::text, 'authenticated|23200000-0000-4000-8000-000000000101',
   'O0: Org A owner block runs as authenticated with its own auth.uid()');
-SELECT is((catalog.update_event('23200000-0000-4000-8000-00000000e016', '{"title":"e16 retitled by Org A"}', 'ck232-o-1') ->> 'status'), 'ok',
+SELECT is(tap._val232($$SELECT catalog.update_event('23200000-0000-4000-8000-00000000e016', '{"title":"e16 retitled by Org A"}', 'ck232-o-1') ->> 'status'$$), 'ok',
   'O1: org arm — Org A''s owner still runs update_event on its own event at the room Org B now operates');
-SELECT is((catalog.create_event_session('23200000-0000-4000-8000-00000000e016', '{"starts_at":"2027-02-26T01:00:00Z"}', 'ck232-o-2') ->> 'status'), 'ok',
+SELECT is(tap._val232($$SELECT catalog.create_event_session('23200000-0000-4000-8000-00000000e016', '{"starts_at":"2027-02-26T01:00:00Z"}', 'ck232-o-2') ->> 'status'$$), 'ok',
   'O2: org arm — …create_event_session');
-SELECT is((catalog.update_event_session('23200000-0000-4000-8000-00000000f016', '{"starts_at":"2027-01-26T02:00:00Z"}', 'ck232-o-3') ->> 'status'), 'ok',
+SELECT is(tap._val232($$SELECT catalog.update_event_session('23200000-0000-4000-8000-00000000f016', '{"starts_at":"2027-01-26T02:00:00Z"}', 'ck232-o-3') ->> 'status'$$), 'ok',
   'O3: org arm — …update_event_session');
-SELECT is((catalog.publish_event('23200000-0000-4000-8000-00000000e016', 'announced', 'ck232-o-4') ->> 'event_status'), 'announced',
+SELECT is(tap._val232($$SELECT catalog.publish_event('23200000-0000-4000-8000-00000000e016', 'announced', 'ck232-o-4') ->> 'event_status'$$), 'announced',
   'O4: org arm — …publish_event');
 SELECT tap.logout();
 SELECT tap.login('23200000-0000-4000-8000-000000000201');
@@ -302,16 +309,16 @@ SELECT is(current_user::text || '|' || auth.uid()::text, 'authenticated|23200000
 SELECT throws_ok($$SELECT catalog.cancel_event('23200000-0000-4000-8000-00000000e006', 'weather', 'ck232-c-1')$$,
   '42501', 'insufficient_privilege: org_owner / org_admin / venue_manager (current operator) / platform_admin only',
   'C1: cancel_event still refuses the former-operator manager (088''s conjunct, the shape 165 copies)');
-SELECT tap._store232('c_ev', (catalog.create_event('23200000-0000-4000-8000-0000000000a2', 'Former manager event 232',
-          '{"starts_at":"2027-03-02T01:00:00Z"}', 'ck232-c-2') ->> 'event_id'));
-SELECT is((catalog.update_venue('23200000-0000-4000-8000-0000000000a2', '{"name":"Room V2 renamed 232"}', 'ck232-c-3') ->> 'status'), 'ok',
+SELECT tap._store232('c_ev', tap._val232($$SELECT catalog.create_event('23200000-0000-4000-8000-0000000000a2', 'Former manager event 232',
+          '{"starts_at":"2027-03-02T01:00:00Z"}', 'ck232-c-2') ->> 'event_id'$$));
+SELECT is(tap._val232($$SELECT catalog.update_venue('23200000-0000-4000-8000-0000000000a2', '{"name":"Room V2 renamed 232"}', 'ck232-c-3') ->> 'status'$$), 'ok',
   'C2: update_venue of V2 by the former-operator manager is accepted (164''s S8 baseline: no event to bind; not 165''s)');
 SELECT tap.logout();
-SELECT is((SELECT e.status || '|' || e.org_id::text FROM catalog.event e WHERE e.event_id = tap._fetch232('c_ev')::uuid),
+SELECT is((SELECT e.status || '|' || e.org_id::text FROM catalog.event e WHERE e.event_id::text = tap._fetch232('c_ev')),
   'draft|23200000-0000-4000-8000-00000000000b',
   'C3: create_event at V2 by him is accepted and stamps the room''s CURRENT operator (Org B) — the conjunct holds by construction');
 SELECT is((SELECT count(*)::int FROM catalog.event e
-            WHERE e.event_id = tap._fetch232('c_ev')::uuid
+            WHERE e.event_id::text = tap._fetch232('c_ev')
               AND EXISTS (SELECT 1 FROM catalog.venue v WHERE v.venue_id = e.venue_id AND v.org_id = e.org_id)), 1,
   'C4: …so venue.org_id = event.org_id on the event create_event made');
 
