@@ -26,7 +26,14 @@
 --      buyer reads call venue.ticket_type_on_sale; dropping it under them would
 --      break every buyer hold). Roll those packages back first (185, then 182, …).
 --      The scan reads pg_proc.prosrc (functions call by name, so pg_depend holds no
---      edge for them) and pg_depend/pg_rewrite for views;
+--      edge for them) and pg_depend/pg_rewrite for views. Since A's N6 (review of
+--      164-167/165, 2026-10-27) it also matches the dropped COLUMN names
+--      sales_capacity, sale_starts_at, sale_ends_at and age_policy: a plpgsql body
+--      that reads one of them (166's venue.get_session_capacity reads
+--      sales_capacity; 182 reads the sale window and age_policy) breaks at its next
+--      call once the column is gone, and pg_depend records no edge for it either.
+--      'timezone' is not matched (too common a word in unrelated bodies); a VIEW
+--      over any dropped column already blocks the DROP COLUMN below (no CASCADE);
 --   G3 the five columns must carry no data: catalog.venue.timezone all
 --      'America/New_York' (the default), catalog.event.age_policy all NULL,
 --      catalog.event_session.sales_capacity all NULL, venue.ticket_type.
@@ -117,14 +124,16 @@ BEGIN
               ]::oid[]) AS o WHERE o IS NOT NULL)
           AND (p.prosrc LIKE '%ticket_type_on_sale%' OR p.prosrc LIKE '%set_ticket_type_sale_window%'
                OR p.prosrc LIKE '%set_venue_timezone%' OR p.prosrc LIKE '%set_event_age_policy%'
-               OR p.prosrc LIKE '%set_session_sales_capacity%'))
+               -- A's N6: the dropped columns too ('%sales_capacity%' also covers set_session_sales_capacity)
+               OR p.prosrc LIKE '%sales_capacity%' OR p.prosrc LIKE '%sale_starts_at%'
+               OR p.prosrc LIKE '%sale_ends_at%' OR p.prosrc LIKE '%age_policy%'))
   OR EXISTS (
        SELECT 1 FROM pg_depend d
          JOIN pg_rewrite r ON d.classid = 'pg_rewrite'::regclass AND d.objid = r.oid
         WHERE d.refclassid = 'pg_proc'::regclass
           AND d.refobjid = to_regprocedure('venue.ticket_type_on_sale(uuid, timestamptz)')
           AND r.ev_class <> to_regclass('venue_api.ticket_types')) THEN
-    RAISE EXCEPTION 'ROLLBACK_162_REFUSED (G2b): a function or view outside 162 calls a function dropped here (e.g. 185''s reserve_primary_inventory or 182''s buyer reads use venue.ticket_type_on_sale); roll that package back first (185, then 182, …). Nothing changed.';
+    RAISE EXCEPTION 'ROLLBACK_162_REFUSED (G2b): a function or view outside 162 calls a function or reads a column dropped here (e.g. 185''s reserve_primary_inventory or 182''s buyer reads use venue.ticket_type_on_sale; 166''s venue.get_session_capacity reads sales_capacity); roll that package back first (… 166, 185, then 182). Nothing changed.';
   END IF;
   IF (EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'catalog.venue'::regclass AND attname = 'timezone' AND NOT attisdropped)
       AND EXISTS (SELECT 1 FROM catalog.venue WHERE timezone IS DISTINCT FROM 'America/New_York'))

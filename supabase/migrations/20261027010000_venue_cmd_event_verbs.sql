@@ -114,7 +114,11 @@
 -- edited in this package). Nothing else moves (measured: full suite on the clone,
 -- EVIDENCE-164.md). Rollback:
 -- supabase/rollbacks/20261027010000_venue_cmd_event_verbs_rollback.sql — drops the
--- seven wrappers (IF EXISTS, idempotent, rc 0); nothing else to restore.
+-- seven wrappers (IF EXISTS, idempotent, rc 0); nothing else to restore. Since A's
+-- N2 it refuses (G1) a wrapper whose body is not 164's and (G2/G2b) while any other
+-- object or function body calls one of them.
+-- PRE-FLIGHT (A's N1): section 0b refuses a foreign object under any of the seven
+-- names; 164's own wrappers re-apply (rc 0).
 --
 -- VERIFICATION (after apply):
 --   select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='venue_cmd';   -- 21 (was 14)
@@ -161,6 +165,46 @@ begin
                        'publish_event','cancel_event','update_venue');
   perform set_config('d164.target_acl_before', v_acl, true);
 end $$;
+
+-- ---------------------------------------------------------------------------
+-- 0b. PRE-FLIGHT (A's N1, review of 164-167/165, 2026-10-27; 163's pattern). Each of
+--     the seven names must be ABSENT from venue_cmd (first apply) or be exactly
+--     164's own wrapper (re-apply): ONE function by that name, md5(prosrc) = 164's,
+--     LANGUAGE sql, SECURITY INVOKER, proconfig = search_path="". Anything else — a
+--     foreign body, a SECURITY DEFINER plant carrying its own grants (A's case: a
+--     definer venue_cmd.update_event with EXECUTE to anon, which CREATE OR REPLACE
+--     used to overwrite silently), an overload — is refused with
+--       MIGRATION_164_REFUSED (pre-flight): venue_cmd.<name> exists and is not 164's own wrapper (...); nothing changed
+--     (one transaction; psql -v ON_ERROR_STOP=1 exits 3). md5s are PG17 values
+--     (local clone = CI = production major); a change to a wrapper body re-hashes it
+--     here and in the rollback.
+-- ---------------------------------------------------------------------------
+DO $pre164$
+DECLARE
+  r record;
+BEGIN
+  FOR r IN
+    SELECT e.fname, e.h164,
+           (SELECT count(*) FROM pg_proc p WHERE p.pronamespace = 'venue_cmd'::regnamespace AND p.proname = e.fname) AS n_by_name,
+           (SELECT string_agg(md5(p.prosrc) || '/' || l.lanname || '/' || p.prosecdef::text || '/' || coalesce(array_to_string(p.proconfig, ','), '-'), ' ')
+              FROM pg_proc p JOIN pg_language l ON l.oid = p.prolang
+             WHERE p.pronamespace = 'venue_cmd'::regnamespace AND p.proname = e.fname) AS got
+      FROM (VALUES
+              ('create_event', '449f43e0aacc02c970ae44e179d547e4'),
+              ('update_event', '8e556d5ca13ec261134a04cdfb5c6b26'),
+              ('create_event_session', '41f8b55a70e1ea6698d5b1e654ea25d7'),
+              ('update_event_session', '8f8eeaca4d1d74c805e123ef90b8e340'),
+              ('publish_event', '09fd6c26f49316411bacea7797b206bd'),
+              ('cancel_event', '09b321729670af3113ea22babf02b329'),
+              ('update_venue', '164862649cd50f3bbfa1bfbe38dcc584')
+           ) AS e(fname, h164)
+  LOOP
+    CONTINUE WHEN r.n_by_name = 0;
+    IF r.n_by_name > 1 OR r.got IS DISTINCT FROM (r.h164 || '/sql/false/search_path=""') THEN
+      RAISE EXCEPTION 'MIGRATION_164_REFUSED (pre-flight): venue_cmd.% exists and is not 164''s own wrapper (% by name: %); nothing changed', r.fname, r.n_by_name, r.got;
+    END IF;
+  END LOOP;
+END $pre164$;
 
 -- ---------------------------------------------------------------------------
 -- 1. The seven wrappers. One SELECT each; argument names/types and the result
