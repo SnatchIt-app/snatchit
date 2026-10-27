@@ -191,6 +191,54 @@ BEGIN
 END $pre$;
 
 -- ============================================================================
+-- PRE-FLIGHT 2 (A's N1, review of 164-167/165, 2026-10-27; 163's pattern): every
+-- object this file creates must be ABSENT (first apply) or be exactly 166's own
+-- (re-apply). Functions, by NAME in their schema: ONE function, md5(prosrc) =
+-- 166's, the expected LANGUAGE / SECURITY / search_path. The view: absent, or a
+-- view whose md5(pg_get_viewdef) is 166's. Anything else — a foreign body, a
+-- same-signature plant with its own grants, an overload, a same-shape foreign view
+-- — is refused with
+--   MIGRATION_166_REFUSED (pre-flight): <object> exists and is not 166's own (...); nothing changed
+-- md5s are PG17 values (local clone = CI = production major), read from a CI-
+-- emulated clone; a change to any of the four re-hashes it here and in the rollback.
+--   venue.get_session_capacity(uuid)       553f805c84f6d0b901bf0d8827e3f3dd  plpgsql DEFINER
+--   venue.list_session_capacity()          14b9d99b8f0dd2c801cacce4929cd6fb  sql     DEFINER
+--   venue_cmd.get_session_capacity(uuid)   908f9663a72d563ac08be91c94726af2  sql     INVOKER
+--   venue_api.session_capacity (viewdef)   02a452dfff5305946eda2b23be3d65bb
+-- ============================================================================
+DO $pre166$
+DECLARE
+  r record;
+  v_kind "char";
+  v_view text;
+BEGIN
+  FOR r IN
+    SELECT e.nsp, e.fname, e.want,
+           (SELECT count(*) FROM pg_proc p WHERE p.pronamespace = to_regnamespace(e.nsp) AND p.proname = e.fname) AS n_by_name,
+           (SELECT string_agg(md5(p.prosrc) || '/' || l.lanname || '/' || p.prosecdef::text || '/' || coalesce(array_to_string(p.proconfig, ','), '-'), ' ')
+              FROM pg_proc p JOIN pg_language l ON l.oid = p.prolang
+             WHERE p.pronamespace = to_regnamespace(e.nsp) AND p.proname = e.fname) AS got
+      FROM (VALUES
+              ('venue',     'get_session_capacity',  '553f805c84f6d0b901bf0d8827e3f3dd/plpgsql/true/search_path=""'),
+              ('venue',     'list_session_capacity', '14b9d99b8f0dd2c801cacce4929cd6fb/sql/true/search_path=""'),
+              ('venue_cmd', 'get_session_capacity',  '908f9663a72d563ac08be91c94726af2/sql/false/search_path=""')
+           ) AS e(nsp, fname, want)
+  LOOP
+    CONTINUE WHEN r.n_by_name = 0;
+    IF r.n_by_name > 1 OR r.got IS DISTINCT FROM r.want THEN
+      RAISE EXCEPTION 'MIGRATION_166_REFUSED (pre-flight): %.% exists and is not 166''s own (% by name: %); nothing changed', r.nsp, r.fname, r.n_by_name, r.got;
+    END IF;
+  END LOOP;
+  SELECT c.relkind INTO v_kind FROM pg_class c WHERE c.oid = to_regclass('venue_api.session_capacity');
+  IF v_kind IS NOT NULL THEN
+    IF v_kind = 'v' THEN v_view := md5(pg_get_viewdef(to_regclass('venue_api.session_capacity'))); END IF;
+    IF v_view IS DISTINCT FROM '02a452dfff5305946eda2b23be3d65bb' THEN
+      RAISE EXCEPTION 'MIGRATION_166_REFUSED (pre-flight): venue_api.session_capacity exists and is not 166''s own view (relkind %, md5 %); nothing changed', v_kind, coalesce(v_view, '<not a view>');
+    END IF;
+  END IF;
+END $pre166$;
+
+-- ============================================================================
 -- PART 1 — venue.get_session_capacity: one session, one row, or P0002
 -- ============================================================================
 create or replace function venue.get_session_capacity(p_session_id uuid)
