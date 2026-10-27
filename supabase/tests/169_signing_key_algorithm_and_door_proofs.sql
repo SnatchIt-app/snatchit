@@ -330,9 +330,13 @@ SELECT is((tap._fetch169('d_s1')::jsonb ->> 'result'), 'admitted', 'D2: the FIRS
 -- TRUE race (two txns both reading state='active' before either commits)
 -- would instead hit the unique_violation arm and map to 'duplicate'; either
 -- way the invariant below (exactly one admitted row) holds.
+-- 183 (20261026210000): the consumed-atom rescan is recorded 'duplicate' with
+-- prior{scan_id, occurred_at, device_id, actor_identity_id, device_label} — the
+-- frozen contract's result for a second scan; 'invalid' was the pre-183 body.
 SELECT tap._store169('d_s2', (venue.record_scan(tap._fetch169('d_atom')::uuid, tap._fetch169('d_session')::uuid, tap._fetch169('d_dev')::uuid, '{}'::jsonb, 'ck169-sc-2'))::text);
-SELECT is((tap._fetch169('d_s2')::jsonb ->> 'result'), 'invalid',
-  'D3: the SECOND (sequential) scan is NOT a second admit — mark_ticket_scanned refuses not_active, mapped to result=invalid');
+SELECT ok((tap._fetch169('d_s2')::jsonb ->> 'result') = 'duplicate'
+          AND (tap._fetch169('d_s2')::jsonb #>> '{prior,scan_id}') = (tap._fetch169('d_s1')::jsonb ->> 'scan_id'),
+  'D3: the SECOND (sequential) scan is NOT a second admit — mark_ticket_scanned refuses not_active (state=scanned) and 183 records it as result=duplicate with prior = the first admission');
 SELECT tap.logout();
 
 SELECT is((SELECT count(*)::int FROM venue.scan WHERE ticket_atom_id = tap._fetch169('d_atom')::uuid
