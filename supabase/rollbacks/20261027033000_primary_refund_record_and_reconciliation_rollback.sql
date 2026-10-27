@@ -8,7 +8,7 @@
 -- Guard: the pre-flight accepts, per function, only 189's body (rollback) or absence (idempotent re-run),
 -- and refuses while any function or view outside 189 names either (plpgsql records no dependency).
 --   ops.record_primary_refund   189 337a8f19d11a482e47437eb968dab40b -> absent
---   ops.primary_reconciliation  189 046dfce98f9e6714bb46a87e896e7763 -> absent
+--   ops.primary_reconciliation  189 4ee4fc15337e895cf180d9d6ce0dc121 -> absent
 -- ============================================================================
 begin;
 set local lock_timeout = '3s';
@@ -26,7 +26,7 @@ begin
   if v_r is not null and v_r <> '337a8f19d11a482e47437eb968dab40b' then
     raise exception 'precondition_failed: 189 rollback refuses to drop an unexpected ops.record_primary_refund body (md5 %); nothing changed', v_r;
   end if;
-  if v_q is not null and v_q <> '046dfce98f9e6714bb46a87e896e7763' then
+  if v_q is not null and v_q <> '4ee4fc15337e895cf180d9d6ce0dc121' then
     raise exception 'precondition_failed: 189 rollback refuses to drop an unexpected ops.primary_reconciliation body (md5 %); nothing changed', v_q;
   end if;
   select string_agg(x, ', ' order by x) into v_callers from (

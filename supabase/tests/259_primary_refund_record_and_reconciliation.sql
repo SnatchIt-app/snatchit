@@ -7,7 +7,9 @@
 --     as is, nothing else written. Refunds stay manual: the owner refunds in Stripe by hand.
 -- (b) ops.primary_reconciliation(from, to): read-only, ops.assert_reader; one row per finalized native
 --     payment; attention items (i) stripe_refunded_tickets_live CRITICAL, (ii) kernel_refund_without_stripe
---     (24 h), (iii) refund_amount_mismatch, (iv) issuance_missing (15 min) / issuance_over.
+--     (24 h), (iii) refund_amount_mismatch, (iv) issuance_missing (15 min) / issuance_over, (v)
+--     paid_never_finalized CRITICAL (a succeeded payments.mode = 'native_primary' row with no
+--     kernel.payment_native link 15 min after paid_at).
 --
 -- Fixture style: 252 (synthetic rows as postgres, fixed ids tagged 25900000-…; the orders go through the REAL
 -- issuance path — venue.finalize_primary_order as the rehearsal superuser mints the atoms, links
@@ -41,9 +43,13 @@
 --       linked 20 min ago with no atom -> issuance_missing, minted -> none; R5 linked 5 min ago -> none;
 --       R6 a second live atom on its item -> issuance_over, voided -> none; O2's deliberate kernel partial
 --       with a matching Stripe partial -> no critical; the window filter; the reader writes nothing.
+--   V   (v) paid, never finalized: payment 617 (native_primary, succeeded, paid 20 min ago, no link; R7's order
+--       pending) -> paid_never_finalized CRITICAL with no order; 618 (paid 5 min ago) and 619 (refunded) are
+--       not; finalizing R7's order against 617 through the real path -> gone, 617 becomes a linked row.
 --
 -- Expected on the stacked tree 159 .. 185 + 188 WITHOUT 189 (RED, predicted before the run): the file runs to
 -- the end (every call of a 189 function goes through throws_ok or tap._try259, which catch its 42883).
+-- (Pins V1/V2 were added with item (v) after this prediction and are not ok on RED too: 56 = 49 not ok + 7 ok.)
 -- Predicted: 54 emitted = 49 not ok + 5 ok. ok: F1 (fixtures), A10 (kernel ACL), U7 U8 (nothing refunded,
 -- the door admits), U18 (no ops rows — nothing ran). not ok: A1-A9 (absent: every shape probe is NULL-safe
 -- through to_regprocedure / coalesce), U1-U6 and U14-U16 (42883 instead of the expected refusal), U9-U13 and
@@ -54,10 +60,10 @@
 -- Negative controls (runner mutants on the GREEN tree, measured): M3 record_primary_refund without the
 -- step-up (kernel.is_platform only) -> A5 A8 U2-U10 U13 not ok — U3 (the aal1 admin is NOT refused and
 -- refunds O1) and U4 directly, U2/U5 by message, the rest downstream of the unexpected refund; M4 the reader
--- without item (i) -> A6 R7 R8 R9 not ok.
+-- without item (i) -> A6 R7 R8 R9 not ok; M5 the reader without item (v) -> A6 V1 R9 not ok.
 -- ============================================================================
 BEGIN;
-SELECT plan(54);
+SELECT plan(56);
 
 CREATE TABLE tap.memo_259 (k text PRIMARY KEY, v text);
 CREATE FUNCTION tap._store259(k text, v text) RETURNS text LANGUAGE sql SECURITY DEFINER AS
@@ -141,14 +147,21 @@ SELECT o.id::uuid, '25900000-0000-4000-8000-000000000101', '25900000-0000-4000-8
   FROM (VALUES ('25900000-0000-4000-8000-000000000301', 'o1'), ('25900000-0000-4000-8000-000000000302', 'o2'),
                ('25900000-0000-4000-8000-000000000311', 'r1'), ('25900000-0000-4000-8000-000000000312', 'r2'),
                ('25900000-0000-4000-8000-000000000313', 'r3'), ('25900000-0000-4000-8000-000000000314', 'r4'),
-               ('25900000-0000-4000-8000-000000000315', 'r5'), ('25900000-0000-4000-8000-000000000316', 'r6')) o(id, tag);
+               ('25900000-0000-4000-8000-000000000315', 'r5'), ('25900000-0000-4000-8000-000000000316', 'r6'),
+               ('25900000-0000-4000-8000-000000000317', 'r7')) o(id, tag);
 INSERT INTO venue.order_item (id, order_id, ticket_type_id, quantity, unit_price_minor)
 SELECT ('25900000-0000-4000-8000-0000000004' || right(o.order_id::text, 2))::uuid, o.order_id, '25900000-0000-4000-8000-000000000011', 1, 2500
   FROM venue."order" o WHERE o.order_id::text LIKE '25900000-%';
 INSERT INTO public.payments (id, listing_id, buyer_id, seller_id, amount, buyer_fee, seller_fee, total, stripe_payment_intent_id, status, mode, paid_at)
 SELECT ('25900000-0000-4000-8000-0000000006' || right(o.order_id::text, 2))::uuid, NULL, '25900000-0000-4000-8000-000000000101', NULL,
        2500, 250, 0, 2750, 'pi_259_' || right(o.order_id::text, 2), 'succeeded', 'native_primary', now()
-  FROM venue."order" o WHERE o.order_id::text LIKE '25900000-%';
+  FROM venue."order" o WHERE o.order_id::text LIKE '25900000-%' AND o.order_id <> '25900000-0000-4000-8000-000000000317';
+-- (v) fixtures — native_primary payments with NO payment_native link: 617 succeeded 20 min ago (R7's order stays
+-- pending: paid, never finalized), 618 succeeded 5 min ago (inside the grace), 619 refunded 20 min ago (money back)
+INSERT INTO public.payments (id, listing_id, buyer_id, seller_id, amount, buyer_fee, seller_fee, total, stripe_payment_intent_id, status, mode, paid_at, refunded_at) VALUES
+  ('25900000-0000-4000-8000-000000000617', NULL, '25900000-0000-4000-8000-000000000101', NULL, 2500, 250, 0, 2750, 'pi_259_17', 'succeeded', 'native_primary', now() - interval '20 minutes', NULL),
+  ('25900000-0000-4000-8000-000000000618', NULL, '25900000-0000-4000-8000-000000000101', NULL, 2500, 250, 0, 2750, 'pi_259_18', 'succeeded', 'native_primary', now() - interval '5 minutes',  NULL),
+  ('25900000-0000-4000-8000-000000000619', NULL, '25900000-0000-4000-8000-000000000101', NULL, 2500, 250, 0, 2750, 'pi_259_19', 'refunded',  'native_primary', now() - interval '20 minutes', now());
 INSERT INTO catalog.platform_config (key, version, value, visibility)
 SELECT x.k, coalesce((SELECT max(c.version) FROM catalog.platform_config c WHERE c.key = x.k), 0) + 1, x.v, x.vis
   FROM (VALUES ('feature.native_issuance_enabled',     'true'::jsonb, 'public'),
@@ -200,7 +213,7 @@ SELECT is(ARRAY[coalesce(has_function_privilege('authenticated', to_regprocedure
 SELECT is(md5(pg_get_functiondef(to_regprocedure('ops.record_primary_refund(uuid, integer, text, text)'))),
   '337a8f19d11a482e47437eb968dab40b', 'A5: ops.record_primary_refund body = 189''s (md5(pg_get_functiondef) 337a8f19)');
 SELECT is(md5(pg_get_functiondef(to_regprocedure('ops.primary_reconciliation(date, date)'))),
-  '046dfce98f9e6714bb46a87e896e7763', 'A6: ops.primary_reconciliation body = 189''s (md5(pg_get_functiondef) 046dfce9)');
+  '4ee4fc15337e895cf180d9d6ce0dc121', 'A6: ops.primary_reconciliation body = 189''s (md5(pg_get_functiondef) 4ee4fc15)');
 SELECT is((SELECT count(*)::integer FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
             WHERE n.nspname = 'ops' AND p.proname IN ('record_primary_refund', 'primary_reconciliation')), 2,
   'A7: one overload each');
@@ -330,6 +343,11 @@ SELECT is((SELECT (r ->> 'state', (r ->> 'tickets_issued')::int, (r ->> 'tickets
              FROM (SELECT tap._row259('s1', '25900000-0000-4000-8000-000000000601') r) x),
   ('refund_awaiting_stripe', 1, 1, 0, 2750, 0, 2750, 'refunded')::text,
   'R5: O1''s row — refunded order, 1 issued / 1 voided / 0 live, kernel 2750, Stripe 0, payments.total 2750: refund_awaiting_stripe');
+SELECT is((SELECT array_agg((e ->> 'payment_id') || '/' || (e ->> 'severity') || '/' || coalesce(e ->> 'order_id', 'null') ORDER BY e ->> 'payment_id')
+             FROM jsonb_array_elements(tap._fetch259('s1')::jsonb -> 'attention') e
+            WHERE e ->> 'code' = 'paid_never_finalized' AND e ->> 'payment_id' LIKE '25900000-%'),
+          ARRAY['25900000-0000-4000-8000-000000000617/critical/null'],
+  'V1: (v) the native payment that succeeded 20 min ago with no payment_native link is paid_never_finalized, CRITICAL, no order — 618 (5 min, grace) and 619 (refunded) are not');
 -- the (i)/(ii)/(iii)/(iv-over) fixtures
 SELECT tap.login_service();
 SELECT tap._store259('st_r1', public.record_refund_state('pi_259_11', 're_259_r1', 'succeeded', 2750, NULL, 'dashboard', 'webhook')::text);
@@ -360,9 +378,10 @@ SELECT is(tap._codes259('s2', '25900000-0000-4000-8000-000000000611'), ARRAY['st
 SELECT is((SELECT (e ->> 'code', e ->> 'severity', e ->> 'payment_id')::text FROM jsonb_array_elements(tap._fetch259('s2')::jsonb -> 'attention') WITH ORDINALITY x(e, n) WHERE n = 1),
   ('stripe_refunded_tickets_live', 'critical', '25900000-0000-4000-8000-000000000611')::text,
   'R8: …listed FIRST in the attention list, severity critical');
-SELECT is((SELECT count(*)::int FROM jsonb_array_elements(tap._fetch259('s2')::jsonb -> 'attention') e
-            WHERE e ->> 'severity' = 'critical' AND e ->> 'payment_id' LIKE '25900000-%'), 1,
-  'R9: exactly one critical item among the fixture payments (R1''s)');
+SELECT is((SELECT array_agg((e ->> 'code') || '/' || (e ->> 'payment_id') ORDER BY n) FROM jsonb_array_elements(tap._fetch259('s2')::jsonb -> 'attention') WITH ORDINALITY x(e, n)
+            WHERE e ->> 'severity' = 'critical' AND e ->> 'payment_id' LIKE '25900000-%'),
+          ARRAY['stripe_refunded_tickets_live/25900000-0000-4000-8000-000000000611', 'paid_never_finalized/25900000-0000-4000-8000-000000000617'],
+  'R9: exactly two critical items among the fixture payments, both ahead of every warning: R1''s (i) and payment 617''s (v)');
 SELECT is(ARRAY[tap._codes259('s2', '25900000-0000-4000-8000-000000000612')::text, tap._row259('s2', '25900000-0000-4000-8000-000000000612') ->> 'state'],
           ARRAY['{}', 'refund_awaiting_stripe'],
   'R10: (ii) R2 — a kernel refund less than 24 h old with nothing in Stripe is NOT flagged (refund_awaiting_stripe)');
@@ -396,10 +415,12 @@ SELECT tap._store259('fix_r4', kernel.issue_ticket_atoms(jsonb_build_object(
          'owner_id', '25900000-0000-4000-8000-000000000101', 'quantity', 1, 'cause', 'issue',
          'cause_ref', '25900000-0000-4000-8000-000000000414'), 'ck259-fix-r4')::text);
 SELECT tap._store259('fix_r6', kernel.void_ticket_atom('25900000-0000-4000-8000-000000000716', '25900000-0000-4000-8000-000000000916', 'ck259-fix-r6')::text);
+SELECT tap._store259('fix_r7', venue.finalize_primary_order('25900000-0000-4000-8000-000000000317', '25900000-0000-4000-8000-000000000617', 'ck259-fin-17', NULL)::text);
 SELECT is(ARRAY[tap._fetch259('fix_r1')::jsonb ->> 'status', tap._fetch259('st_r2')::jsonb ->> 'recorded', tap._fetch259('st_r3b')::jsonb ->> 'recorded',
-                tap._fetch259('st_o2')::jsonb ->> 'recorded', tap._fetch259('fix_r4')::jsonb ->> 'status', tap._fetch259('fix_r6')::jsonb ->> 'status'],
-          ARRAY['ok', 'true', 'true', 'true', 'ok', 'ok'],
-  'R15: fixes — R1 refund recorded by the admin (voids its atom); Stripe refunds recorded for R2 (2750), R3 (+250) and O2 (500); R4 minted; R6''s second atom voided');
+                tap._fetch259('st_o2')::jsonb ->> 'recorded', tap._fetch259('fix_r4')::jsonb ->> 'status', tap._fetch259('fix_r6')::jsonb ->> 'status',
+                tap._fetch259('fix_r7')::jsonb ->> 'status'],
+          ARRAY['ok', 'true', 'true', 'true', 'ok', 'ok', 'ok'],
+  'R15: fixes — R1 refund recorded by the admin (voids its atom); Stripe refunds recorded for R2 (2750), R3 (+250) and O2 (500); R4 minted; R6''s second atom voided; R7''s order finalized against payment 617 (the real path)');
 SELECT tap.login('25900000-0000-4000-8000-000000000a01'); SELECT tap._aal259('aal2');
 SELECT tap._store259('s4', tap._try259($q$SELECT ops.primary_reconciliation()$q$)::text);
 SELECT tap.logout();
@@ -419,17 +440,23 @@ SELECT is((SELECT (r ->> 'state', r -> 'attention', r ->> 'order_status', (r ->>
              FROM (SELECT tap._row259('s4', '25900000-0000-4000-8000-000000000602') r) x),
   ('refund_settled', '[]'::jsonb, 'partially_refunded', 1, 500, 500)::text,
   'R20: O2 — a deliberate kernel PARTIAL (money only) with a matching Stripe partial keeps its live atom and is NOT critical');
+SELECT is((SELECT ((SELECT count(*) FROM jsonb_array_elements(tap._fetch259('s4')::jsonb -> 'attention') e
+                     WHERE e ->> 'code' = 'paid_never_finalized' AND e ->> 'payment_id' LIKE '25900000-%')::int,
+                   r ->> 'state', (r ->> 'tickets_issued')::int)::text
+             FROM (SELECT tap._row259('s4', '25900000-0000-4000-8000-000000000617') r) x),
+  (0, 'ok', 1)::text,
+  'V2: (v) disappears once the order is finalized — payment 617 is now a linked row (state ok, one ticket issued) and no paid_never_finalized item is left');
 SELECT is(ARRAY[(SELECT count(*)::int FROM jsonb_array_elements(tap._fetch259('s4')::jsonb -> 'attention') e WHERE e ->> 'payment_id' LIKE '25900000-%'),
                 (SELECT count(*)::int FROM jsonb_array_elements(tap._fetch259('s4')::jsonb -> 'rows') e WHERE e ->> 'payment_id' LIKE '25900000-%')],
-          ARRAY[0, 8],
-  'R21: s4 — eight fixture rows (one per linked payment), no attention item left among them');
+          ARRAY[0, 9],
+  'R21: s4 — nine fixture rows (one per linked payment, 617 included), no attention item left among them');
 -- the window filter
 SELECT tap.login('25900000-0000-4000-8000-000000000a01'); SELECT tap._aal259('aal2');
 SELECT throws_ok($q$SELECT ops.primary_reconciliation('2026-10-02', '2026-10-01')$q$, 'P0001', 'invalid_input: from must not be after to', 'R22: from after to is refused');
 SELECT is((tap._try259($q$SELECT ops.primary_reconciliation('2000-01-01', '2000-01-02')$q$) ->> 'count')::int, 0, 'R23: a window with no linked payment reads zero rows');
 SELECT is((SELECT count(*)::int FROM jsonb_array_elements(tap._try259($q$SELECT ops.primary_reconciliation(((now() - interval '1 day') AT TIME ZONE 'UTC')::date, (now() AT TIME ZONE 'UTC')::date)$q$) -> 'rows') e
-            WHERE e ->> 'payment_id' LIKE '25900000-%'), 8,
-  'R24: a closed window yesterday..today (UTC) holds the eight fixture payments');
+            WHERE e ->> 'payment_id' LIKE '25900000-%'), 9,
+  'R24: a closed window yesterday..today (UTC) holds the nine linked fixture payments');
 SELECT tap.logout();
 -- no writes from the reader
 SELECT tap._store259('w0', tap._writes259()::text);

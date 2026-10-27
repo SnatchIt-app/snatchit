@@ -34,7 +34,7 @@
 --     window = linked_at, UTC days, NULL bound open): order status, tickets issued / voided / admitted /
 --     live, kernel.refund sum (status <> failed), Stripe-recorded refunds (succeeded; open =
 --     pending|requires_action) from public.payment_refund_state, payments.total, stripe_livemode, a state
---     (attention | refund_awaiting_stripe | refund_settled | ok) and attention items:
+--     (attention | refund_awaiting_stripe | refund_settled | ok) and attention items (two CRITICAL):
 --       (i)   stripe_refunded_tickets_live  CRITICAL — Stripe refunded but tickets are still live (the door
 --             would admit), unless the order is partially_refunded with a kernel sum >= Stripe's;
 --       (ii)  kernel_refund_without_stripe — kernel refunds older than 24 h exceed every refund Stripe
@@ -43,7 +43,15 @@
 --       (iv)  issuance_missing — linked more than 15 min ago with no atom ever issued; issuance_over — an
 --             order item with more issued|active|scanned atoms than its quantity (the schema allows it:
 --             ownership_log_cause_uq is (cause, cause_ref, ticket_atom_id); only the mint's replay check
---             prevents a second issuance).
+--             prevents a second issuance);
+--       (v)   paid_never_finalized CRITICAL — a succeeded native payment with NO kernel.payment_native link
+--             more than 15 min after it succeeded: the buyer paid and holds no ticket. Native rows are
+--             identified by public.payments.mode = 'native_primary' (the primary-checkout edge writes it,
+--             index.ts:1207; 093's payments_rail_pairing_ck pins listing_id / seller_id NULL on it). Success
+--             time = paid_at, else created_at when paid_at is NULL (earlier, so it can only alarm sooner): on
+--             this tree stripe-webhook/index.ts carries no native branch that sets paid_at (native.ts holds
+--             only its pure helpers), so the fallback is deliberate. No order exists to show: it is an
+--             attention item only (order_id NULL); the date window applies to that same time.
 --     ops.is_test_payment (DC-1, registry 180) is NOT on this tree: no dependency is added.
 --
 -- ── GRANTS / FOUR-FILE RULE ──────────────────────────────────────────────────────────────────
@@ -54,14 +62,14 @@
 --
 -- ── MD5 — md5(pg_get_functiondef(...)) ──────────────────────────────────────────────────────
 --   ops.record_primary_refund(uuid, integer, text, text)  predecessor ABSENT   189 337a8f19d11a482e47437eb968dab40b
---   ops.primary_reconciliation(date, date)                predecessor ABSENT   189 046dfce98f9e6714bb46a87e896e7763
+--   ops.primary_reconciliation(date, date)                predecessor ABSENT   189 4ee4fc15337e895cf180d9d6ce0dc121
 -- No predecessor body exists, so there is no strip rule: the pre-flight proves absence instead.
 --
 -- ROLLBACK: supabase/rollbacks/20261027033000_primary_refund_record_and_reconciliation_rollback.sql drops
 -- both (inverse guard: only 189's bodies; refuses while any function or view calls either).
 -- VERIFICATION (after apply):
 --   select md5(pg_get_functiondef(to_regprocedure('ops.record_primary_refund(uuid, integer, text, text)')));  -- 337a8f19d11a482e47437eb968dab40b
---   select md5(pg_get_functiondef(to_regprocedure('ops.primary_reconciliation(date, date)')));                -- 046dfce98f9e6714bb46a87e896e7763
+--   select md5(pg_get_functiondef(to_regprocedure('ops.primary_reconciliation(date, date)')));                -- 4ee4fc15337e895cf180d9d6ce0dc121
 --   select ops.primary_reconciliation();   -- as an operator with aal2
 -- LOCKS / RUNTIME: CREATE FUNCTION + GRANT/COMMENT only; no data read or written; lock_timeout 3s.
 -- ============================================================================
@@ -80,7 +88,7 @@ begin
   if v_r is not null and v_r <> '337a8f19d11a482e47437eb968dab40b' then
     raise exception 'precondition_failed: 189 refuses to overwrite an unexpected ops.record_primary_refund body (md5 %); nothing changed', v_r;
   end if;
-  if v_q is not null and v_q <> '046dfce98f9e6714bb46a87e896e7763' then
+  if v_q is not null and v_q <> '4ee4fc15337e895cf180d9d6ce0dc121' then
     raise exception 'precondition_failed: 189 refuses to overwrite an unexpected ops.primary_reconciliation body (md5 %); nothing changed', v_q;
   end if;
   if exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
@@ -162,6 +170,12 @@ AS $function$
 --   (iv)  issuance_missing                        linked more than 15 min ago and no atom ever issued.
 --         issuance_over                           an order item carries more issued|active|scanned
 --                                                 atoms than its quantity (a second issuance).
+--   (v)   paid_never_finalized          CRITICAL  a succeeded native payment (public.payments.mode =
+--         'native_primary' — the 093 rail-pairing CHECK pins listing_id and seller_id NULL on it) with NO
+--         kernel.payment_native link more than 15 min after it succeeded: the buyer paid and holds no
+--         ticket. Success time = paid_at, else created_at when paid_at is NULL (earlier: it can only
+--         alarm sooner). It has no order to show, so it is an attention item only (order_id NULL);
+--         the window applies to that same time.
 -- ops.is_test_payment (DC-1) is not on this tree: no test-data filter; stripe_livemode is returned.
 declare
   lo     timestamptz;
@@ -256,9 +270,24 @@ begin
            ]::text[], null) as codes
       from r
   ),
+  unl as (
+    -- (v) CRITICAL: paid, never finalized
+    select p.id as payment_id, null::uuid as order_id, coalesce(p.paid_at, p.created_at) as linked_at,
+           'paid_never_finalized'::text as code, 1::bigint as n
+      from public.payments p
+     where p.mode = 'native_primary'
+       and p.status = 'succeeded'
+       and coalesce(p.paid_at, p.created_at) <= now() - interval '15 minutes'
+       and (lo is null or coalesce(p.paid_at, p.created_at) >= lo)
+       and (hi is null or coalesce(p.paid_at, p.created_at) <  hi)
+       and not exists (select 1 from kernel.payment_native x where x.payment_id = p.id)
+  ),
   att as (
     select a.payment_id, a.order_id, a.linked_at, c.code, c.n
       from a, unnest(a.codes) with ordinality as c(code, n)
+    union all
+    select u.payment_id, u.order_id, u.linked_at, u.code, u.n
+      from unl u
   )
   select (select coalesce(jsonb_agg(jsonb_build_object(
                    'payment_id', a.payment_id, 'order_id', a.order_id, 'linked_at', a.linked_at,
@@ -278,7 +307,7 @@ begin
             from a),
          (select coalesce(jsonb_agg(jsonb_build_object(
                    'code', att.code,
-                   'severity', case when att.code = 'stripe_refunded_tickets_live' then 'critical' else 'warning' end,
+                   'severity', case when att.code in ('stripe_refunded_tickets_live', 'paid_never_finalized') then 'critical' else 'warning' end,
                    'payment_id', att.payment_id, 'order_id', att.order_id,
                    'message', case att.code
                      when 'stripe_refunded_tickets_live' then 'Stripe shows a succeeded refund but tickets of this order are still live: the door would still admit them. Record the refund (it voids them) or confirm a deliberate partial.'
@@ -286,8 +315,9 @@ begin
                      when 'refund_amount_mismatch'       then 'The refunds recorded here and the refunds Stripe shows as succeeded differ in amount.'
                      when 'issuance_missing'             then 'Paid and linked more than 15 minutes ago, but no ticket was ever issued for this order.'
                      when 'issuance_over'                then 'An order item carries more tickets than its quantity.'
+                     when 'paid_never_finalized'         then 'The buyer paid more than 15 minutes ago and the payment was never finalized: no order is linked and no ticket was issued. Finalize the order or refund the payment.'
                    end)
-                 order by (att.code <> 'stripe_refunded_tickets_live'), att.linked_at desc, att.payment_id, att.n), '[]'::jsonb)
+                 order by (att.code not in ('stripe_refunded_tickets_live', 'paid_never_finalized')), att.linked_at desc, att.payment_id, att.n), '[]'::jsonb)
             from att)
     into v_rows, v_att;
 
@@ -311,7 +341,7 @@ grant execute on function ops.primary_reconciliation(date, date) to authenticate
 comment on function ops.record_primary_refund(uuid, integer, text, text) is
   '189: console MANUAL refund record for a primary order — ops.assert_role(platform_admin|platform_support) at aal2 + the console pause switch, then kernel.refund_primary_order as the caller (full refund voids the tickets; kernel.refund written with no Stripe ref). The owner refunds in the Stripe Dashboard by hand; ops.primary_reconciliation pairs the two.';
 comment on function ops.primary_reconciliation(date, date) is
-  '189: read-only primary reconciliation under ops.assert_reader — per finalized native payment: order status, tickets issued/voided/admitted/live, kernel.refund sum, Stripe-recorded refunds (succeeded/open), payments.total; attention items (i) stripe_refunded_tickets_live CRITICAL, (ii) kernel_refund_without_stripe (24 h), (iii) refund_amount_mismatch, (iv) issuance_missing (15 min) / issuance_over.';
+  '189: read-only primary reconciliation under ops.assert_reader — per finalized native payment: order status, tickets issued/voided/admitted/live, kernel.refund sum, Stripe-recorded refunds (succeeded/open), payments.total; attention items (i) stripe_refunded_tickets_live CRITICAL, (ii) kernel_refund_without_stripe (24 h), (iii) refund_amount_mismatch, (iv) issuance_missing (15 min) / issuance_over, (v) paid_never_finalized CRITICAL (a succeeded native_primary payment with no payment_native link after 15 min).';
 
 -- ── POST-APPLY SELF-CHECK: each body just written must be EXACTLY this migration's (a modified copy of this
 -- file would pass the pre-flight as a "re-apply"; this makes it fail its own transaction); SECURITY DEFINER,
@@ -319,7 +349,7 @@ comment on function ops.primary_reconciliation(date, date) is
 do $pc$
 begin
   if md5(pg_get_functiondef(to_regprocedure('ops.record_primary_refund(uuid, integer, text, text)'))) is distinct from '337a8f19d11a482e47437eb968dab40b'
-  or md5(pg_get_functiondef(to_regprocedure('ops.primary_reconciliation(date, date)'))) is distinct from '046dfce98f9e6714bb46a87e896e7763' then
+  or md5(pg_get_functiondef(to_regprocedure('ops.primary_reconciliation(date, date)'))) is distinct from '4ee4fc15337e895cf180d9d6ce0dc121' then
     raise exception 'precondition_failed: 189 self-check — a written body is not this migration''s; this file was modified';
   end if;
   if exists (select 1 from pg_proc
