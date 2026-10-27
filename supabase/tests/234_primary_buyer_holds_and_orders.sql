@@ -46,7 +46,9 @@
 --              other session's batch for S2; hold_cap_exceeded at the 4th hold;
 --              hidden / door_only tier / unknown session → P0002 not_found;
 --              then B2: flag off → feature_disabled, TTL unset → hold_ttl_unset,
---              announced event → not_on_sale (all the engine's own refusals,
+--              announced event → not_on_sale, a public tier whose sale window
+--              has not opened → tier_not_on_sale (A's 185 BLOCK W, beneath
+--              since 2026-10-27; R17) (all the engine's own refusals,
 --              passed through); anon 42501 at the ACL; no-subject and
 --              service_role 42501 'insufficient_privilege: authentication
 --              required'.
@@ -73,7 +75,7 @@
 -- psql reports the 42883.
 -- ============================================================================
 BEGIN;
-SELECT plan(54);
+SELECT plan(55);
 
 CREATE TABLE tap.memo_234 (k text PRIMARY KEY, v text);
 CREATE FUNCTION tap._store234(k text, v text) RETURNS text
@@ -107,6 +109,9 @@ INSERT INTO venue.ticket_type (ticket_type_id, event_id, kind, name, price_minor
   ('23400000-0000-4000-8000-000000000013', '23400000-0000-4000-8000-0000000000e1', 'admission', 'Hidden',    1500, 'hidden'),
   ('23400000-0000-4000-8000-000000000014', '23400000-0000-4000-8000-0000000000e1', 'table',     'Door',      1000, 'door_only'),
   ('23400000-0000-4000-8000-000000000041', '23400000-0000-4000-8000-0000000000e3', 'admission', 'T4',        2200, 'public');
+-- R17's tier: public, on the on_sale event, its sale window opens in three days (162's column; 185 refuses before it opens)
+INSERT INTO venue.ticket_type (ticket_type_id, event_id, kind, name, price_minor, visibility, sale_starts_at) VALUES
+  ('23400000-0000-4000-8000-000000000015', '23400000-0000-4000-8000-0000000000e1', 'admission', 'Late window', 2500, 'public', now() + interval '3 days');
 INSERT INTO venue.inventory_batch (batch_id, ticket_type_id, event_session_id, release_kind, capacity, held, sold, created_at) VALUES
   ('23400000-0000-4000-8000-0000000000c1', '23400000-0000-4000-8000-000000000011', '23400000-0000-4000-8000-0000000000f1', 'public_sale',   5, 0, 0, '2026-10-05 00:00:00+00'),
   ('23400000-0000-4000-8000-0000000000c2', '23400000-0000-4000-8000-000000000011', '23400000-0000-4000-8000-0000000000f1', 'comp',        100, 0, 0, '2026-09-01 00:00:00+00'),
@@ -115,7 +120,8 @@ INSERT INTO venue.inventory_batch (batch_id, ticket_type_id, event_session_id, r
   ('23400000-0000-4000-8000-0000000000c5', '23400000-0000-4000-8000-000000000012', '23400000-0000-4000-8000-0000000000f1', 'public_sale',  10, 0, 0, '2026-10-02 00:00:00+00'),
   ('23400000-0000-4000-8000-0000000000c6', '23400000-0000-4000-8000-000000000013', '23400000-0000-4000-8000-0000000000f1', 'public_sale',  10, 0, 0, '2026-09-01 00:00:00+00'),
   ('23400000-0000-4000-8000-0000000000c7', '23400000-0000-4000-8000-000000000014', '23400000-0000-4000-8000-0000000000f1', 'door',         10, 0, 0, '2026-09-01 00:00:00+00'),
-  ('23400000-0000-4000-8000-0000000000c8', '23400000-0000-4000-8000-000000000041', '23400000-0000-4000-8000-0000000000f4', 'public_sale',  10, 0, 0, '2026-10-05 00:00:00+00');
+  ('23400000-0000-4000-8000-0000000000c8', '23400000-0000-4000-8000-000000000041', '23400000-0000-4000-8000-0000000000f4', 'public_sale',  10, 0, 0, '2026-10-05 00:00:00+00'),
+  ('23400000-0000-4000-8000-0000000000c9', '23400000-0000-4000-8000-000000000015', '23400000-0000-4000-8000-0000000000f1', 'public_sale',  10, 0, 0, '2026-10-05 00:00:00+00');
 -- orders: all born pending (082 items are immutable once the order leaves pending); P1 moved to paid after its item
 INSERT INTO venue."order" (order_id, buyer_id, event_session_id, org_id, status, source, total_minor, currency, command_idempotency_key, created_at) VALUES
   ('23400000-0000-4000-8000-000000000301', '23400000-0000-4000-8000-000000000101', '23400000-0000-4000-8000-0000000000f1', '23400000-0000-4000-8000-00000000000a', 'pending', 'app', 3000, 'USD', 'p1-234', '2026-10-20 10:00:00+00'),
@@ -296,6 +302,9 @@ SELECT tap.login('23400000-0000-4000-8000-000000000102');
 SELECT throws_ok($$ SELECT public.reserve_primary_tier('23400000-0000-4000-8000-0000000000f4', '23400000-0000-4000-8000-000000000041', 1, 'q4-234') $$,
   'P0001', 'precondition_failed: not_on_sale',
   'R16: a public tier of an ANNOUNCED event — the engine''s not_on_sale passes through');
+SELECT throws_ok($$ SELECT public.reserve_primary_tier('23400000-0000-4000-8000-0000000000f1', '23400000-0000-4000-8000-000000000015', 1, 'q5-234') $$,
+  'P0001', 'precondition_failed: tier_not_on_sale',
+  'R17: a public tier of an ON-SALE event whose sale window opens in three days — 185''s tier_not_on_sale passes through (BLOCK W, venue.ticket_type_on_sale)');
 SELECT tap.logout();
 SELECT tap.login_anon();
 SELECT throws_ok($$ SELECT public.reserve_primary_tier('23400000-0000-4000-8000-0000000000f1', '23400000-0000-4000-8000-000000000011', 1, 'a1-234') $$,
