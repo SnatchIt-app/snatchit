@@ -48,7 +48,7 @@
 --              then B2: flag off → feature_disabled, TTL unset → hold_ttl_unset,
 --              announced event → not_on_sale, a public tier whose sale window
 --              has not opened → tier_not_on_sale (A's 185 BLOCK W, beneath
---              since 2026-10-27; R17) (all the engine's own refusals,
+--              since 2026-10-27; R16b) (all the engine's own refusals,
 --              passed through); anon 42501 at the ACL; no-subject and
 --              service_role 42501 'insufficient_privilege: authentication
 --              required'.
@@ -65,6 +65,8 @@
 --              for the unlinked pending order; event_session_id + title; B2
 --              sees only Q1; the fan sees none; anon 42501; no-subject 28000.
 --
+-- Positive-path reserve/release results go through tap._try234 (A's N7), so a broken
+-- batch pick reads as clean `not ok`s instead of aborting the file.
 -- Expected on the 182 chain WITHOUT 167 (RED, predicted before the first run;
 -- reconciled in EVIDENCE-167.md §1): the fixture (tables only) succeeds;
 -- A1-A16 all `not ok` (functions absent — every probe is NULL-safe via
@@ -72,10 +74,16 @@
 -- (current_user = authenticated); the store before R1 is the first direct call
 -- of a 167 function, raises 42883 and aborts the transaction, so R1 onward is
 -- never emitted. Predicted RED run: 17 emitted = 16 not ok + 1 ok; plan unmet;
--- psql reports the 42883.
+-- psql reports the 42883. SINCE A's N7 (2026-10-27) the stores go through
+-- tap._try234, so that 42883 is caught: predicted RED is now A1-A16 not ok, R0 ok,
+-- every R and X assertion `not ok` (none aborts: the results read as
+-- {"error": "42883|…"}, the throws_ok calls see 42883 instead of their code), and
+-- the first O assertion's direct read of public.list_my_primary_orders() raises
+-- 42883 and aborts; O1 onward is not emitted. Measured counts:
+-- planning/2026-10-26-launch/D/a-review-164-167/EVIDENCE.md.
 -- ============================================================================
 BEGIN;
-SELECT plan(55);
+SELECT plan(56);
 
 CREATE TABLE tap.memo_234 (k text PRIMARY KEY, v text);
 CREATE FUNCTION tap._store234(k text, v text) RETURNS text
@@ -84,7 +92,13 @@ $m$ INSERT INTO tap.memo_234 VALUES (k, v) ON CONFLICT (k) DO UPDATE SET v = exc
 CREATE FUNCTION tap._fetch234(k text) RETURNS text
 LANGUAGE sql SECURITY DEFINER AS
 $m$ SELECT v FROM tap.memo_234 WHERE k = $1 $m$;
-GRANT EXECUTE ON FUNCTION tap._store234(text, text), tap._fetch234(text) TO anon, authenticated, service_role;
+-- the text a statement returns AS THE CALLER, or {"error": "<SQLSTATE>|<SQLERRM>"} — a JSON object either way, so a
+-- later ::jsonb read of a stored result yields NULL fields instead of aborting the file (A's N7: two batch-pick
+-- mutants aborted here instead of reporting; 232's pattern)
+CREATE FUNCTION tap._try234(q text) RETURNS text
+LANGUAGE plpgsql AS
+$m$ DECLARE v text; BEGIN EXECUTE q INTO v; RETURN v; EXCEPTION WHEN OTHERS THEN RETURN jsonb_build_object('error', SQLSTATE || '|' || SQLERRM)::text; END $m$;
+GRANT EXECUTE ON FUNCTION tap._store234(text, text), tap._fetch234(text), tap._try234(text) TO anon, authenticated, service_role;
 
 -- ── Fixture (synthetic; never a migration) ─────────────────────────────────
 INSERT INTO auth.users (id, instance_id, aud, role, email, raw_app_meta_data, raw_user_meta_data, email_confirmed_at, created_at, updated_at) VALUES
@@ -221,7 +235,7 @@ SELECT ok(coalesce((SELECT count(*) = 3 AND bool_and(NOT EXISTS (SELECT 1 FROM u
 -- ── Section R — reserve_primary_tier ─────────────────────────────────────────
 SELECT tap.login('23400000-0000-4000-8000-000000000101');
 SELECT is(current_user::text, 'authenticated', 'R0: B1 calls as the authenticated role (tap.login)');
-SELECT tap._store234('r_k1', public.reserve_primary_tier('23400000-0000-4000-8000-0000000000f1', '23400000-0000-4000-8000-000000000011', 2, 'k1-234')::text);
+SELECT tap._store234('r_k1', tap._try234($q$SELECT public.reserve_primary_tier('23400000-0000-4000-8000-0000000000f1', '23400000-0000-4000-8000-000000000011', 2, 'k1-234')::text$q$));
 SELECT is((SELECT (j ->> 'status', (j ->> 'quantity')::int, j ->> 'hold_id' IS NOT NULL, j ->> 'expires_at' IS NOT NULL,
                    (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(j) k))::text FROM (SELECT tap._fetch234('r_k1')::jsonb j) x),
   ('ok', 2, true, true, ARRAY['expires_at','hold_id','quantity','status'])::text,
@@ -238,7 +252,7 @@ SELECT is((SELECT (b1.held, b2.held, (SELECT count(*)::int FROM venue.inventory_
   (2, 0, 1)::text,
   'R3: bA.held = 2, the comp batch untouched (held 0), B1 holds exactly one hold');
 SELECT tap.login('23400000-0000-4000-8000-000000000101');
-SELECT tap._store234('r_k1b', public.reserve_primary_tier('23400000-0000-4000-8000-0000000000f1', '23400000-0000-4000-8000-000000000011', 3, 'k1-234')::text);
+SELECT tap._store234('r_k1b', tap._try234($q$SELECT public.reserve_primary_tier('23400000-0000-4000-8000-0000000000f1', '23400000-0000-4000-8000-000000000011', 3, 'k1-234')::text$q$));
 SELECT is((SELECT (j ->> 'status', j ->> 'hold_id', (j ->> 'quantity')::int)::text FROM (SELECT tap._fetch234('r_k1b')::jsonb j) x),
   ('idempotency_replay', tap._fetch234('r_k1')::jsonb ->> 'hold_id', 2)::text,
   'R4: a replay with the same key (asking 3) returns the ORIGINAL hold — idempotency_replay, the same hold_id, quantity 2 (the engine''s per-identity key rule)');
@@ -251,8 +265,8 @@ SELECT tap.login('23400000-0000-4000-8000-000000000101');
 SELECT throws_ok($$ SELECT public.reserve_primary_tier('23400000-0000-4000-8000-0000000000f1', '23400000-0000-4000-8000-000000000011', 4, 'k2-234') $$,
   'P0001', 'precondition_failed: oversell_rejected',
   'R6: 4 more of GA on S1 (cap 5, held 2) — the engine''s oversell_rejected passes through with its code');
-SELECT tap._store234('r_k3', public.reserve_primary_tier('23400000-0000-4000-8000-0000000000f1', '23400000-0000-4000-8000-000000000012', 2, 'k3-234')::text);
-SELECT tap._store234('r_k4', public.reserve_primary_tier('23400000-0000-4000-8000-0000000000f2', '23400000-0000-4000-8000-000000000011', 1, 'k4-234')::text);
+SELECT tap._store234('r_k3', tap._try234($q$SELECT public.reserve_primary_tier('23400000-0000-4000-8000-0000000000f1', '23400000-0000-4000-8000-000000000012', 2, 'k3-234')::text$q$));
+SELECT tap._store234('r_k4', tap._try234($q$SELECT public.reserve_primary_tier('23400000-0000-4000-8000-0000000000f2', '23400000-0000-4000-8000-000000000011', 1, 'k4-234')::text$q$));
 SELECT throws_ok($$ SELECT public.reserve_primary_tier('23400000-0000-4000-8000-0000000000f1', '23400000-0000-4000-8000-000000000012', 1, 'k5-234') $$,
   'P0001', 'precondition_failed: hold_cap_exceeded',
   'R7: a fourth active hold (cap 3) — the engine''s hold_cap_exceeded passes through');
@@ -275,7 +289,7 @@ SELECT is((SELECT (count(*)::int, sum(h.quantity)::int)::text FROM venue.invento
   (3, 5)::text,
   'R12: B1 now holds exactly three active holds (2 + 2 + 1); the refused calls drew nothing');
 SELECT tap.login('23400000-0000-4000-8000-000000000102');
-SELECT tap._store234('r_q1', public.reserve_primary_tier('23400000-0000-4000-8000-0000000000f1', '23400000-0000-4000-8000-000000000012', 1, 'q1-234')::text);
+SELECT tap._store234('r_q1', tap._try234($q$SELECT public.reserve_primary_tier('23400000-0000-4000-8000-0000000000f1', '23400000-0000-4000-8000-000000000012', 1, 'q1-234')::text$q$));
 SELECT tap.logout();
 SELECT is((SELECT (h.batch_id, h.identity_id)::text FROM venue.inventory_hold h WHERE h.hold_id = (tap._fetch234('r_q1')::jsonb ->> 'hold_id')::uuid),
   ('23400000-0000-4000-8000-0000000000c4', '23400000-0000-4000-8000-000000000102')::text,
@@ -304,7 +318,7 @@ SELECT throws_ok($$ SELECT public.reserve_primary_tier('23400000-0000-4000-8000-
   'R16: a public tier of an ANNOUNCED event — the engine''s not_on_sale passes through');
 SELECT throws_ok($$ SELECT public.reserve_primary_tier('23400000-0000-4000-8000-0000000000f1', '23400000-0000-4000-8000-000000000015', 1, 'q5-234') $$,
   'P0001', 'precondition_failed: tier_not_on_sale',
-  'R17: a public tier of an ON-SALE event whose sale window opens in three days — 185''s tier_not_on_sale passes through (BLOCK W, venue.ticket_type_on_sale)');
+  'R16b: a public tier of an ON-SALE event whose sale window opens in three days — 185''s tier_not_on_sale passes through (BLOCK W, venue.ticket_type_on_sale)');
 SELECT tap.logout();
 SELECT tap.login_anon();
 SELECT throws_ok($$ SELECT public.reserve_primary_tier('23400000-0000-4000-8000-0000000000f1', '23400000-0000-4000-8000-000000000011', 1, 'a1-234') $$,
@@ -314,6 +328,9 @@ SELECT set_config('role', 'authenticated', true);
 SELECT set_config('request.jwt.claims', '{"role":"authenticated"}', true);
 SELECT throws_ok($$ SELECT public.reserve_primary_tier('23400000-0000-4000-8000-0000000000f1', '23400000-0000-4000-8000-000000000011', 1, 'n1-234') $$,
   '42501', 'insufficient_privilege: authentication required', 'R18: authenticated role with no subject -> 42501 authentication required (before any lookup)');
+SELECT throws_ok($$ SELECT public.reserve_primary_tier('23400000-0000-4000-8000-0000000000f1', '23400000-0000-4000-8000-0000000000ee', 1, 'n1b-234') $$,
+  '42501', 'insufficient_privilege: authentication required',
+  'R18b: no subject + an UNKNOWN tier -> still 42501, never P0002 — the wrapper''s own NULL-uid check runs before its batch lookup (A''s N3: without it R18 still passed, because the engine refuses a NULL uid itself once a batch exists)');
 SELECT tap.logout();
 SELECT tap.login_service();
 SELECT throws_ok($$ SELECT public.reserve_primary_tier('23400000-0000-4000-8000-0000000000f1', '23400000-0000-4000-8000-000000000011', 1, 's1-234') $$,
@@ -339,7 +356,7 @@ SELECT is((SELECT (h1.status, b.held, hq.status)::text
   ('active', 2, 'active')::text,
   'X4: B1''s hold is untouched by B2''s attempt (active, bA.held 2) and B2''s own hold survives the refused sweep: key');
 SELECT tap.login('23400000-0000-4000-8000-000000000101');
-SELECT tap._store234('x_k1', public.release_primary_hold((tap._fetch234('r_k1')::jsonb ->> 'hold_id')::uuid, 'x5-234')::text);
+SELECT tap._store234('x_k1', tap._try234($q$SELECT public.release_primary_hold((tap._fetch234('r_k1')::jsonb ->> 'hold_id')::uuid, 'x5-234')::text$q$));
 SELECT is((SELECT (j ->> 'status', j ->> 'hold_id', j ->> 'hold_status', (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(j) k))::text
              FROM (SELECT tap._fetch234('x_k1')::jsonb j) x),
   ('ok', tap._fetch234('r_k1')::jsonb ->> 'hold_id', 'released', ARRAY['hold_id','hold_status','status'])::text,
@@ -350,7 +367,7 @@ SELECT is((SELECT (b.held, (SELECT count(*)::int FROM venue.inventory_movement m
   (0, 1)::text,
   'X6: the engine returned the units (bA.held 0) and wrote its release movement (-2)');
 SELECT tap.login('23400000-0000-4000-8000-000000000101');
-SELECT is((public.release_primary_hold((tap._fetch234('r_k1')::jsonb ->> 'hold_id')::uuid, 'x7-234') - 'hold_id')::text,
+SELECT is(tap._try234($q$SELECT (public.release_primary_hold((tap._fetch234('r_k1')::jsonb ->> 'hold_id')::uuid, 'x7-234') - 'hold_id')::text$q$),
   '{"status": "noop_replay", "hold_status": "released"}',
   'X7: releasing it again is the engine''s terminal-state noop_replay');
 SELECT tap.logout();
