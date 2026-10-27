@@ -109,7 +109,7 @@ export default async function PayoutsPage({ params, searchParams }: { params: Pr
           This dashboard only ever sees the last four characters of the account; the full identifier stays on the server. Nothing on this page moves money or tells you that money moved.
         </p>
 
-        <ConnectActions orgId={org} action={action} mayBind={capability.mayBind} needsStepUp={capability.needsStepUp} stepUpHref={`${self}?step_up=1${back ? `&from=${encodeURIComponent(back)}` : ""}`} />
+        <ConnectActions orgId={org} action={action} mayBind={capability.mayBind} needsStepUp={capability.needsStepUp} stepUpHref={`${self}?step_up=1${back ? `&from=${encodeURIComponent(back)}` : ""}`} storedTransfersActive={state?.transfersActive ?? null} />
 
         {!capability.mayBind && !capability.needsStepUp ? (
           <p className="mt-3 text-sm text-muted">

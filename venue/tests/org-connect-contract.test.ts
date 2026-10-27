@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   ACTION_LABEL,
@@ -155,5 +157,37 @@ describe("the request body the edge accepts", () => {
     const keys = Object.keys(onboardingBody(OK.org_id, { statusOnly: true, commandKey: "k" }));
     expect(keys.sort()).toEqual(["command_key", "org_id", "status_only"]);
     for (const k of keys) expect(k).not.toMatch(/url/);
+  });
+});
+
+describe("when the live Stripe read and the stored mirror disagree (E-F6)", () => {
+  const actions = readFileSync(resolve(__dirname, "../src/components/org/ConnectActions.tsx"), "utf8");
+  const page = readFileSync(resolve(__dirname, "../src/app/o/[org]/payouts/page.tsx"), "utf8");
+
+  it("says so, instead of showing two panels that contradict each other in silence", () => {
+    // 2026-10-27: the owner saw "ready" from the live read and "Not yet" from the
+    // stored copy, eleven seconds after the account was created.
+    expect(actions).toMatch(/storedBehind/);
+    expect(actions).toMatch(/still says no/);
+  });
+
+  it("explains that going on sale reads the STORED copy, which is what actually gates selling", () => {
+    expect(actions).toMatch(/Going on sale reads the stored copy/);
+  });
+
+  it("offers NO button to reconcile it — kernel.sync_org_connect_state is service_role only, and 093 forbids a human path", () => {
+    expect(actions).not.toMatch(/sync_org_connect_state\s*\(/);
+    expect(actions).toMatch(/none may ever be added|no human path/i);
+    // Nothing on this surface may claim it can write the stored value.
+    expect(actions).toMatch(/neither this page nor this button can write it/);
+  });
+
+  it("only fires when the live read is ready and the stored copy is not", () => {
+    expect(actions).toMatch(/const liveReady = snapshot\.transfersActive === true/);
+    expect(actions).toMatch(/const storedBehind = liveReady && storedTransfersActive !== true/);
+  });
+
+  it("is fed the stored value by the page, not re-derived in the client", () => {
+    expect(page).toMatch(/storedTransfersActive=\{state\?\.transfersActive \?\? null\}/);
   });
 });

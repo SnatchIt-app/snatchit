@@ -13,7 +13,7 @@ import { ACTION_LABEL, FAILURE_COPY, type ConnectAction, type ConnectSnapshot } 
  * nothing here navigates on its own, because leaving mid-setup silently would
  * lose the operator's place.
  */
-export function ConnectActions({ orgId, action, mayBind, needsStepUp, stepUpHref }: { orgId: string; action: ConnectAction; mayBind: boolean; needsStepUp: boolean; stepUpHref: string }) {
+export function ConnectActions({ orgId, action, mayBind, needsStepUp, stepUpHref, storedTransfersActive }: { orgId: string; action: ConnectAction; mayBind: boolean; needsStepUp: boolean; stepUpHref: string; storedTransfersActive: boolean | null }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [result, setResult] = useState<ConnectActionResult | null>(null);
@@ -77,12 +77,32 @@ export function ConnectActions({ orgId, action, mayBind, needsStepUp, stepUpHref
         </p>
       ) : null}
 
-      {result && result.ok ? <SnapshotNote snapshot={result.snapshot} /> : null}
+      {result && result.ok ? <SnapshotNote snapshot={result.snapshot} storedTransfersActive={storedTransfersActive} /> : null}
     </div>
   );
 }
 
-function SnapshotNote({ snapshot }: { snapshot: ConnectSnapshot }) {
+/**
+ * The live Stripe read, beside the stored mirror — and a sentence when they
+ * disagree.
+ *
+ * Both panels can be right at once and still read as a contradiction: this one
+ * is Stripe answering now, while "Can receive transfers" above is
+ * `kernel.organization.connect_transfers_active`, a mirror that only Stripe's
+ * own notification updates. On 2026-10-27 the owner saw "ready" here and
+ * "Not yet" there, eleven seconds after the account was created, and had no way
+ * to tell which to believe.
+ *
+ * There is deliberately NO button here to reconcile them.
+ * `kernel.sync_org_connect_state` is `service_role` only and 093:3610 says why:
+ * "There is no human path here and none may ever be added (R-31)" — an operator
+ * who could declare their own account ready would walk straight through the
+ * on-sale check. So this explains the gap and names what closes it, and stops
+ * there.
+ */
+function SnapshotNote({ snapshot, storedTransfersActive }: { snapshot: ConnectSnapshot; storedTransfersActive: boolean | null }) {
+  const liveReady = snapshot.transfersActive === true;
+  const storedBehind = liveReady && storedTransfersActive !== true;
   return (
     <div role="status" className="border-l-2 border-line-strong bg-well px-3 py-2 text-sm">
       <p>
@@ -98,6 +118,14 @@ function SnapshotNote({ snapshot }: { snapshot: ConnectSnapshot }) {
         {snapshot.requirementsDeadline ? <li>Deadline: {snapshot.requirementsDeadline}</li> : null}
       </ul>
       <p className="mt-1 text-xs text-dim">Read from Stripe just now. This says nothing about money having moved.</p>
+      {storedBehind ? (
+        <p className="mt-2 border-l-2 border-line-strong pl-2 text-xs text-muted">
+          Stripe is ready, but <strong>&ldquo;Can receive transfers&rdquo; above still says no</strong>. That row is the stored copy, and only
+          Stripe&rsquo;s own notification to the platform updates it &mdash; neither this page nor this button can write it, by design.
+          Going on sale reads the stored copy, so it waits for that notification. If it stays behind, an operator has to reconcile it
+          server-side; nothing is wrong with the Stripe account.
+        </p>
+      ) : null}
     </div>
   );
 }
