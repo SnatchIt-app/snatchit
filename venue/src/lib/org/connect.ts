@@ -2,11 +2,14 @@
 
 import "server-only";
 
+import { cookies } from "next/headers";
+
 import { probeSession } from "@/lib/auth/session";
 import { mapReadError, transportFailure, type ReadResult } from "@/lib/db/read-result";
 import { DATA_SOURCE, SUPABASE_ANON_KEY, SUPABASE_URL } from "@/lib/env";
 import { isUuid } from "@/lib/page";
 import { connectCapability, failureFromEdge, onboardingBody, parseConnectSnapshot, parseOrgConnectState, type ConnectCapability, type ConnectFailure, type ConnectSnapshot, type OrgConnectState } from "@/lib/org/connect-contract";
+import { connectContextCookieOptions, isPayoutsRole } from "@/lib/org/connect-return";
 import { createSupabaseServerClient, SupabaseConfigError } from "@/lib/supabase/server";
 
 /**
@@ -76,6 +79,34 @@ async function orgRoles(orgId: string): Promise<{ ok: true; roles: string[] } | 
   if (r.error) return { ok: false, failure: { kind: r.error.code === "PGRST106" ? "not_enabled" : "state_unavailable", detail: r.error.message } };
   const rows = Array.isArray(r.data) ? (r.data as OrgRoleRow[]) : [];
   return { ok: true, roles: rows.filter((x) => typeof x?.role === "string").map((x) => x.role) };
+}
+
+/**
+ * Every org this caller may see payouts for. The return and refresh routes
+ * need it because the edge's URLs carry no org — see lib/org/connect-return.ts.
+ * Unfiltered on purpose; RLS scopes `my_org_roles` to the caller.
+ */
+export async function myPayoutOrgIds(): Promise<{ ok: true; orgIds: string[] } | { ok: false; failure: ConnectFailure }> {
+  if (DATA_SOURCE !== "database") return { ok: true, orgIds: [] };
+  const session = await probeSession();
+  if (!session.ok) return { ok: false, failure: { kind: "state_unavailable", detail: session.message } };
+  if (!session.user) return { ok: false, failure: { kind: "forbidden" } };
+  let c: { from(v: string): { select(cols: string): PromiseLike<RpcResponse> } };
+  try {
+    c = (await createSupabaseServerClient()).schema("venue_api") as unknown as typeof c;
+  } catch {
+    return { ok: false, failure: { kind: "state_unavailable", detail: "client unavailable" } };
+  }
+  let r: RpcResponse;
+  try {
+    r = await withTimeout(c.from("my_org_roles").select("org_id,role"), TIMEOUT_MS);
+  } catch (e) {
+    return { ok: false, failure: { kind: "transport", detail: e instanceof Error ? e.message : undefined } };
+  }
+  if (r.error) return { ok: false, failure: { kind: r.error.code === "PGRST106" ? "not_enabled" : "state_unavailable", detail: r.error.message } };
+  const rows = Array.isArray(r.data) ? (r.data as OrgRoleRow[]) : [];
+  const ids = rows.filter((x) => typeof x?.org_id === "string" && typeof x?.role === "string" && isPayoutsRole(x.role)).map((x) => x.org_id);
+  return { ok: true, orgIds: [...new Set(ids)] };
 }
 
 /** What the payouts page renders: the caller's capability and the org's Connect state. Fail closed. */
@@ -178,7 +209,22 @@ export async function refreshOrgConnect(orgId: string): Promise<ConnectActionRes
 /** The link button. The edge mints onboarding, reconnect or the dashboard link as the bound state dictates. */
 export async function startOrgOnboarding(orgId: string, commandKey: string): Promise<ConnectActionResult> {
   if (typeof commandKey !== "string" || commandKey.length < 8 || commandKey.length > 128) return { ok: false, failure: { kind: "invalid_request", detail: "command key" } };
-  return callOnboardingEdge(orgId, { commandKey });
+  const result = await callOnboardingEdge(orgId, { commandKey });
+  // Remember which org this attempt was for. The edge's return and refresh URLs
+  // may carry no query or fragment (Ruling G §3), so without this the way back
+  // has nothing to go on but the caller's roles. Written only once the edge has
+  // actually handed back a link, and only for a caller it just authorised.
+  if (result.ok && result.snapshot.url) {
+    try {
+      const jar = await cookies();
+      const { name, ...options } = connectContextCookieOptions();
+      jar.set(name, orgId.toLowerCase(), options);
+    } catch {
+      // A render path with read-only cookies: the way back falls through to the
+      // caller's own org roles, which is the designed fallback, not a failure.
+    }
+  }
+  return result;
 }
 
 /** Unused re-export guard: keeps `transportFailure`'s shape honest if read-result changes. */

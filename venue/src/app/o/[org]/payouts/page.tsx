@@ -29,6 +29,9 @@ export default async function PayoutsPage({ params, searchParams }: { params: Pr
   const { org } = await params;
   const sp = await searchParams;
   const stepUp = sp.step_up === "1";
+  // Decoration only (Ruling G §3): it changes one sentence, never the state below,
+  // which is always the server's answer.
+  const retry = sp.retry === "1";
   const back = typeof sp.from === "string" && sp.from.startsWith("/o/") ? sp.from : null;
   const self = `/o/${org}/payouts`;
 
@@ -74,6 +77,11 @@ export default async function PayoutsPage({ params, searchParams }: { params: Pr
 
   return (
     <Shell org={org} back={back}>
+      {retry ? (
+        <p role="status" className="mb-4 border-l-2 border-warning bg-warning-soft px-3 py-2 text-sm text-warning">
+          That Stripe setup link had expired, so nothing was lost. Start the setup again below to get a new one.
+        </p>
+      ) : null}
       <section className="panel px-5 py-5" aria-labelledby="payouts-state">
         <h2 id="payouts-state" className="text-lg font-semibold text-ink">Where your money is paid</h2>
         {!state ? (
