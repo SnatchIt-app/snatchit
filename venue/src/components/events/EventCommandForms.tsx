@@ -91,8 +91,25 @@ export function SessionForm({ ids, commandKey, timeZone, session }: { ids: Comma
   );
 }
 
-export function SessionCapacityForm({ ids, commandKey, sessionId, capacity, allocated, capacityHint }: { ids: CommandIds; commandKey: string; sessionId: string; capacity?: number | null; allocated?: number | null; capacityHint?: number | null }) {
+export function SessionCapacityForm({
+  ids,
+  commandKey,
+  sessionId,
+  capacity,
+  allocated,
+  capacityHint,
+  remainingToAllocate,
+}: {
+  ids: CommandIds;
+  commandKey: string;
+  sessionId: string;
+  capacity?: number | null;
+  allocated?: number | null;
+  capacityHint?: number | null;
+  remainingToAllocate?: number | null;
+}) {
   const known = typeof allocated === "number";
+  const unlimited = known && capacity === null;
   return (
     <CommandForm action={setSessionCapacityForm} ids={ids} commandKey={commandKey} extra={{ sessionId }} submitLabel="Set the pool" busyLabel="Setting…">
       <Field
@@ -104,8 +121,15 @@ export function SessionCapacityForm({ ids, commandKey, sessionId, capacity, allo
         defaultValue={typeof capacity === "number" ? String(capacity) : ""}
         hint={
           known
-            ? `Already allocated to releases: ${allocated}${typeof capacityHint === "number" ? ` · venue capacity ${capacityHint}` : ""}. Leave empty for unlimited.`
-            : "Leave empty for unlimited. The server refuses a pool below what is already allocated, or above the venue's capacity, and says the numbers."
+            ? [
+                unlimited ? "No limit set: this night may sell as much as its releases hold." : `Pool now: ${capacity}.`,
+                `Already allocated to releases: ${allocated}${typeof remainingToAllocate === "number" ? ` · ${remainingToAllocate} left to allocate` : ""}.`,
+                typeof capacityHint === "number" ? `Venue capacity ${capacityHint}.` : null,
+                "Leave empty for unlimited.",
+              ]
+                .filter(Boolean)
+                .join(" ")
+            : "Leave empty for unlimited. These numbers are not readable on this project yet, so the server refuses a pool below what is already allocated, or above the venue's capacity, and says the numbers then."
         }
       />
       <Field label="Reason" name="reason_code" required placeholder="opening_pool" maxLength={80} />

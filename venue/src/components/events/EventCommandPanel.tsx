@@ -4,6 +4,7 @@ import type { CommandIds } from "@/components/commands/CommandForm";
 import { nextPublishTarget, type EventStatusName } from "@/lib/events/command-contract";
 import { formatInZone } from "@/lib/events/instants";
 import { zoneNote, type ZoneInfo } from "@/lib/events/zone";
+import type { SessionCapacity } from "@/lib/db/session-capacity";
 import type { Event } from "@/lib/types";
 
 /**
@@ -15,7 +16,7 @@ import type { Event } from "@/lib/types";
  */
 export type EventCommandKeys = { details: string; publish: string; cancel: string; sessionNew: string; session: Record<string, string>; capacity: Record<string, string> };
 
-export function EventCommandPanel({ ids, event, keys, zone }: { ids: CommandIds; event: Event; keys: EventCommandKeys; zone: ZoneInfo }) {
+export function EventCommandPanel({ ids, event, keys, zone, capacities }: { ids: CommandIds; event: Event; keys: EventCommandKeys; zone: ZoneInfo; capacities?: Record<string, SessionCapacity> }) {
   const status = event.status as EventStatusName;
   const target = nextPublishTarget(status);
   const terminal = status === "completed" || status === "cancelled";
@@ -44,7 +45,15 @@ export function EventCommandPanel({ ids, event, keys, zone }: { ids: CommandIds;
                 timeZone={zone.zone}
                 session={{ sessionId: s.sessionId, label: s.label, startsLocal: local(s.startsAt), endsLocal: local(s.endsAt), doorsLocal: local(s.doorsAt) }}
               />
-              <SessionCapacityForm ids={ids} commandKey={keys.capacity[s.sessionId] ?? ""} sessionId={s.sessionId} />
+              <SessionCapacityForm
+                ids={ids}
+                commandKey={keys.capacity[s.sessionId] ?? ""}
+                sessionId={s.sessionId}
+                capacity={capacities?.[s.sessionId]?.salesCapacity}
+                allocated={capacities?.[s.sessionId]?.allocated}
+                capacityHint={capacities?.[s.sessionId]?.capacityHint}
+                remainingToAllocate={capacities?.[s.sessionId]?.remainingToAllocate}
+              />
             </div>
           ))}
           <div className="border-t border-line pt-4">

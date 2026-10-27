@@ -9,6 +9,7 @@ import type { InventoryBatch, TicketType } from "@/lib/types";
 import { EventSetup } from "@/components/events/EventSetup";
 import { EventCommandPanel, type EventCommandKeys } from "@/components/events/EventCommandPanel";
 import { commandsGateOpen } from "@/lib/db/command-gate";
+import { dbSessionCapacities, type SessionCapacity } from "@/lib/db/session-capacity";
 import { mintCommandKey } from "@/lib/db/event-commands";
 import { DATA_SOURCE } from "@/lib/env";
 import { venueTimeZone } from "@/lib/events/zone";
@@ -59,6 +60,14 @@ export default async function EventPage({ params, searchParams }: { params: Prom
     }
   }
 
+  // What each night may sell, and what releases already hold (migration 166). A failure or a
+  // session the caller may not read leaves the number absent, so the form says nothing rather than zero.
+  let capacities: Record<string, SessionCapacity> = {};
+  if (event && ctx.source === "database" && canEditEvents(ctx.role)) {
+    const caps = await dbSessionCapacities(event.sessions.map((s) => s.sessionId));
+    if (caps.ok) capacities = caps.data;
+  }
+
   // The organizer's commands (row 2), only when D's wrappers are exposed and the role may edit.
   let commands: { ids: { orgId: string; venueId: string; eventId: string }; keys: EventCommandKeys } | null = null;
   if (event && loaded && ctx.source === "database" && p.scope.ok && canEditEvents(ctx.role) && commandsGateOpen()) {
@@ -100,7 +109,7 @@ export default async function EventPage({ params, searchParams }: { params: Prom
           timeZone={p.timeZone}
           openManifestSessionIds={loaded.open}
           commandsSlot={
-            commands ? <EventCommandPanel ids={commands.ids} event={event} keys={commands.keys} zone={venueTimeZone(DATA_SOURCE, null)} /> : undefined
+            commands ? <EventCommandPanel ids={commands.ids} event={event} keys={commands.keys} zone={venueTimeZone(DATA_SOURCE, null)} capacities={capacities} /> : undefined
           }
         />
       )}
