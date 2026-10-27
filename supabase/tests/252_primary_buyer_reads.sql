@@ -113,9 +113,9 @@
 --              charge = payments.total; the three pending orders read NULL
 --              although a rate is set (never recomputed). F16/F17 LAST:
 --              non-numeric text on top → the read is NULL and does not raise,
---              checkout raises 22P02 (last because checkout casts every
---              historical row of the key on a seq-scan plan — see the note
---              above F16 and EVIDENCE-182b).
+--              checkout refuses service_fee_unset (188; before 188 it raised
+--              22P02 — last because it cast every historical row of the key on
+--              a seq-scan plan — see the note above F16 and EVIDENCE-182b).
 --
 -- Expected on 159+176+160+161+162 WITHOUT 182 (RED, predicted before the first
 -- run; reconciled in EVIDENCE-182.md §1): the fixture (tables and the real
@@ -685,10 +685,11 @@ SELECT is((SELECT (count(*)::int, bool_and(o.status = 'pending' AND o.charge_tot
   'F15: the fan''s three PENDING orders read charge_total_minor NULL (no payment linked) — never recomputed from the current 1000 bps rate');
 SELECT tap.logout();
 
--- LAST, deliberately: a non-numeric value stays in the append-only history for the rest of the transaction, and
--- create_primary_checkout casts EVERY historical row of the key before its ORDER BY / LIMIT on a seq-scan plan
--- (EVIDENCE-182b: checkout_cast_plan_dependence.txt) — any checkout after this point could raise 22P02 even under
--- a valid top version. 182's read casts only the top row, so it is unaffected.
+-- LAST, deliberately: a non-numeric value stays in the append-only history for the rest of the transaction.
+-- Before 188, create_primary_checkout cast EVERY historical row of the key before its ORDER BY / LIMIT on a
+-- seq-scan plan (EVIDENCE-182b: checkout_cast_plan_dependence.txt), so any later checkout could raise 22P02 even
+-- under a valid top version; 188 reads the newest row first and refuses a non-number newest value as
+-- service_fee_unset (pgTAP 258). 182's read casts only the top row, so it is unaffected.
 INSERT INTO catalog.platform_config (key, version, value, visibility)
 SELECT 'fee.buyer_service_bps', max(version) + 1, '"ten percent"'::jsonb, 'restricted' FROM catalog.platform_config WHERE key = 'fee.buyer_service_bps';
 SELECT tap.login_anon();
@@ -698,8 +699,8 @@ SELECT is((SELECT (count(*)::int, bool_and(e -> 'buyer_fee_minor' = 'null'::json
 SELECT tap.logout();
 SELECT tap.login('25200000-0000-4000-8000-000000000199');
 SELECT throws_ok($$ SELECT venue.create_primary_checkout('25200000-0000-4000-8000-0000000000fc', '[{"ticket_type_id":"25200000-0000-4000-8000-000000000f01","quantity":1}]'::jsonb, ARRAY['25200000-0000-4000-8000-000000000f21']::uuid[], 'ck252-fee-nan') $$,
-  '22P02', NULL,
-  'F17: …while checkout''s ::numeric cast raises 22P02 on it (it refuses to quote either way)');
+  'P0001', 'precondition_failed: service_fee_unset — fee.buyer_service_bps is a JSON string, not a number; selling cannot be activated until the owner sets an integer',
+  'F17: …while checkout refuses service_fee_unset on it (188; it was a raw 22P02 before) — it refuses to quote either way');
 SELECT tap.logout();
 SELECT * FROM finish();
 ROLLBACK;
