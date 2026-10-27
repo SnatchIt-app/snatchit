@@ -42,7 +42,9 @@ SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c
   -- 2026-09-02 (package 094): 28 -> 29 (kernel.organization_obligation).
   -- 2026-09-03 (package 096): 29 -> 31 (payout_reversal, organization_obligation_recovery).
   'A19: kernel holds 32 tables — 111''s approval table + 27 post-090 + the reserve stub + 094''s organization_obligation + 096''s two');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 317,
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 320,
+  -- 2026-10-26 (registry 166): 317 -> 319 (+2 venue: get_session_capacity, list_session_capacity).
+  -- 2026-10-27 (package 187, beneath 164-167): 319 -> 320 (+1 venue.assert_session_operator, the E-76 door-plane helper).
   -- 2026-10-26 (registry 163): 313 -> 317 (+4 venue: get_session_scan_counters, list_session_scan_counters, record_scan_staff, filter_staff_scan_meta; 315 if 163's PART B is dropped).
   -- 2026-10-26 (registry 162, S2): 308 -> 313 (+2 venue: set_ticket_type_sale_window, ticket_type_on_sale; +3 catalog: set_venue_timezone, set_event_age_policy, set_session_sales_capacity).
   -- 2026-10-26 (registry 160, S1): 305 -> 308 (+3 venue: set_ticket_type_visibility, set_ticket_type_rank, get_inventory_counters).
@@ -78,7 +80,7 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.
   -- their grant class, and 141 F3 moves 39 -> 45 by exactly these six.
   -- 2026-09-03 (package 096): +9 kernel. 097/098: +0 (body-only re-creates). 099: +1 kernel.
   -- 270 -> 280. Re-derived from the live catalog.
-  'A20: 091 creates NO function (five-schema routines 317 post-163; 313 post-162; 308 post-160; 305 post-139)');
+  'A20: 091 creates NO function (five-schema routines 320 post-187; 319 post-166; 317 post-163; 313 post-162; 308 post-160; 305 post-139)');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 72,
   -- 2026-09-02 (package 092): 67 -> 72 (+5 notify owner policies).
   'A21: 091 creates NO policy (register 72 post-092)');

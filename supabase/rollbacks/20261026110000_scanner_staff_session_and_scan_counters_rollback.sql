@@ -19,8 +19,63 @@
 -- ORDER: run this BEFORE 161's rollback (which refuses while venue_cmd holds a
 -- function it did not create), BEFORE 160's and BEFORE 159's (which refuses
 -- while venue_api holds a ninth view).
+--
+-- Guard (refuses with nothing changed; psql -v ON_ERROR_STOP=1 exits 3):
+--   G2b (A's N5, review of #169, 2026-10-26; 162's rollback G2b form) NO
+--      function in any schema outside the seven functions this file drops may
+--      reference one of them, and no view other than venue_api.session_admissions
+--      may depend on one — dropping a function under an outside caller breaks
+--      every call of it (A's case: an outside plpgsql caller of
+--      venue.record_scan_staff was left dangling, rc 0). Roll that package back
+--      first. Functions call by name, so pg_depend holds no edge for them: the
+--      scan reads pg_proc.prosrc for the four venue names (unique to 163) and
+--      for the venue_cmd-QUALIFIED call of venue_cmd.record_scan /
+--      venue_cmd.validate_ticket_online (their bare names are 086's
+--      venue.record_scan* / venue.validate_ticket_online, which stay); views are
+--      read through pg_depend/pg_rewrite. 182 (the next package up) calls none
+--      of 163's functions, so the guard does not fire for it. PART B's four
+--      entries are NULL-safe (to_regprocedure) and inert when PART B never
+--      landed or was dropped.
 -- ============================================================================
 BEGIN;
+
+-- G2b (A's N5): no OUTSIDE caller of a function dropped here — any schema, functions and views.
+DO $guard$
+BEGIN
+  IF EXISTS (
+       SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname NOT IN ('pg_catalog','information_schema')
+          AND p.oid NOT IN (SELECT o FROM unnest(ARRAY[
+                to_regprocedure('venue.get_session_scan_counters(uuid)'),
+                to_regprocedure('venue.list_session_scan_counters()'),
+                to_regprocedure('venue_cmd.get_session_scan_counters(uuid)'),
+                -- PART B (NULL when PART B never landed)
+                to_regprocedure('venue.filter_staff_scan_meta(jsonb)'),
+                to_regprocedure('venue.record_scan_staff(uuid, uuid, jsonb, text)'),
+                to_regprocedure('venue_cmd.record_scan(uuid, uuid, jsonb, text)'),
+                to_regprocedure('venue_cmd.validate_ticket_online(uuid, uuid)')
+              ]::oid[]) AS o WHERE o IS NOT NULL)
+          AND (p.prosrc LIKE '%get_session_scan_counters%' OR p.prosrc LIKE '%list_session_scan_counters%'
+               OR p.prosrc LIKE '%filter_staff_scan_meta%' OR p.prosrc LIKE '%record_scan_staff%'
+               OR p.prosrc ~* 'venue_cmd"?[[:space:]]*[.][[:space:]]*"?record_scan"?[[:space:]]*[(]'
+               OR p.prosrc ~* 'venue_cmd"?[[:space:]]*[.][[:space:]]*"?validate_ticket_online"?[[:space:]]*[(]'))
+  OR EXISTS (
+       SELECT 1 FROM pg_depend d
+         JOIN pg_rewrite r ON d.classid = 'pg_rewrite'::regclass AND d.objid = r.oid
+        WHERE d.refclassid = 'pg_proc'::regclass
+          AND d.refobjid IN (SELECT o FROM unnest(ARRAY[
+                to_regprocedure('venue.get_session_scan_counters(uuid)'),
+                to_regprocedure('venue.list_session_scan_counters()'),
+                to_regprocedure('venue_cmd.get_session_scan_counters(uuid)'),
+                to_regprocedure('venue.filter_staff_scan_meta(jsonb)'),
+                to_regprocedure('venue.record_scan_staff(uuid, uuid, jsonb, text)'),
+                to_regprocedure('venue_cmd.record_scan(uuid, uuid, jsonb, text)'),
+                to_regprocedure('venue_cmd.validate_ticket_online(uuid, uuid)')
+              ]::oid[]) AS o WHERE o IS NOT NULL)
+          AND r.ev_class IS DISTINCT FROM to_regclass('venue_api.session_admissions')) THEN
+    RAISE EXCEPTION 'ROLLBACK_163_REFUSED (G2b): a function or view outside 163 calls a function dropped here (venue.get_session_scan_counters / list_session_scan_counters / filter_staff_scan_meta / record_scan_staff, venue_cmd.get_session_scan_counters / record_scan / validate_ticket_online); roll that package back first. Nothing changed.';
+  END IF;
+END $guard$;
 
 DROP VIEW IF EXISTS venue_api.session_admissions;
 
