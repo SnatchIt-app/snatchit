@@ -3,6 +3,7 @@
 import "server-only";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { ownsFactor, pendingTotpFactors, pickTotpFactor } from "@/lib/auth/totp-factors";
 
 /**
  * TOTP step-up on the venue host, server side.
@@ -19,18 +20,14 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
  * anything: every verb that cares (here, `kernel.set_org_connect_ref` through
  * the Connect edge) re-reads `aal` from the verified JWT itself.
  */
-export type TotpFactorState =
-  | { kind: "verified"; factorId: string }
-  | { kind: "unverified"; factorId: string }
-  | { kind: "none" }
-  | { kind: "unavailable"; message: string };
+import type { TotpFactorState as FactorState } from "@/lib/auth/totp-factors";
+
+export type TotpFactorState = FactorState | { kind: "unavailable"; message: string };
 
 export type EnrollStarted = { ok: true; factorId: string; qrSvg: string; secret: string; uri: string } | { ok: false; message: string };
 export type StepUpResult = { ok: true; aal: string | null } | { ok: false; message: string; needsEnroll?: boolean };
 
 const GENERIC = "Could not confirm the code. Check your authenticator and try again.";
-
-type Factor = { id: string; status?: string; factor_type?: string };
 
 /** What factor the caller already has. A verified one means step-up is a code away. */
 export async function totpFactorState(): Promise<TotpFactorState> {
@@ -38,12 +35,7 @@ export async function totpFactorState(): Promise<TotpFactorState> {
     const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase.auth.mfa.listFactors();
     if (error) return { kind: "unavailable", message: error.message };
-    const totp: Factor[] = (data?.totp as Factor[] | undefined) ?? [];
-    const verified = totp.find((f) => f.status === "verified");
-    if (verified) return { kind: "verified", factorId: verified.id };
-    const pending = totp[0];
-    if (pending) return { kind: "unverified", factorId: pending.id };
-    return { kind: "none" };
+    return pickTotpFactor(data);
   } catch (e) {
     return { kind: "unavailable", message: e instanceof Error ? e.message : "MFA unavailable" };
   }
@@ -59,14 +51,19 @@ export async function beginTotpEnroll(): Promise<EnrollStarted> {
     const supabase = await createSupabaseServerClient();
     const { data: list, error: listErr } = await supabase.auth.mfa.listFactors();
     if (listErr) return { ok: false, message: listErr.message };
-    const totp: Factor[] = (list?.totp as Factor[] | undefined) ?? [];
-    if (totp.some((f) => f.status === "verified")) return { ok: false, message: "This account already has an authenticator. Enter a code instead." };
-    for (const f of totp) await supabase.auth.mfa.unenroll({ factorId: f.id });
-    const { data, error } = await supabase.auth.mfa.enroll({ factorType: "totp", friendlyName: `Snatch It venue ${new Date().toISOString().slice(0, 19)}` });
+    if (pickTotpFactor(list).kind === "verified") return { ok: false, message: "This account already has an authenticator. Enter a code instead." };
+    // Every abandoned pending factor goes: each one's secret was shown once and
+    // can never be completed, and an operator who scanned repeatedly before this
+    // was fixed has a pile of them. Reading `all` is what makes them visible.
+    for (const f of pendingTotpFactors(list)) await supabase.auth.mfa.unenroll({ factorId: f.id });
+    // `enrolled.totp` is the new factor's own QR/secret payload — a different
+    // shape entirely from listFactors' `totp` bucket, and named apart from it so
+    // the two can never be read for one another again.
+    const { data: enrolled, error } = await supabase.auth.mfa.enroll({ factorType: "totp", friendlyName: `Snatch It venue ${new Date().toISOString().slice(0, 19)}` });
     if (error) return { ok: false, message: error.message };
-    const totpData = data?.totp as { qr_code?: string; secret?: string; uri?: string } | undefined;
-    if (!data?.id || !totpData?.qr_code || !totpData.secret || !totpData.uri) return { ok: false, message: "Enrolment did not return a code to scan." };
-    return { ok: true, factorId: data.id, qrSvg: totpData.qr_code, secret: totpData.secret, uri: totpData.uri };
+    const fresh = enrolled?.totp as { qr_code?: string; secret?: string; uri?: string } | undefined;
+    if (!enrolled?.id || !fresh?.qr_code || !fresh.secret || !fresh.uri) return { ok: false, message: "Enrolment did not return a code to scan." };
+    return { ok: true, factorId: enrolled.id, qrSvg: fresh.qr_code, secret: fresh.secret, uri: fresh.uri };
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : "Could not start enrolment." };
   }
@@ -84,11 +81,18 @@ export async function verifyTotpCode(code: string, factorId?: string): Promise<S
   if (!/^\d{6}$/.test(digits)) return { ok: false, message: "Enter the 6-digit code from your authenticator." };
   try {
     const supabase = await createSupabaseServerClient();
-    let id = factorId;
+    const { data: list, error: listErr } = await supabase.auth.mfa.listFactors();
+    if (listErr) return { ok: false, message: listErr.message };
+
+    // The browser may name the factor it just enrolled, so the verify lands on
+    // that exact one. Honoured only if it is the caller's own; otherwise it is
+    // discarded and we use our own reading. A client cannot nominate a factor
+    // belonging to anyone else, and cannot conjure one that does not exist.
+    const hinted = factorId && ownsFactor(list, factorId) ? factorId.trim() : undefined;
+    let id = hinted;
     if (!id) {
-      const state = await totpFactorState();
+      const state = pickTotpFactor(list);
       if (state.kind === "none") return { ok: false, message: "This account has no authenticator yet.", needsEnroll: true };
-      if (state.kind === "unavailable") return { ok: false, message: state.message };
       id = state.factorId;
     }
     const { data: challenge, error: chErr } = await supabase.auth.mfa.challenge({ factorId: id });

@@ -7,8 +7,8 @@ import { beginTotpEnroll, totpFactorState, verifyTotpCode } from "@/lib/auth/ste
 
 type Phase =
   | { kind: "loading" }
-  | { kind: "code" }
-  | { kind: "enroll"; qrSvg: string; secret: string }
+  | { kind: "code"; factorId?: string }
+  | { kind: "enroll"; qrSvg: string; secret: string; factorId: string }
   | { kind: "unavailable"; message: string };
 
 /**
@@ -32,10 +32,10 @@ export function StepUpForm({ nextHref }: { nextHref: string }) {
     started.current = true;
     void (async () => {
       const s = await totpFactorState();
-      if (s.kind === "verified" || s.kind === "unverified") setPhase({ kind: "code" });
+      if (s.kind === "verified" || s.kind === "unverified") setPhase({ kind: "code", factorId: s.factorId });
       else if (s.kind === "none") {
         const e = await beginTotpEnroll();
-        setPhase(e.ok ? { kind: "enroll", qrSvg: e.qrSvg, secret: e.secret } : { kind: "unavailable", message: e.message });
+        setPhase(e.ok ? { kind: "enroll", qrSvg: e.qrSvg, secret: e.secret, factorId: e.factorId } : { kind: "unavailable", message: e.message });
       } else setPhase({ kind: "unavailable", message: s.message });
     })();
   }, []);
@@ -45,16 +45,23 @@ export function StepUpForm({ nextHref }: { nextHref: string }) {
     if (pending) return;
     setError(null);
     start(async () => {
-      const r = await verifyTotpCode(code);
+      // The factor the operator is actually looking at. Without this the server
+      // had to re-find it, and a factor enrolled seconds ago is invisible to the
+      // SDK's `data.totp` — so the answer was "no authenticator yet" and the QR
+      // was replaced under the operator's hands, forever.
+      const factorId = phase.kind === "enroll" || phase.kind === "code" ? phase.factorId : undefined;
+      const r = await verifyTotpCode(code, factorId);
       if (r.ok) {
         router.replace(nextHref);
         router.refresh();
         return;
       }
       setError(r.message);
+      // A wrong code leaves the scanned QR alone. Only a server that reports no
+      // factor at all may start enrolment again.
       if (r.needsEnroll) {
         const en = await beginTotpEnroll();
-        setPhase(en.ok ? { kind: "enroll", qrSvg: en.qrSvg, secret: en.secret } : { kind: "unavailable", message: en.message });
+        setPhase(en.ok ? { kind: "enroll", qrSvg: en.qrSvg, secret: en.secret, factorId: en.factorId } : { kind: "unavailable", message: en.message });
       }
     });
   };
