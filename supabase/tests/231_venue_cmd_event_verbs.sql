@@ -36,16 +36,16 @@
 --   Section N  anon: 42501 at the schema wall on all seven (no USAGE on
 --              venue_cmd); no auth.uid(): the body's 'authentication required'.
 --   Section S  the re-operated room (Room V2: created under Org A, its event e06
---              stamped Org A, then moved to Org B). STATUS-QUO pins — the
---              baseline package 165 starts from:
---                "STATUS QUO (165 flips)"    the former-operator manager is
---                ACCEPTED on Org A's event by update_event, create_event_session,
---                update_event_session and publish_event (no E-76 conjunct on
---                these catalog bodies yet);
+--              stamped Org A, then moved to Org B):
+--                "FLIPPED BY 165" (2026-10-27; pgTAP 232) the former-operator
+--                manager is REFUSED on Org A's event by update_event,
+--                create_event_session, update_event_session and publish_event —
+--                the E-76 conjunct is now on those catalog bodies' venue-role arm
+--                (before 165 all four ACCEPTED him: the status quo 164 pinned);
 --                "STATUS QUO (165 baseline)" create_event at V2 by that manager
 --                (stamps the CURRENT operator's org) and update_venue of V2 by
---                that manager (no event to bind);
---              cancel_event ALREADY refuses that manager (088's E-76 conjunct).
+--                that manager (no event to bind) — unchanged by 165;
+--              cancel_event ALREADY refused that manager (088's E-76 conjunct).
 --              The event-org arm: Org B's owner is refused on Org A's event,
 --              Org A's owner is accepted on it; update_venue follows the room's
 --              CURRENT org. The cross-venue manager's positive control (own room).
@@ -558,19 +558,23 @@ SELECT tap._store231('s_ev', (venue_cmd.create_event('23100000-0000-4000-8000-00
           jsonb_build_object('starts_at', now() + interval '8 days'), 'ck231-s-ce') ->> 'event_id'));
 SELECT ok(tap._fetch231('s_ev') IS NOT NULL,
   'S2: STATUS QUO (165 baseline) — the former-operator manager CREATES an event at the re-operated Room V2 through the wrapper');
-SELECT is((venue_cmd.update_event('23100000-0000-4000-8000-00000000e006', '{"title":"e06 retitled by former manager"}', 'ck231-s-ue') ->> 'status'), 'ok',
-  'S3: STATUS QUO (165 flips) — the former-operator manager UPDATES Org A''s event at Room V2 (no E-76 conjunct on catalog.update_event)');
-SELECT is((venue_cmd.create_event_session('23100000-0000-4000-8000-00000000e006',
-             jsonb_build_object('starts_at', now() + interval '9 days', 'session_label', 'former'), 'ck231-s-cs') ->> 'status'), 'ok',
-  'S4: STATUS QUO (165 flips) — the former-operator manager ADDS a session to Org A''s event (no E-76 conjunct on catalog.create_event_session)');
-SELECT is((venue_cmd.update_event_session('23100000-0000-4000-8000-00000000f006',
-             jsonb_build_object('starts_at', now() + interval '7 days 1 hour'), 'ck231-s-us') ->> 'status'), 'ok',
-  'S5: STATUS QUO (165 flips) — the former-operator manager MOVES Org A''s session (no E-76 conjunct on catalog.update_event_session)');
-SELECT is((venue_cmd.publish_event('23100000-0000-4000-8000-00000000e006', 'announced', 'ck231-s-pe') ->> 'event_status'), 'announced',
-  'S6: STATUS QUO (165 flips) — the former-operator manager PUBLISHES Org A''s event (no E-76 conjunct on catalog.publish_event)');
+SELECT throws_ok($$SELECT venue_cmd.update_event('23100000-0000-4000-8000-00000000e006', '{"title":"e06 retitled by former manager"}', 'ck231-s-ue')$$,
+  '42501', 'insufficient_privilege: venue_manager/org_owner/org_admin required',
+  'S3: FLIPPED BY 165 — the former-operator manager is REFUSED update_event on Org A''s event at Room V2 (E-76 conjunct on catalog.update_event)');
+SELECT throws_ok($$SELECT venue_cmd.create_event_session('23100000-0000-4000-8000-00000000e006',
+             jsonb_build_object('starts_at', now() + interval '9 days', 'session_label', 'former'), 'ck231-s-cs')$$,
+  '42501', 'insufficient_privilege: venue_manager or org_owner/org_admin required',
+  'S4: FLIPPED BY 165 — the former-operator manager is REFUSED create_event_session on Org A''s event (E-76 conjunct on catalog.create_event_session)');
+SELECT throws_ok($$SELECT venue_cmd.update_event_session('23100000-0000-4000-8000-00000000f006',
+             jsonb_build_object('starts_at', now() + interval '7 days 1 hour'), 'ck231-s-us')$$,
+  '42501', 'insufficient_privilege: venue_manager or org_owner/org_admin required',
+  'S5: FLIPPED BY 165 — the former-operator manager is REFUSED update_event_session on Org A''s session (E-76 conjunct on catalog.update_event_session)');
+SELECT throws_ok($$SELECT venue_cmd.publish_event('23100000-0000-4000-8000-00000000e006', 'announced', 'ck231-s-pe')$$,
+  '42501', 'insufficient_privilege: venue_manager or org_owner/org_admin required',
+  'S6: FLIPPED BY 165 — the former-operator manager is REFUSED publish_event on Org A''s event (E-76 conjunct on catalog.publish_event)');
 SELECT throws_ok($$SELECT venue_cmd.cancel_event('23100000-0000-4000-8000-00000000e006', 'weather', 'ck231-s-xe')$$,
   '42501', 'insufficient_privilege: org_owner / org_admin / venue_manager (current operator) / platform_admin only',
-  'S7: cancel_event ALREADY refuses the former-operator manager (088''s E-76 conjunct) — not a status-quo pin');
+  'S7: cancel_event refuses the former-operator manager (088''s E-76 conjunct — the shape 165 copied onto S3-S6)');
 SELECT is((venue_cmd.update_venue('23100000-0000-4000-8000-0000000000a2', '{"name":"Room V2 renamed by former manager"}', 'ck231-s-uv') ->> 'status'), 'ok',
   'S8: STATUS QUO (165 baseline) — the former-operator manager''s staff grant still EDITS Room V2''s profile (no event to bind)');
 SELECT tap.logout();
