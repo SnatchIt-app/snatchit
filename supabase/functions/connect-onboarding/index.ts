@@ -101,6 +101,7 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
 import { captureException } from '../_shared/sentry.ts';
 import { stripeFetch, stripeFetchRaw } from '../_shared/stripe.ts';
+import { isSafeRedirect as isSafeRedirectFor, redirectHosts } from './redirect.ts';
 
 const SUPABASE_URL              = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -185,7 +186,9 @@ const RETURN_URL  = Deno.env.get('VENUE_CONNECT_RETURN_URL')
 const REFRESH_URL = Deno.env.get('VENUE_CONNECT_REFRESH_URL')
   ?? 'https://snatchitapp.com/dashboard/payments/connect/refresh';
 
-const ALLOWED_REDIRECT_HOSTS = new Set(['snatchitapp.com', 'www.snatchitapp.com']);
+// The two snatchitapp.com hosts, plus at most ONE exact per-environment host from VENUE_CONNECT_ALLOWED_HOST
+// (the sandbox venue app; unset in production). Rule and tests: ./redirect.ts, tests/connect-onboarding-redirect.test.ts.
+const ALLOWED_REDIRECT_HOSTS = redirectHosts(Deno.env.get('VENUE_CONNECT_ALLOWED_HOST'));
 
 /**
  * A redirect target must be https, on a host we control, and CARRY NO STATE.
@@ -198,15 +201,7 @@ const ALLOWED_REDIRECT_HOSTS = new Set(['snatchitapp.com', 'www.snatchitapp.com'
  * session and a live Stripe read, on the way back in.
  */
 function isSafeRedirect(raw: string): boolean {
-  try {
-    const u = new URL(raw);
-    return u.protocol === 'https:'
-      && ALLOWED_REDIRECT_HOSTS.has(u.hostname)
-      && u.search === ''
-      && u.hash === '';
-  } catch {
-    return false;
-  }
+  return isSafeRedirectFor(raw, ALLOWED_REDIRECT_HOSTS);
 }
 
 // ── Rate limiting — fail CLOSED (create-connect-account:70-93) ───────────────
