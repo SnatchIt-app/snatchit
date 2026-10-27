@@ -4,11 +4,12 @@ import Image from "next/image";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { beginTotpEnroll, totpFactorState, verifyTotpCode } from "@/lib/auth/step-up";
+import { stepUpAction } from "@/lib/auth/totp-factors";
 
 type Phase =
   | { kind: "loading" }
   | { kind: "code"; factorId?: string }
-  | { kind: "enroll"; qrSvg: string; secret: string; factorId: string }
+  | { kind: "enroll"; qrSvg: string; secret: string; factorId: string; replacedUnfinished?: boolean }
   | { kind: "unavailable"; message: string };
 
 /**
@@ -27,16 +28,33 @@ export function StepUpForm({ nextHref }: { nextHref: string }) {
   const [pending, start] = useTransition();
   const started = useRef(false);
 
+  /** Start (or restart) enrolment. Clears abandoned pending factors server-side. */
+  const enrol = async (replacingUnfinished: boolean) => {
+    const e = await beginTotpEnroll();
+    setPhase(
+      e.ok
+        ? { kind: "enroll", qrSvg: e.qrSvg, secret: e.secret, factorId: e.factorId, replacedUnfinished: replacingUnfinished }
+        : { kind: "unavailable", message: e.message },
+    );
+  };
+
   useEffect(() => {
     if (started.current) return;
     started.current = true;
     void (async () => {
       const s = await totpFactorState();
-      if (s.kind === "verified" || s.kind === "unverified") setPhase({ kind: "code", factorId: s.factorId });
-      else if (s.kind === "none") {
-        const e = await beginTotpEnroll();
-        setPhase(e.ok ? { kind: "enroll", qrSvg: e.qrSvg, secret: e.secret, factorId: e.factorId } : { kind: "unavailable", message: e.message });
-      } else setPhase({ kind: "unavailable", message: s.message });
+      if (s.kind === "unavailable") {
+        setPhase({ kind: "unavailable", message: s.message });
+        return;
+      }
+      // Only a verified factor may be asked for a code. An unfinished enrolment
+      // has no secret the operator still holds, so it must restart rather than
+      // present a code box with no QR.
+      if (stepUpAction(s) === "ask_code") {
+        setPhase({ kind: "code", factorId: s.kind === "none" ? undefined : s.factorId });
+        return;
+      }
+      await enrol(s.kind === "unverified");
     })();
   }, []);
 
@@ -59,10 +77,7 @@ export function StepUpForm({ nextHref }: { nextHref: string }) {
       setError(r.message);
       // A wrong code leaves the scanned QR alone. Only a server that reports no
       // factor at all may start enrolment again.
-      if (r.needsEnroll) {
-        const en = await beginTotpEnroll();
-        setPhase(en.ok ? { kind: "enroll", qrSvg: en.qrSvg, secret: en.secret, factorId: en.factorId } : { kind: "unavailable", message: en.message });
-      }
+      if (r.needsEnroll) await enrol(false);
     });
   };
 
@@ -78,6 +93,12 @@ export function StepUpForm({ nextHref }: { nextHref: string }) {
     <div className="space-y-4">
       {phase.kind === "enroll" ? (
         <div className="space-y-2">
+          {phase.replacedUnfinished ? (
+            <p className="text-sm text-muted">
+              This account had an unfinished authenticator setup, so it has been cleared. Any earlier &ldquo;Snatch It venue&rdquo; entry in your
+              authenticator app is now dead and its codes will not work &mdash; use the code below. Authenticators for other Snatch It apps are untouched.
+            </p>
+          ) : null}
           <p className="text-sm">Scan this with an authenticator app, then enter the 6-digit code it shows.</p>
           {/* The QR is a data: URI from GoTrue; the venue CSP allows img-src data:. */}
           <Image src={phase.qrSvg} alt="Authenticator QR code" width={180} height={180} unoptimized className="border border-line bg-white p-2" />
@@ -87,7 +108,9 @@ export function StepUpForm({ nextHref }: { nextHref: string }) {
           </details>
         </div>
       ) : (
-        <p className="text-sm">Enter the 6-digit code from your authenticator.</p>
+        <p className="text-sm">
+          This account already has a confirmed authenticator. Enter the 6-digit code it shows.
+        </p>
       )}
       <form onSubmit={submit} noValidate className="space-y-3">
         <label className="block text-sm">
@@ -108,9 +131,21 @@ export function StepUpForm({ nextHref }: { nextHref: string }) {
             {error}
           </p>
         ) : null}
-        <button type="submit" disabled={pending} className="btn btn-primary min-h-11">
-          {pending ? "Confirming…" : "Confirm"}
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          <button type="submit" disabled={pending} className="btn btn-primary min-h-11">
+            {pending ? "Confirming…" : "Confirm"}
+          </button>
+          {phase.kind === "enroll" ? (
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => start(async () => { setError(null); setCode(""); await enrol(false); })}
+              className="btn min-h-11"
+            >
+              Show a new code
+            </button>
+          ) : null}
+        </div>
       </form>
     </div>
   );

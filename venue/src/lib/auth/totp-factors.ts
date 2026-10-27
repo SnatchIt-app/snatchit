@@ -86,3 +86,22 @@ export function ownsFactor(data: ListFactorsData, factorId: string): boolean {
   if (!id) return false;
   return totpFactors(data).some((f) => f.id === id);
 }
+
+/**
+ * What the step-up screen must do about the caller's factor.
+ *
+ * An **unverified** factor means enrolment never finished. Its secret was shown
+ * exactly once, on a page load that is gone, so asking for "the code from your
+ * authenticator" is asking for a code nobody can produce — and the only thing
+ * that clears a stale pending factor is `beginTotpEnroll`, which this screen
+ * would then never reach. That was the dead end of 2026-10-27: a page offering a
+ * code box, no QR, and no way out.
+ *
+ * So only a VERIFIED factor may ask for a code. Anything else starts enrolment,
+ * which clears the abandoned factors and issues a QR the operator can actually
+ * scan. Enrolment can never damage a verified factor: `beginTotpEnroll` refuses
+ * outright while one exists.
+ */
+export function stepUpAction(state: TotpFactorState): "ask_code" | "enrol" {
+  return state.kind === "verified" ? "ask_code" : "enrol";
+}

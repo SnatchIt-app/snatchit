@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ownsFactor, pendingTotpFactors, pickTotpFactor } from "@/lib/auth/totp-factors";
+import { ownsFactor, pendingTotpFactors, pickTotpFactor, stepUpAction } from "@/lib/auth/totp-factors";
 
 /**
  * The sandbox organizer could not enrol an authenticator at all: scanning the QR
@@ -139,5 +139,43 @@ describe("the wiring that broke it: the form must carry the factor id it enrolle
     expect(stepUp).not.toMatch(/\blist\?\.totp|\bdata\?\.totp/);
     expect(stepUp).toMatch(/pickTotpFactor\(list\)/);
     expect(stepUp).toMatch(/pendingTotpFactors\(list\)/);
+  });
+});
+
+describe("a refreshed page, and the dead end it produced", () => {
+  const form = readFileSync(resolve(__dirname, "../src/components/auth/StepUpForm.tsx"), "utf8");
+
+  it("never asks for a code against an UNFINISHED enrolment — its secret was shown once and is gone", () => {
+    // The 2026-10-27 dead end: reading `all` made a leftover pending factor
+    // visible, so the screen offered a code box with no QR, and the only thing
+    // that clears a stale pending factor (beginTotpEnroll) was never reached.
+    expect(stepUpAction({ kind: "unverified", factorId: PENDING.id })).toBe("enrol");
+  });
+
+  it("asks for a code only when a factor is actually verified", () => {
+    expect(stepUpAction({ kind: "verified", factorId: VERIFIED.id })).toBe("ask_code");
+  });
+
+  it("enrols when there is no factor at all", () => {
+    expect(stepUpAction({ kind: "none" })).toBe("enrol");
+  });
+
+  it("routes the screen through that decision rather than testing `kind` inline", () => {
+    expect(form).toMatch(/stepUpAction\(/);
+    // The old shape — treating unverified the same as verified — must not return.
+    expect(form).not.toMatch(/kind === "verified" \|\| s\.kind === "unverified"/);
+  });
+
+  it("gives the operator a way to get a fresh code without reloading", () => {
+    expect(form).toMatch(/Show a new code/);
+  });
+
+  it("says, in words, that an unfinished setup was cleared and older entries are dead", () => {
+    expect(form).toMatch(/replacedUnfinished/);
+    expect(form).toMatch(/unfinished authenticator setup/);
+  });
+
+  it("says, in words, when the account already has a confirmed authenticator", () => {
+    expect(form).toMatch(/already has a confirmed authenticator/);
   });
 });
