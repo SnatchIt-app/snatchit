@@ -219,6 +219,39 @@
 --      and position('*' in p.prosrc) > 0;                                                                     -- 0
 -- LOCKS / RUNTIME: CREATE FUNCTION / CREATE VIEW / GRANT only; no table is
 -- touched, no row is read or written.
+--
+-- PRE-FLIGHT (A's N4, review of #169, 2026-10-26; house pattern: 160 PART 5.0 /
+-- 162's pre-flight). Before anything is created, every function this file
+-- creates must be ABSENT (the predecessor state — 159/176/160/161/162 hold none
+-- of them) or carry EXACTLY 163's own body (a re-apply), read as md5(prosrc);
+-- the view venue_api.session_admissions must be absent or a view whose
+-- md5(pg_get_viewdef) is 163's. The check is by NAME in the target schema, so a
+-- same-named function with any other body OR another signature is refused too.
+-- Anything else is a foreign object — a hotfix, a later package, or a planted
+-- definer carrying its own grants (A's case: a foreign venue.record_scan_staff
+-- with EXECUTE to anon, which CREATE OR REPLACE silently overwrote) — and is
+-- refused with
+--   MIGRATION_163_REFUSED (pre-flight): <fn> body is neither absent nor 163's (md5 <x>); nothing changed
+-- (the single transaction rolls back; psql -v ON_ERROR_STOP=1 exits 3). The
+-- md5 values are 163's bodies as applied on a local PG17 clone (CI and
+-- production are PG17); a change to any 163 body must re-hash it here:
+--   PART A  venue.get_session_scan_counters(uuid)                 130c4c461267c739752fd0986a3039c5
+--           venue.list_session_scan_counters()                    95dbf897fb9f15a9277efc13306a3768
+--           venue_cmd.get_session_scan_counters(uuid)             59eb3e2c8400a0d039f6b0d784cc15ee
+--           venue_api.session_admissions  md5(pg_get_viewdef)     7433eaf7a128296f795acfb64a8310d4
+--   PART B  venue.filter_staff_scan_meta(jsonb)                   4e1ccb477c9cc14188457c8f138382cd
+--           venue.record_scan_staff(uuid, uuid, jsonb, text)      b0fbb8fa9e7296d2a2afdb2eb4e1d0c5
+--           venue_cmd.record_scan(uuid, uuid, jsonb, text)        dc3d19e07df8abe361d632bbd41f96f4
+--           venue_cmd.validate_ticket_online(uuid, uuid)          d81100fbe730dd9cbbd9b728dab86197
+-- DROPPING PART B with the pre-flight in place: PART B's four entries live in
+-- their OWN DO block between the markers '>>> PRE-FLIGHT PART B' and '<<<
+-- PRE-FLIGHT PART B' below; PART A's block names only PART A objects. Drop
+-- PART B as before with `git revert d1381a83` (PART B's commit — it still
+-- applies cleanly: the pre-flight sits away from its hunks), then delete the
+-- marked block and the four 'PART B' hash lines above in the same change.
+-- Left in place, that block is inert (absent is accepted) but names objects
+-- the package no longer creates. The rollback's G2b PART B entries are
+-- NULL-safe and inert once PART B is gone; they may stay.
 -- ============================================================================
 BEGIN;
 
@@ -232,6 +265,71 @@ begin
     raise exception 'ORDER_163_REFUSED: schema venue_cmd (161, 20261022110000) is absent; apply 160 then 161 first';
   end if;
 end $$;
+
+-- ============================================================================
+-- PRE-FLIGHT (A's N4) — every object 163 creates is ABSENT or EXACTLY 163's own
+-- (md5(prosrc) per function, by name in its schema; md5(pg_get_viewdef) for the
+-- view). Anything else is refused before the first CREATE; nothing changes.
+-- PART A's objects here; PART B's in the separately marked block after it.
+-- ============================================================================
+DO $pre_a$
+DECLARE
+  r      record;
+  v_kind "char" := (SELECT c.relkind FROM pg_class c WHERE c.oid = to_regclass('venue_api.session_admissions'));
+  v_view text;
+BEGIN
+  FOR r IN
+    SELECT format('%s.%s(%s)', n.nspname, p.proname, pg_catalog.oidvectortypes(p.proargtypes)) AS fn,
+           md5(p.prosrc) AS h,
+           coalesce(p.oid = to_regprocedure(e.sig) AND md5(p.prosrc) = e.h163, false) AS is_163
+      FROM (VALUES
+              ('venue',     'get_session_scan_counters',  'venue.get_session_scan_counters(uuid)',     '130c4c461267c739752fd0986a3039c5'),
+              ('venue',     'list_session_scan_counters', 'venue.list_session_scan_counters()',        '95dbf897fb9f15a9277efc13306a3768'),
+              ('venue_cmd', 'get_session_scan_counters',  'venue_cmd.get_session_scan_counters(uuid)', '59eb3e2c8400a0d039f6b0d784cc15ee')
+           ) AS e(nsp, fname, sig, h163)
+      JOIN pg_namespace n ON n.nspname = e.nsp
+      JOIN pg_proc p ON p.pronamespace = n.oid AND p.proname = e.fname
+     ORDER BY 1
+  LOOP
+    IF NOT r.is_163 THEN
+      RAISE EXCEPTION 'MIGRATION_163_REFUSED (pre-flight): % body is neither absent nor 163''s (md5 %); nothing changed', r.fn, r.h;
+    END IF;
+  END LOOP;
+  IF v_kind IS NOT NULL THEN
+    IF v_kind = 'v' THEN
+      v_view := md5(pg_get_viewdef(to_regclass('venue_api.session_admissions')));
+    END IF;
+    IF v_view IS DISTINCT FROM '7433eaf7a128296f795acfb64a8310d4' THEN
+      RAISE EXCEPTION 'MIGRATION_163_REFUSED (pre-flight): view venue_api.session_admissions definition is neither absent nor 163''s (relkind %, md5 %); nothing changed', v_kind, coalesce(v_view, '<not a view>');
+    END IF;
+  END IF;
+END $pre_a$;
+
+-- >>> PRE-FLIGHT PART B — PART B's four functions (delete this block together with PART B; see the header)
+DO $pre_b$
+DECLARE
+  r record;
+BEGIN
+  FOR r IN
+    SELECT format('%s.%s(%s)', n.nspname, p.proname, pg_catalog.oidvectortypes(p.proargtypes)) AS fn,
+           md5(p.prosrc) AS h,
+           coalesce(p.oid = to_regprocedure(e.sig) AND md5(p.prosrc) = e.h163, false) AS is_163
+      FROM (VALUES
+              ('venue',     'filter_staff_scan_meta', 'venue.filter_staff_scan_meta(jsonb)',              '4e1ccb477c9cc14188457c8f138382cd'),
+              ('venue',     'record_scan_staff',      'venue.record_scan_staff(uuid, uuid, jsonb, text)', 'b0fbb8fa9e7296d2a2afdb2eb4e1d0c5'),
+              ('venue_cmd', 'record_scan',            'venue_cmd.record_scan(uuid, uuid, jsonb, text)',   'dc3d19e07df8abe361d632bbd41f96f4'),
+              ('venue_cmd', 'validate_ticket_online', 'venue_cmd.validate_ticket_online(uuid, uuid)',     'd81100fbe730dd9cbbd9b728dab86197')
+           ) AS e(nsp, fname, sig, h163)
+      JOIN pg_namespace n ON n.nspname = e.nsp
+      JOIN pg_proc p ON p.pronamespace = n.oid AND p.proname = e.fname
+     ORDER BY 1
+  LOOP
+    IF NOT r.is_163 THEN
+      RAISE EXCEPTION 'MIGRATION_163_REFUSED (pre-flight): % body is neither absent nor 163''s (md5 %); nothing changed', r.fn, r.h;
+    END IF;
+  END LOOP;
+END $pre_b$;
+-- <<< PRE-FLIGHT PART B
 
 -- ============================================================================
 -- PART A — the counters (always ships)

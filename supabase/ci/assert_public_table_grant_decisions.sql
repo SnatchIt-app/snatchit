@@ -168,6 +168,39 @@
 -- now fourteen on the stacked 160-163 tree: 161's six + 162's five + 163's three) and 226 F1
 -- (+ the 163 hunk, F's). Nothing in public changed.
 --
+-- SCOPE NOTE (2026-10-27, registry 164 — D, the dashboard's route to the catalog
+-- event / session / venue verbs; DARK, applied nowhere). Same reasoning: every
+-- object is outside public, so NO row is added here:
+--   venue_cmd.create_event(uuid, text, jsonb, text)       authenticated-execute (SECURITY INVOKER sql
+--   venue_cmd.update_event(uuid, jsonb, text)               wrappers, one-line delegation to
+--   venue_cmd.create_event_session(uuid, jsonb, text)       catalog.<same name>; schema USAGE
+--   venue_cmd.update_event_session(uuid, jsonb, text)       unchanged from 161)
+--   venue_cmd.publish_event(uuid, text, text)
+--   venue_cmd.cancel_event(uuid, text, text)
+--   venue_cmd.update_venue(uuid, jsonb, text)
+--   (anon, PUBLIC and service_role hold nothing on any of them; no proacl is
+--   left DEFAULTED.) The seven catalog.* targets are UNCHANGED: no grant, no
+--   revoke, no body change — still exactly owner + authenticated (078 PART 7,
+--   079, 081 PART 16, 088 PART 8), which 164's post-flight and 231 A15-A17 pin.
+-- ASSERTED by pgTAP 231 (A1-A18, C1-C9, L1-L9) and 228 (the venue_cmd sweep, now
+-- twenty-one). Nothing in public changed.
+--
+-- SCOPE NOTE (2026-10-26, registry 166 — D, identity-free staff read of the session
+-- sales pool; DARK, applied nowhere). Same reasoning: every object is outside public,
+-- so NO row is added here:
+--   venue.get_session_capacity(uuid)        authenticated-execute (SECURITY DEFINER, STABLE)
+--   venue.list_session_capacity()           authenticated-execute (SECURITY DEFINER, STABLE)
+--   venue_api.session_capacity              SELECT to authenticated only (security_invoker view)
+--   venue_cmd.get_session_capacity(uuid)    authenticated-execute (SECURITY INVOKER sql wrapper;
+--                                           schema USAGE unchanged from 161)
+--   (anon, PUBLIC and service_role hold nothing on any of them — the REVOKE names
+--   service_role explicitly; no proacl is left DEFAULTED; catalog.event_session.
+--   sales_capacity and venue.inventory_batch.capacity keep NO client column grant —
+--   the definers read them.)
+-- ASSERTED by pgTAP 233 (A11-A16, A19-A22), 228 (the venue_cmd sweep, now fifteen without 164 /
+-- twenty-two on the stacked tree: 161's six + 162's five + 163's three + 164's seven + 166's one) and 226 F1 (+ the 166 hunk, F's).
+-- Nothing in public changed.
+--
 -- Table decisions:
 --   no-client-access  deny-all. RLS on, service_role only. ASSERTED: anon and
 --                     authenticated must hold zero table privileges.
@@ -558,6 +591,18 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   -- Asserted in 252 A10/A11 and 182's post-flight.
   ('get_my_ticket_atoms(uuid)',                                      'authenticated-execute'),
   ('get_my_primary_orders(uuid)',                                    'authenticated-execute'),
+  -- 167 (20261027015500, D, 2026-10-26; registry 167/234): the buyer's reserve / release / all-orders verbs.
+  -- SECURITY DEFINER wrappers bound to auth.uid() (none takes an identity): reserve_primary_tier picks the
+  -- tier's public_sale batch and calls venue.reserve_primary_inventory (its refusals pass through);
+  -- release_primary_hold releases OWN holds only (a foreign id answers like an unknown one);
+  -- list_my_primary_orders calls get_my_primary_orders per own session. REVOKE ALL FROM PUBLIC, anon,
+  -- authenticated; GRANT EXECUTE to authenticated, plus an EXPLICIT GRANT EXECUTE to service_role (182's
+  -- posture; auth.uid() is NULL for it, so it is refused in the bodies). Resulting ACL: authenticated +
+  -- service_role, no anon, no PUBLIC. This class does not examine service_role. Asserted in 234 A7-A9 and
+  -- 167's post-flight.
+  ('reserve_primary_tier(uuid, uuid, integer, text)',                'authenticated-execute'),
+  ('release_primary_hold(uuid, text)',                               'authenticated-execute'),
+  ('list_my_primary_orders()',                                       'authenticated-execute'),
   ('get_profile_trust_stats(uuid)',                                  'authenticated-execute'),
   ('mark_listing_sold(uuid, uuid)',                                  'authenticated-execute'),
   ('mark_transfer_sent(uuid, uuid)',                                 'authenticated-execute'),

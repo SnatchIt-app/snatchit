@@ -45,7 +45,10 @@
 --              age_policy) present, sales_capacity withheld, E-29 unchanged; the
 --              seven event-org-arm bodies, the seven E-76 conjuncts, the two
 --              shared-room guards, the `for update` in every new setter
---              (every setter locks its parent row — read from the source).
+--              (every setter locks its parent row — read from the source);
+--              A47/A48 (A's N1): each batch writer's FIRST row lock is the
+--              session row, taken before the pool read (set_batch_capacity:
+--              before the batch's `for update of b`) — regex over prosrc.
 --   Section B  the R3 ruling on the re-operated room: Org B's owner (the NEW
 --              operator) REFUSED on Org A's event e5 by all six 160 bodies and
 --              the new setter (negative controls, FIRST — throws_ok does not
@@ -88,8 +91,9 @@
 --
 -- Expected on 159+176+160+161 WITHOUT 162 (RED, predicted before the first run;
 -- the reconciliation against the actual run is in the evidence dir
--- EVIDENCE-162.md §1): A1-A36, A40, A43-A46 fail (columns, functions, wrappers,
--- counts, view columns, grants and body text absent — 41); A37-A39, A41, A42
+-- EVIDENCE-162.md §1): A1-A36, A40, A43-A48 fail (columns, functions, wrappers,
+-- counts, view columns, grants and body text absent — 43; A47/A48 added for A's
+-- N1: 160's two batch writers take no session lock); A37-A39, A41, A42
 -- pass (5, by vacuity: the three views keep their options/ACL, venue_api still
 -- has no function, sales_capacity cannot be selected because it does not exist,
 -- E-29 unchanged). Section B negatives B1-B7: B1-B6 fail (160's org arm ACCEPTS
@@ -97,10 +101,11 @@
 -- setter) fails with 42883 inside throws_ok (not ok, no abort). Then B8 — the
 -- first positive `is()` call — raises 42501 on 160 (Org A's owner is refused by
 -- the old arm) and aborts the transaction, so B9 onward is never emitted.
--- Predicted RED run: 53 emitted = 48 not ok + 5 ok; plan unmet.
+-- Predicted RED run: 55 emitted = 50 not ok + 5 ok; plan unmet (was 53 = 48 + 5
+-- before A47/A48).
 -- ============================================================================
 BEGIN;
-SELECT plan(233);
+SELECT plan(235);
 
 CREATE TABLE tap.memo_229 (k text PRIMARY KEY, v text);
 CREATE FUNCTION tap._store229(k text, v text) RETURNS text
@@ -259,17 +264,24 @@ SELECT is((SELECT string_agg(p.proname || '=' || p.provolatile::text, ',' ORDER 
                 OR (n.nspname = 'venue'   AND p.proname IN ('set_ticket_type_sale_window','ticket_type_on_sale')))),
   'set_event_age_policy=v,set_session_sales_capacity=v,set_ticket_type_sale_window=v,set_venue_timezone=v,ticket_type_on_sale=s',
   'A22: ticket_type_on_sale is STABLE (a read); the four setters are VOLATILE');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue'), 96,
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue'), 99,
+  -- 2026-10-26 (registry 166): 96 -> 98 (+get_session_capacity, list_session_capacity).
+  -- 2026-10-27 (package 187, beneath 164-167): 98 -> 99 (+1 venue.assert_session_operator, the E-76 door-plane helper).
   -- 2026-10-26 (registry 163): 92 -> 96 (+get_session_scan_counters, list_session_scan_counters, record_scan_staff, filter_staff_scan_meta; 94 if 163's PART B is dropped).
-  'A23: venue holds NINETY-SIX functions — 90 (160) + set_ticket_type_sale_window + ticket_type_on_sale + 163''s four (144 A15 / 145 A4 / 148 B5 / 179 A8 / 180 A5 / 227 A12 / 230 A19 move with it)');
+  'A23: venue holds NINETY-NINE functions — 90 (160) + set_ticket_type_sale_window + ticket_type_on_sale + 163''s four + 166''s two + 187''s one (144 A15 / 145 A4 / 148 B5 / 179 A8 / 180 A5 / 227 A12 / 230 A19 move with it)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'catalog'), 20,
   'A24: catalog holds TWENTY functions — 17 + set_venue_timezone, set_event_age_policy, set_session_sales_capacity (154 A10 moves with it)');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 317,
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 320,
+  -- 2026-10-26 (registry 166): 317 -> 319 (+2 venue: get_session_capacity, list_session_capacity).
+  -- 2026-10-27 (package 187, beneath 164-167): 319 -> 320 (+1 venue.assert_session_operator, the E-76 door-plane helper).
   -- 2026-10-26 (registry 163): 313 -> 317 (+4 venue: get_session_scan_counters, list_session_scan_counters, record_scan_staff, filter_staff_scan_meta; 315 if 163's PART B is dropped).
-  'A25: five-schema routine census 317 — 308 post-160 + 162''s five + 163''s four (148 B2 / 156 A20 / 157 A46 / 179 A9 / 180 A6 move with it)');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue_cmd'), 14,
+  'A25: five-schema routine census 320 — 308 post-160 + 162''s five + 163''s four + 166''s two + 187''s one (148 B2 / 156 A20 / 157 A46 / 179 A9 / 180 A6 move with it)');
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue_cmd'), 22,
+  -- 2026-10-26 (stack 164 -> 166 on #170 13d46b22, measured): 21 -> 22 (166's get_session_capacity over 164's seven).
+  -- 2026-10-26 (registry 166): 14 -> 15 (+get_session_capacity).
+  -- 2026-10-27 (registry 164): 14 -> 21 (+164's seven catalog event/session/venue wrappers; pgTAP 231).
   -- 2026-10-26 (registry 163): 11 -> 14 (+get_session_scan_counters, record_scan, validate_ticket_online; 12 if 163's PART B is dropped).
-  'A26: venue_cmd holds FOURTEEN functions — 161''s six + 162''s five + 163''s three wrappers (228 A2/A3 move with it)');
+  'A26: venue_cmd holds TWENTY-TWO functions — 161''s six + 162''s five + 163''s three + 164''s seven + 166''s one wrappers (228 A2/A3 move with it)');
 SELECT set_eq(
   $$ SELECT p.proname || '(' || pg_catalog.oidvectortypes(p.proargtypes) || ')'
        FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue_cmd'
@@ -393,6 +405,25 @@ SELECT is((SELECT count(*)::int FROM pg_proc p
                             to_regprocedure('venue.set_ticket_type_sale_window(uuid, timestamptz, timestamptz, text, text)'))
               AND p.prosrc LIKE '%for update%'), 4,
   'A46: every new setter locks its parent row (for update) before it writes — read from the function source');
+-- A47/A48 (A's N1, review of #168, 2026-10-26): A45's LIKE '%from catalog.event_session s%for update%' is also
+-- satisfied by set_batch_capacity's LATER batch lock ('for update of b'), so a body with the session-row lock
+-- deleted stayed green on 229/227 (with 162's post-flight md5 check switched off) while A's two-connection race
+-- resized 20 -> 40 beside a committed 20 and booked 60 into a 50 pool; on create_inventory_batch only A45's text
+-- caught it (70 > 50). These two pins read the real statements: each writer's FIRST row lock is the session row
+-- (catalog.event_session ... for update — bare, not a batch lock), taken BEFORE the pool is summed and, in
+-- set_batch_capacity, BEFORE the batch's 'for update of b' (rank 1 then rank 2, the cancel_event order).
+-- Race evidence (the behaviour these text pins stand for): D's two-connection race with the lock in place —
+-- the second connection blocks on the session row, then is refused session_capacity_exceeded (planning/
+-- 2026-10-26-launch/D/s2-policy/race/: run_race.sh, round1_20_20.log, round2_10_10.log); A's review race with
+-- each lock removed (create 70 > 50, resize 60 > 50 — A's review evidence race/race.log).
+SELECT ok(coalesce((SELECT p.prosrc ~* $re$from\s+catalog\.event_session\s+s\s+where\s+s\.session_id\s*=\s*p_session_id\s+for\s+update\s*;.*from\s+venue\.inventory_batch\s+b\s+where\s+b\.event_session_id\s*=\s*p_session_id\s*;.*insert\s+into\s+venue\.inventory_batch\s*\($re$
+                      AND split_part(lower(p.prosrc), 'for update', 1) ~ $re$from\s+catalog\.event_session\s+s\s+where\s+s\.session_id\s*=\s*p_session_id\s+\Z$re$
+                      FROM pg_proc p WHERE p.oid = to_regprocedure('venue.create_inventory_batch(uuid, uuid, text, integer, integer, text)')), false),
+  'A47: N1 — create_inventory_batch: its first row lock is the SESSION row (from catalog.event_session s where s.session_id = p_session_id for update), taken before the pool is summed and the batch inserted');
+SELECT ok(coalesce((SELECT p.prosrc ~* $re$from\s+catalog\.event_session\s+s\s+where\s+s\.session_id\s*=\s*\(select\s+b\.event_session_id\s+from\s+venue\.inventory_batch\s+b\s+where\s+b\.batch_id\s*=\s*p_batch_id\)\s+for\s+update\s*;.*from\s+venue\.inventory_batch\s+b\s+join\s+venue\.ticket_type\s+tt[^;]*\sfor\s+update\s+of\s+b\s*;.*from\s+venue\.inventory_batch\s+b\s+where\s+b\.event_session_id\s*=\s*v_session\s+and\s+b\.batch_id\s*<>\s*p_batch_id\s*;$re$
+                      AND split_part(lower(p.prosrc), 'for update', 1) ~ $re$from\s+catalog\.event_session\s+s\s+where\s+s\.session_id\s*=\s*\(select\s+b\.event_session_id\s+from\s+venue\.inventory_batch\s+b\s+where\s+b\.batch_id\s*=\s*p_batch_id\)\s+\Z$re$
+                      FROM pg_proc p WHERE p.oid = to_regprocedure('venue.set_batch_capacity(uuid, integer, text, text)')), false),
+  'A48: N1 — set_batch_capacity: its first row lock is the SESSION row (catalog.event_session ... for update), BEFORE the batch''s for update of b, and the pool is summed after both');
 
 -- ── Section B — R3: the org arm binds to the EVENT's org (re-operated Room V2: venue B, event e5 A) ──
 -- NEGATIVE controls first (throws_ok does not abort the RED run): Org B's owner, the NEW operator, on Org A's event.
