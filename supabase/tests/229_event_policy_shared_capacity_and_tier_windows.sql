@@ -264,16 +264,18 @@ SELECT is((SELECT string_agg(p.proname || '=' || p.provolatile::text, ',' ORDER 
                 OR (n.nspname = 'venue'   AND p.proname IN ('set_ticket_type_sale_window','ticket_type_on_sale')))),
   'set_event_age_policy=v,set_session_sales_capacity=v,set_ticket_type_sale_window=v,set_venue_timezone=v,ticket_type_on_sale=s',
   'A22: ticket_type_on_sale is STABLE (a read); the four setters are VOLATILE');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue'), 98,
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue'), 99,
   -- 2026-10-26 (registry 166): 96 -> 98 (+get_session_capacity, list_session_capacity).
+  -- 2026-10-27 (package 187, beneath 164-167): 98 -> 99 (+1 venue.assert_session_operator, the E-76 door-plane helper).
   -- 2026-10-26 (registry 163): 92 -> 96 (+get_session_scan_counters, list_session_scan_counters, record_scan_staff, filter_staff_scan_meta; 94 if 163's PART B is dropped).
-  'A23: venue holds NINETY-EIGHT functions — 90 (160) + set_ticket_type_sale_window + ticket_type_on_sale + 163''s four + 166''s two (144 A15 / 145 A4 / 148 B5 / 179 A8 / 180 A5 / 227 A12 / 230 A19 move with it)');
+  'A23: venue holds NINETY-NINE functions — 90 (160) + set_ticket_type_sale_window + ticket_type_on_sale + 163''s four + 166''s two + 187''s one (144 A15 / 145 A4 / 148 B5 / 179 A8 / 180 A5 / 227 A12 / 230 A19 move with it)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'catalog'), 20,
   'A24: catalog holds TWENTY functions — 17 + set_venue_timezone, set_event_age_policy, set_session_sales_capacity (154 A10 moves with it)');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 319,
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 320,
   -- 2026-10-26 (registry 166): 317 -> 319 (+2 venue: get_session_capacity, list_session_capacity).
+  -- 2026-10-27 (package 187, beneath 164-167): 319 -> 320 (+1 venue.assert_session_operator, the E-76 door-plane helper).
   -- 2026-10-26 (registry 163): 313 -> 317 (+4 venue: get_session_scan_counters, list_session_scan_counters, record_scan_staff, filter_staff_scan_meta; 315 if 163's PART B is dropped).
-  'A25: five-schema routine census 319 — 308 post-160 + 162''s five + 163''s four + 166''s two (148 B2 / 156 A20 / 157 A46 / 179 A9 / 180 A6 move with it)');
+  'A25: five-schema routine census 320 — 308 post-160 + 162''s five + 163''s four + 166''s two + 187''s one (148 B2 / 156 A20 / 157 A46 / 179 A9 / 180 A6 move with it)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue_cmd'), 22,
   -- 2026-10-26 (stack 164 -> 166 on #170 13d46b22, measured): 21 -> 22 (166's get_session_capacity over 164's seven).
   -- 2026-10-26 (registry 166): 14 -> 15 (+get_session_capacity).
