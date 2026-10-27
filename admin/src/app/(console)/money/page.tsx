@@ -59,6 +59,13 @@ export default async function MoneyPage({ searchParams }: { searchParams: Promis
       />
       <SampleDataNotice />
 
+      <p className="mb-4 text-sm">
+        <a href="/money/ticket-orders" className="link">
+          Ticket orders (primary) and their refunds
+        </a>{" "}
+        <span className="text-dim">— paid, tickets live, and both refund sides. Separate from the resale payments below.</span>
+      </p>
+
       <div className="mb-6 flex flex-wrap items-end gap-3 rounded-[var(--radius-card)] border border-line bg-card p-3">
         <nav aria-label="Date range" className="flex flex-wrap gap-1">
           {RANGE_PRESETS.map((p) => (
