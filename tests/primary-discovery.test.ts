@@ -85,6 +85,23 @@ describe('parsePrimarySession / readPrimarySessionDetail', () => {
     expect(await readPrimarySessionDetail(async () => ({ data: [], error: null }), SESSION, false)).toEqual({ kind: 'not_available' });
   });
 
+  it('D2b: an unranked tier (display_rank NULL — D 160: 0–999 or NULL = unranked) is kept; ranked tiers first, unranked in the server order', () => {
+    const s = parsePrimarySession(sessionRow({ ticket_types: [
+      tier({ display_rank: null, name: 'GA' }), tier({ display_rank: null, name: 'Last one' }), tier({ display_rank: 3, name: 'VIP' }),
+    ] }));
+    expect(s?.tiers.map((t) => t.name)).toEqual(['VIP', 'GA', 'Last one']);
+  });
+
+  it('D2c: the live sandbox 182 tier shape (C33 device run, 2026-10-28) parses — both tiers, all-in from the server', () => {
+    const live = [
+      { all_in_price_minor: 2750, buyer_fee_minor: 250, currency: 'USD', display_rank: null, name: 'GA', on_sale_now: true, price_minor: 2500, remaining: 10, sale_ends_at: null, sale_starts_at: null, ticket_type_id: '62c08ab7-e7b7-4c85-9490-ca03907d6a7d', visibility: 'public' },
+      { all_in_price_minor: 4400, buyer_fee_minor: 400, currency: 'USD', display_rank: null, name: 'Last one', on_sale_now: true, price_minor: 4000, remaining: 1, sale_ends_at: null, sale_starts_at: null, ticket_type_id: '45af981e-3964-465f-a9cf-5bda79e783d4', visibility: 'public' },
+    ];
+    const s = parsePrimarySession(sessionRow({ ticket_types: live }));
+    expect(s?.tiers.map((t) => [t.name, t.all_in_price_minor])).toEqual([['GA', 2750], ['Last one', 4400]]);
+    expect(tierLine(s!.tiers[0], Date.parse('2026-10-28T12:00:00Z')).price).toBe('$27.50');
+  });
+
   it('D3: errors are offline / unavailable, never not_available', async () => {
     expect(await readPrimarySessionDetail(async () => ({ data: null, error: { message: 'Network request failed' } }), SESSION, true)).toEqual({ kind: 'failed', failure: 'offline' });
     expect(await readPrimarySessionDetail(async () => ({ data: null, error: { code: 'PGRST202' } }), SESSION, false)).toEqual({ kind: 'failed', failure: 'unavailable' });

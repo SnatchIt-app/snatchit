@@ -62,7 +62,8 @@ export interface PrimaryTier {
   price_minor: number;
   currency: string;
   visibility: string;
-  display_rank: number;
+  /** 0–999, or NULL = unranked (D's 160 `set_ticket_type_rank`). Unranked tiers follow the ranked ones. */
+  display_rank: number | null;
   sale_starts_at: string | null;
   sale_ends_at: string | null;
   on_sale_now: boolean;
@@ -77,10 +78,24 @@ function isTier(v: unknown): v is PrimaryTier {
   return (
     typeof t.ticket_type_id === 'string' && typeof t.name === 'string' && typeof t.price_minor === 'number' &&
     typeof t.currency === 'string' && typeof t.on_sale_now === 'boolean' && typeof t.remaining === 'number' &&
-    typeof t.display_rank === 'number' &&
+    (t.display_rank === null || typeof t.display_rank === 'number') &&
     (t.sale_starts_at === null || typeof t.sale_starts_at === 'string') &&
     (t.sale_ends_at === null || typeof t.sale_ends_at === 'string')
   );
+}
+
+/** Ranked tiers by rank, then unranked tiers in the server's order (explicit index tie-break: no reliance on sort stability). */
+function orderTiers(tiers: PrimaryTier[]): PrimaryTier[] {
+  return tiers
+    .map((t, i) => ({ t, i }))
+    .sort((a, b) => {
+      const ra = a.t.display_rank, rb = b.t.display_rank;
+      if (ra !== null && rb !== null && ra !== rb) return ra - rb;
+      if (ra === null && rb !== null) return 1;
+      if (ra !== null && rb === null) return -1;
+      return a.i - b.i;
+    })
+    .map(({ t }) => t);
 }
 
 export interface PrimarySessionDetail {
@@ -100,7 +115,7 @@ export function parsePrimarySession(row: unknown): PrimarySessionDetail | null {
   const venue = (r.venue && typeof r.venue === 'object' ? r.venue : {}) as Record<string, unknown>;
   const sessionId = s(session.session_id);
   if (!sessionId) return null;
-  const tiers = (Array.isArray(r.ticket_types) ? r.ticket_types : []).filter(isTier).sort((a, b) => a.display_rank - b.display_rank);
+  const tiers = orderTiers((Array.isArray(r.ticket_types) ? r.ticket_types : []).filter(isTier));
   return { sessionId, facts, description: s(event.description), neighborhood: s(venue.neighborhood), tiers };
 }
 
