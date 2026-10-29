@@ -118,6 +118,20 @@ describe('EntitlementCard and the view — a code only from a server credential'
     expect(route).toContain('useEffect(() => { loadRef.current = load; }, [load]);');
   });
 
+  it('E4d: the focus effect\'s own dependencies are stable — readAll and sweepStale change on nothing a read changes (E N1, 2026-10-29)', () => {
+    // E4c pins the focus effect's deps; this pins the other half of the invariant. If readAll or sweepStale gained a
+    // dependency that a read updates (credentials, load, orders…), they would become new functions per read and the
+    // focus effect would re-run per read again — the continuous re-read loop, with E4c still green.
+    const route = src('app/ticket/[session].tsx');
+    const deps = (re: RegExp) => {
+      const m = route.match(re);
+      expect(m, String(re)).not.toBeNull();
+      return m![1].split(',').map((d) => d.trim()).filter(Boolean);
+    };
+    expect(deps(/const readAll = useCallback\(async \(\) => \{[\s\S]*?\n  \}, \[([^\]]*)\]\);/)).toEqual(['userId', 'sessionId', 'sweepStale']);
+    expect(deps(/const sweepStale = useCallback\(\(atoms: MyTicketAtom\[\]\) => \{[\s\S]*?\n  \}, \[([^\]]*)\]\);/)).toEqual([]);
+  });
+
   it('E4b: C-R4 + C5 — the route decides refresh outcomes with afterMint, keeps a code visible while refreshing, and reads orders + session facts', () => {
     const route = src('app/ticket/[session].tsx');
     expect(route).toContain('afterMint(latest, r, now,');
