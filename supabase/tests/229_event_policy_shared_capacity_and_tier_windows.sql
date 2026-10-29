@@ -276,12 +276,13 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.
   -- 2026-10-27 (package 187, beneath 164-167): 319 -> 320 (+1 venue.assert_session_operator, the E-76 door-plane helper).
   -- 2026-10-26 (registry 163): 313 -> 317 (+4 venue: get_session_scan_counters, list_session_scan_counters, record_scan_staff, filter_staff_scan_meta; 315 if 163's PART B is dropped).
   'A25: five-schema routine census 320 — 308 post-160 + 162''s five + 163''s four + 166''s two + 187''s one (148 B2 / 156 A20 / 157 A46 / 179 A9 / 180 A6 move with it)');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue_cmd'), 22,
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue_cmd'), 23,
+  -- 2026-10-29 (registry 192): 22 -> 23 (+venue_cmd.create_inventory_batch).
   -- 2026-10-26 (stack 164 -> 166 on #170 13d46b22, measured): 21 -> 22 (166's get_session_capacity over 164's seven).
   -- 2026-10-26 (registry 166): 14 -> 15 (+get_session_capacity).
   -- 2026-10-27 (registry 164): 14 -> 21 (+164's seven catalog event/session/venue wrappers; pgTAP 231).
   -- 2026-10-26 (registry 163): 11 -> 14 (+get_session_scan_counters, record_scan, validate_ticket_online; 12 if 163's PART B is dropped).
-  'A26: venue_cmd holds TWENTY-TWO functions — 161''s six + 162''s five + 163''s three + 164''s seven + 166''s one wrappers (228 A2/A3 move with it)');
+  'A26: venue_cmd holds TWENTY-THREE functions — 161''s six + 162''s five + 163''s three + 164''s seven + 166''s one + 192''s one wrappers (228 A2/A3 move with it)');
 SELECT set_eq(
   $$ SELECT p.proname || '(' || pg_catalog.oidvectortypes(p.proargtypes) || ')'
        FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue_cmd'

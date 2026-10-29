@@ -561,10 +561,10 @@ SELECT set_eq(
       WHERE n.nspname = 'venue' AND p.proname IN ('record_scan','record_scan_door','_record_scan_core','validate_ticket_online') AND a.grantee <> p.proowner $$,
   $$ VALUES ('record_scan:authenticated:EXECUTE'), ('record_scan_door:service_role:EXECUTE'), ('validate_ticket_online:authenticated:EXECUTE') $$,
   'D12: the 086/108 grants are UNCHANGED — record_scan authenticated, record_scan_door service_role, _record_scan_core nobody (the door path is not touched)');
-SELECT ok((SELECT count(*) = 22 AND count(*) FILTER (WHERE NOT p.prosecdef AND l.lanname = 'sql') = 22  -- 2026-10-26 (stack 164 -> 166 on #170 13d46b22, measured): 21 -> 22 (+166's get_session_capacity). 2026-10-26 (registry 166): 14 -> 15. 2026-10-27 (registry 164): 14 -> 21 (+164's seven wrappers; pgTAP 231). 2026-10-26 (registry 162, S2, stacked under 163): 9 -> 14 (+162's five wrappers)
+SELECT ok((SELECT count(*) = 23 AND count(*) FILTER (WHERE NOT p.prosecdef AND l.lanname = 'sql') = 23  -- 2026-10-29 (registry 192): 22 -> 23 (+venue_cmd.create_inventory_batch).  2026-10-26 (stack 164 -> 166 on #170 13d46b22, measured): 21 -> 22 (+166's get_session_capacity). 2026-10-26 (registry 166): 14 -> 15. 2026-10-27 (registry 164): 14 -> 21 (+164's seven wrappers; pgTAP 231). 2026-10-26 (registry 162, S2, stacked under 163): 9 -> 14 (+162's five wrappers)
              FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace JOIN pg_language l ON l.oid = p.prolang
             WHERE n.nspname = 'venue_cmd'),
-  'D13: venue_cmd holds TWENTY-TWO functions (161''s six + 162''s five + 163''s three + 164''s seven + 166''s one) and EVERY one is LANGUAGE sql + SECURITY INVOKER (228''s invariant survives 162, 163, 164 and 166; 20 if 163''s PART B is dropped)');
+  'D13: venue_cmd holds TWENTY-THREE functions (161''s six + 162''s five + 163''s three + 164''s seven + 166''s one + 192''s one) and EVERY one is LANGUAGE sql + SECURITY INVOKER (228''s invariant survives 162, 163, 164, 166 and 192; 21 if 163''s PART B is dropped)');
 SELECT ok((SELECT p.prosrc LIKE '%venue.record_scan(p_atom_id, p_session_id, null::uuid, v_meta, p_command_key)%'
                   AND p.prosrc LIKE '%venue.filter_staff_scan_meta(p_scan_meta)%' AND position('*' IN p.prosrc) = 0
              FROM pg_proc p WHERE p.oid = to_regprocedure('venue.record_scan_staff(uuid, uuid, jsonb, text)')),
