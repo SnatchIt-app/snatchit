@@ -709,6 +709,15 @@ jobs:
           # 148 B5 / 179 A8 / 180 A5 / 227 A12), catalog 17 -> 20 (154 A10), the five-schema routine census 308 -> 313
           # (148 B2 / 156 A20 / 157 A46 / 179 A9 / 180 A6), venue_cmd 6 -> 11 (228); ACLs are pinned by pgTAP 229.
           # Read from a local PG17 replay of bfc5cf97 + 159 + 176 + 160 + 161 + 162 (a154c_green clone): still 35|126|37|49.
+          # 2026-10-26 registry 163 (D, scanner staff-session wrappers + identity-free session scan counters;
+          # DARK, applied nowhere): NO change to any of the four counters. 163 creates
+          # venue.get_session_scan_counters / list_session_scan_counters / record_scan_staff / filter_staff_scan_meta
+          # (zero-grant helper), the view venue_api.session_admissions and three venue_cmd wrappers
+          # (get_session_scan_counters, record_scan, validate_ticket_online). Nothing lands in `public`, and this
+          # counter reads `public` only. The venue census moves 90 -> 94 (pgTAP 144 A15 / 145 A4 / 148 B5 / 180 A5 /
+          # 227 A12), the five-schema routine census 308 -> 312 (148 B2 / 157 A46 / 180 A6), venue_api views 8 -> 9 (226 A2/F1/F5/F6) and venue_cmd
+          # 6 -> 9 (228); the new ACLs are pinned by pgTAP 230 (and 228/226 sweeps). Read from a local PG17 replay
+          # of ce1c9737 + 159 + 176 + 160 + 161 + 163 (a154c_green clone): still 35|126|37|49.
           EXPECT_TABLES: 35
           # 2026-09-15 migration 130 (L1 concurrency, B): functions 94 -> 96 —
           # +2 public.claim_checkout_supersede, public.release_checkout_supersede
