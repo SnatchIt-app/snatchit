@@ -201,6 +201,20 @@
 -- twenty-two on the stacked tree: 161's six + 162's five + 163's three + 164's seven + 166's one) and 226 F1 (+ the 166 hunk, F's).
 -- Nothing in public changed.
 --
+-- SCOPE NOTE (2026-10-29, registry 192 — D, the dashboard's route to
+-- venue.create_inventory_batch; DARK, applied nowhere). Same reasoning: the object
+-- is outside public, so NO row is added here:
+--   venue_cmd.create_inventory_batch(uuid, uuid, text, integer, integer, text)
+--                                    authenticated-execute (SECURITY INVOKER sql wrapper,
+--                                    one-line delegation to venue.create_inventory_batch;
+--                                    schema USAGE unchanged from 161)
+--   (anon, PUBLIC and service_role hold nothing on it — the REVOKE names service_role
+--   explicitly; no proacl is left DEFAULTED.) The target venue.create_inventory_batch
+--   is UNCHANGED: no grant, no revoke, no body change — still exactly owner +
+--   authenticated (081 PART 16), which 192's post-flight and 261 A8/C3 pin.
+-- ASSERTED by pgTAP 261 (A1-A9, C1-C3) and 228 (the venue_cmd sweep, now
+-- twenty-three). Nothing in public changed.
+--
 -- Table decisions:
 --   no-client-access  deny-all. RLS on, service_role only. ASSERTED: anon and
 --                     authenticated must hold zero table privileges.
