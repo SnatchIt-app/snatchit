@@ -44,7 +44,8 @@
 --              get_my_tickets posture, no longer inherited from a default ACL;
 --              pinned not assumed);
 --              output column lists verbatim; forbidden names absent; public
---              census 130 (pgtap-excluded, the tests/162 P2 query); comments.
+--              census 133 since 167 (130 with 182 alone; pgtap-excluded, the
+--              tests/162 P2 query); comments.
 --   Section L  list_primary_sessions_on_sale: exactly {f2, f6, f11}; draft /
 --              announced / cancelled / completed event / completed session /
 --              no public tier on sale / future window / pending room never
@@ -363,8 +364,8 @@ SELECT is((SELECT p.proargnames FROM pg_proc p WHERE p.oid = to_regprocedure('pu
   ARRAY['p_event_session_id','order_id','status','total_minor','currency','created_at','atoms_issued','payment_state','charge_total_minor']::text[],
   'A16: orders returns exactly (order_id, status, total_minor, currency, created_at, atoms_issued, payment_state, charge_total_minor)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-            WHERE n.nspname = 'public' AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = p.oid AND d.deptype = 'e')), 130,
-  'A17: GATE-2 public functions = 130 (126 + the four 182 reads; pgtap excluded — the tests/162 P2 query)');
+            WHERE n.nspname = 'public' AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = p.oid AND d.deptype = 'e')), 133,
+  'A17: GATE-2 public functions = 133 (126 + the four 182 reads + the three 167 verbs, 2026-10-26; pgtap excluded — the tests/162 P2 query)');
 SELECT ok(coalesce((SELECT count(*) = 4 AND bool_and(length(obj_description(p.oid, 'pg_proc')) > 40) FROM pg_proc p WHERE p.oid IN (
            to_regprocedure('public.list_primary_sessions_on_sale()'), to_regprocedure('public.get_primary_session(uuid)'),
            to_regprocedure('public.get_my_ticket_atoms(uuid)'), to_regprocedure('public.get_my_primary_orders(uuid)'))), false),
