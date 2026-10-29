@@ -216,12 +216,28 @@ export default function SearchScreen({ fixture }: { fixture?: SearchFixture } = 
 
   return (
     <View style={s.container}>
-      {/* V3 header — the pushed-screen pattern: circular back chip, centred title, 44pt
-          spacer so the title stays optically centred. */}
+      {/* V3 header — the pushed-screen pattern: circular back chip, centred title. The two side
+          slots share one width so the title stays optically centred; the right slot holds the
+          "Events" entry to primary ticket discovery (A's default entry point, 2026-10-26; the
+          owner may move it). */}
       <View style={[s.header, { paddingTop: topPad + v2.space.sm }]}>
-        <IconButton glyph="back" chip accessibilityLabel="Go back" onPress={() => router.back()} />
+        <View style={s.headerSide}>
+          <IconButton glyph="back" chip accessibilityLabel="Go back" onPress={() => router.back()} />
+        </View>
         <Text style={[textStyle('screenTitle'), s.headerTitle]} accessibilityRole="header">Search</Text>
-        <View style={s.headerSpacer} />
+        <View style={[s.headerSide, s.headerSideEnd]}>
+          {fixture ? null : (
+            <Pressable
+              onPress={() => router.push('/events')}
+              hitSlop={TEXT_LINK_HIT_SLOP}
+              accessibilityRole="link"
+              accessibilityLabel="Browse events"
+              accessibilityHint="Opens events with tickets on sale"
+            >
+              <Text style={[textStyle('label'), s.headerAction]} numberOfLines={1}>Events</Text>
+            </Pressable>
+          )}
+        </View>
       </View>
 
       {/* The query field is the board's rounded pill with the magnifier glyph — a surface,
@@ -395,7 +411,9 @@ function makeStyles(p: Palette) {
     paddingBottom: v2.space.sm,
   },
   headerTitle: { color: p.text.primary },
-  headerSpacer: { width: 44 },
+  headerSide: { width: 72, alignItems: 'flex-start' },
+  headerSideEnd: { alignItems: 'flex-end' },
+  headerAction: { color: p.brand.redText },
   searchFieldWrap: { paddingHorizontal: v2.space.lg, paddingBottom: v2.space.md },
   // The board's rounded query field: an elevated surface, pill-ended, glyph inside.
   searchField: {

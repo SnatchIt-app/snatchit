@@ -145,6 +145,18 @@ describe('complete appearance migration', () => {
         literals: ['rgba(0,0,0,0.55)'],
         reason: 'Scrim over the uploaded image while it is replaced.',
       },
+      'src/lib/qr/qrEncode.ts': {
+        literals: ['#000000', '#FFFFFF'],
+        reason:
+          'The admission QR: a camera needs black modules on a white field, identical in both ' +
+          'appearances. The symbol is a machine-read image, not a themed surface (lane C, 2026-10-26).',
+      },
+      'src/components/tickets/TicketQR.tsx': {
+        literals: ['#FFFFFF'],
+        reason:
+          'The white card behind the admission QR: part of the scannable image (quiet zone), so it ' +
+          'stays white in dark appearance on purpose.',
+      },
       'src/components/PlatformInstructions.tsx': {
         literals: ['rgba(251,191,36,0.10)'],
         reason:
