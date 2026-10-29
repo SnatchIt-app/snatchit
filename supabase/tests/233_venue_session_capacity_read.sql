@@ -30,9 +30,9 @@
 --              fan get P0002 byte-identical to an unknown session and see zero
 --              view rows; a caller with the authenticated role but no uid gets
 --              42501 from the body; anon gets 42501 at the ACL (no USAGE on
---              venue_cmd / venue_api / venue). STATUS QUO (165 flips): on the
---              re-operated room the read answers exactly as 162's setter does
---              today, setter and read asserted side by side.
+--              venue_cmd / venue_api / venue). UNCHANGED BY 165 (venue-role-arm
+--              conjunct, 088 / 162 shape): on the re-operated room the read
+--              answers exactly as 162's setter does, side by side.
 --   Section C  ARITHMETIC = THE SETTER'S, proved at each boundary with values
 --              TAKEN FROM THE READ (and pinned as literals): fixture capacity_hint
 --              60, pool 50, batches 30 (public_sale) + 10 (comp) -> allocated 40,
@@ -460,34 +460,36 @@ SELECT throws_ok($$SELECT * FROM venue.get_session_capacity('23300000-0000-4000-
 SELECT throws_ok($$SELECT * FROM venue.list_session_capacity()$$,
   '42501', 'permission denied for schema venue', 'B38: anon -> 42501 at the ACL on the list definer');
 SELECT tap.logout();
--- STATUS QUO (165 flips): the re-operated Room V2 (moved Org A -> Org B by the direct UPDATE above). The read answers
--- exactly as 162's setter does TODAY — each pair asserts the read and the setter (venue_cmd.set_session_sales_capacity)
--- for the same caller and session. Whatever 165 changes in this rule must flip setter and read together.
+-- UNCHANGED BY 165: the re-operated Room V2 (moved Org A -> Org B by the direct UPDATE above). The read answers
+-- exactly as 162's setter does — each pair asserts the read and the setter (venue_cmd.set_session_sales_capacity)
+-- for the same caller and session. 165 (2026-10-27) put the E-76 conjunct on the VENUE-ROLE arm of the four catalog
+-- event bodies — the rule 162's setter and this read already apply — and left the org arm alone (088 / 162 precedent),
+-- so none of these pairs moves; the labels say so. A later change to this rule must still flip setter and read together.
 SELECT tap.login('23300000-0000-4000-8000-000000000121');
 SELECT is(tap._cap233('23300000-0000-4000-8000-0000000000f5'), 'authenticated|P0002|not_found: session 23300000-0000-4000-8000-0000000000f5',
-  'B39: STATUS QUO (165 flips) — the former-operator manager on Org A''s event e5 at the re-operated V2: read REFUSED (E-76: venue.org_id B <> event.org_id A)');
+  'B39: UNCHANGED BY 165 — the former-operator manager on Org A''s event e5 at the re-operated V2: read REFUSED (E-76: venue.org_id B <> event.org_id A)');
 SELECT is(tap._exec233($q$SELECT venue_cmd.set_session_sales_capacity('23300000-0000-4000-8000-0000000000f5', 200, 'x', 'ck233-sq-1')::text$q$),
   'authenticated|42501|insufficient_privilege: venue_manager (current operator) or org_owner/org_admin required',
-  'B40: STATUS QUO (165 flips) — …and 162''s setter refuses the same caller on the same session today (42501): read = setter');
+  'B40: UNCHANGED BY 165 — …and 162''s setter refuses the same caller on the same session today (42501): read = setter');
 SELECT is(tap._cap233('23300000-0000-4000-8000-0000000000f9'), 'authenticated|f9:-|40|-|-',
-  'B41: STATUS QUO (165 flips) — the former-operator manager on Org B''s (the NEW operator''s) event e9 at V2: read ACCEPTED (his V2 role row outlived the move; venue.org_id = event.org_id)');
+  'B41: UNCHANGED BY 165 — the former-operator manager on Org B''s (the NEW operator''s) event e9 at V2: read ACCEPTED (his V2 role row outlived the move; venue.org_id = event.org_id)');
 SELECT is(tap._exec233($q$SELECT venue_cmd.set_session_sales_capacity('23300000-0000-4000-8000-0000000000f9', NULL, 'x', 'ck233-sq-2')::text$q$),
   'authenticated|' || jsonb_build_object('status','noop','session_id','23300000-0000-4000-8000-0000000000f9'::uuid,'sales_capacity',NULL::integer,'allocated',40)::text,
-  'B42: STATUS QUO (165 flips) — …and the setter accepts him there today (authority passed; same value = noop): read = setter');
+  'B42: UNCHANGED BY 165 — …and the setter accepts him there today (authority passed; same value = noop): read = setter');
 SELECT tap.logout();
 SELECT tap.login('23300000-0000-4000-8000-000000000201');
 SELECT is(tap._cap233('23300000-0000-4000-8000-0000000000f5'), 'authenticated|P0002|not_found: session 23300000-0000-4000-8000-0000000000f5',
-  'B43: STATUS QUO (165 flips) — the NEW operator''s (Org B''s) owner on Org A''s event e5 at the room B now operates: read REFUSED (the org arm binds to the EVENT''s org)');
+  'B43: UNCHANGED BY 165 — the NEW operator''s (Org B''s) owner on Org A''s event e5 at the room B now operates: read REFUSED (the org arm binds to the EVENT''s org)');
 SELECT is(tap._exec233($q$SELECT venue_cmd.set_session_sales_capacity('23300000-0000-4000-8000-0000000000f5', 200, 'x', 'ck233-sq-3')::text$q$),
   'authenticated|42501|insufficient_privilege: venue_manager (current operator) or org_owner/org_admin required',
-  'B44: STATUS QUO (165 flips) — …and the setter refuses Org B''s owner there today (42501): read = setter');
+  'B44: UNCHANGED BY 165 — …and the setter refuses Org B''s owner there today (42501): read = setter');
 SELECT tap.logout();
 SELECT tap.login('23300000-0000-4000-8000-000000000101');
 SELECT is(tap._cap233('23300000-0000-4000-8000-0000000000f5'), 'authenticated|f5:200|120|80|-',
-  'B45: STATUS QUO (165 flips) — the event''s OWN org_owner (A) on e5 at the room Org B now operates: read ACCEPTED (capacity_hint of V2 is NULL)');
+  'B45: UNCHANGED BY 165 — the event''s OWN org_owner (A) on e5 at the room Org B now operates: read ACCEPTED (capacity_hint of V2 is NULL)');
 SELECT is(tap._exec233($q$SELECT venue_cmd.set_session_sales_capacity('23300000-0000-4000-8000-0000000000f5', 200, 'x', 'ck233-sq-4')::text$q$),
   'authenticated|' || jsonb_build_object('status','noop','session_id','23300000-0000-4000-8000-0000000000f5'::uuid,'sales_capacity',200,'allocated',120)::text,
-  'B46: STATUS QUO (165 flips) — …and the setter accepts Org A''s owner there today (same value = noop; allocated 120 = the read''s): read = setter');
+  'B46: UNCHANGED BY 165 — …and the setter accepts Org A''s owner there today (same value = noop; allocated 120 = the read''s): read = setter');
 SELECT tap.logout();
 
 -- ── Section C — the arithmetic IS the setter's (f1: capacity_hint 60, pool 50, 30 public_sale + 10 comp) ──
