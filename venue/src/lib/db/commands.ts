@@ -6,7 +6,8 @@ import { COMMAND_COPY, commandTransportFailure, invalidInput, mapCommandError, N
 import { DATA_SOURCE } from "@/lib/env";
 import { isUuid } from "@/lib/page";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import type { TicketKind, Visibility } from "@/lib/types";
+import { RELEASE_KINDS } from "@/lib/inventory";
+import type { ReleaseKind, TicketKind, Visibility } from "@/lib/types";
 
 /**
  * Server actions for slice S1 (tiers + inventory), DARK.
@@ -28,6 +29,15 @@ import type { TicketKind, Visibility } from "@/lib/types";
  * RPC contract coded against (names and parameter names are the server's, verbatim):
  *   create_ticket_type(p_event_id uuid, p_kind text, p_name text, p_price_minor integer, p_visibility text, p_command_key text) → jsonb   (081:175)
  *   set_ticket_type_price(p_ticket_type_id uuid, p_price_minor integer, p_reason_code text, p_command_key text) → jsonb                 (081:246)
+ *   set_ticket_type_sale_window(p_ticket_type_id uuid, p_sale_starts_at timestamptz, p_sale_ends_at timestamptz,
+ *                               p_reason_code text, p_command_key text) → jsonb                                                     (162:1308)
+ *       starts inclusive, ends exclusive, NULL = open, NULL/NULL clears. Reason required; terminal events refused;
+ *       the same values again are a noop without an audit row.
+ *   create_inventory_batch(p_ticket_type_id uuid, p_session_id uuid, p_release_kind text,
+ *                          p_capacity integer, p_shard_count integer, p_command_key text) → jsonb                                   (081:320, wrapper 192)
+ *       release_kind one of public_sale|promoter_hold|comp|door|presale; capacity > 0; and p_shard_count MUST be 0 or
+ *       null — the body raises `sharding_deferred` for anything greater, because the MVP ships the unsharded
+ *       counter (schema §3.3 is MVP-optional). So this surface offers no shard control and always sends 0.
  *   set_ticket_type_visibility(p_ticket_type_id uuid, p_visibility text, p_reason_code text, p_command_key text) → jsonb                (160, provisional)
  *   set_ticket_type_rank(p_ticket_type_id uuid, p_display_rank smallint, p_command_key text) → jsonb                                   (160, provisional)
  *   set_batch_capacity(p_batch_id uuid, p_new_capacity integer, p_reason_code text, p_command_key text) → jsonb                         (081:408)
@@ -42,6 +52,10 @@ export type SetTicketTypePriceInput = { ticketTypeId: string; priceMinor: number
 export type SetTicketTypeVisibilityInput = { ticketTypeId: string; visibility: Visibility; reasonCode: string; commandKey: string };
 export type SetTicketTypeRankInput = { ticketTypeId: string; displayRank: number; commandKey: string };
 export type SetBatchCapacityInput = { batchId: string; newCapacity: number; reasonCode: string; commandKey: string };
+/** 162: starts inclusive, ends exclusive; null is "open"; both null clears the window. */
+export type SetTicketTypeSaleWindowInput = { ticketTypeId: string; saleStartsAt: string | null; saleEndsAt: string | null; reasonCode: string; commandKey: string };
+/** No shardCount: the body refuses any value > 0 (`sharding_deferred`), so the only valid input is the one we send. */
+export type CreateInventoryBatchInput = { ticketTypeId: string; sessionId: string; releaseKind: ReleaseKind; capacity: number; commandKey: string };
 
 /**
  * One key per form render, minted by the caller and RE-SENT UNCHANGED on every retry of that form. The
@@ -109,6 +123,67 @@ export async function setBatchCapacityAction(input: SetBatchCapacityInput): Prom
   return send("set_batch_capacity", { p_batch_id: v.batchId, p_new_capacity: v.newCapacity, p_reason_code: v.reasonCode, p_command_key: v.commandKey });
 }
 
+/**
+ * 162's tier sale window. Both ends null clears it; one end null leaves that side open.
+ *
+ * Timestamps must carry an explicit offset or `Z`. A naive literal ("2026-11-01T20:00:00") is read as UTC by
+ * the server, which silently shifts an organizer's intended local time — D's warning on the client contract.
+ * Refusing it here is the only place that can tell the difference, because by the time it is a timestamptz
+ * the information is gone.
+ */
+export async function setTicketTypeSaleWindowAction(input: SetTicketTypeSaleWindowInput): Promise<CommandResult<CommandReceipt>> {
+  const dark = gate();
+  if (dark) return dark;
+  const i = (input ?? {}) as Partial<SetTicketTypeSaleWindowInput>;
+  const bad = firstProblem(
+    needUuid(i.ticketTypeId, "ticketTypeId"),
+    needOffsetTimestampOrNull(i.saleStartsAt, "saleStartsAt"),
+    needOffsetTimestampOrNull(i.saleEndsAt, "saleEndsAt"),
+    needWindowOrder(i.saleStartsAt ?? null, i.saleEndsAt ?? null),
+    needReason(i.reasonCode),
+    needKey(i.commandKey),
+  );
+  if (bad) return bad;
+  const v = i as SetTicketTypeSaleWindowInput;
+  return send("set_ticket_type_sale_window", {
+    p_ticket_type_id: v.ticketTypeId,
+    p_sale_starts_at: v.saleStartsAt,
+    p_sale_ends_at: v.saleEndsAt,
+    p_reason_code: v.reasonCode,
+    p_command_key: v.commandKey,
+  });
+}
+
+/**
+ * The first inventory release for a tier on a session (081:320 through the 192 invoker wrapper).
+ *
+ * `p_shard_count` is always 0: the body raises `sharding_deferred` for anything greater, so a shard control
+ * would be a form field with exactly one legal value. Capacity is checked here only to give a better message
+ * than a round trip; the server re-checks it, and its refusal is what counts.
+ */
+export async function createInventoryBatchAction(input: CreateInventoryBatchInput): Promise<CommandResult<CommandReceipt>> {
+  const dark = gate();
+  if (dark) return dark;
+  const i = (input ?? {}) as Partial<CreateInventoryBatchInput>;
+  const bad = firstProblem(
+    needUuid(i.ticketTypeId, "ticketTypeId"),
+    needUuid(i.sessionId, "sessionId"),
+    needOneOf(i.releaseKind, RELEASE_KINDS, "releaseKind", "Choose a release kind."),
+    needInt(i.capacity, "capacity", 1, INT4_MAX, "Capacity is a whole number of tickets, at least 1."),
+    needKey(i.commandKey),
+  );
+  if (bad) return bad;
+  const v = i as CreateInventoryBatchInput;
+  return send("create_inventory_batch", {
+    p_ticket_type_id: v.ticketTypeId,
+    p_session_id: v.sessionId,
+    p_release_kind: v.releaseKind,
+    p_capacity: v.capacity,
+    p_shard_count: 0,
+    p_command_key: v.commandKey,
+  });
+}
+
 // ---------------------------------------------------------------------------------------------------------
 // Module-private: the gate, the validators, the transport. (A "use server" file may only export async
 // functions, so none of this is exported; tests reach it through the actions.)
@@ -145,6 +220,22 @@ function needCents(v: unknown, field: string): CommandRefused | null {
 function needOneOf<T extends string>(v: unknown, allowed: readonly T[], field: string, copy: string): CommandRefused | null {
   return typeof v === "string" && (allowed as readonly string[]).includes(v) ? null : invalidInput(field, copy);
 }
+/** An ISO timestamp that states its offset, or null. A naive literal is refused: the server would read it as UTC. */
+function needOffsetTimestampOrNull(v: unknown, field: string): CommandRefused | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/.test(v) || Number.isNaN(Date.parse(v))) {
+    return invalidInput(field, "Give the date and time with its time zone offset (for example 2026-11-01T20:00:00-04:00).");
+  }
+  return null;
+}
+
+/** Starts is inclusive and ends is exclusive, so equal ends would be an empty window. */
+function needWindowOrder(startsAt: string | null, endsAt: string | null): CommandRefused | null {
+  if (!startsAt || !endsAt) return null;
+  if (Date.parse(startsAt) < Date.parse(endsAt)) return null;
+  return invalidInput("saleEndsAt", "The sale must end after it starts.");
+}
+
 function needReason(v: unknown): CommandRefused | null {
   return needText(v, "reasonCode", COMMAND_COPY.reason_required);
 }

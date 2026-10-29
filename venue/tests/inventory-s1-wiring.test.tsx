@@ -36,20 +36,46 @@ describe("mergeCounters — real numbers only where the staff read covered the b
 
 describe("TierCommands — every form carries its own minted command key and names the server's refusal shape", () => {
   const ids = { orgId: EV.orgId, venueId: EV.venueId, eventId: EV.eventId };
-  const keys = { create: "k-create", price: { [TYPES[0].ticketTypeId]: "k-price" }, visibility: { [TYPES[0].ticketTypeId]: "k-vis" }, rank: { [TYPES[0].ticketTypeId]: "k-rank" }, capacity: { [B1]: "k-cap" } };
+  const keys = { create: "k-create", price: { [TYPES[0].ticketTypeId]: "k-price" }, visibility: { [TYPES[0].ticketTypeId]: "k-vis" }, rank: { [TYPES[0].ticketTypeId]: "k-rank" }, capacity: { [B1]: "k-cap" }, release: { "7a000000-0000-4000-8000-000000000001": "k-release" }, saleWindow: { "7a000000-0000-4000-8000-000000000001": "k-window" } };
   const merged = mergeCounters(BATCHES, rows).batches;
   it("renders price, visibility, rank, capacity and add forms, each with its hidden key and the event ids", () => {
-    const h = html(createElement(TierCommands, { ids, types: TYPES, batches: merged, keys, sessionId: EV.sessions[0].sessionId }));
+    const h = html(createElement(TierCommands, { ids, types: TYPES, batches: merged, keys, sessionId: EV.sessions[0].sessionId, timeZone: "America/New_York" }));
     for (const k of ["k-create", "k-price", "k-vis", "k-rank", "k-cap"]) expect(h).toContain(`name="commandKey" value="${k}"`);
-    expect((h.match(/<form /g) ?? []).length).toBe(5);
+    expect((h.match(/<form /g) ?? []).length).toBe(7); // + release and sale window (P2)
     expect(h).toContain('name="reasonCode"');
     expect(h).toContain('min="0.01"');
     expect(h).toContain("floor 23"); // held + sold: the server's refusal floor, said before typing
     expect(h).toContain(`name="eventId" value="${EV.eventId}"`);
     expect(h).not.toContain("Saved");
   });
+
+  it("binds the P2 release and sale-window controls, each carrying its own minted key", () => {
+    const h = html(createElement(TierCommands, { ids, types: TYPES, batches: merged, keys, sessionId: EV.sessions[0].sessionId, timeZone: "America/New_York" }));
+    // The release control: a kind, a capacity, the session it releases on — and NO shard field, because
+    // 081:355 refuses any shard count above 0.
+    expect(h).toContain('name="releaseKind"');
+    expect(h).toContain('name="capacity"');
+    expect(h).toContain(`name="sessionId" value="${EV.sessions[0].sessionId}"`);
+    expect(h).not.toContain('name="shardCount"');
+    expect(h).not.toContain('name="shard_count"');
+    // The sale window: a wall clock each side plus the venue zone, never an instant from the browser.
+    expect(h).toContain('name="saleStartsLocal"');
+    expect(h).toContain('name="saleEndsLocal"');
+    expect(h).toContain('name="timeZone" value="America/New_York"');
+    expect(h).toContain('type="datetime-local"');
+    // Both new keys reach their forms.
+    for (const k of ["k-release", "k-window"]) expect(h).toContain(`name="commandKey" value="${k}"`);
+    // The operator is told, at the control, that a resend is not a replay.
+    expect(h).toContain("Releasing twice releases the inventory twice");
+  });
+
+  it("offers no release control when the event has no session to release on", () => {
+    const h = html(createElement(TierCommands, { ids, types: TYPES, batches: merged, keys, sessionId: null, timeZone: "America/New_York" }));
+    expect(h).not.toContain('name="releaseKind"');
+    expect(h).toContain('name="saleStartsLocal"'); // the window does not need a session
+  });
   it("a batch without counters gets no floor and no default capacity (nothing invented)", () => {
-    const h = html(createElement(TierCommands, { ids, types: TYPES, batches: BATCHES, keys, sessionId: null }));
+    const h = html(createElement(TierCommands, { ids, types: TYPES, batches: BATCHES, keys, sessionId: null, timeZone: "America/New_York" }));
     expect(h).not.toContain("floor");
     const tag = h.match(/<input[^>]*name="newCapacity"[^>]*>/)?.[0] ?? "";
     expect(tag, "the capacity input is rendered").not.toBe("");

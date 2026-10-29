@@ -48,9 +48,11 @@ describe("database-mode entry policy (spec §5: no grant → no dashboard)", () 
 
 describe("database mode offers no write control", () => {
   const db: PreviewContext = { role: "venue_manager", state: "live", source: "database", countersAvailable: false, writesEnabled: false };
-  it("event setup: no status form, no danger zone, an explicit not-wired note", () => {
+  // With no publishSlot — the command gate shut. Where it is open the status block carries the real
+  // publish command instead; that is pinned in event-status-and-first-tier.test.tsx.
+  it("event setup: no status form, no danger zone, an explicit not-enabled note", () => {
     const out = html(<EventSetup event={EVENTS[1]} types={TICKET_TYPES} batches={BATCHES} ctx={db} basePath={base} timeZone={VENUE.timeZone} openManifestSessionIds={new Set()} />);
-    expect(out).toContain("Status changes are not available in database mode");
+    expect(out).toContain("Status changes aren&#x27;t enabled on this project yet");
     expect(out).not.toContain('name="did"');
     expect(out).not.toContain("Danger zone");
     expect(out).not.toContain("would call");

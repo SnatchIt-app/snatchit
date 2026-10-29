@@ -7,6 +7,15 @@ import { withPreview, type SearchParams } from "@/lib/preview";
 import { canReadEvents } from "@/lib/roles";
 import type { InventoryBatch, TicketType } from "@/lib/types";
 import { EventSetup } from "@/components/events/EventSetup";
+import { EventCommandPanel, type EventCommandKeys } from "@/components/events/EventCommandPanel";
+import { PublishEventForm } from "@/components/events/EventCommandForms";
+import { nextPublishTarget, type EventStatusName } from "@/lib/events/command-contract";
+import { commandsGateOpen } from "@/lib/db/command-gate";
+import { dbSessionCapacities, type SessionCapacity } from "@/lib/db/session-capacity";
+import { mintCommandKey } from "@/lib/db/event-commands";
+import { DATA_SOURCE } from "@/lib/env";
+import { venueTimeZone } from "@/lib/events/zone";
+import { canEditEvents } from "@/lib/roles";
 import { PreviewOutcome, Shell } from "@/components/shell/Shell";
 import { Page } from "@/components/ui/Page";
 import { DataSourceError } from "@/components/ui/DataSourceError";
@@ -53,6 +62,28 @@ export default async function EventPage({ params, searchParams }: { params: Prom
     }
   }
 
+  // What each night may sell, and what releases already hold (migration 166). A failure or a
+  // session the caller may not read leaves the number absent, so the form says nothing rather than zero.
+  let capacities: Record<string, SessionCapacity> = {};
+  if (event && ctx.source === "database" && canEditEvents(ctx.role)) {
+    const caps = await dbSessionCapacities(event.sessions.map((s) => s.sessionId));
+    if (caps.ok) capacities = caps.data;
+  }
+
+  // The organizer's commands (row 2), only when D's wrappers are exposed and the role may edit.
+  let commands: { ids: { orgId: string; venueId: string; eventId: string }; keys: EventCommandKeys } | null = null;
+  if (event && loaded && ctx.source === "database" && p.scope.ok && canEditEvents(ctx.role) && commandsGateOpen()) {
+    const perSession = async () => Object.fromEntries(await Promise.all(event.sessions.map(async (s) => [s.sessionId, await mintCommandKey()] as const)));
+    commands = {
+      ids: { orgId: p.scope.orgId, venueId: p.scope.venueId, eventId: event.eventId },
+      keys: { details: await mintCommandKey(), publish: await mintCommandKey(), cancel: await mintCommandKey(), sessionNew: await mintCommandKey(), session: await perSession(), capacity: await perSession() },
+    };
+  }
+
+  // The forward step belongs in the status block rather than the disclosed panel; null at the top of the
+  // ladder and at both terminal statuses, so no control is offered where the server would refuse one.
+  const publishTarget = event ? nextPublishTarget(event.status as EventStatusName) : null;
+
   return (
     <Shell ctx={ctx} event={event ? { eventId: event.eventId, title: event.title } : null} active="setup" signedInAs={p.signedInAs}>
       <Page eyebrow={event?.title ?? "Event"} title={event ? "Event setup" : "Event"} art={event?.title}>
@@ -75,7 +106,19 @@ export default async function EventPage({ params, searchParams }: { params: Prom
       ) : failedRead || !loaded ? (
         <ErrorState lost="This event" read={failedRead ?? "catalog.event"} retryHref={withPreview(self, ctx)} />
       ) : (
-        <EventSetup event={event} types={loaded.types} batches={loaded.batches} ctx={ctx} basePath={basePath} timeZone={p.timeZone} openManifestSessionIds={loaded.open} />
+        <EventSetup
+          event={event}
+          types={loaded.types}
+          batches={loaded.batches}
+          ctx={ctx}
+          basePath={basePath}
+          timeZone={p.timeZone}
+          openManifestSessionIds={loaded.open}
+          commandsSlot={
+            commands ? <EventCommandPanel ids={commands.ids} event={event} keys={commands.keys} zone={venueTimeZone(DATA_SOURCE, null)} capacities={capacities} /> : undefined
+          }
+          publishSlot={commands && publishTarget ? <PublishEventForm ids={commands.ids} commandKey={commands.keys.publish} target={publishTarget} /> : undefined}
+        />
       )}
       </Page>
     </Shell>
