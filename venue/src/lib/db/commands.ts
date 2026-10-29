@@ -6,7 +6,8 @@ import { COMMAND_COPY, commandTransportFailure, invalidInput, mapCommandError, N
 import { DATA_SOURCE } from "@/lib/env";
 import { isUuid } from "@/lib/page";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import type { TicketKind, Visibility } from "@/lib/types";
+import { RELEASE_KINDS } from "@/lib/inventory";
+import type { ReleaseKind, TicketKind, Visibility } from "@/lib/types";
 
 /**
  * Server actions for slice S1 (tiers + inventory), DARK.
@@ -53,8 +54,6 @@ export type SetTicketTypeRankInput = { ticketTypeId: string; displayRank: number
 export type SetBatchCapacityInput = { batchId: string; newCapacity: number; reasonCode: string; commandKey: string };
 /** 162: starts inclusive, ends exclusive; null is "open"; both null clears the window. */
 export type SetTicketTypeSaleWindowInput = { ticketTypeId: string; saleStartsAt: string | null; saleEndsAt: string | null; reasonCode: string; commandKey: string };
-export const RELEASE_KINDS = ["public_sale", "promoter_hold", "comp", "door", "presale"] as const;
-export type ReleaseKind = (typeof RELEASE_KINDS)[number];
 /** No shardCount: the body refuses any value > 0 (`sharding_deferred`), so the only valid input is the one we send. */
 export type CreateInventoryBatchInput = { ticketTypeId: string; sessionId: string; releaseKind: ReleaseKind; capacity: number; commandKey: string };
 

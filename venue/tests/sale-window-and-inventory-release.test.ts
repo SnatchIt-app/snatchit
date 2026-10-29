@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CommandResult } from "@/lib/db/command-errors";
+import { RELEASE_KINDS } from "@/lib/inventory";
 
 /**
  * P2 gap closure: the two dashboard writes a new event needed and did not have.
@@ -144,7 +145,7 @@ describe("create_inventory_batch — 081's parameter names, and the shard rule",
   });
   it("accepts every release kind the 081 check allows, and refuses one it does not", async () => {
     const m = await load({ gate: "true" });
-    for (const kind of m.RELEASE_KINDS) {
+    for (const kind of RELEASE_KINDS) {
       mocks.rpc.mockClear();
       expect(await m.createInventoryBatchAction(release({ releaseKind: kind })), kind).toMatchObject({ kind: "ok" });
       expect(mocks.rpc.mock.calls[0][1]).toMatchObject({ p_release_kind: kind });

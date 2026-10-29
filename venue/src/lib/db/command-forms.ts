@@ -4,7 +4,9 @@ import "server-only";
 
 import { revalidatePath } from "next/cache";
 import type { CommandReceipt } from "@/lib/db/commands";
-import { createInventoryBatchAction, createTicketTypeAction, RELEASE_KINDS, setBatchCapacityAction, setTicketTypePriceAction, setTicketTypeRankAction, setTicketTypeSaleWindowAction, setTicketTypeVisibilityAction, type ReleaseKind } from "@/lib/db/commands";
+import { createInventoryBatchAction, createTicketTypeAction, setBatchCapacityAction, setTicketTypePriceAction, setTicketTypeRankAction, setTicketTypeSaleWindowAction, setTicketTypeVisibilityAction } from "@/lib/db/commands";
+import { RELEASE_KINDS } from "@/lib/inventory";
+import type { ReleaseKind } from "@/lib/types";
 import { toOffsetInstant } from "@/lib/events/instants";
 import type { CommandResult } from "@/lib/db/command-errors";
 import { capacity, dollarsToCents, kind, rank, text, visibility, type ParsedField } from "@/lib/db/command-form-parse";

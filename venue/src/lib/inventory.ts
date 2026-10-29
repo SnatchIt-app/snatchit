@@ -23,6 +23,11 @@ export function availability(b: Pick<InventoryBatch, "capacity" | "held" | "sold
   return b.sold >= b.capacity ? "sold_out" : "all_held";
 }
 
+/** The release kinds 081:63 allows, as a runtime list. Lives here and not in commands.ts: that file is
+ * "use server", and such a file may only export async functions — exporting this from there fails the
+ * production build with "found object" (and only the build catches it; tsc, eslint and vitest do not). */
+export const RELEASE_KINDS: readonly ReleaseKind[] = ["public_sale", "promoter_hold", "comp", "door", "presale"] as const;
+
 export const RELEASE_LABEL: Record<ReleaseKind, string> = {
   public_sale: "Public sale",
   promoter_hold: "Promoter hold",
