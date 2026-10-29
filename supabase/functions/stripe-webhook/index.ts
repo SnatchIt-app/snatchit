@@ -101,6 +101,12 @@ async function fetchRefund(id: string): Promise<{ ok: true; refund: StripeRefund
 
 const STRIPE_SECRET_KEY = Deno.env.get('STRIPE_SECRET_KEY')!;
 const STRIPE_WEBHOOK_SECRET = Deno.env.get('STRIPE_WEBHOOK_SECRET')!;
+// A Connect-type endpoint ("events on connected accounts") is the ONLY place
+// Stripe delivers an organization account's account.updated, and every endpoint
+// has its OWN signing secret. Both endpoints point at this one function, so a
+// delivery is accepted if it verifies under either secret. Optional: unset (or
+// empty) keeps the platform-only behaviour exactly as before.
+const STRIPE_CONNECT_WEBHOOK_SECRET = Deno.env.get('STRIPE_CONNECT_WEBHOOK_SECRET') ?? '';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
@@ -199,19 +205,22 @@ async function verifyStripeSignature(rawBody: string, sigHeader: string): Promis
 
   const payload = `${timestamp}.${rawBody}`;
   const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    'raw',
-    encoder.encode(STRIPE_WEBHOOK_SECRET),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign']
-  );
-  const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(payload));
-  const expected = Array.from(new Uint8Array(sig))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-
-  return v1Signatures.some((candidate) => timingSafeEqual(expected, candidate));
+  const secrets = [STRIPE_WEBHOOK_SECRET, STRIPE_CONNECT_WEBHOOK_SECRET].filter((s) => s.length > 0);
+  for (const secret of secrets) {
+    const key = await crypto.subtle.importKey(
+      'raw',
+      encoder.encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign']
+    );
+    const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(payload));
+    const expected = Array.from(new Uint8Array(sig))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+    if (v1Signatures.some((candidate) => timingSafeEqual(expected, candidate))) return true;
+  }
+  return false;
 }
 
 /**
@@ -1963,6 +1972,68 @@ serve(async (req: Request) => {
         });
         await markProcessed();
       }
+
+    } else if (event.type === 'account.application.deauthorized') {
+      // A connected account disconnected this platform. Stripe delivers this
+      // only on a Connect-type endpoint; `event.account` names the account and
+      // data.object is the APPLICATION, so there is no account metadata and no
+      // org id to read. Organization accounts are Express (connect-onboarding),
+      // whose holders cannot revoke the platform themselves, so this is
+      // defensive: whatever account it names, the organization bound to it must
+      // stop being payable now.
+      //
+      // transfers_active=false goes through the same kernel.sync_org_connect_state
+      // as every other writer, resolved by the account ref alone (p_org_id null).
+      // EVERY outcome alerts: a deauthorized payout destination always needs an
+      // operator (re-onboard or unbind), and the RPC's out-of-order guard may
+      // decline to apply it (noop_replay) — that must be loud, never silent.
+      const deauthAccount = (event as { account?: unknown }).account;
+      if (!isConnectAccountRef(deauthAccount)) {
+        return await finishDecision(
+          { ack: true, alert: true, reason: 'deauth_malformed_account_ref' },
+          { stage: 'account_deauthorized' },
+        );
+      }
+
+      const { data: deauthData, error: deauthErr } = await kernelService().rpc('sync_org_connect_state', {
+        p_org_id:              null,
+        p_connect_account_ref: deauthAccount,
+        p_transfers_active:    false,
+        p_observed_at:         observedAtIso(event.created),
+        p_command_key:         `wh_account_deauthorized:${event.id}`,
+      });
+
+      if (deauthErr) {
+        // No organization holds this account (a seller account, or an account
+        // never bound): nothing to write, but an operator must still see that a
+        // payout destination was disconnected. classifyOrgSyncError answers a
+        // quiet ACK for not_found — right for account.updated before a bind,
+        // wrong here — so it is decided first.
+        const notFound = deauthErr.code === 'P0002' || (deauthErr.message ?? '').toLowerCase().includes('not_found');
+        const decision = notFound
+          ? { ack: true, alert: true, reason: 'deauth_no_bound_organization' }
+          : classifyOrgSyncError(deauthErr);
+        return await finishDecision(
+          { ...decision, alert: true },
+          { stage: 'account_deauthorized', account_id: deauthAccount },
+          new Error(deauthErr.message),
+        );
+      }
+
+      const deauthStatus = (deauthData as { status?: string } | null)?.status ?? 'ok';
+      return await finishDecision(
+        {
+          ack: true,
+          alert: true,
+          reason: deauthStatus === 'noop_replay' ? 'org_deauthorized_not_applied' : 'org_deauthorized',
+        },
+        {
+          stage: 'account_deauthorized',
+          account_id: deauthAccount,
+          org_id: (deauthData as { org_id?: string } | null)?.org_id ?? null,
+          status: deauthStatus,
+        },
+      );
 
     } else if (event.type === 'refund.created' || event.type === 'refund.updated' || event.type === 'refund.failed') {
       // ── 150: refund lifecycle ────────────────────────────────────────

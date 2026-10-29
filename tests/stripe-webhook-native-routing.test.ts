@@ -56,6 +56,10 @@ function harness(opts: {
   disputes?: (q: QueryCall) => Reply;
   reviewWriteFails?: boolean;
   fetch?: typeof fetch;
+  /** Edge env override (default ENV). */
+  env?: Record<string, string>;
+  /** The secret the delivery is signed with (default SECRET). */
+  signWith?: string;
 } = {}) {
   const rpc: RpcHandler = (name, params, schema) => {
     const scripted = opts.rpc?.[name];
@@ -79,11 +83,11 @@ function harness(opts: {
   const deliver = async (event: Record<string, unknown>) => {
     const edge = await loadEdgeHandler('supabase/functions/stripe-webhook/index.ts', {
       supabase: sb,
-      env: ENV,
+      env: opts.env ?? ENV,
       fetch: opts.fetch ?? ((async () => new Response('{}', { status: 200 })) as unknown as typeof fetch),
       provide: { stripeFetchRaw: async () => ({ ok: false, status: 500, data: {} }), AbortSignal },
     });
-    const res = await edge.handler(signedStripeWebhookRequest(SECRET, event));
+    const res = await edge.handler(signedStripeWebhookRequest(opts.signWith ?? SECRET, event));
     return { res, body: await json(res), edge };
   };
   const rpcNames = () => sb.rpcs.map((r) => r.name);
@@ -488,5 +492,121 @@ describe('marketplace (P2P) paths take exactly their pre-restore path through th
     expect(h.sb.queries).toHaveLength(1);
     expect(h.sb.queries[0].filters).toEqual([['eq', 'stripe_payment_intent_id', PI], ['in', 'status', ['pending', 'processing']]]);
     expect(h.sb.clients).toHaveLength(1);
+  });
+});
+
+describe('Connect endpoint signing secret — connected-account events reach this function', () => {
+  // Stripe delivers an organization account's account.updated ONLY on a
+  // Connect-type endpoint, and every endpoint signs with its own secret.
+  const CONNECT_SECRET = 'whsec_connect_test_only';
+  const orgUpdate = {
+    id: 'evt_c1', type: 'account.updated', created: 1_800_000_000, livemode: false,
+    data: { object: {
+      id: ACCT, object: 'account', details_submitted: true, charges_enabled: false, payouts_enabled: true,
+      capabilities: { transfers: 'active' }, metadata: { snatchit_plane: 'organization', org_id: ORG },
+    } },
+  };
+  const syncOk = { sync_org_connect_state: () => ({ data: { status: 'ok', org_id: ORG } }) };
+
+  it('a delivery signed with the Connect endpoint secret is accepted when that secret is configured', async () => {
+    const h = harness({ env: { ...ENV, STRIPE_CONNECT_WEBHOOK_SECRET: CONNECT_SECRET }, signWith: CONNECT_SECRET, rpc: syncOk });
+    const { res, body } = await h.deliver(orgUpdate);
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({ reason: 'org_ok' });
+    expect(h.rpcNames()).toContain('sync_org_connect_state');
+  });
+
+  it('the platform secret still verifies when the Connect secret is configured', async () => {
+    const h = harness({ env: { ...ENV, STRIPE_CONNECT_WEBHOOK_SECRET: CONNECT_SECRET }, rpc: syncOk });
+    const { res } = await h.deliver(orgUpdate);
+    expect(res.status).toBe(200);
+  });
+
+  it('without the Connect secret configured, a Connect-signed delivery is rejected and nothing runs', async () => {
+    const h = harness({ signWith: CONNECT_SECRET });
+    const { res } = await h.deliver(orgUpdate);
+    expect(res.status).toBe(400);
+    expect(h.rpcNames()).toEqual([]);
+  });
+
+  it('a delivery signed with neither secret is rejected even when both are configured', async () => {
+    const h = harness({ env: { ...ENV, STRIPE_CONNECT_WEBHOOK_SECRET: CONNECT_SECRET }, signWith: 'whsec_not_ours' });
+    const { res } = await h.deliver(orgUpdate);
+    expect(res.status).toBe(400);
+    expect(h.rpcNames()).toEqual([]);
+  });
+
+  it('an empty Connect secret is never used as a key (an empty-key signature does not verify)', async () => {
+    const h = harness({ env: { ...ENV, STRIPE_CONNECT_WEBHOOK_SECRET: '' }, signWith: '' });
+    const { res } = await h.deliver(orgUpdate);
+    expect(res.status).toBe(400);
+    expect(h.rpcNames()).toEqual([]);
+  });
+});
+
+describe('account.application.deauthorized — a disconnected payout destination stops being payable', () => {
+  // event.account names the account; data.object is the APPLICATION (no metadata, no org id).
+  const deauth = (over: Record<string, unknown> = {}) => ({
+    id: 'evt_d1', type: 'account.application.deauthorized', created: 1_800_000_100, livemode: false, account: ACCT,
+    data: { object: { id: 'ca_app_test_only', object: 'application', name: 'Snatch It' } },
+    ...over,
+  });
+
+  it('writes transfers_active=false through kernel.sync_org_connect_state, resolved by the account ref alone', async () => {
+    const h = harness({ rpc: { sync_org_connect_state: () => ({ data: { status: 'ok', org_id: ORG } }) } });
+    const { res, body } = await h.deliver(deauth());
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({ reason: 'org_deauthorized', org_id: ORG, status: 'ok' });
+    expect(h.rpcOf('sync_org_connect_state')).toEqual({
+      name: 'sync_org_connect_state',
+      schema: 'kernel',
+      params: {
+        p_org_id:              null,
+        p_connect_account_ref: ACCT,
+        p_transfers_active:    false,
+        p_observed_at:         new Date(1_800_000_100 * 1000).toISOString(),
+        p_command_key:         'wh_account_deauthorized:evt_d1',
+      },
+    });
+    // Always loud: an operator must re-onboard or unbind.
+    expect(h.reviewRows()).toHaveLength(1);
+    // The seller plane is never written by this branch.
+    expect(h.sb.queries.filter((q) => q.table === 'profiles')).toHaveLength(0);
+  });
+
+  it('when the out-of-order guard declines to apply it (noop_replay) it is still ACKed LOUDLY, never silently', async () => {
+    const h = harness({ rpc: { sync_org_connect_state: () => ({ data: { status: 'noop_replay', org_id: ORG } }) } });
+    const { res, body } = await h.deliver(deauth());
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({ reason: 'org_deauthorized_not_applied', status: 'noop_replay' });
+    expect(h.reviewRows()).toHaveLength(1);
+  });
+
+  it('an account no organization holds (a seller or never-bound account) is ACKed with an alert, nothing written', async () => {
+    const h = harness({
+      rpc: { sync_org_connect_state: () => ({ error: { message: `not_found: organization for ${ACCT}`, code: 'P0002' } }) },
+    });
+    const { res, body } = await h.deliver(deauth());
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({ reason: 'deauth_no_bound_organization' });
+    expect(h.reviewRows()).toHaveLength(1);
+    expect(h.sb.queries.filter((q) => q.table === 'profiles')).toHaveLength(0);
+  });
+
+  it('a transient database failure is retried (500), never dropped', async () => {
+    const h = harness({ rpc: { sync_org_connect_state: () => ({ error: { message: 'could not serialize access', code: '40001' } }) } });
+    const { res } = await h.deliver(deauth());
+    expect(res.status).toBe(500);
+    expect(h.rpcNames()).toContain('fail_stripe_webhook_event');
+  });
+
+  it('a missing or malformed account is ACKed with an alert and never reaches the RPC', async () => {
+    for (const account of [undefined, 'not_an_account', '']) {
+      const h = harness();
+      const { res, body } = await h.deliver(deauth({ account }));
+      expect(res.status).toBe(200);
+      expect(body).toMatchObject({ reason: 'deauth_malformed_account_ref' });
+      expect(h.rpcNames()).not.toContain('sync_org_connect_state');
+    }
   });
 });
