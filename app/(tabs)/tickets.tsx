@@ -12,6 +12,11 @@
  * (app/ticket/[session].tsx, 2026-10-26), which does its own owner-scoped reads; this
  * tab still shows no QR, no Apple Wallet and no price.
  *
+ * Orders in progress (2026-10-26): a paid-but-unconfirmed purchase has no tickets yet, so it would
+ * otherwise be invisible here. D's 167 `list_my_primary_orders` (dark; PGRST202 shows nothing) is read
+ * beside the tickets on every real load and never decides their phase; one row per in-flight session
+ * opens its ticket page, in that page's words and with no amount (src/lib/tickets/pendingOrders.ts).
+ *
  * Reloads are QUIET once anything is on screen (src/lib/screens/refreshPolicy.ts):
  * a focus reload or pull-to-refresh swaps rows in place, never unmounts the list,
  * and a failure keeps the rows (or the empty state) rather than replacing them
@@ -40,8 +45,16 @@ import { classifyLoadFailure, type LoadFailureKind } from '@/src/lib/ui/loadStat
 import { EmptyState } from '@/src/components/ui';
 import { useDockScroll } from '@/src/components/nav/dockContext';
 import { useDockClearance, useTopInset } from '@/src/lib/nav/navInsets';
+import { PendingOrdersBlock } from '@/src/components/tickets/PendingOrdersBlock';
 import { TicketEventGroup } from '@/src/components/tickets/TicketEventGroup';
 import { fetchMyTickets } from '@/src/lib/tickets/api';
+import {
+  keepPendingOnFailure,
+  pendingBlockView,
+  pendingOrdersRpc,
+  readPendingOrders,
+  type PendingOrdersLoad,
+} from '@/src/lib/tickets/pendingOrders';
 import { DEV_TICKET_FIXTURES, SAMPLE_TICKETS_LABEL } from '@/src/lib/tickets/fixtures';
 import { classifyTicketsError, groupByEvent, splitByTimeClass, type EventGroup } from '@/src/lib/tickets/ticketState';
 import type { MyTicketGroup } from '@/src/lib/tickets/types';
@@ -73,6 +86,7 @@ export default function TicketsScreen({ fixture }: { fixture?: TicketsFixture } 
 
   const [rows, setRows] = useState<MyTicketGroup[]>(fixture && 'rows' in fixture ? fixture.rows : []);
   const [refreshing, setRefreshing] = useState(false);
+  const [pending, setPending] = useState<PendingOrdersLoad>({ kind: 'idle' });
   // DEV-only: render sample states without any server write. Off by default.
   const [devFixtures, setDevFixtures] = useState(false);
   const mounted = useRef(true);
@@ -91,8 +105,11 @@ export default function TicketsScreen({ fixture }: { fixture?: TicketsFixture } 
     // screen that has shown nothing yet gets the loading state.
     const { phase: shownPhase, rowCount } = shown.current;
     if (shouldShowLoading(rowCount, shownPhase)) setPhase('loading');
+    // Orders with no tickets yet: read beside the tickets, never deciding their phase.
+    const pendingRead = readPendingOrders(pendingOrdersRpc);
     const { data, error } = await fetchMyTickets();
     if (!mounted.current) return;
+    void pendingRead.then((next) => { if (mounted.current) setPending((prev) => keepPendingOnFailure(prev, next)); });
     if (error) {
       if (classifyTicketsError(error) === 'auth') { router.replace('/(auth)/login'); return; }
       // A failed quiet refresh keeps what is on screen; the error state only ever
@@ -119,6 +136,8 @@ export default function TicketsScreen({ fixture }: { fixture?: TicketsFixture } 
   const effectiveRows: MyTicketGroup[] = devFixtures ? DEV_TICKET_FIXTURES : rows;
   // Harness fixture rows are on screen: the sample caveat below must show over them too.
   const fixtureRows = !!fixture && 'rows' in fixture && fixture.rows.length > 0;
+  // Real orders never sit beside sample tickets; under the harness fixture nothing is read at all.
+  const pendingBlock = devFixtures || fixture ? null : pendingBlockView(pending);
 
   const sections = useMemo<Section[]>(() => {
     const { upcoming, past } = splitByTimeClass(effectiveRows);
@@ -162,7 +181,7 @@ export default function TicketsScreen({ fixture }: { fixture?: TicketsFixture } 
         <ScreenState state="loading" />
       ) : phase === 'error' ? (
         <ScreenState state={loadError} onRetry={() => load()} />
-      ) : sections.length === 0 ? (
+      ) : sections.length === 0 && !pendingBlock ? (
         <EmptyState
           title="No tickets yet"
           body="Tickets you own will show up here."
@@ -179,6 +198,14 @@ export default function TicketsScreen({ fixture }: { fixture?: TicketsFixture } 
           onScroll={onDockScroll}
           scrollEventThrottle={16}
           stickySectionHeadersEnabled={false}
+          ListHeaderComponent={pendingBlock ? (
+            <PendingOrdersBlock
+              items={pendingBlock.items}
+              failed={pendingBlock.failed}
+              onOpen={(sessionId) => router.push(`/ticket/${sessionId}`)}
+            />
+          ) : null}
+          ListEmptyComponent={<EmptyState title="No tickets yet" body="Tickets you own will show up here." />}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.brand.red} />
           }

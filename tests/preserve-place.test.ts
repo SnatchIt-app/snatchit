@@ -31,7 +31,8 @@ describe('tickets — the list stays mounted across tab switches', () => {
     // The only things that can replace the list are a first-load state or an
     // empty result — never the refreshing flag, which drives RefreshControl.
     expect(branch).not.toMatch(/refreshing/);
-    expect(branch).toMatch(/sections\.length === 0 \?/);
+    // 2026-10-26 (c32): rows of either read keep the list up — the tickets, or an order in progress.
+    expect(branch).toMatch(/sections\.length === 0 && !pendingBlock \?/);
   });
 
   it('never re-enters the loading phase over rows, so a refocus is not a remount', () => {

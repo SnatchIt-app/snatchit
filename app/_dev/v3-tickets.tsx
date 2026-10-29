@@ -25,10 +25,16 @@
 
 import { Redirect, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo } from 'react';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { IS_SANDBOX_BUILD } from '@/src/config/envGuard';
+import { PendingOrdersBlock } from '@/src/components/tickets/PendingOrdersBlock';
 import { listArt } from '@/src/lib/media/harnessArt';
-import { useAppearancePreference } from '@/src/theme/appearance';
+import { SAMPLE_TICKETS_LABEL } from '@/src/lib/tickets/fixtures';
+import { pendingOrderItems } from '@/src/lib/tickets/pendingOrders';
+import { useAppearancePreference, useTheme } from '@/src/theme/appearance';
+import { textStyle } from '@/src/theme/typography';
+import * as v2 from '@/src/theme/v2';
 import TicketsScreen, { type TicketsFixture } from '@/app/(tabs)/tickets';
 import TransferReceiveScreen, { type OrderFixture } from '@/app/transfer/receive/[id]';
 import TransferSendScreen, { type SendFixture } from '@/app/transfer/send/[id]';
@@ -160,6 +166,8 @@ export default function V3TicketsHarness() {
       // The board's order state: seller_sent, mobile transfer via DICE, a $99.00 settled charge,
       // the review deadline from the server. Reads only; every action still needs the real server.
       return <TransferReceiveScreen fixture={withTransferArt(ORDER_FIXTURE, art)} />;
+    case 'pending-orders':
+      return <PendingOrdersSample failed={variant === 'failed'} />;
     case 'send':
       // The seller's marked-sent state from pkg8-send. Read short-circuit only.
       return <TransferSendScreen fixture={withTransferArt(SEND_FIXTURE, art)} />;
@@ -213,3 +221,33 @@ const SEND_FIXTURE: SendFixture = {
     buyer_id: 'fixture-buyer',   // RC3: paints the Block entry; the harness never writes a block row
   } as SendFixture['transfer'],
 };
+
+/**
+ * "Orders in progress" as the Tickets tab paints it, from literal 167-shaped rows passed through the
+ * real `pendingOrderItems` (so the words are the shipped mapping's), under the sample caveat. Rows go
+ * nowhere when tapped: a sample opens no real ticket page. `?variant=failed` shows the failed line.
+ */
+const PENDING_ORDER_ROWS = [
+  { order_id: 'fixture-o1', status: 'pending', total_minor: 0, currency: 'USD', created_at: '2026-10-26T21:00:00Z', atoms_issued: 0, payment_state: 'none', charge_total_minor: null, event_session_id: '5a3e0001-0000-4000-8000-000000000001', title: 'Midnight Arcade' },
+  { order_id: 'fixture-o2', status: 'pending', total_minor: 0, currency: 'USD', created_at: '2026-10-26T20:00:00Z', atoms_issued: 0, payment_state: 'processing', charge_total_minor: null, event_session_id: '5a3e0002-0000-4000-8000-000000000002', title: 'Lantern Room Late Show' },
+  { order_id: 'fixture-o3', status: 'pending', total_minor: 0, currency: 'USD', created_at: '2026-10-26T19:00:00Z', atoms_issued: 0, payment_state: 'failed', charge_total_minor: null, event_session_id: '5a3e0003-0000-4000-8000-000000000003', title: 'Harbor Lights' },
+];
+
+function PendingOrdersSample({ failed }: { failed: boolean }) {
+  const { palette } = useTheme();
+  const items = useMemo(() => (failed ? [] : pendingOrderItems(PENDING_ORDER_ROWS)), [failed]);
+  return (
+    <ScrollView style={{ backgroundColor: palette.surface.canvas }} contentContainerStyle={sampleStyles.content}>
+      <View style={[sampleStyles.label, { backgroundColor: palette.status.warning }]} accessibilityRole="alert">
+        <Text style={[textStyle('bodySm'), sampleStyles.labelText, { color: palette.status.onFill }]}>{SAMPLE_TICKETS_LABEL}</Text>
+      </View>
+      <PendingOrdersBlock items={items} failed={failed} onOpen={() => {}} />
+    </ScrollView>
+  );
+}
+
+const sampleStyles = StyleSheet.create({
+  content: { paddingHorizontal: v2.space.lg, paddingTop: v2.space.xl },
+  label: { marginBottom: v2.space.sm, paddingVertical: v2.space.xs, paddingHorizontal: v2.space.sm },
+  labelText: { fontWeight: '700', textAlign: 'center' },
+});
