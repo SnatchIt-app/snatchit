@@ -323,13 +323,13 @@ SELECT set_eq(
             ('resale_policies.created_at'),
             ('ticket_types.ticket_type_id'), ('ticket_types.event_id'), ('ticket_types.kind'), ('ticket_types.name'),
             ('ticket_types.price_minor'), ('ticket_types.currency'), ('ticket_types.visibility'),
-            ('ticket_types.created_at'), ('ticket_types.updated_at'),
+            ('ticket_types.created_at'), ('ticket_types.updated_at'), ('ticket_types.display_rank'),  -- 160 (S1) appends display_rank
             ('inventory_batches.batch_id'), ('inventory_batches.ticket_type_id'), ('inventory_batches.event_session_id'),
             ('inventory_batches.release_kind'), ('inventory_batches.is_sharded'), ('inventory_batches.remaining'),
             ('inventory_batches.created_at'), ('inventory_batches.updated_at'),
             ('my_staff_roles.venue_id'), ('my_staff_roles.role'),
             ('my_org_roles.org_id'), ('my_org_roles.role') $$,
-  'F5: the views project exactly these 56 columns (a widened view fails here before it reaches the API)');
+  'F5: the views project exactly these 57 columns (55 of 159 + events.description of 159 rev. 2026-10-26 + ticket_types.display_rank of 160; a widened view fails here before it reaches the API)');
 
 -- F6 pins each view's DEFINITION, not only its column names (F5). The expected
 -- definitions are the eight SELECTs of migration 20261021120000, copied
@@ -355,7 +355,7 @@ CREATE TEMP VIEW exp_resale_policies AS
     FROM catalog.resale_policy p;
 CREATE TEMP VIEW exp_ticket_types AS
   SELECT t.ticket_type_id, t.event_id, t.kind, t.name, t.price_minor, t.currency, t.visibility,
-         t.created_at, t.updated_at
+         t.created_at, t.updated_at, t.display_rank   -- 160 (S1): display_rank appended LAST
     FROM venue.ticket_type t;
 CREATE TEMP VIEW exp_inventory_batches AS
   SELECT b.batch_id, b.ticket_type_id, b.event_session_id, b.release_kind, b.is_sharded,

@@ -212,7 +212,11 @@ SELECT is(
                      -- 2026-09-02 (package 092): notify's nine caller-authorized consumer RPCs (RLS §11 / NOTIF §6.3;
                      -- auth.uid()-scoped in-body). The six internal definers hold service_role only — not excepted.
                      'get_inbox','get_unread_count','mark_read','mark_all_read','dismiss','get_preference_matrix',
-                     'set_preference','register_push_token','revoke_push_token')))),
+                     'set_preference','register_push_token','revoke_push_token',
+                     -- 2026-10-22 (registry 160, S1): venue's three caller-authorized tier/inventory functions
+                     -- (in-body org_owner/org_admin or bound venue_manager[/venue_finance] authz; anon/PUBLIC revoked).
+                     -- The venue_cmd invoker wrappers (161) live outside this sweep's schema list.
+                     'set_ticket_type_visibility','set_ticket_type_rank','get_inventory_counters')))),
   0,
   'PFA-1 witness: zero PUBLIC/anon EXECUTE on ANY walled-schema function, and zero authenticated EXECUTE outside kernel''s name-equality-asserted caller-authorized set (141 F2) — the per-object sweep replacing the impossible per-schema functions belt');
 
