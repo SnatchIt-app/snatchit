@@ -251,6 +251,10 @@ function RootLayout() {
         <Stack.Screen name="settings/privacy" />
         <Stack.Screen name="my-listings" />
         <Stack.Screen name="saved" />
+        <Stack.Screen name="ticket/[session]" />
+        <Stack.Screen name="events" />
+        <Stack.Screen name="event/[session]" />
+        <Stack.Screen name="primary-checkout/[session]" />
         <Stack.Screen name="transfer/receive/[id]" />
         <Stack.Screen name="transfer/send/[id]" />
         <Stack.Screen name="payout-return" />
