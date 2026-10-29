@@ -25,11 +25,14 @@ export function InventoryOverview({ event, types, batches, holds, ctx, basePath,
   const warnings = inventoryWarnings(batches, types, holds, { liveSessionIds: liveIds, now });
   const hb = session ? doorHoldback(batches, session.sessionId) : { door: 0, total: 0 };
 
+  // A new event has no tiers and no releases, and the commands are precisely what fixes that. Returning
+  // early without the slot left no way to add a first tier from the dashboard at all: a bootstrap dead end.
   if (types.length === 0 || batches.length === 0)
     return (
-      <div>
+      <div className="space-y-6">
         <EventHeader eventTitle={event.title} title="Tickets" />
         <EmptyState title={types.length === 0 ? "No ticket types yet" : "No releases yet — add one so this type can sell."} />
+        {commandsSlot}
       </div>
     );
 

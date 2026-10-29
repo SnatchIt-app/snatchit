@@ -1,16 +1,19 @@
-import { CancelEventForm, EventDetailsForm, PublishEventForm, SessionCapacityForm, SessionForm } from "@/components/events/EventCommandForms";
+import { CancelEventForm, EventDetailsForm, SessionCapacityForm, SessionForm } from "@/components/events/EventCommandForms";
 import { Detail } from "@/components/ui/Page";
 import type { CommandIds } from "@/components/commands/CommandForm";
-import { nextPublishTarget, type EventStatusName } from "@/lib/events/command-contract";
+import { type EventStatusName } from "@/lib/events/command-contract";
 import { formatInZone } from "@/lib/events/instants";
 import { zoneNote, type ZoneInfo } from "@/lib/events/zone";
 import type { SessionCapacity } from "@/lib/db/session-capacity";
 import type { Event } from "@/lib/types";
 
 /**
- * The organizer's commands on the event page: details, the next forward step,
- * each night's times and pool, and cancelling — each a separate form carrying
- * its own command key, each disclosed rather than crowding the page. Rendered
+ * The organizer's commands on the event page: details, each night's times and
+ * pool, and cancelling — each a separate form carrying its own command key,
+ * each disclosed rather than crowding the page. The next forward step is NOT
+ * here: it belongs in the status block, where the page promises the single
+ * thing to do next, and rendering it twice would offer one command key twice.
+ * Rendered
  * only when the command gate is open and the role may edit; the server checks
  * both again on every call.
  */
@@ -18,7 +21,6 @@ export type EventCommandKeys = { details: string; publish: string; cancel: strin
 
 export function EventCommandPanel({ ids, event, keys, zone, capacities }: { ids: CommandIds; event: Event; keys: EventCommandKeys; zone: ZoneInfo; capacities?: Record<string, SessionCapacity> }) {
   const status = event.status as EventStatusName;
-  const target = nextPublishTarget(status);
   const terminal = status === "completed" || status === "cancelled";
   const local = (iso: string | null | undefined) => (iso ? (formatInZone(new Date(iso), zone.zone) ?? undefined) : undefined);
 
@@ -29,10 +31,6 @@ export function EventCommandPanel({ ids, event, keys, zone, capacities }: { ids:
       <Detail summary="Edit the event's details">
         <EventDetailsForm ids={ids} commandKey={keys.details} status={status} currentTitle={event.title} />
       </Detail>
-
-      {target && !terminal ? <Detail summary={`Move this event forward (next: ${target.replace("_", " ")})`}>
-        <PublishEventForm ids={ids} commandKey={keys.publish} target={target} />
-      </Detail> : null}
 
       <Detail summary="The nights: times, doors and how many each may sell">
         <div className="space-y-6">

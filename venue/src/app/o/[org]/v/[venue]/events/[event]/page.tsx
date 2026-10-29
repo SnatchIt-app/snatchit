@@ -8,6 +8,8 @@ import { canReadEvents } from "@/lib/roles";
 import type { InventoryBatch, TicketType } from "@/lib/types";
 import { EventSetup } from "@/components/events/EventSetup";
 import { EventCommandPanel, type EventCommandKeys } from "@/components/events/EventCommandPanel";
+import { PublishEventForm } from "@/components/events/EventCommandForms";
+import { nextPublishTarget, type EventStatusName } from "@/lib/events/command-contract";
 import { commandsGateOpen } from "@/lib/db/command-gate";
 import { dbSessionCapacities, type SessionCapacity } from "@/lib/db/session-capacity";
 import { mintCommandKey } from "@/lib/db/event-commands";
@@ -78,6 +80,10 @@ export default async function EventPage({ params, searchParams }: { params: Prom
     };
   }
 
+  // The forward step belongs in the status block rather than the disclosed panel; null at the top of the
+  // ladder and at both terminal statuses, so no control is offered where the server would refuse one.
+  const publishTarget = event ? nextPublishTarget(event.status as EventStatusName) : null;
+
   return (
     <Shell ctx={ctx} event={event ? { eventId: event.eventId, title: event.title } : null} active="setup" signedInAs={p.signedInAs}>
       <Page eyebrow={event?.title ?? "Event"} title={event ? "Event setup" : "Event"} art={event?.title}>
@@ -111,6 +117,7 @@ export default async function EventPage({ params, searchParams }: { params: Prom
           commandsSlot={
             commands ? <EventCommandPanel ids={commands.ids} event={event} keys={commands.keys} zone={venueTimeZone(DATA_SOURCE, null)} capacities={capacities} /> : undefined
           }
+          publishSlot={commands && publishTarget ? <PublishEventForm ids={commands.ids} commandKey={commands.keys.publish} target={publishTarget} /> : undefined}
         />
       )}
       </Page>
