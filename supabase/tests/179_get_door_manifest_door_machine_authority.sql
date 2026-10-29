@@ -89,19 +89,21 @@ SELECT is((SELECT count(*)::int FROM pg_proc p WHERE p.oid IN ('venue.get_door_m
   'A6: all three are SECURITY DEFINER with pinned search_path (066 invariant)');
 SELECT is((SELECT provolatile FROM pg_proc WHERE oid = 'venue.get_door_manifest_door(uuid,uuid,text,uuid,integer)'::regprocedure), 'v',
   'A7: the machine entrypoint is VOLATILE (assert_door_session touches last_seen_at)');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='venue'), 97,
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='venue'), 99,
+  -- 2026-10-26 (registry 166): 96 -> 98 (+get_session_capacity, list_session_capacity).
+  -- 2026-10-27 (package 187, beneath 164-167): 98 -> 99 (+1 venue.assert_session_operator, the E-76 door-plane helper).
   -- 2026-10-26 (registry 163): 92 -> 96 (+get_session_scan_counters, list_session_scan_counters, record_scan_staff, filter_staff_scan_meta; 94 if 163's PART B is dropped).
-  -- 2026-10-27 (package 187): 96 -> 97 (+1 venue.assert_session_operator, the E-76 door-plane helper).
   -- 2026-10-26 (registry 162, S2): 90 -> 92 (+set_ticket_type_sale_window, ticket_type_on_sale).
   -- 2026-09-05 (package 114): 85 -> 87 (+2 M1 door read + manifest signing context).
   -- 2026-10-26 (registry 160, S1): 87 -> 90 (+set_ticket_type_visibility, set_ticket_type_rank, get_inventory_counters).
-  'A8: venue holds 97 functions — 83 post-108 + 113''s core and machine entrypoint + 114''s two + 160''s three + 162''s two + 163''s four');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 318,
+  'A8: venue holds 99 functions — 83 post-108 + 113''s core and machine entrypoint + 114''s two + 160''s three + 162''s two + 163''s four + 166''s two + 187''s one');
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 320,
+  -- 2026-10-26 (registry 166): 317 -> 319 (+2 venue: get_session_capacity, list_session_capacity).
+  -- 2026-10-27 (package 187, beneath 164-167): 319 -> 320 (+1 venue.assert_session_operator, the E-76 door-plane helper).
   -- 2026-10-26 (registry 163): 313 -> 317 (+4 venue: get_session_scan_counters, list_session_scan_counters, record_scan_staff, filter_staff_scan_meta; 315 if 163's PART B is dropped).
-  -- 2026-10-27 (package 187): 317 -> 318 (+1 venue.assert_session_operator, the E-76 door-plane helper).
   -- 2026-10-26 (registry 162, S2): 308 -> 313 (+2 venue: set_ticket_type_sale_window, ticket_type_on_sale; +3 catalog: set_venue_timezone, set_event_age_policy, set_session_sales_capacity).
   -- 2026-10-26 (registry 160, S1): 305 -> 308 (+3 venue: set_ticket_type_visibility, set_ticket_type_rank, get_inventory_counters).
-  'A9: five-schema routine census 318 (313 pre-163; 308 pre-162; 305 pre-160; 292 post-111 + 113''s two + 114''s two = 296; 131 +4 kernel: invalidate_push_bindings_for, trg_push_bindings_on_password_change, trg_push_bindings_on_sessions_gone, push_session_predates_epoch; 135 +3 notify: issue_push_token_challenge, get_push_token_challenge, record_push_token_challenge_delivery; 139 +2 notify: claim_report_delivery, release_report_delivery)');
+  'A9: five-schema routine census 320 (319 pre-187; 317 pre-166; 313 pre-163; 308 pre-162; 305 pre-160; 292 post-111 + 113''s two + 114''s two = 296; 131 +4 kernel: invalidate_push_bindings_for, trg_push_bindings_on_password_change, trg_push_bindings_on_sessions_gone, push_session_predates_epoch; 135 +3 notify: issue_push_token_challenge, get_push_token_challenge, record_push_token_challenge_delivery; 139 +2 notify: claim_report_delivery, release_report_delivery)');
 
 -- ── B. valid bound device — full + incremental sync, identical to the staff read ──
 SELECT tap.login_service();

@@ -227,7 +227,12 @@ SELECT is(
                      -- record_scan_staff (behind the 086/108 venue.record_scan gate): EXECUTE to authenticated only,
                      -- anon/PUBLIC revoked (measured on the stacked 160-163 tree). filter_staff_scan_meta holds NO grant;
                      -- the venue_cmd wrappers (161/162/163) and the venue_api view live outside this sweep — not excepted.
-                     'get_session_scan_counters','list_session_scan_counters','record_scan_staff')))),
+                     'get_session_scan_counters','list_session_scan_counters','record_scan_staff',
+                     -- 2026-10-26 (registry 166): the two identity-free shared-pool reads (get_session_capacity,
+                     -- list_session_capacity; STABLE definers, the pool setter's authority): EXECUTE to authenticated
+                     -- only, anon/PUBLIC/service_role revoked (measured on the stacked 160-163/182 + 166 tree). The
+                     -- venue_cmd wrapper and the venue_api view live outside this sweep — not excepted.
+                     'get_session_capacity','list_session_capacity')))),
   0,
   'PFA-1 witness: zero PUBLIC/anon EXECUTE on ANY walled-schema function, and zero authenticated EXECUTE outside kernel''s name-equality-asserted caller-authorized set (141 F2) — the per-object sweep replacing the impossible per-schema functions belt');
 
