@@ -461,6 +461,10 @@ jobs:
     name: Migrations apply cleanly (fresh DB)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # packages: read lets this job authenticate its ghcr.io image pulls (see "Authenticate image pulls").
+    permissions:
+      contents: read
+      packages: read
     # SINGLE SOURCE OF TRUTH for the CLI pin. Both the installer input and the
     # drift assertion below read this one value — never repeat the literal.
     env:
@@ -557,20 +561,50 @@ jobs:
           fi
           echo "--- DOCKER-USER chain ---"; sudo iptables -S DOCKER-USER
 
+      # 2026-10-27 (A): on 2026-10-27 every image pull of this job hit ghcr.io's ANONYMOUS rate limit
+      # (`toomanyrequests` on all 8 supabase images; #172 three times, #186 once), so the stack never booted
+      # and the pgTAP gate correctly reported "no TAP output". Authenticated pulls use the job token's own
+      # budget. Non-fatal: if the login fails the pulls stay anonymous, exactly as before.
+      - name: Authenticate image pulls (ghcr.io)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin >/dev/null 2>&1; then
+            echo "OK: image pulls from ghcr.io are authenticated"
+          else
+            echo "::warning::ghcr.io login failed; image pulls stay anonymous"
+          fi
+
+      # Retry policy: a registry rate limit (seen in the start log) is retried with backoff, up to 4 attempts;
+      # any other failure keeps the original single retry, so a genuine migration error still fails the step.
       - name: Apply migration chain on fresh DB
         run: |
           set -euo pipefail
           start() {
             supabase start \
-              -x studio,inbucket,imgproxy,edge-runtime,logflare,vector
+              -x studio,inbucket,imgproxy,edge-runtime,logflare,vector 2>&1 | tee /tmp/supabase-start.log
+            return "${PIPESTATUS[0]}"
           }
-          if ! start; then
-            echo "::warning::supabase start failed on the first attempt; cleaning up and retrying once"
+          cleanup() {
             supabase stop --no-backup >/dev/null 2>&1 || true
             docker ps -aq --filter "name=supabase_" | xargs -r docker rm -f >/dev/null 2>&1 || true
-            sleep 5
-            start
-          fi
+          }
+          rate_limited() { grep -qiE 'toomanyrequests|429 Too Many Requests' /tmp/supabase-start.log; }
+          attempt=1
+          until start; do
+            if rate_limited && [ "$attempt" -lt 4 ]; then
+              wait=$((attempt * 45))
+              echo "::warning::image registry rate limit on attempt ${attempt}; cleaning up and retrying in ${wait}s"
+            elif [ "$attempt" -lt 2 ]; then
+              wait=5
+              echo "::warning::supabase start failed on the first attempt; cleaning up and retrying once"
+            else
+              exit 1
+            fi
+            cleanup
+            sleep "$wait"
+            attempt=$((attempt + 1))
+          done
 
       - name: Show applied migrations
         if: always()
