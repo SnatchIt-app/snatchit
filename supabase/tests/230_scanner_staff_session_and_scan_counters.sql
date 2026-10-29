@@ -313,9 +313,9 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.
             WHERE n.nspname = 'venue' AND p.proname IN ('get_session_scan_counters','list_session_scan_counters')
               AND position('*' IN p.prosrc) = 0), 2,
   'A18: neither counters body contains a ''*'' — every venue.scan column is named (B: 183 adds device_label; no select * / scan.*)');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue'), 96,
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue'), 97,
   -- 2026-10-26 (registry 162, S2, stacked under 163): 94 -> 96 (+set_ticket_type_sale_window, ticket_type_on_sale).
-  'A19: venue holds NINETY-SIX functions — 92 (160 + 162) + 163''s get_session_scan_counters, list_session_scan_counters, record_scan_staff, filter_staff_scan_meta (144 A15 / 145 A4 / 148 B5 / 179 A8 / 180 A5 / 227 A12 / 229 A23 move with it; 148 B2 / 156 A20 / 157 A46 / 179 A9 / 180 A6 move 313 -> 317; 94 / 315 if PART B is dropped)');
+  'A19: venue holds NINETY-SEVEN functions — 92 (160 + 162) + 163''s get_session_scan_counters, list_session_scan_counters, record_scan_staff, filter_staff_scan_meta (144 A15 / 145 A4 / 148 B5 / 179 A8 / 180 A5 / 227 A12 / 229 A23 move with it; 148 B2 / 156 A20 / 157 A46 / 179 A9 / 180 A6 move 313 -> 317; 94 / 315 if PART B is dropped)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue_api'), 0,
   'A20: venue_api still holds no function (226 A3 stays true: the definer bodies live in venue)');
 SELECT is((SELECT count(*)::int FROM pg_views WHERE schemaname = 'venue_api'), 9,
@@ -558,10 +558,10 @@ SELECT set_eq(
       WHERE n.nspname = 'venue' AND p.proname IN ('record_scan','record_scan_door','_record_scan_core','validate_ticket_online') AND a.grantee <> p.proowner $$,
   $$ VALUES ('record_scan:authenticated:EXECUTE'), ('record_scan_door:service_role:EXECUTE'), ('validate_ticket_online:authenticated:EXECUTE') $$,
   'D12: the 086/108 grants are UNCHANGED — record_scan authenticated, record_scan_door service_role, _record_scan_core nobody (the door path is not touched)');
-SELECT ok((SELECT count(*) = 14 AND count(*) FILTER (WHERE NOT p.prosecdef AND l.lanname = 'sql') = 14  -- 2026-10-26 (registry 162, S2, stacked under 163): 9 -> 14 (+162's five wrappers)
+SELECT ok((SELECT count(*) = 21 AND count(*) FILTER (WHERE NOT p.prosecdef AND l.lanname = 'sql') = 21  -- 2026-10-27 (registry 164): 14 -> 21 (+164's seven wrappers; pgTAP 231). 2026-10-26 (registry 162, S2, stacked under 163): 9 -> 14 (+162's five wrappers)
              FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace JOIN pg_language l ON l.oid = p.prolang
             WHERE n.nspname = 'venue_cmd'),
-  'D13: venue_cmd holds FOURTEEN functions (161''s six + 162''s five + 163''s three) and EVERY one is LANGUAGE sql + SECURITY INVOKER (228''s invariant survives 162 and 163; 12 if PART B is dropped)');
+  'D13: venue_cmd holds TWENTY-ONE functions (161''s six + 162''s five + 163''s three + 164''s seven) and EVERY one is LANGUAGE sql + SECURITY INVOKER (228''s invariant survives 162, 163 and 164; 19 if 163''s PART B is dropped)');
 SELECT ok((SELECT p.prosrc LIKE '%venue.record_scan(p_atom_id, p_session_id, null::uuid, v_meta, p_command_key)%'
                   AND p.prosrc LIKE '%venue.filter_staff_scan_meta(p_scan_meta)%' AND position('*' IN p.prosrc) = 0
              FROM pg_proc p WHERE p.oid = to_regprocedure('venue.record_scan_staff(uuid, uuid, jsonb, text)')),
@@ -722,8 +722,9 @@ SELECT tap.logout();
 SELECT is((SELECT s.actor_identity_id FROM venue.scan s WHERE s.ticket_atom_id = '23000000-0000-4000-8000-000000000a09' AND s.result = 'admitted'),
   '23000000-0000-4000-8000-000000000111'::uuid, 'F13: …attributed to the manager (auth.uid() seen through INVOKER + the two definers), device NULL');
 SELECT tap.login('23000000-0000-4000-8000-000000000121');
-SELECT is((venue_cmd.record_scan('23000000-0000-4000-8000-000000000a52', '23000000-0000-4000-8000-0000000000f5', '{}'::jsonb, 'ck230-f14') ->> 'result'), 'admitted',
-  'F14: STATUS QUO (A/B to rule) — the former-operator manager of Room V2 ADMITS Org A''s e5 atom: venue.record_scan''s 086/108 gate carries no E-76 conjunct (the counters read refuses them; the write does not)');
+SELECT throws_like($$SELECT venue_cmd.record_scan('23000000-0000-4000-8000-000000000a52', '23000000-0000-4000-8000-0000000000f5', '{}'::jsonb, 'ck230-f14')$$,
+  '%insufficient_privilege%',
+  'F14: FLIPPED by 187 (B, 2026-10-27; was the STATUS-QUO pin) — the former-operator manager of Room V2 is now REFUSED on Org A''s e5 atom: venue.record_scan carries the E-76 operator conjunct (venue.assert_session_operator), so the write refuses exactly as the counters read already did');
 SELECT tap.logout();
 SELECT tap.login('23000000-0000-4000-8000-000000000114');
 SELECT is(venue_cmd.validate_ticket_online('23000000-0000-4000-8000-000000000a07', '23000000-0000-4000-8000-0000000000f1'),

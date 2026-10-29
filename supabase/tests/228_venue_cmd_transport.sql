@@ -52,6 +52,14 @@
 -- record_scan to record_scan_staff. 163's PART B (record_scan, validate_ticket_online)
 -- is DROPPABLE within the sprint: if it is dropped these pins read 7 and the two
 -- rows go. The RED prediction above is the 2026-10-22 record and is not re-run.
+--
+-- 2026-10-27 (registry 164, pgTAP 231 — D): venue_cmd gains SEVEN wrappers over the
+-- catalog event / session / venue verbs — create_event(uuid, text, jsonb, text),
+-- update_event(uuid, jsonb, text), create_event_session(uuid, jsonb, text),
+-- update_event_session(uuid, jsonb, text), publish_event(uuid, text, text),
+-- cancel_event(uuid, text, text), update_venue(uuid, jsonb, text) — each LANGUAGE sql
+-- SECURITY INVOKER, VOLATILE, delegating to catalog.<same name>. A2/A3/A5-A7/A14-A20/
+-- A23 move 14 -> 21; A18/A19/A20 need no mapping (same names, catalog targets).
 -- ============================================================================
 BEGIN;
 SELECT plan(50);
@@ -105,10 +113,11 @@ UPDATE catalog.venue SET org_id = '22800000-0000-4000-8000-00000000000b'
 
 -- ── Section A — shape + ACL ──────────────────────────────────────────────────
 SELECT has_schema('venue_cmd', 'A1: schema venue_cmd exists');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue_cmd'), 14,
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue_cmd'), 21,
+  -- 2026-10-27 (registry 164): 14 -> 21 (+create_event, update_event, create_event_session, update_event_session, publish_event, cancel_event, update_venue).
   -- 2026-10-26 (registry 163): 11 -> 14 (+get_session_scan_counters, record_scan, validate_ticket_online).
   -- 2026-10-26 (registry 162, S2): 6 -> 11 (+set_venue_timezone, set_event_age_policy, set_session_sales_capacity, set_ticket_type_sale_window, ticket_type_on_sale).
-  'A2: exactly FOURTEEN functions in venue_cmd (161''s six + 162''s five + 163''s three)');
+  'A2: exactly TWENTY-ONE functions in venue_cmd (161''s six + 162''s five + 163''s three + 164''s seven)');
 SELECT set_eq(
   $$ SELECT p.proname || '(' || pg_catalog.oidvectortypes(p.proargtypes) || ')'
        FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue_cmd' $$,
@@ -121,17 +130,21 @@ SELECT set_eq(
             ('set_ticket_type_sale_window(uuid, timestamp with time zone, timestamp with time zone, text, text)'),
             ('ticket_type_on_sale(uuid, timestamp with time zone)'),
             -- 163
-            ('get_session_scan_counters(uuid)'), ('record_scan(uuid, uuid, jsonb, text)'), ('validate_ticket_online(uuid, uuid)') $$,
-  'A3: exactly these fourteen signatures');
+            ('get_session_scan_counters(uuid)'), ('record_scan(uuid, uuid, jsonb, text)'), ('validate_ticket_online(uuid, uuid)'),
+            -- 164
+            ('create_event(uuid, text, jsonb, text)'), ('update_event(uuid, jsonb, text)'), ('create_event_session(uuid, jsonb, text)'),
+            ('update_event_session(uuid, jsonb, text)'), ('publish_event(uuid, text, text)'), ('cancel_event(uuid, text, text)'),
+            ('update_venue(uuid, jsonb, text)') $$,
+  'A3: exactly these twenty-one signatures');
 SELECT hasnt_function('venue_cmd'::name, 'create_inventory_batch'::name, ARRAY['uuid','uuid','text','integer','integer','text']::name[],
   'A4: no create_inventory_batch wrapper (withheld until S2''s E-33 receipt)');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue_cmd' AND NOT p.prosecdef), 14,
-  'A5: every function has prosecdef = false (SECURITY INVOKER) — counted positively, fourteen');
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue_cmd' AND NOT p.prosecdef), 21,
+  'A5: every function has prosecdef = false (SECURITY INVOKER) — counted positively, twenty-one');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace JOIN pg_language l ON l.oid = p.prolang
-            WHERE n.nspname = 'venue_cmd' AND l.lanname = 'sql'), 14,
+            WHERE n.nspname = 'venue_cmd' AND l.lanname = 'sql'), 21,
   'A6: every function is LANGUAGE sql (no logic can hide in a wrapper; 163''s staff-path logic is in venue.record_scan_staff)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-            WHERE n.nspname = 'venue_cmd' AND p.proconfig::text LIKE '%search_path=%'), 14,
+            WHERE n.nspname = 'venue_cmd' AND p.proconfig::text LIKE '%search_path=%'), 21,
   'A7: every function pins search_path');
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'venue_cmd'), 0,
   'A8: venue_cmd holds NO relation of any kind (no table, view, sequence, index)');
@@ -161,35 +174,38 @@ SELECT set_eq(
             ('set_venue_timezone:authenticated:EXECUTE'), ('set_event_age_policy:authenticated:EXECUTE'),  -- 162
             ('set_session_sales_capacity:authenticated:EXECUTE'), ('set_ticket_type_sale_window:authenticated:EXECUTE'),
             ('ticket_type_on_sale:authenticated:EXECUTE'),
-            ('get_session_scan_counters:authenticated:EXECUTE'), ('record_scan:authenticated:EXECUTE'), ('validate_ticket_online:authenticated:EXECUTE') $$,  -- 163
-  'A14: the function ACL matrix is exactly EXECUTE to authenticated on each of the fourteen (no PUBLIC, anon, service_role)');
+            ('get_session_scan_counters:authenticated:EXECUTE'), ('record_scan:authenticated:EXECUTE'), ('validate_ticket_online:authenticated:EXECUTE'),  -- 163
+            ('create_event:authenticated:EXECUTE'), ('update_event:authenticated:EXECUTE'), ('create_event_session:authenticated:EXECUTE'),  -- 164
+            ('update_event_session:authenticated:EXECUTE'), ('publish_event:authenticated:EXECUTE'), ('cancel_event:authenticated:EXECUTE'),
+            ('update_venue:authenticated:EXECUTE') $$,
+  'A14: the function ACL matrix is exactly EXECUTE to authenticated on each of the twenty-one (no PUBLIC, anon, service_role)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-            WHERE n.nspname = 'venue_cmd' AND has_function_privilege('authenticated', p.oid, 'EXECUTE')), 14,
-  'A15: has_function_privilege(authenticated, EXECUTE) is true on all fourteen');
+            WHERE n.nspname = 'venue_cmd' AND has_function_privilege('authenticated', p.oid, 'EXECUTE')), 21,
+  'A15: has_function_privilege(authenticated, EXECUTE) is true on all twenty-one');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
             WHERE n.nspname = 'venue_cmd' AND NOT has_function_privilege('anon', p.oid, 'EXECUTE')
-              AND NOT has_function_privilege('service_role', p.oid, 'EXECUTE')), 14,
-  'A16: has_function_privilege(anon|service_role, EXECUTE) is false on all fourteen');
+              AND NOT has_function_privilege('service_role', p.oid, 'EXECUTE')), 21,
+  'A16: has_function_privilege(anon|service_role, EXECUTE) is false on all twenty-one');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
             WHERE n.nspname = 'venue_cmd' AND p.proacl IS NOT NULL
-              AND NOT EXISTS (SELECT 1 FROM aclexplode(p.proacl) a WHERE a.grantee = 0)), 14,
-  'A17: no proacl is DEFAULTED and PUBLIC holds nothing on any of the fourteen (the SEC-2/F2 failure mode cannot occur here)');
+              AND NOT EXISTS (SELECT 1 FROM aclexplode(p.proacl) a WHERE a.grantee = 0)), 21,
+  'A17: no proacl is DEFAULTED and PUBLIC holds nothing on any of the twenty-one (the SEC-2/F2 failure mode cannot occur here)');
 SELECT is((SELECT count(*)::int FROM pg_proc w JOIN pg_namespace n ON n.oid = w.pronamespace
             JOIN pg_proc t ON t.proname = CASE w.proname WHEN 'record_scan' THEN 'record_scan_staff' ELSE w.proname END  -- 163: record_scan -> record_scan_staff
                           AND t.pronamespace IN ('venue'::regnamespace, 'catalog'::regnamespace)  -- 162: three wrappers target catalog.*
             WHERE n.nspname = 'venue_cmd'
-              AND pg_get_function_identity_arguments(w.oid) = pg_get_function_identity_arguments(t.oid)), 14,
+              AND pg_get_function_identity_arguments(w.oid) = pg_get_function_identity_arguments(t.oid)), 21,  -- 164: +7 catalog targets
   'A18: each wrapper''s argument list (names and types) equals its venue/catalog target''s (163: record_scan -> record_scan_staff)');
 SELECT is((SELECT count(*)::int FROM pg_proc w JOIN pg_namespace n ON n.oid = w.pronamespace
             JOIN pg_proc t ON t.proname = CASE w.proname WHEN 'record_scan' THEN 'record_scan_staff' ELSE w.proname END  -- 163: record_scan -> record_scan_staff
                           AND t.pronamespace IN ('venue'::regnamespace, 'catalog'::regnamespace)  -- 162: three wrappers target catalog.*
             WHERE n.nspname = 'venue_cmd'
-              AND pg_get_function_result(w.oid) = pg_get_function_result(t.oid)), 14,
+              AND pg_get_function_result(w.oid) = pg_get_function_result(t.oid)), 21,  -- 164: +7 catalog targets
   'A19: each wrapper''s result type equals its venue/catalog target''s (163: record_scan -> record_scan_staff)');
 SELECT is((SELECT count(*)::int FROM pg_proc w JOIN pg_namespace n ON n.oid = w.pronamespace
             WHERE n.nspname = 'venue_cmd'
               AND (w.prosrc LIKE '%venue.' || CASE w.proname WHEN 'record_scan' THEN 'record_scan_staff' ELSE w.proname END || '(%'
-                   OR w.prosrc LIKE '%catalog.' || w.proname || '(%')), 14,
+                   OR w.prosrc LIKE '%catalog.' || w.proname || '(%')), 21,  -- 164: +7 catalog.<same name>
   'A20: each wrapper delegates to venue.<same name> or catalog.<same name> (162); 163: record_scan -> venue.record_scan_staff, the only mapped target');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue_api'), 0,
   'A21: venue_api still holds no function (the transport did not land in the read schema; 226 A3 stays true)');
@@ -197,8 +213,8 @@ SELECT is((SELECT count(*)::int FROM pg_default_acl d JOIN pg_namespace n ON n.o
   'A22: no default-ACL row is scoped to venue_cmd (the migration stores none; A2/A5/A14/A16/A17 sweep whatever is added later)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
             WHERE n.nspname = 'venue_cmd'
-              AND p.provolatile = CASE WHEN p.proname IN ('get_inventory_counters','ticket_type_on_sale','get_session_scan_counters','validate_ticket_online') THEN 's' ELSE 'v' END), 14,
-  'A23: the four read wrappers (get_inventory_counters, ticket_type_on_sale, get_session_scan_counters, validate_ticket_online) are STABLE and the ten command wrappers are VOLATILE');
+              AND p.provolatile = CASE WHEN p.proname IN ('get_inventory_counters','ticket_type_on_sale','get_session_scan_counters','validate_ticket_online') THEN 's' ELSE 'v' END), 21,
+  'A23: the four read wrappers (get_inventory_counters, ticket_type_on_sale, get_session_scan_counters, validate_ticket_online) are STABLE and the seventeen command wrappers are VOLATILE (164: +7)');
 
 -- ── Section B — behaviour as the caller ─────────────────────────────────────
 SELECT tap.login('22800000-0000-4000-8000-000000000111');

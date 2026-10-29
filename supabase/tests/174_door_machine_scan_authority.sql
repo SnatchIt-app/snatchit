@@ -128,15 +128,16 @@ SELECT tap._store174('rec', (venue.reconcile_offline_scans_door(
   ), 'ck174-rec')::text));
 SELECT is(concat((tap._fetch174('rec')::jsonb->>'admitted'),'/',(tap._fetch174('rec')::jsonb->>'conflicts')), '1/1',
   'D8: machine reconcile admits the good item and isolates the wrong-session item as a conflict (no batch poison)');
--- replay mA[1] (now consumed/scanned) -> a conflict (not_active), never a second
--- admit. (Matches 171 R1: a re-scan of a consumed atom is a conflict, not a
--- duplicate — the duplicate class is the racing-admit unique_violation window.)
+-- replay mA[1] (now consumed/scanned) -> a DUPLICATE (183: state=scanned AND the
+-- authoritative admitted row exists -> result='duplicate' + prior), never a second
+-- admit. (Until 183 this was recorded 'invalid'/conflict — see 171 R1, updated
+-- the same way; the frozen contract always said a second scan is 'duplicate'.)
 SELECT tap._store174('rec2', (venue.reconcile_offline_scans_door(
   tap._fetch174('sA')::uuid, tap._fetch174('dsid')::uuid, tap._fetch174('secret'), tap._fetch174('dev')::uuid,
   jsonb_build_array(jsonb_build_object('ticket_atom_id', tap._fetch174('mA')::jsonb->>1, 'scan_sequence', 3)), 'ck174-rec2')::text));
 SELECT tap.logout();
-SELECT is(concat((tap._fetch174('rec2')::jsonb->>'admitted'),'/',(tap._fetch174('rec2')::jsonb->>'conflicts')), '0/1',
-  'D9: a repeated admit of a consumed atom reconciles as a conflict, never a second admitted row (first-in-wins)');
+SELECT is(concat((tap._fetch174('rec2')::jsonb->>'admitted'),'/',(tap._fetch174('rec2')::jsonb->>'duplicates'),'/',(tap._fetch174('rec2')::jsonb->>'conflicts')), '0/1/0',
+  'D9: a repeated admit of a consumed atom reconciles as a DUPLICATE (183: "already used", the admitted row exists), never a second admitted row (first-in-wins)');
 SELECT is((SELECT count(*)::int FROM venue.scan WHERE ticket_atom_id=(tap._fetch174('mA')::jsonb->>1)::uuid AND result='admitted'), 1,
   'D10: exactly ONE authoritative admitted row persists for the reconciled atom');
 
