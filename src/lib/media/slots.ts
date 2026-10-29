@@ -244,6 +244,24 @@ export const MEDIA_SLOTS = {
     preload: true,
   },
   /**
+   * Home feature, V4 (owner reference 2026-10-22, Home only): the artwork is a prominent, nearly
+   * SQUARE frame with the media radius, INSIDE the row gutters — no longer the full-bleed 4:5
+   * poster — with the same identity block beneath it. `fit`, as before: a 4:5 flyer stays whole
+   * inside the square and the slack is the artwork's own blur (EventMedia's backdrop), never a
+   * crop and never a colored letterbox bar. No scrim: nothing is drawn over the artwork.
+   * HOME_FEATURE_V3 above is left exactly as it was, so the listing hero and every other poster
+   * frame keep their contracts; only HomeFeature and its loading placeholder read this slot.
+   * The nominal mobile width is the 390pt device less the two 20pt gutters; fluid callers measure.
+   */
+  HOME_FEATURE_V4: {
+    aspectRatio: v2.ratio.square,
+    layoutWidth: { mobile: 350, tablet: 728, web: 1040 },
+    defaultFit: 'fit',
+    radius: MEDIA_RADIUS,
+    scrim: 'none',
+    preload: true,
+  },
+  /**
    * Listing hero: a full-bleed 4:5 poster, and NO scrim.
    *
    * The w x 0.62 + 24 formula is retired for the same reason as the feature's — a formula and a

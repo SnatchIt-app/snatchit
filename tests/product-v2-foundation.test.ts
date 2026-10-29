@@ -128,6 +128,9 @@ describe('media slots', () => {
       // corners, and the boards draw both of these square.
       HOME_FEATURE_V3: v2.radius.none,
       LISTING_HERO_V3: v2.radius.none,
+      // The Home feature's V4 frame (owner reference 2026-10-22) sits INSIDE the gutters, so it is
+      // a media frame, not full-bleed: the media role's 8.
+      HOME_FEATURE_V4: MEDIA_RADIUS,
       /*
        * The rest follow B's radius table §4.1 by ROLE (rules 0 · media 8 · chrome 22 · dock 33 ·
        * full-bleed 0 · panels 0), applied when the 4:5 poster direction landed. A media frame is 8

@@ -52,6 +52,16 @@ const POSTER_SLOTS = [
  * can be quietly widened: adding a slot here is how someone would opt an event image out of the
  * direction, and it should read as a claim that has to be true.
  */
+/**
+ * Slots that carry a poster in a frame that is deliberately NOT 4:5 — and must therefore be
+ * FITTED, so the poster is never cropped and the slack is the artwork's own blur. The reason is the
+ * owner's direction for that one surface. The same rule as the exemptions: adding a row here is a
+ * claim that has to be true.
+ */
+const SQUARE_FITTED: Record<string, string> = {
+  HOME_FEATURE_V4: 'the Home feature (owner reference 2026-10-22): a nearly square, rounded frame inside the row gutters; fitted, never cropped',
+};
+
 const NOT_A_POSTER: Record<string, string> = {
   VENUE_HERO: 'a photograph of a room, not a poster — photography has no edge information to protect',
   DASHBOARD_THUMBNAIL: "the operator console (D's surface); no consumer screen renders it",
@@ -65,17 +75,20 @@ const REAL_BOXES: Partial<Record<MediaSlotName, { w: number; h: number; why: str
   CHECKOUT_THUMBNAIL: { w: posterWidth(72), h: 72, why: 'checkout / order / bids row' },
   HOME_FEATURE_V3: { w: 393, h: Math.round(393 / v2.ratio.portrait), why: 'full-bleed at 393pt' },
   LISTING_HERO_V3: { w: 393, h: Math.round(393 / v2.ratio.portrait), why: 'full-bleed at 393pt' },
+  HOME_FEATURE_V4: { w: 393 - 40, h: 393 - 40, why: 'the Home feature inside the two 20pt gutters at 393pt' },
 };
 
 describe('the classification is exhaustive — a new slot cannot slip past the direction', () => {
   it('PC1: every slot is either a poster or a named exemption, never both and never neither', () => {
     const all = Object.keys(MEDIA_SLOTS).sort();
-    const classified = [...POSTER_SLOTS, ...Object.keys(NOT_A_POSTER)].sort();
+    const classified = [...POSTER_SLOTS, ...Object.keys(NOT_A_POSTER), ...Object.keys(SQUARE_FITTED)].sort();
     expect(classified).toEqual(all);
-    // No slot is in both lists, which is how a contradiction would hide.
-    for (const n of POSTER_SLOTS) expect(NOT_A_POSTER[n]).toBeUndefined();
+    // No slot is in two lists, which is how a contradiction would hide.
+    for (const n of POSTER_SLOTS) { expect(NOT_A_POSTER[n]).toBeUndefined(); expect(SQUARE_FITTED[n]).toBeUndefined(); }
+    for (const n of Object.keys(SQUARE_FITTED)) expect(NOT_A_POSTER[n]).toBeUndefined();
     // Every exemption states a reason rather than existing silently.
     for (const [n, why] of Object.entries(NOT_A_POSTER)) expect(why.length).toBeGreaterThan(20);
+    for (const why of Object.values(SQUARE_FITTED)) expect(why.length).toBeGreaterThan(20);
   });
 });
 
@@ -94,6 +107,17 @@ describe('geometry — the frame is the poster shape everywhere it carries a pos
       expect(MEDIA_SLOTS[n].aspectRatio, `${n} must not be a poster`).not.toBe(v2.ratio.portrait);
       expect(MEDIA_SLOTS[n].defaultFit, `${n} must not be fitted`).toBe('cover');
     }
+  });
+
+  it('PC2b: a square-fitted slot is square, FITTED and rounded at the media radius (and is not a poster slot)', () => {
+    for (const n of Object.keys(SQUARE_FITTED) as MediaSlotName[]) {
+      expect(MEDIA_SLOTS[n].aspectRatio, `${n} ratio`).toBe(v2.ratio.square);
+      expect(MEDIA_SLOTS[n].defaultFit, `${n} fit`).toBe('fit');
+      expect(MEDIA_SLOTS[n].radius, `${n} radius`).toBe(MEDIA_RADIUS);
+      expect(MEDIA_SLOTS[n].scrim, `${n} scrim`).toBe('none');
+    }
+    // Positive control: the list is not empty, or the loop above asserts nothing.
+    expect(Object.keys(SQUARE_FITTED).length).toBeGreaterThan(0);
   });
 
   it('PC3: radius follows the role — media 8, full-bleed and parent-clipped 0', () => {
@@ -139,7 +163,8 @@ describe('the request — where a crop would actually happen, unseen', () => {
   const LEGACY = { path: 'uuid/covers/1715000000000.jpg', contract: 'legacy' as const };
 
   it('PC5: every poster request carries BOTH dimensions, in the frame\'s own proportions', () => {
-    for (const n of POSTER_SLOTS) {
+    // The square-fitted slot makes the same request contract: both dimensions, the frame's shape, contain.
+    for (const n of [...POSTER_SLOTS, ...(Object.keys(SQUARE_FITTED) as MediaSlotName[])]) {
       const box = REAL_BOXES[n] ?? {
         w: MEDIA_SLOTS[n].layoutWidth.mobile,
         h: slotHeight(n, 'mobile'),
@@ -191,7 +216,7 @@ describe('the request — where a crop would actually happen, unseen', () => {
   });
 
   it('PC8: a legacy 16:9 asset is FITTED in a poster slot, never re-cropped', () => {
-    for (const n of POSTER_SLOTS) {
+    for (const n of [...POSTER_SLOTS, ...(Object.keys(SQUARE_FITTED) as MediaSlotName[])]) {
       const r = resolveImage(LEGACY, n, { layoutWidth: 100, layoutHeight: 125, devicePixelRatio: 2 });
       if (r.kind !== 'image') continue;
       expect(r.fit, `${n} fits legacy artwork`).toBe('fit');

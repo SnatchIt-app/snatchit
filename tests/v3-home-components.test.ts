@@ -237,14 +237,14 @@ describe('FeedRow — the §3 row', () => {
   });
 });
 
-describe('HomeFeature — the §3 full-bleed feature', () => {
+describe('HomeFeature — the feature (the §3 full-bleed poster until 2026-10-22; the V4 square frame since)', () => {
   it('HF1: name in the feature voice over the curve-scrimmed slot, fluid width', async () => {
     const host = await mountFeature();
     const name = nameOf(host, 'nameFeature');
     expect(name).toBeDefined();
     expect(name?.props.children).toBe('Neon Choir');
     const art = media(host);
-    expect(art?.props.slot).toBe('HOME_FEATURE_V3');
+    expect(art?.props.slot).toBe('HOME_FEATURE_V4');
     expect(art?.props.fluid).toBe(true);
   });
 
@@ -529,5 +529,53 @@ describe('HomeFeature — "all-in" survives the supported text sizes', () => {
     // The standard sizes end around 1.35, which is where B saw the first cut, so the threshold has
     // to be at or below it rather than only catching the accessibility sizes.
     expect(IDENTITY_STACK_SCALE).toBeLessThanOrEqual(1.35);
+  });
+});
+
+/*
+ * Owner reference 2026-10-22 (Home only): the feature's artwork is a prominent, nearly SQUARE
+ * frame with rounded corners inside the row gutters — no longer the full-bleed 4:5 poster — with
+ * the same identity block beneath it. The frame is a new slot so the hero, the rows and every
+ * other poster keep their contracts untouched.
+ */
+describe('HomeFeature frame — the owner\'s 2026-10-22 reference (Home only)', () => {
+  it('SL4: HOME_FEATURE_V4 — square, FITTED (never cropped, no colored letterbox), media radius, no scrim; V3 untouched', async () => {
+    const { MEDIA_SLOTS } = await import('@/src/lib/media/slots');
+    const { MEDIA_RADIUS } = await import('@/src/lib/design/featureMetrics');
+    const v2 = await import('@/src/theme/v2');
+    const s = MEDIA_SLOTS.HOME_FEATURE_V4;
+    expect(s.aspectRatio).toBe(v2.ratio.square);
+    // `fit`: a 4:5 flyer stays whole inside the square and the slack is the artwork's own blur —
+    // EventMedia's existing backdrop — never a cropped poster and never a colored bar.
+    expect(s.defaultFit).toBe('fit');
+    expect(s.radius).toBe(MEDIA_RADIUS);
+    expect(s.scrim).toBe('none');
+    expect(s.preload).toBe(true);
+    // The old slot is still exactly what it was: nothing else moved.
+    expect(MEDIA_SLOTS.HOME_FEATURE_V3.aspectRatio).toBe(v2.ratio.portrait);
+    expect(MEDIA_SLOTS.HOME_FEATURE_V3.radius).toBe(v2.radius.none);
+  });
+
+  it('HF6: the feature draws its artwork in the V4 frame inside the row gutters, and still types no height', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync('src/components/discovery/HomeFeature.tsx', 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+    expect(src).toContain('slot="HOME_FEATURE_V4"');
+    expect(src).not.toContain('slot="HOME_FEATURE_V3"');
+    // The gutter is the shared FEATURE_GUTTER (= the row gutter), read, never typed.
+    expect(src).toMatch(/artFrame: \{[^}]*marginHorizontal: FEATURE_GUTTER/);
+    expect(src).not.toMatch(/height: \d/);
+    expect(src).not.toMatch(/aspectRatio: [\d.]/);
+    expect(src).not.toMatch(/borderRadius: [\d.]/);
+  });
+
+  it('HF7: the loading placeholder is the frame the feed is about to paint — V4 ratio, V4 radius, the same gutters', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync('src/components/discovery/DiscoveryGridSkeleton.tsx', 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+    expect(src).toContain('MEDIA_SLOTS.HOME_FEATURE_V4.aspectRatio');
+    expect(src).toMatch(/featureArt: \{[^}]*paddingHorizontal: ROW_GUTTER/);
+    expect(src).toMatch(/featureArtFrame: \{[^}]*borderRadius: MEDIA_SLOTS\.HOME_FEATURE_V4\.radius/);
+    expect(src).not.toContain('HOME_FEATURE_V3');
   });
 });
