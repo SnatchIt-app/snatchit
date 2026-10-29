@@ -3,7 +3,7 @@
 import { useActionState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import type { CommandFormState } from "@/lib/db/command-forms";
-import { createTicketTypeForm, setBatchCapacityForm, setTicketTypePriceForm, setTicketTypeRankForm, setTicketTypeVisibilityForm } from "@/lib/db/command-forms";
+import { createInventoryBatchForm, createTicketTypeForm, setBatchCapacityForm, setTicketTypePriceForm, setTicketTypeRankForm, setTicketTypeSaleWindowForm, setTicketTypeVisibilityForm } from "@/lib/db/command-forms";
 import { RELEASE_LABEL, capacityFloor } from "@/lib/inventory";
 import { usd } from "@/lib/format";
 import type { InventoryBatch, TicketType } from "@/lib/types";
@@ -14,7 +14,7 @@ import type { InventoryBatch, TicketType } from "@/lib/types";
  * the same key. The server's answer is shown as what it is: a receipt, a refusal naming the field, or
  * "not enabled". Nothing is marked saved without a receipt.
  */
-export type TierCommandKeys = { create: string; price: Record<string, string>; visibility: Record<string, string>; rank: Record<string, string>; capacity: Record<string, string> };
+export type TierCommandKeys = { create: string; price: Record<string, string>; visibility: Record<string, string>; rank: Record<string, string>; capacity: Record<string, string>; release: Record<string, string>; saleWindow: Record<string, string> };
 export type TierCommandIds = { orgId: string; venueId: string; eventId: string };
 
 const INITIAL: CommandFormState = { result: null };
@@ -87,7 +87,7 @@ const Reason = () => (
   </label>
 );
 
-export function TierCommands({ ids, types, batches, keys, sessionId }: { ids: TierCommandIds; types: TicketType[]; batches: InventoryBatch[]; keys: TierCommandKeys; sessionId: string | null }) {
+export function TierCommands({ ids, types, batches, keys, sessionId, timeZone }: { ids: TierCommandIds; types: TicketType[]; batches: InventoryBatch[]; keys: TierCommandKeys; sessionId: string | null; timeZone: string | null }) {
   return (
     <section className="panel space-y-6 px-5 py-5" aria-labelledby="tier-commands-title">
       <div>
@@ -122,6 +122,39 @@ export function TierCommands({ ids, types, batches, keys, sessionId }: { ids: Ti
               Display rank (0 first)
               <input name="displayRank" type="number" min="0" max="999" step="1" required className="field mt-1 w-24" />
             </label>
+          </CommandForm>
+          {/* The first inventory release for this tier on this session. Without one, publish_event refuses
+              empty_inventory — the gap D found. No shard control: 081:355 refuses any shard count above 0
+              (sharding_deferred), so the only legal value is the one the action sends. */}
+          {sessionId ? (
+            <CommandForm action={createInventoryBatchForm} ids={ids} commandKey={keys.release[t.ticketTypeId] ?? ""} extra={{ ticketTypeId: t.ticketTypeId, sessionId }} label="Release inventory">
+              <label className="block text-xs">
+                Release
+                <select name="releaseKind" defaultValue="public_sale" className="field mt-1">
+                  {(Object.keys(RELEASE_LABEL) as Array<keyof typeof RELEASE_LABEL>).map((k) => (
+                    <option key={k} value={k}>{RELEASE_LABEL[k]}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="block text-xs">
+                Capacity
+                <input name="capacity" type="number" min={1} step="1" required className="field mt-1 w-28" />
+              </label>
+              <p className="text-[0.6875rem] text-dim">Releasing twice releases the inventory twice, and sending it again does not undo it. If no answer arrives, reload and look before trying again.</p>
+            </CommandForm>
+          ) : null}
+          {/* 162's sale window. The organizer types the venue's local wall clock; the server is given an offset. */}
+          <CommandForm action={setTicketTypeSaleWindowForm} ids={ids} commandKey={keys.saleWindow[t.ticketTypeId] ?? ""} extra={{ ticketTypeId: t.ticketTypeId, timeZone: timeZone ?? "" }} label="Set the sale window">
+            <label className="block text-xs">
+              On sale from{timeZone ? ` (${timeZone})` : ""}
+              <input name="saleStartsLocal" type="datetime-local" className="field mt-1" />
+            </label>
+            <label className="block text-xs">
+              Until (exclusive)
+              <input name="saleEndsLocal" type="datetime-local" className="field mt-1" />
+            </label>
+            <Reason />
+            <p className="text-[0.6875rem] text-dim">Leave a side empty to leave it open; empty both to clear the window.</p>
           </CommandForm>
           {batches
             .filter((b) => b.ticketTypeId === t.ticketTypeId && (!sessionId || b.sessionId === sessionId))

@@ -64,7 +64,7 @@ export default async function InventoryPage({ params, searchParams }: { params: 
           const typeIds = t.data.map((x) => x.ticketTypeId);
           commands = {
             ids: { orgId: p.scope.orgId, venueId: p.scope.venueId, eventId: event.eventId },
-            keys: { create: await mintCommandKey(), price: await keyFor(typeIds), visibility: await keyFor(typeIds), rank: await keyFor(typeIds), capacity: await keyFor(batches.map((x) => x.batchId)) },
+            keys: { create: await mintCommandKey(), price: await keyFor(typeIds), visibility: await keyFor(typeIds), rank: await keyFor(typeIds), capacity: await keyFor(batches.map((x) => x.batchId)), release: await keyFor(typeIds), saleWindow: await keyFor(typeIds) },
           };
         }
       }
@@ -114,7 +114,7 @@ export default async function InventoryPage({ params, searchParams }: { params: 
             basePath={basePath}
             timeZone={p.timeZone}
             now={p.now}
-            commandsSlot={commands ? <TierCommands ids={commands.ids} types={loaded.types} batches={loaded.batches} keys={commands.keys} sessionId={event.sessions[0]?.sessionId ?? null} /> : undefined}
+            commandsSlot={commands ? <TierCommands ids={commands.ids} types={loaded.types} batches={loaded.batches} keys={commands.keys} sessionId={event.sessions[0]?.sessionId ?? null} timeZone={p.timeZone} /> : undefined}
           />
         </>
       )}
