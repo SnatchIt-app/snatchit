@@ -179,6 +179,10 @@ INSERT INTO _grant_decisions (table_name, decision) VALUES
   -- 132: the pre-mint checkout group record. Service-role only: a client that
   -- could write it could wedge or free another buyer's checkout serialization.
   ('checkout_group_claim',         'no-client-access'),
+  -- 154: a row hides its listing from public reads. RLS on, no policies; service_role
+  -- holds SELECT/INSERT/DELETE only. A client that could write it could unhide (or hide)
+  -- any listing; one that could read it would learn which ids are hidden.
+  ('listing_visibility',           'no-client-access'),
 
   -- column-scoped only; never a table-level client grant.
   ('profiles',                     'column-grants'),
@@ -453,6 +457,20 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   ('guard_listing_content()',                                        'no-client-execute'),
   ('guard_listing_reservation_parties()',                            'no-client-execute'),
   ('listing_prohibited_term(text[])',                                'no-client-execute'),
+  -- 154 (20261015000000): the "hidden listing is never live" invariant, a trigger function on
+  -- listings (BEFORE UPDATE) and listing_visibility (BEFORE INSERT). REVOKE PUBLIC/anon/authenticated.
+  ('guard_hidden_listing_not_live()',                                'no-client-execute'),
+  -- 156 (20261015000200): the owner proof waiver guard, a trigger function on listings.
+  ('guard_listing_proof_waiver()',                                   'no-client-execute'),
+  -- 156 ADDENDUM 3a (old-build purchase safeguard): the x-snatchit-caps header reader, read only by the two
+  -- trigger functions below (which run as definer), and the two trigger functions themselves (bids BEFORE
+  -- INSERT; listings BEFORE UPDATE OF reserved_by). REVOKE ALL FROM PUBLIC, anon, authenticated.
+  ('client_shows_proof_disclosure()',                                'no-client-execute'),
+  ('guard_bid_requires_disclosure()',                                'no-client-execute'),
+  ('guard_reservation_requires_disclosure()',                        'no-client-execute'),
+  -- 155 (20261015000100): the server-owned end time, a trigger function on listings (BEFORE INSERT OR
+  -- UPDATE; SECURITY INVOKER). REVOKE PUBLIC/anon/authenticated.
+  ('set_listing_ends_at_from_duration()',                            'no-client-execute'),
 
   -- ── authenticated-execute ────────────────────────────────────────────────
   -- Signed-in RPCs. Each derives caller identity from auth.uid() internally;
@@ -491,6 +509,9 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   ('release_reservation(uuid, uuid)',                                'authenticated-execute'),
   ('reserve_buy_now(uuid, uuid, integer)',                           'authenticated-execute'),
   ('set_transfer_delivery_info(uuid, text, text)',                   'authenticated-execute'),
+  -- 156 (20261015000200): the caller's own admin boolean only (EXISTS admin_users for auth.uid());
+  -- web /sell shows the owner-waiver box with it. REVOKE PUBLIC/anon; GRANT authenticated.
+  ('current_user_is_admin()',                                        'authenticated-execute'),
 
   -- ── anon-execute ─────────────────────────────────────────────────────────
   -- RE-BASELINED 2026-08-27 (was 'authenticated-execute' in PR #22, on the
@@ -509,6 +530,20 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   -- FOLLOW-UP (074): wire it into the listings feed policy as 0230 intended, or
   -- revoke anon/authenticated and drop it. Either way, move this row.
   ('is_blocked_by_me(uuid)',                                         'anon-execute'),
+  -- 154 (20261015000000): the two predicates of listings_select_visible / bids_select_visible.
+  -- JUSTIFICATION (written in the migration): both policies apply TO anon, and a policy calls its
+  -- functions with the caller's privileges, so anon must hold EXECUTE or every logged-out read of
+  -- a public listing fails. Each returns only a boolean: listing_is_public(id) says whether a
+  -- listing id the caller already holds is hidden; listing_private_party(id) is false for anon
+  -- (no auth.uid()) and, for a signed-in caller, says only whether THEY are a party. Explicit
+  -- GRANT anon, authenticated after REVOKE ALL FROM PUBLIC, anon, authenticated (B5).
+  ('listing_is_public(uuid)',                                        'anon-execute'),
+  ('listing_private_party(uuid)',                                    'anon-execute'),
+  -- 154 ADDENDUM 2: the PostgREST computed field listings.is_public (= listing_is_public(id)), so a build
+  -- can filter .eq('is_public', true). anon reads listings, so anon must hold EXECUTE or that filter fails
+  -- for every logged-out read. Boolean only; SECURITY INVOKER (reads nothing itself). Explicit GRANT anon,
+  -- authenticated after REVOKE ALL FROM PUBLIC, anon, authenticated (B5).
+  ('is_public(listings)',                                            'anon-execute'),
 
   -- ── public-execute-known-gap ─────────────────────────────────────────────
   -- Exactly two members, each asserted by name. See B4 for the full reasoning
@@ -810,8 +845,11 @@ END $$;
 --                                      is actually exposing the function, and
 --                                      the row describes the wrong mechanism).
 --
--- Current sole member: is_blocked_by_me(uuid) — 0230 grants anon explicitly,
--- 074 revoked PUBLIC only and left that grant standing on purpose.
+-- Members: is_blocked_by_me(uuid) — 0230 grants anon explicitly, 074 revoked
+-- PUBLIC only and left that grant standing on purpose; listing_is_public(uuid) and
+-- listing_private_party(uuid) — 154 grants anon explicitly (the predicates of the
+-- anon-reachable listings/bids SELECT policies; booleans only); is_public(listings) — 154's
+-- PostgREST computed field over listing_is_public (boolean only).
 -- ---------------------------------------------------------------------------
 DO $$
 DECLARE

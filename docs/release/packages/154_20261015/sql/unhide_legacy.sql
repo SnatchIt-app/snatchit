@@ -1,0 +1,139 @@
+-- ============================================================================
+-- unhide_legacy.sql — REVERSAL of the 154 data step. OWNER DECISION ONLY: it RE-EXPOSES the 113 legacy
+-- listings publicly (every surface, every build). `pkg.py step unhide` (prestate must equal post_hide.txt).
+-- Deletes exactly the 113 visibility rows hide_legacy.sql wrote (same ids, same hidden_by), nothing else.
+-- To keep the archival record instead, roll back 154 itself: its rollback keeps the rows (inert).
+-- ============================================================================
+BEGIN;
+SET LOCAL lock_timeout = '3s';
+
+DO $unhide$
+DECLARE
+  v_n int;
+BEGIN
+  DELETE FROM public.listing_visibility
+   WHERE hidden_by = 'A (owner-authorised 2026-10-15)'
+     AND listing_id IN (
+  '035b040f-49fd-45ef-886f-2ddddc8ccade',
+  '04fac1f6-dbad-483e-bfcf-5615240da832',
+  '0523bbd4-ce06-40b9-a3dd-b6fea5027488',
+  '057a7c8b-310f-47d5-b7ad-ff163c08dff7',
+  '05ce24ba-9dfc-4ba0-9c49-37cbfcaef644',
+  '0631d9eb-8120-40e6-943e-af286a5bc9bd',
+  '084457ec-0aef-4422-ace0-7fe6a90b720b',
+  '0bd246a2-8c65-4f71-b05a-625c8791ddde',
+  '0cb432b6-d1f4-4574-8cd8-d0709f39f7ec',
+  '0fcbff24-7027-467f-a8f3-e7c7b016330b',
+  '14600b3b-780d-4287-bb17-755fd988b2f5',
+  '15df03a6-4ca0-4e0a-966a-de072087fbea',
+  '1862dfdc-a219-4b60-87c2-af082d7c32ff',
+  '1af1295d-abe0-4409-906d-ae42073a4121',
+  '20226336-44c6-403f-b0ee-ff12fda1ff9b',
+  '21bfa877-7be2-4890-af5f-78e48ea9cfaa',
+  '21c56dae-3777-4e64-902f-61276f3409ca',
+  '231b326c-5b7e-47f6-94aa-9f9d6457cf5d',
+  '281f74df-998c-4267-a3e8-f30af8f469cf',
+  '28aaca8b-72cc-405c-9de8-ceb42fc56d4d',
+  '292eac43-7ac8-4e41-88ae-98fbfc275079',
+  '2b106ee7-9b48-4692-8993-0f867ba11732',
+  '320bd057-bd0b-45c9-a953-8814599fbc28',
+  '382cf09b-a4ab-4309-abfb-a9b67b2ba100',
+  '3b2aae8d-6777-4564-89c5-08f45863da99',
+  '3d53d09c-c5f9-41a4-9b71-183a597e9957',
+  '3e59ff34-882a-402d-b27c-c92730eb3a93',
+  '409ac9ba-d9f4-4b01-b61a-c9a7323202a2',
+  '439428c9-34d0-4aff-b135-9cf6eb93c406',
+  '46420114-65a6-4201-9919-1f550a9e5728',
+  '46c8f81c-14ec-4a17-8c4a-cdb6614c0849',
+  '49fe8b8b-d212-4a06-8afd-8f4c18edbcba',
+  '4afe3557-9c34-4e89-8cac-df69223b551c',
+  '4b0138b2-cfc8-4e30-85fe-72fa9defb776',
+  '4c21515d-58ae-460f-ad97-5757ecc106d4',
+  '4cb27aab-86f1-4ae2-9ec0-b6c9ecfee8cb',
+  '4f408dd4-e390-4185-8a9e-882e3661cd4c',
+  '54c2565c-1c3c-4939-9952-ff51fad82581',
+  '59eb2da4-2a27-49d1-bae2-8cefef159b0c',
+  '5c0accf4-d150-42fe-90fe-291c08bc0638',
+  '5c15374a-ffdb-4450-ab5d-3348eb35bf4c',
+  '5cc38c82-2bbe-43a6-9180-aa1ab61d4248',
+  '5f363729-0cda-43f1-9bb0-cf3908dabfb4',
+  '6352c199-ab34-4bf9-b3ff-bea8376d5a37',
+  '656ad895-e463-4a3f-bb55-7e63a96513a9',
+  '669a7e3a-5de6-4a77-93c1-3c871a4fbbaa',
+  '684e7c9e-e87e-42e5-bb47-2c68d51eb256',
+  '68cee968-b08e-49f5-8222-77768ee79070',
+  '68f8f7d0-7c33-4826-b41d-9c08115d014e',
+  '6a88612d-794c-44ba-835a-b0cd3dfda6d3',
+  '6c49cfd1-7671-41a8-bfa3-1ad82ba793fd',
+  '70672ee2-0f7e-4a80-b11b-4c6633fe1e3b',
+  '7c6b99e2-89e8-480e-9cc4-9cab1efa5580',
+  '7cc333be-9e98-42d5-826b-73529d2a613b',
+  '7d0bffc8-45a4-4c8b-bf66-9c67270cd706',
+  '7e541382-fb4c-447c-aa38-b5032bc84f82',
+  '7e9a0d42-3151-4bd6-b5bb-64b1990d7b35',
+  '7f4326b6-31d4-4445-b270-0dd33f832652',
+  '7fa38871-48da-4b83-848f-754dcce1d0d3',
+  '80e2d98c-4463-4ddb-9e08-f12564a8b12a',
+  '8207e14a-542d-4a0d-9519-2f4a2835c6c0',
+  '8270ee0c-3035-4c8d-a669-2f250cdb9531',
+  '828b49e2-4712-48bd-b4ee-8454208706af',
+  '846d3438-5168-4fb1-aeae-3407f4440b1c',
+  '849913d4-b613-41ae-b3a5-518fc3f69fdd',
+  '88712654-6b5a-410f-b628-36a7fddaa12b',
+  '8a36849d-9055-4b1f-8e12-c205c32d42fe',
+  '8a95f533-49ff-4e54-bd96-f41126922884',
+  '96d64fb2-f33c-458c-80c0-7fc5daf847d4',
+  '99f50909-f1d1-440f-ba16-4107e5e9267d',
+  'a401e54c-36d3-460e-92ce-4e435a2da935',
+  'a47493fe-c130-491e-9590-65c4932f1d17',
+  'a7bccd97-33a4-4ecf-ac39-9e822cb52222',
+  'a7f76db5-32ea-4c3e-9dff-012631add83a',
+  'a81785bf-3994-4140-9ed6-581699bedae2',
+  'a8234617-a641-4e0d-be99-263b9248eb32',
+  'a834c7bc-8f36-425f-8d22-00a0308e4519',
+  'accff86d-4037-4a65-a6bd-c4c1f1a8315b',
+  'aed72a34-0422-48be-a8ab-3e71c691d192',
+  'b0a01d80-c966-4a66-99d7-eea5d55113a3',
+  'b32c22f3-2d67-46c8-bb16-e3337cd8f18c',
+  'b5abfae1-404c-4beb-9c2a-cdf1cd311f14',
+  'b7f2d819-96c4-43ef-848f-73bdd32eb73f',
+  'b8aa9715-75b4-4985-bb5a-2baf77330597',
+  'b9411576-c632-4c66-8659-53d17f9acbbd',
+  'bb859197-d6e3-43b0-bf1d-03b4c3e77d13',
+  'bf4ad345-0109-40c5-98b9-e620ce313a64',
+  'c118d2aa-b716-4744-97ba-07130b83db44',
+  'c1347d4b-00f8-4be3-a4d9-bdd1edade645',
+  'c15a8b87-7e0e-4f1e-ae4f-a07dd5b33438',
+  'c22a8bf8-2433-4968-a5ef-dba57133be28',
+  'c302a9ba-87df-4a2e-94e1-2cd74c38078a',
+  'c3e98d22-bd19-46c4-95ba-a9fdff92f4d6',
+  'c50390b3-19ef-40bb-af1d-b7b31b377788',
+  'c69b7b27-c9a6-4469-8c26-37a86d724b59',
+  'c79cd0df-fe5c-402d-9b6a-f5154f6dea4d',
+  'c8d04339-bb33-4bf3-945d-d23d7dd269ca',
+  'c93f5fc1-e590-4e24-ac9b-a4013b755c6a',
+  'd4bbe6f4-22ad-447f-b180-760344ed6c4d',
+  'd8c3e45a-57f8-440b-ab97-8e8c11a772d5',
+  'dac58ca2-6238-4b04-afb4-da2bb734bc0a',
+  'db991503-77fc-4713-8d03-be705ea2199a',
+  'e4a8251d-50d9-4e07-ae23-68f69390d2e3',
+  'e88343b6-2713-40bf-b224-57f08c303df3',
+  'ebb0e7d6-264b-4551-a219-19bbb4239578',
+  'ef82af56-be0e-4028-9ae6-00b455fcf0f0',
+  'f0e78820-8ea6-4672-bab9-97a624b26aa7',
+  'f127c2ee-ad8b-4aae-9294-213d763a35c7',
+  'f265d24d-4cd7-46c5-ae90-f44aee40a101',
+  'f499dc79-bd50-49ca-a725-1f614be72558',
+  'f531a192-31d7-4384-b35d-91ab22e6537a',
+  'fa4b5e91-c870-4cfb-8cbf-e2892bf8440b',
+  'fbb1334d-d63e-432f-9916-36d1b27e482d'
+     );
+  GET DIAGNOSTICS v_n = ROW_COUNT;
+  IF v_n <> 113 THEN
+    RAISE EXCEPTION 'unhide_legacy: expected 113 rows deleted, got %. Nothing changed.', v_n;
+  END IF;
+  RAISE NOTICE 'unhide_legacy: 113 deleted';
+END
+$unhide$;
+
+COMMIT;

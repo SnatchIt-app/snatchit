@@ -687,7 +687,12 @@ jobs:
           # +1 public.checkout_group_claim (RLS on, no policies, service_role only).
           # 2026-09-25 migration 150 (refund lifecycle): tables 32 -> 34 — +2 public.payment_refund_state,
           # public.payment_refund_state_log (RLS on, no policies, service_role only).
-          EXPECT_TABLES: 34
+          # 2026-10-15 migration 154 (listing public visibility): tables 34 -> 35 — +1 public.listing_visibility
+          # (RLS on, no policies, service_role SELECT/INSERT/DELETE only). Read from an actual local replay of
+          # the gate tip + 154-156 (Homebrew PG 17, scripts/local/replay.sh): 34|116|37|43 -> 35|123|37|47
+          # (re-read 2026-10-15 after the review fixes: +is_public, +set_listing_ends_at_from_duration and its trigger).
+          # Re-read 2026-10-15 for 156's ADDENDUM 3 (old-build purchase safeguard): 35|123|37|47 -> 35|126|37|49.
+          EXPECT_TABLES: 35
           # 2026-09-15 migration 130 (L1 concurrency, B): functions 94 -> 96 —
           # +2 public.claim_checkout_supersede, public.release_checkout_supersede
           # (on top of 129's revoke_push_token). Two nullable columns on payments;
@@ -704,13 +709,30 @@ jobs:
           # 2026-10-13 migration 152 (marketplace safety): functions 111 -> 116 — +5 public.assert_marketplace_parties,
           # public.guard_bid_parties, public.guard_listing_reservation_parties, public.listing_prohibited_term,
           # public.guard_listing_content (all no-client-execute).
-          EXPECT_FUNCS: 116
+          # 2026-10-15 migrations 154 + 155 + 156: functions 116 -> 123 — 154: +4 public.listing_is_public,
+          # public.listing_private_party (both anon-execute: the predicates of the anon-reachable listings/bids
+          # SELECT policies), public.is_public(listings) (anon-execute: the PostgREST computed field),
+          # public.guard_hidden_listing_not_live (no-client-execute); 155: +1
+          # public.set_listing_ends_at_from_duration (no-client-execute); 156: +2
+          # public.guard_listing_proof_waiver (no-client-execute), public.current_user_is_admin
+          # (authenticated-execute). 154 redefines get_profile_trust_stats in place (net 0).
+          # 2026-10-15 156 ADDENDUM 3 (old-build purchase safeguard): functions 123 -> 126 — +3
+          # public.client_shows_proof_disclosure, public.guard_bid_requires_disclosure,
+          # public.guard_reservation_requires_disclosure (all no-client-execute). Read from an actual local replay.
+          EXPECT_FUNCS: 126
+          # 2026-10-15 migration 154: policies 37 -> 37 — listings_select_all -> listings_select_visible and
+          # bids_select_all -> bids_select_visible, 1-for-1; listing_visibility carries no policy.
           EXPECT_POLICIES: 37
           # 2026-09-25 migration 150: triggers 38 -> 40 — +trg_payment_refund_state_log_append_only,
           # +trg_guard_payment_refund_state_columns (on payments).
           # 2026-10-13 migration 152: triggers 40 -> 43 — +before_bid_guard_parties (bids),
           # +trg_guard_listing_reservation_parties, +trg_guard_listing_content (listings).
-          EXPECT_TRIGGERS: 43
+          # 2026-10-15 migrations 154 + 155 + 156: triggers 43 -> 47 — 154: +trg_hidden_listing_not_live (listings),
+          # +trg_listing_visibility_not_live (listing_visibility); 155: +trg_listing_ends_at_from_duration
+          # (listings); 156: +trg_guard_listing_proof_waiver (listings).
+          # 2026-10-15 156 ADDENDUM 3: triggers 47 -> 49 — +trg_reservation_requires_disclosure (listings),
+          # +trg_bid_requires_disclosure (bids). Read from an actual local replay.
+          EXPECT_TRIGGERS: 49
 
       # Privilege-parity diagnostic. Production's table grants come from Supabase's
       # DEFAULT PRIVILEGES, not from the migration chain (migration 063 says so
