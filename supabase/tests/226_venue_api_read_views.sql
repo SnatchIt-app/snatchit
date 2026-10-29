@@ -313,10 +313,12 @@ SELECT set_eq(
             ('venues.created_at'), ('venues.updated_at'),
             ('events.event_id'), ('events.venue_id'), ('events.org_id'), ('events.title'), ('events.status'),
             ('events.created_at'), ('events.updated_at'), ('events.description'),
+            ('events.age_policy'), ('events.timezone'),  -- 162 (S2) appends age_policy, timezone AFTER 159's description
             ('event_sessions.session_id'), ('event_sessions.event_id'), ('event_sessions.session_label'),
             ('event_sessions.starts_at'), ('event_sessions.ends_at'), ('event_sessions.doors_at'),
             ('event_sessions.door_open_at'), ('event_sessions.status'), ('event_sessions.created_at'),
-            ('event_sessions.updated_at'),
+            ('event_sessions.updated_at'), ('event_sessions.timezone'), ('event_sessions.starts_at_local'),  -- 162 (S2) appends timezone + three *_local
+            ('event_sessions.ends_at_local'), ('event_sessions.doors_at_local'),
             ('resale_policies.policy_id'), ('resale_policies.scope_kind'), ('resale_policies.venue_id'),
             ('resale_policies.event_id'), ('resale_policies.mode'), ('resale_policies.price_cap_bps'),
             ('resale_policies.royalty_bps'), ('resale_policies.version'), ('resale_policies.effective_from'),
@@ -324,12 +326,13 @@ SELECT set_eq(
             ('ticket_types.ticket_type_id'), ('ticket_types.event_id'), ('ticket_types.kind'), ('ticket_types.name'),
             ('ticket_types.price_minor'), ('ticket_types.currency'), ('ticket_types.visibility'),
             ('ticket_types.created_at'), ('ticket_types.updated_at'), ('ticket_types.display_rank'),  -- 160 (S1) appends display_rank
+            ('ticket_types.sale_starts_at'), ('ticket_types.sale_ends_at'), ('ticket_types.on_sale_now'),  -- 162 (S2) appends the sale window + on_sale_now
             ('inventory_batches.batch_id'), ('inventory_batches.ticket_type_id'), ('inventory_batches.event_session_id'),
             ('inventory_batches.release_kind'), ('inventory_batches.is_sharded'), ('inventory_batches.remaining'),
             ('inventory_batches.created_at'), ('inventory_batches.updated_at'),
             ('my_staff_roles.venue_id'), ('my_staff_roles.role'),
             ('my_org_roles.org_id'), ('my_org_roles.role') $$,
-  'F5: the views project exactly these 57 columns (55 of 159 + events.description of 159 rev. 2026-10-26 + ticket_types.display_rank of 160; a widened view fails here before it reaches the API)');
+  'F5: the views project exactly these 66 columns (55 of 159 + events.description of 159 rev. 2026-10-26 + ticket_types.display_rank of 160 + 162''s nine: events.age_policy/timezone, event_sessions.timezone/*_local x3, ticket_types.sale_starts_at/sale_ends_at/on_sale_now; a widened view fails here before it reaches the API)');
 
 -- F6 pins each view's DEFINITION, not only its column names (F5). The expected
 -- definitions are the eight SELECTs of migration 20261021120000, copied
@@ -343,19 +346,29 @@ CREATE TEMP VIEW exp_venues AS
     FROM catalog.venue v;
 CREATE TEMP VIEW exp_events AS
   SELECT e.event_id, e.venue_id, e.org_id, e.title, e.status, e.created_at, e.updated_at,
-         e.description
-    FROM catalog.event e;
+         e.description,   -- 159 rev. 2026-10-26: description at ordinal 8 (B3b)
+         e.age_policy, v.timezone   -- 162 (S2): age_policy + the venue's timezone appended AFTER it (LEFT JOIN; row set unchanged)
+    FROM catalog.event e
+    LEFT JOIN catalog.venue v ON v.venue_id = e.venue_id;
 CREATE TEMP VIEW exp_event_sessions AS
   SELECT s.session_id, s.event_id, s.session_label, s.starts_at, s.ends_at, s.doors_at,
-         s.door_open_at, s.status, s.created_at, s.updated_at
-    FROM catalog.event_session s;
+         s.door_open_at, s.status, s.created_at, s.updated_at,
+         v.timezone,   -- 162 (S2): timezone + three *_local texts in the venue's zone
+         to_char(s.starts_at AT TIME ZONE v.timezone, 'YYYY-MM-DD HH24:MI') AS starts_at_local,
+         to_char(s.ends_at   AT TIME ZONE v.timezone, 'YYYY-MM-DD HH24:MI') AS ends_at_local,
+         to_char(s.doors_at  AT TIME ZONE v.timezone, 'YYYY-MM-DD HH24:MI') AS doors_at_local
+    FROM catalog.event_session s
+    LEFT JOIN catalog.event e ON e.event_id = s.event_id
+    LEFT JOIN catalog.venue v ON v.venue_id = e.venue_id;
 CREATE TEMP VIEW exp_resale_policies AS
   SELECT p.policy_id, p.scope_kind, p.venue_id, p.event_id, p.mode, p.price_cap_bps,
          p.royalty_bps, p.version, p.effective_from, p.created_at
     FROM catalog.resale_policy p;
 CREATE TEMP VIEW exp_ticket_types AS
   SELECT t.ticket_type_id, t.event_id, t.kind, t.name, t.price_minor, t.currency, t.visibility,
-         t.created_at, t.updated_at, t.display_rank   -- 160 (S1): display_rank appended LAST
+         t.created_at, t.updated_at, t.display_rank,   -- 160 (S1): display_rank appended
+         t.sale_starts_at, t.sale_ends_at,            -- 162 (S2): the sale window + on_sale_now appended LAST
+         venue.ticket_type_on_sale(t.ticket_type_id) AS on_sale_now
     FROM venue.ticket_type t;
 CREATE TEMP VIEW exp_inventory_batches AS
   SELECT b.batch_id, b.ticket_type_id, b.event_session_id, b.release_kind, b.is_sharded,

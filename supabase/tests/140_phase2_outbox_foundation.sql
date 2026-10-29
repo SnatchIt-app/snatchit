@@ -216,7 +216,12 @@ SELECT is(
                      -- 2026-10-22 (registry 160, S1): venue's three caller-authorized tier/inventory functions
                      -- (in-body org_owner/org_admin or bound venue_manager[/venue_finance] authz; anon/PUBLIC revoked).
                      -- The venue_cmd invoker wrappers (161) live outside this sweep's schema list.
-                     'set_ticket_type_visibility','set_ticket_type_rank','get_inventory_counters')))),
+                     'set_ticket_type_visibility','set_ticket_type_rank','get_inventory_counters',
+                     -- 2026-10-26 (registry 162, S2): venue's two caller-authorized sale-window functions
+                     -- (set_ticket_type_sale_window, a command; ticket_type_on_sale, a STABLE read): EXECUTE to
+                     -- authenticated only, anon/PUBLIC revoked (measured on the stacked 160-162 tree). 162's three
+                     -- catalog setters are outside this sweep's authenticated schema list and are named in 142 F3.
+                     'set_ticket_type_sale_window','ticket_type_on_sale')))),
   0,
   'PFA-1 witness: zero PUBLIC/anon EXECUTE on ANY walled-schema function, and zero authenticated EXECUTE outside kernel''s name-equality-asserted caller-authorized set (141 F2) — the per-object sweep replacing the impossible per-schema functions belt');
 
