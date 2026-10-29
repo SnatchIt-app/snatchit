@@ -12,12 +12,14 @@
  * What is mocked (and recorded): the supabase-js client (query builder + rpc
  * + auth + storage), `stripeFetch`/`stripeFetchRaw`, `captureException`,
  * `Deno.env`, `console`. Pure `_shared` modules (money, payout-logic,
- * payout-policy) are the REAL modules, imported by vitest.
+ * payout-policy) are the REAL modules, imported by vitest. An edge's sibling
+ * decision modules (`./native.ts`, …) are bound from the REAL module too,
+ * automatically, unless the test provides the name itself.
  *
  * Nothing here talks to a network, a database, or a real Stripe key.
  */
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { createHmac, webcrypto } from 'node:crypto';
 import vm from 'node:vm';
 import ts from 'typescript';
@@ -178,8 +180,11 @@ export async function loadEdgeHandler(relPath: string, opts: LoadEdgeOptions): P
   const abs = resolve(REPO_ROOT, relPath);
   const source = readFileSync(abs, 'utf8');
   const needed = new Set<string>();
+  /** local name → where a SIBLING import (`./x.ts`, the edge's own directory) binds it from */
+  const siblingImports = new Map<string, { spec: string; exported: string }>();
   for (const m of source.matchAll(IMPORT_RE)) {
     const inner = m[0].replace(/^import\s*/, '').replace(/\s*from[\s\S]*$/, '');
+    const spec = m[0].match(/from\s+['"]([^'"]+)['"]/)?.[1] ?? '';
     const braces = inner.match(/\{([\s\S]*)\}/);
     if (braces) {
       const typeOnly = /^import\s+type\s/.test(m[0]);
@@ -187,7 +192,10 @@ export async function loadEdgeHandler(relPath: string, opts: LoadEdgeOptions): P
         const trimmed = part.trim();
         if (!trimmed || typeOnly || /^type\s/.test(trimmed)) continue; // erased at transpile time
         const name = trimmed.split(/\s+as\s+/).pop()?.trim();
-        if (name) needed.add(name);
+        if (name) {
+          needed.add(name);
+          if (spec.startsWith('./')) siblingImports.set(name, { spec, exported: trimmed.split(/\s+as\s+/)[0].trim() });
+        }
       }
     }
   }
@@ -205,6 +213,18 @@ export async function loadEdgeHandler(relPath: string, opts: LoadEdgeOptions): P
     captureMessage: async (tag: string, error: unknown, _level?: unknown, ctx?: unknown) => { sentry.push({ tag, error, ctx }); },
     ...opts.provide,
   };
+  // A sibling module (`./x.ts`) is, by the edge convention, the edge's own
+  // import-free decision module (stripe-webhook/native.ts, native-dispute.ts).
+  // A name the test did not provide is bound from the REAL sibling module —
+  // never a stub — so a test cannot pass against a copy of the logic it claims
+  // to exercise. A name the test does provide still wins. Non-sibling imports
+  // (`../_shared/…`, https) are unchanged: the test must provide them.
+  for (const [name, { spec, exported }] of siblingImports) {
+    if (name in provided) continue;
+    const mod = (await import(resolve(dirname(abs), spec))) as Record<string, unknown>;
+    if (!(exported in mod)) throw new Error(`edge-vm: ${relPath} imports '${exported}' from '${spec}', which does not export it`);
+    provided[name] = mod[exported];
+  }
   for (const n of needed) {
     if (!(n in provided)) throw new Error(`edge-vm: ${relPath} imports '${n}' but the test did not provide it`);
   }
