@@ -103,6 +103,21 @@ describe('EntitlementCard and the view — a code only from a server credential'
     expect(route).not.toContain('SecureStore');
   });
 
+  it('E4c: the page re-reads on focus and pull ONLY — the focus effect depends on nothing a read changes (C33 run, 2026-10-29)', () => {
+    // React Navigation's useFocusEffect re-runs its effect whenever the callback changes while focused. With `load`
+    // in the deps, every successful read made a new callback → another read: a continuous loop (~2.5 reads/s on
+    // C33) that withdrew a code within a poll of admission. `load` is read through a ref instead.
+    const route = src('app/ticket/[session].tsx');
+    const m = route.match(/useFocusEffect\(\s*useCallback\(\(\) => \{([\s\S]*?)\}, \[([^\]]*)\]\)/);
+    expect(m).not.toBeNull();
+    const [, body, deps] = m!;
+    expect(deps.split(',').map((d) => d.trim())).toEqual(['userId', 'sessionId', 'readAll', 'sweepStale']);
+    expect(body).toContain('loadRef.current');
+    expect(body).not.toMatch(/\bload\.kind\b/);
+    expect(route).toMatch(/const loadRef = useRef<[^>]+>\(\{ kind: 'loading' \}\);/);
+    expect(route).toContain('useEffect(() => { loadRef.current = load; }, [load]);');
+  });
+
   it('E4b: C-R4 + C5 — the route decides refresh outcomes with afterMint, keeps a code visible while refreshing, and reads orders + session facts', () => {
     const route = src('app/ticket/[session].tsx');
     expect(route).toContain('afterMint(latest, r, now,');

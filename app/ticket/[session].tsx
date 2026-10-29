@@ -81,6 +81,10 @@ export default function TicketDetailRoute() {
   const [facts, setFacts] = useState<SessionFacts | null>(null);
   const [expected, setExpected] = useState(0);
   const [load, setLoad] = useState<AtomsLoad>({ kind: 'loading' });
+  // Read by the focus effect through a ref: as a dependency, every successful read re-created the effect and
+  // useFocusEffect re-ran it while focused — a continuous re-read loop (C33 device log, 2026-10-29).
+  const loadRef = useRef<AtomsLoad>({ kind: 'loading' });
+  useEffect(() => { loadRef.current = load; }, [load]);
   const [hint, setHint] = useState<IssuanceHint>('unknown');
   const [orders, setOrders] = useState<OrderLine[]>([]);
   const [credentials, setCredentials] = useState<Credentials>({});
@@ -200,11 +204,12 @@ export default function TicketDetailRoute() {
   useFocusEffect(
     useCallback(() => {
       if (!userId || !sessionId) return;
-      if (load.kind === 'ready') sweepStale(load.atoms);
+      const now = loadRef.current;
+      if (now.kind === 'ready') sweepStale(now.atoms);
       void readAll();
-      const timer = setInterval(() => { if (load.kind === 'ready') sweepStale(load.atoms); }, TTL_SWEEP_MS);
+      const timer = setInterval(() => { const cur = loadRef.current; if (cur.kind === 'ready') sweepStale(cur.atoms); }, TTL_SWEEP_MS);
       return () => clearInterval(timer);
-    }, [userId, sessionId, load, readAll, sweepStale]),
+    }, [userId, sessionId, readAll, sweepStale]),
   );
 
   // Arrival: every ready atom without a credential state asks the server for its code, once.
