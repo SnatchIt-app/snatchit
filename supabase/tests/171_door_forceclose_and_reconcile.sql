@@ -94,8 +94,8 @@ SELECT tap._store171('rres', (venue.reconcile_offline_scans(
   ), 'ck171-rec')::text));
 SELECT is(concat((tap._fetch171('rres')::jsonb->>'admitted'), '/',
                  (tap._fetch171('rres')::jsonb->>'duplicates'), '/',
-                 (tap._fetch171('rres')::jsonb->>'conflicts')), '1/0/1',
-  'R1: reconcile returns the {admitted,duplicates,conflicts} shape; two same-atom items -> 1 admitted, then the re-scan of the consumed atom is 1 conflict (invalid, not_active); deterministic order');
+                 (tap._fetch171('rres')::jsonb->>'conflicts')), '1/1/0',
+  'R1: reconcile returns the {admitted,duplicates,conflicts} shape; two same-atom items -> 1 admitted, then the re-scan of the consumed atom is 1 DUPLICATE (183: the admitted row exists -> already used; was a conflict before 183); deterministic order');
 -- R2: a batch mixing a GOOD item with a WRONG-SESSION item does NOT poison the
 -- batch — the good one admits, the mismatched one is an isolated conflict, no raise.
 SELECT tap._store171('rres2', (venue.reconcile_offline_scans(

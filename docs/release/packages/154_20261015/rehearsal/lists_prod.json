@@ -1,0 +1,7 @@
+{"source": "production hqycwntpfoztoinemqns, one read-only query (rehearsal/lists_query.sql via MCP execute_sql) 2026-10-15T04:2xZ, second re-freeze (ADDENDUM 3: 156 adds trg_reservation_requires_disclosure and trg_bid_requires_disclosure): existing rows plus the literal rows 154/155/156 add; grants_*, trg_154, trg_155 and cols_156 equal the 03:50Z read",
+ "grants_154": "388|264965c2f9c65b50a1192aff18985923",
+ "grants_156": "389|4486af390339b6bf003933e5d6debbee",
+ "trg_154": "1efd5f782f1445e08114d5444d2fffc2|17",
+ "trg_155": "f4780b14b4d60373fc2c6ffec68ca861|18",
+ "trg_156": "891ea99a02811a406595ff4261bdb4c0|21",
+ "cols_156": "39|2fff483aca04f540301ebf2b633004d2"}

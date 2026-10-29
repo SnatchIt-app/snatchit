@@ -212,7 +212,27 @@ SELECT is(
                      -- 2026-09-02 (package 092): notify's nine caller-authorized consumer RPCs (RLS §11 / NOTIF §6.3;
                      -- auth.uid()-scoped in-body). The six internal definers hold service_role only — not excepted.
                      'get_inbox','get_unread_count','mark_read','mark_all_read','dismiss','get_preference_matrix',
-                     'set_preference','register_push_token','revoke_push_token')))),
+                     'set_preference','register_push_token','revoke_push_token',
+                     -- 2026-10-22 (registry 160, S1): venue's three caller-authorized tier/inventory functions
+                     -- (in-body org_owner/org_admin or bound venue_manager[/venue_finance] authz; anon/PUBLIC revoked).
+                     -- The venue_cmd invoker wrappers (161) live outside this sweep's schema list.
+                     'set_ticket_type_visibility','set_ticket_type_rank','get_inventory_counters',
+                     -- 2026-10-26 (registry 162, S2): venue's two caller-authorized sale-window functions
+                     -- (set_ticket_type_sale_window, a command; ticket_type_on_sale, a STABLE read): EXECUTE to
+                     -- authenticated only, anon/PUBLIC revoked (measured on the stacked 160-162 tree). 162's three
+                     -- catalog setters are outside this sweep's authenticated schema list and are named in 142 F3.
+                     'set_ticket_type_sale_window','ticket_type_on_sale',
+                     -- 2026-10-26 (registry 163): the scanner's three caller-authorized venue functions — the two
+                     -- identity-free counters reads (get_session_scan_counters, list_session_scan_counters; STABLE) and
+                     -- record_scan_staff (behind the 086/108 venue.record_scan gate): EXECUTE to authenticated only,
+                     -- anon/PUBLIC revoked (measured on the stacked 160-163 tree). filter_staff_scan_meta holds NO grant;
+                     -- the venue_cmd wrappers (161/162/163) and the venue_api view live outside this sweep — not excepted.
+                     'get_session_scan_counters','list_session_scan_counters','record_scan_staff',
+                     -- 2026-10-26 (registry 166): the two identity-free shared-pool reads (get_session_capacity,
+                     -- list_session_capacity; STABLE definers, the pool setter's authority): EXECUTE to authenticated
+                     -- only, anon/PUBLIC/service_role revoked (measured on the stacked 160-163/182 + 166 tree). The
+                     -- venue_cmd wrapper and the venue_api view live outside this sweep — not excepted.
+                     'get_session_capacity','list_session_capacity')))),
   0,
   'PFA-1 witness: zero PUBLIC/anon EXECUTE on ANY walled-schema function, and zero authenticated EXECUTE outside kernel''s name-equality-asserted caller-authorized set (141 F2) — the per-object sweep replacing the impossible per-schema functions belt');
 
