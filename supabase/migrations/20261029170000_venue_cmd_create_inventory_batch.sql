@@ -169,10 +169,11 @@ BEGIN
      OR md5((SELECT p.prosrc FROM pg_proc p WHERE p.oid = v_w)) <> 'd6d48059afcfc50c9746c298a48a4a24' THEN
     RAISE EXCEPTION 'POSTFLIGHT_192_FAILED: venue_cmd.create_inventory_batch posture is wrong (definer / language / volatility / search_path / signature / body)';
   END IF;
-  SELECT string_agg(CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE a.grantee::regrole::text END || ':' || a.privilege_type, ',' ORDER BY 1)
+  SELECT string_agg(e.entry, ',' ORDER BY e.entry)
     INTO v_acl
-    FROM pg_proc p CROSS JOIN LATERAL aclexplode(p.proacl) a
-   WHERE p.oid = v_w;
+    FROM (SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE a.grantee::regrole::text END || ':' || a.privilege_type AS entry
+            FROM pg_proc p CROSS JOIN LATERAL aclexplode(p.proacl) a
+           WHERE p.oid = v_w) e;
   IF (SELECT p.proacl FROM pg_proc p WHERE p.oid = v_w) IS NULL
      OR v_acl IS DISTINCT FROM 'authenticated:EXECUTE,postgres:EXECUTE' THEN
     RAISE EXCEPTION 'POSTFLIGHT_192_FAILED: venue_cmd.create_inventory_batch ACL is % (expected exactly owner postgres + authenticated EXECUTE)', coalesce(v_acl, 'DEFAULTED');
