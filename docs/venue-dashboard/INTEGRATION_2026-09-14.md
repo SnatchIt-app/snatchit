@@ -15,7 +15,7 @@ Suggested review order for Claude A: fixes (behaviour, small diff) → light the
 The integration branch is the proof that the three combine; it is not a release branch. `venue/**` is not part
 of `release/convergence-135`.
 
-## Kit results on the local replay (`release/convergence-135` @ `c55ea50` + `20260910120000`, PostgREST exposing venue_api)
+## Kit results on the local replay (`release/convergence-135` @ `c55ea50` + the venue_api migration, then `20260910120000`, since retired for registry 159 `20261021120000` with the same SQL body; PostgREST exposing venue_api)
 
 | App build | preflight | verify-apply | verify-exposure | fixtures | api | browser | precedence | revocation | cleanup | postflight |
 |---|---|---|---|---|---|---|---|---|---|---|

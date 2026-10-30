@@ -1,6 +1,6 @@
 import { EventArt } from "@/components/ui/EventArt";
 import Link from "next/link";
-import { RESALE_LABEL } from "@/lib/events";
+import { resaleLabel } from "@/lib/events";
 import { sessionTotals } from "@/lib/inventory";
 import { inventoryWarnings } from "@/lib/inventory";
 import { venueDate } from "@/lib/format";
@@ -78,7 +78,8 @@ export function EventsTable({
   if (events.length === 0) {
     return (
       <EmptyState title="No events yet.">
-        {canEditEvents(ctx.role) ? (
+        {/* Database mode wires no write path (ctx.writesEnabled false): offering Create would lead to a dead end. */}
+        {canEditEvents(ctx.role) && ctx.writesEnabled !== false ? (
           <Link className="btn btn-primary btn-sm" href={withPreview(`${basePath}/events/new`, ctx)}>
             Create event
           </Link>
@@ -115,9 +116,9 @@ export function EventsTable({
             }
             meta={
               <>
-                {s ? venueDate(s.startsAt, timeZone) : "No date set"}
+                {s ? venueDate(s.startsAt, e.timeZone ?? timeZone) : "No date set"}
                 {s?.label ? ` · ${s.label}` : ""}
-                {canReadResalePolicy(ctx.role) ? ` · ${RESALE_LABEL[e.resaleMode]}` : ""}
+                {canReadResalePolicy(ctx.role) ? ` · ${resaleLabel(e)}` : ""}
               </>
             }
             right={sales ? <span className="tabular-nums text-[0.875rem] text-muted">{sales}</span> : <PartialCell why="No releases yet" />}

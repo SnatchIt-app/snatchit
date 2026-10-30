@@ -94,7 +94,7 @@ send someone a link that opens in the persona you want them to see.
 
 | Need | State today |
 |---|---|
-| `venue_api` read views (migration `20260910120000`) | Written, pgTAP 47/47 locally, **applied nowhere**. Owner-gated. |
+| `venue_api` read views (migration `20261021120000`, registry 159, pgTAP 226; same SQL as the retired `20260910120000`) | Written. pgTAP 188 47/47 locally (the retired suite); pgTAP 226 (plan 72 on `venue/api-read-views-provisional` @ `ad728964`) run owed by F/A. **Applied nowhere**. Owner-gated. |
 | `venue.list_attendees` — holder-keyed, column-scoped, audited | Contracted (CRM §11.4), not implemented. |
 | `venue.get_dashboard_summary` — counters in one round trip | Still an ask (Δ3). The demo computes from fixtures. |
 | A signals read for the Tonight page | **Does not exist in any spec.** The page is fixtures-only and says "not wired" in database mode rather than mixing sample numbers with real ones. This is the main new backend dependency this demo creates. |

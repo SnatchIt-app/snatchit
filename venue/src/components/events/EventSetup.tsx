@@ -1,4 +1,5 @@
-import { STATUS_HELP, STATUS_LABEL, nextStatus, publishBlocker, RESALE_LABEL } from "@/lib/events";
+import type { ReactNode } from "react";
+import { STATUS_HELP, STATUS_LABEL, nextStatus, publishBlocker, resaleLabel } from "@/lib/events";
 import { doorHoldback, sessionTotals } from "@/lib/inventory";
 import { usd, venueTime } from "@/lib/format";
 import { withPreview, type PreviewContext } from "@/lib/preview";
@@ -10,7 +11,7 @@ import { LargerScreenBanner } from "@/components/ui/State";
 import { Action, ArrowLink, Block, Detail, Facts, Row, Rows } from "@/components/ui/Page";
 
 /** Spec §7.3–§7.9 — event detail: header counters, sessions, advance status, resale policy, danger zone. */
-export function EventSetup({ event, types, batches, ctx, basePath, timeZone, openManifestSessionIds }: { event: Event; types: TicketType[]; batches: InventoryBatch[]; ctx: PreviewContext; basePath: string; timeZone: string; openManifestSessionIds: Set<string> | null }) {
+export function EventSetup({ event, types, batches, ctx, basePath, timeZone, openManifestSessionIds, commandsSlot, publishSlot }: { event: Event; types: TicketType[]; batches: InventoryBatch[]; ctx: PreviewContext; basePath: string; timeZone: string; openManifestSessionIds: Set<string> | null; commandsSlot?: ReactNode; publishSlot?: ReactNode }) {
   const editor = canEditEvents(ctx.role);
   const next = nextStatus(event.status);
   const blocker = next === "on_sale" ? publishBlocker(types, batches) : null;
@@ -26,12 +27,18 @@ export function EventSetup({ event, types, batches, ctx, basePath, timeZone, ope
   const phase: "prepare" | "running" | "finished" = event.status === "live" ? "running" : event.status === "completed" || event.status === "cancelled" ? "finished" : "prepare";
   const liveSession = event.sessions.find((x) => x.status === "live") ?? first;
 
+  // The next forward step: the real command where the gate is open (database mode), the demo's preview
+  // form otherwise. Database mode used to fall through to a sentence claiming publish had no dashboard
+  // wrapper — it has had one since event-commands.ts started sending publish_event.
   const statusAction =
     phase === "running" && liveSession ? (
       <Action href={withPreview(`${self}/door`, ctx)}>Open check-in</Action>
-    ) : blocker ? null : editor && ctx.writesEnabled !== false && next ? (
+    ) : blocker ? null : editor && publishSlot && next ? (
+      publishSlot
+    ) : editor && ctx.writesEnabled !== false && next ? (
       <form method="get" action={withPreview(self, ctx)} className="hidden lg:block">
-        <input type="hidden" name="did" value="catalog.set_event_status" />
+        <input type="hidden" name="did" value={`catalog.publish_event ${next}`} />
+        <input type="hidden" name="target_status" value={next} />
         <PreviewHidden ctx={ctx} />
         <button className="btn btn-primary" type="submit">
           Set to {STATUS_LABEL[next]}
@@ -57,14 +64,15 @@ export function EventSetup({ event, types, batches, ctx, basePath, timeZone, ope
         )}
         {blocker ? <p className="mt-4 max-w-2xl border-l-2 border-warning bg-warning/5 py-2 pl-3 text-base text-warning">{blocker}</p> : null}
         {statusAction ? <div className="mt-5">{statusAction}</div> : null}
-        {editor && ctx.writesEnabled !== false && next && !blocker ? (
+        {/* Demo copy only: the real command form renders its own receipt, and "nothing is saved" would be false there. */}
+        {editor && !publishSlot && ctx.writesEnabled !== false && next && !blocker ? (
           <div className="mt-3 max-w-2xl">
             <AuditNote />
           </div>
         ) : null}
         {!editor ? <p className="mt-3 text-sm text-dim">Your role can view this event but not change its status.</p> : null}
-        {editor && ctx.writesEnabled === false && next ? (
-          <p className="mt-3 max-w-2xl text-sm text-dim">Status changes are not available in database mode: the write path is not wired in this slice. Nothing you see here is a saved change.</p>
+        {editor && !publishSlot && ctx.writesEnabled === false && next ? (
+          <p className="mt-3 max-w-2xl text-sm text-dim">Status changes aren&apos;t enabled on this project yet, so this event can only be moved forward once they are. What you see here is read from the database.</p>
         ) : null}
         {editor && ctx.writesEnabled !== false ? <div className="mt-4"><LargerScreenBanner /></div> : null}
       </Block>
@@ -133,16 +141,23 @@ export function EventSetup({ event, types, batches, ctx, basePath, timeZone, ope
       {/* 5. Everything else, out of the way but reachable. */}
       <div className="space-y-4">
         {canReadResalePolicy(ctx.role) ? (
-          <Detail summary={`Can tickets be passed on? ${RESALE_LABEL[event.resaleMode]}`}>
+          <Detail summary={`Can tickets be passed on? ${resaleLabel(event)}`}>
+            {event.resaleMode === "not_readable" ? (
+              event.status === "draft" ? (
+                <p className="mb-2">This event is a draft. Its own resale setting can&apos;t be read until the event is published, so nothing is shown here rather than a guess: the venue-wide setting is not necessarily the one that applies.</p>
+              ) : (
+                <p className="mb-2">This venue isn&apos;t approved yet. Its venue-wide resale setting can&apos;t be read until it is, so nothing is shown here rather than a guess: resale is not necessarily off.</p>
+              )
+            ) : null}
             <p>Resale is off unless you turn it on. Tickets already listed keep the rules they were listed under.</p>
             {editor && ctx.writesEnabled !== false ? <p className="mt-2">Changing this writes a new version rather than editing the old one, so you can always see which rules a ticket was sold under.</p> : null}
           </Detail>
         ) : null}
+{commandsSlot}
         <Detail summary="Good to know about ticket types">
           <ul className="space-y-1">
-            <li>Tiers are separate ticket types today. Turn the next one public when the first sells out.</li>
+            <li>Tiers are separate ticket types. When the first sells out, turn the next one public on the Tickets page (visibility is a command there).</li>
             <li>Snatch It handles the deposit on a table. The balance at the table settles with you, off-platform.</li>
-            <li>Purchase limit: 8 per person, set by Snatch It.</li>
           </ul>
         </Detail>
         {editor && ctx.writesEnabled !== false && event.status !== "cancelled" && event.status !== "completed" ? (
