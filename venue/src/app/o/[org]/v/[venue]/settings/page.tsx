@@ -31,7 +31,7 @@ export default async function VenueSettingsPage({ params, searchParams }: { para
   const self = `${basePath}/settings`;
   const mayEdit = ctx.state !== "denied" && canEditEvents(ctx.role);
   const entryOpen = p.entry.kind === "fixtures" || p.entry.kind === "ok";
-  const zone = venueTimeZone(DATA_SOURCE, null);
+
   const gateOpen = ctx.source === "database" && commandsGateOpen();
   const ids = { orgId: p.scope.orgId, venueId: p.scope.venueId };
   const keys = gateOpen && mayEdit && entryOpen ? { details: await mintCommandKey(), zone: await mintCommandKey() } : null;
@@ -39,14 +39,17 @@ export default async function VenueSettingsPage({ params, searchParams }: { para
   // The venue's own row. Writes being off is deliberate; NOT READING was the gap — the surface said it was
   // "not wired to the database" while the read side was simply never written. Only the columns the view
   // exposes: address, capacity_hint and timezone wait for registry 195.
-  let venue: { name: string | null; neighborhood: string | null } | null = null;
+  let venue: { name: string | null; neighborhood: string | null; address: string | null; capacityHint: number | null; timezone: string | null } | null = null;
   let venueFailure: ReadFailure | null = null;
   if (ctx.source === "database" && entryOpen && mayEdit) {
     const r = await dbVenueSettings(p.scope.venueId);
-    if (r.ok) venue = r.data ? { name: r.data.name, neighborhood: r.data.neighborhood } : null;
+    if (r.ok) venue = r.data ? { name: r.data.name, neighborhood: r.data.neighborhood, address: r.data.address, capacityHint: r.data.capacity_hint, timezone: r.data.timezone } : null;
     else venueFailure = r;
   }
   const show = (v: string | null) => (v && v.trim() ? v : "Not set");
+  // The venue's OWN stored zone (195). Null — unreadable row, unapplied migration, or a null column —
+  // keeps source "default", which is what makes the form refuse to preselect.
+  const zone = venueTimeZone(DATA_SOURCE, venue?.timezone ?? null);
 
   return (
     <Shell ctx={ctx} event={null} active="events" signedInAs={p.signedInAs} title="Venue settings">
@@ -70,8 +73,11 @@ export default async function VenueSettingsPage({ params, searchParams }: { para
               <dl className="mt-4 space-y-3 text-sm">
                 <div><dt className="eyebrow block text-dim">Name</dt><dd className="mt-0.5">{show(venue?.name ?? null)}</dd></div>
                 <div><dt className="eyebrow block text-dim">Neighbourhood</dt><dd className="mt-0.5">{show(venue?.neighborhood ?? null)}</dd></div>
+                <div><dt className="eyebrow block text-dim">Address</dt><dd className="mt-0.5">{show(venue?.address ?? null)}</dd></div>
+                <div><dt className="eyebrow block text-dim">Capacity</dt><dd className="mt-0.5 tabular-nums">{typeof venue?.capacityHint === "number" ? String(venue.capacityHint) : "Not set"}</dd></div>
+                <div><dt className="eyebrow block text-dim">Time zone</dt><dd className="mt-0.5">{show(venue?.timezone ?? null)}</dd></div>
               </dl>
-              <p className="mt-4 text-xs text-dim">Address, capacity and this venue&apos;s stored time zone aren&apos;t readable on this dashboard yet, so they are not shown rather than guessed.</p>
+              <p className="mt-4 text-xs text-dim">Capacity is a planning number. What each night may actually sell is set per night on the event.</p>
             </section>
           </div>
         ) : (
@@ -83,7 +89,7 @@ export default async function VenueSettingsPage({ params, searchParams }: { para
                 The venue&apos;s name, area and address. Capacity here is a planning number; what each night may actually sell is set per night on the event.
               </p>
               <div className="mt-4">
-                <VenueDetailsForm ids={ids} commandKey={keys.details} venue={{ name: venue?.name ?? p.venueName ?? null, neighborhood: venue?.neighborhood ?? null }} />
+                <VenueDetailsForm ids={ids} commandKey={keys.details} venue={{ name: venue?.name ?? p.venueName ?? null, neighborhood: venue?.neighborhood ?? null, address: venue?.address ?? null, capacityHint: venue?.capacityHint ?? null }} />
               </div>
             </section>
             <section className="panel px-5 py-5" aria-labelledby="venue-zone">

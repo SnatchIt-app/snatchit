@@ -116,7 +116,7 @@ export function EventsTable({
             }
             meta={
               <>
-                {s ? venueDate(s.startsAt, timeZone) : "No date set"}
+                {s ? venueDate(s.startsAt, e.timeZone ?? timeZone) : "No date set"}
                 {s?.label ? ` · ${s.label}` : ""}
                 {canReadResalePolicy(ctx.role) ? ` · ${resaleLabel(e)}` : ""}
               </>

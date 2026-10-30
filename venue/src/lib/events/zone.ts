@@ -21,6 +21,20 @@ export const PLATFORM_DEFAULT_TIME_ZONE = "America/New_York";
 
 export type ZoneInfo = { zone: string; source: "venue" | "default" | "sample" };
 
+/**
+ * The zone a page converts times with, as a pure decision so it can be tested against a NON-New-York
+ * fixture. That matters: `VENUE.timeZone` and `PLATFORM_DEFAULT_TIME_ZONE` are both America/New_York, so
+ * a New York fixture cannot tell the two apart and would pass against the very bug this prevents —
+ * `page.ts` returned the SAMPLE venue's zone in database mode, feeding eight real render sites.
+ *
+ * Database mode takes the event's own projected zone (162) and falls back to the platform default when no
+ * event is in scope. The fixture zone is reachable in FIXTURES mode only.
+ */
+export function renderTimeZone(dataSource: DataSource, eventZone: string | null | undefined, fixtureZone: string): string {
+  if (dataSource === "database") return eventZone && eventZone.trim() ? eventZone : PLATFORM_DEFAULT_TIME_ZONE;
+  return fixtureZone;
+}
+
 export function venueTimeZone(dataSource: DataSource, projected?: string | null): ZoneInfo {
   if (dataSource !== "database") return { zone: VENUE.timeZone, source: "sample" };
   const z = (projected ?? "").trim();

@@ -3,6 +3,7 @@ import { mintCommandKey } from "@/lib/db/event-commands";
 import { commandsGateOpen } from "@/lib/db/command-gate";
 import { DATA_SOURCE } from "@/lib/env";
 import { venueTimeZone, zoneNote } from "@/lib/events/zone";
+import { dbVenueSettings } from "@/lib/db/adapters";
 import { CreateEventForm } from "@/components/events/EventCommandForms";
 import { readPage, type PageParams } from "@/lib/page";
 import { withPreview, type SearchParams } from "@/lib/preview";
@@ -28,7 +29,11 @@ export default async function NewEventPage({ params, searchParams }: { params: P
   const showsWizard = ctx.source !== "database" && !denied && ctx.state !== "loading" && ctx.state !== "error";
   // Database mode: the real command, when D's wrappers are exposed and the role may edit.
   const commands = ctx.source === "database" && !denied && p.entry.kind === "ok" && p.scope.ok && commandsGateOpen() ? { ids: { orgId: p.scope.orgId, venueId: p.scope.venueId }, key: await mintCommandKey() } : null;
-  const zone = venueTimeZone(DATA_SOURCE, null);
+  // The venue's OWN stored zone (195), not the platform default: every time typed on this form is
+  // converted with it, so guessing would put a Phoenix door time hours out. Unreadable keeps
+  // source "default", and zoneNote says which was used either way.
+  const venueRow = DATA_SOURCE === "database" ? await dbVenueSettings(p.scope.venueId) : null;
+  const zone = venueTimeZone(DATA_SOURCE, venueRow?.ok ? (venueRow.data?.timezone ?? null) : null);
   return (
     <Shell ctx={ctx} event={null} active="events" signedInAs={p.signedInAs} title={showsWizard ? undefined : "New event"}>
       {ctx.source === "fixtures" ? <PreviewOutcome did={p.first("did")} /> : null}
