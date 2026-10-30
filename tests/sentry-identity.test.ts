@@ -16,7 +16,8 @@
  *     profile value is itself; anything else is `unconfigured`. Never a silent `production`.
  *
  * Negative controls (run by hand, each must FAIL): drop the simulator branch (E1); default an unknown value to
- * production (E3); put `dist:` back into Sentry.init (P1).
+ * production (E3); put `dist:` back into Sentry.init (P1); truncate the init block with a nested `});` and hide a
+ * `dist:` after it (P0 fails while P1 passes vacuously — the hole P0 closes).
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
@@ -62,6 +63,14 @@ describe('sentryEnvironment (S2) — a label that cannot claim production by acc
 });
 
 describe('NativeAppShell wiring (S1 + S2)', () => {
+  it('P0: premise — the extracted Sentry.init block is the WHOLE options object, so P1/P3 cannot pass on a truncated block (E on 97096c61)', () => {
+    // initBlock is a lazy match up to the first `});`. A nested callback containing `});` would cut it short and
+    // P1/P3 (absence checks) would then pass vacuously. Its keys must be exactly the expected list, in order,
+    // ending with the last option — which also catches any key added back (release, dist, integrations…).
+    const keys = [...initBlock.matchAll(/^\s*([A-Za-z_$][\w$]*)\s*:/gm)].map((m) => m[1]);
+    expect(keys).toEqual(['dsn', 'enabled', 'environment', 'tracesSampleRate', 'debug']);
+  });
+
   it('P1: Sentry.init sets no release and no dist, so the native SDK supplies bundleId@version+build and the build number', () => {
     expect(initBlock).not.toMatch(/\brelease\s*:/);
     expect(initBlock).not.toMatch(/\bdist\s*:/);
