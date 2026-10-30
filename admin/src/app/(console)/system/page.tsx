@@ -36,6 +36,8 @@ import { FilterField, FilterSelect } from "@/components/ui/FilterField";
 import { ActionTable } from "@/components/actions/ActionTable";
 import { AuditTable } from "@/components/system/AuditTable";
 import { SummaryView } from "@/components/system/SummaryView";
+import { MoneySettingsPanel } from "@/components/system/MoneySettingsPanel";
+import { toMoneyConfigList } from "@/lib/money-config";
 import { ReportFreshness } from "@/components/shell/Freshness";
 
 export const metadata: Metadata = { title: "System" };
@@ -67,10 +69,11 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
   if (stateF) actionFilters.state = stateF;
   if (typeF) actionFilters.action_type = typeF;
 
-  const [healthRes, approvalsRes, settingsRes, auditRes, actionsRes, summaryRes] = await Promise.all([
+  const [healthRes, approvalsRes, settingsRes, moneyRes, auditRes, actionsRes, summaryRes] = await Promise.all([
     callOps<unknown>("job_health"),
     callOps<unknown>("list_approvals", { p_state: "pending" }),
     isAdmin ? callOps<unknown>("settings") : Promise.resolve(null),
+    isAdmin ? callOps<unknown>("list_config_approvals", { p_state: "all" }) : Promise.resolve(null),
     callOps<unknown>("audit_log", { p_cursor: first(sp.audit_cursor) ?? null, p_limit: 25 }),
     callOps<unknown>("list_actions", { p_filters: actionFilters, p_cursor: first(sp.actions_cursor) ?? null, p_limit: limitOf(sp, 25) }),
     callOps<unknown>("latest_summary"),
@@ -79,6 +82,8 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
   const health = healthRes.ok ? toJobHealth(healthRes.data) : null;
   const approvals: Approval[] = approvalsRes.ok ? toListPage(approvalsRes.data).items.map(toApproval).filter((a): a is Approval => a !== null) : [];
   const settings: Setting[] = settingsRes && settingsRes.ok ? toSettings(settingsRes.data) : [];
+  const money = moneyRes && moneyRes.ok ? toMoneyConfigList(moneyRes.data) : null;
+  const moneyPending = money ? money.items.filter((r) => r.state === "pending").length : 0;
   const auditPage = auditRes.ok ? toListPage(auditRes.data) : null;
   const audit: AuditRow[] = auditPage ? auditPage.items.map(toAuditRow).filter((a): a is AuditRow => a !== null) : [];
   const actionsPage = actionsRes.ok ? toListPage(actionsRes.data) : null;
@@ -113,6 +118,7 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
           ["#notify", "Notifications"],
           ["#alerts", "Alerts"],
           ["#approvals", `Approvals (${approvals.length})`],
+          ["#money", money ? `Money settings (${moneyPending})` : "Money settings"],
           ["#settings", "Settings"],
           ["#actions", "Actions"],
           ["#audit", "Audit log"],
@@ -226,6 +232,18 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
             </div>
           )}
           <p className="mt-3 text-[11px] text-dim">Approval is bound to the exact action terms; if anything about the request changes it is voided. You cannot approve your own request. Approvals expire after the configured TTL.</p>
+        </Panel>
+
+        <Panel eyebrow={money ? `${moneyPending} pending` : "platform_config"} title="Money settings (second founder)">
+          <div id="money" />
+          {!isAdmin ? (
+            <Alert state="info" title="Money settings are visible to platform_admin only." compact />
+          ) : moneyRes && !moneyRes.ok ? (
+            <OpsFailureAlert failure={moneyRes} fn="list_config_approvals" retryHref="/system#money" />
+          ) : money ? (
+            <MoneySettingsPanel list={money} meId={me.id} />
+          ) : null}
+          <p className="mt-3 text-[11px] text-dim">Money keys (refund, payout, fee, authn, …) change through the kernel&apos;s dual-control flow: you cannot approve your own request, approving needs a fresh aal2 session, and requests expire after 72 hours.</p>
         </Panel>
 
         <Panel eyebrow="ops.setting" title="Settings">
