@@ -1,5 +1,5 @@
 -- ============================================================================
--- supabase/rollbacks/20261027035000_door_schedule_conformance_rollback.sql
+-- supabase/rollbacks/20261030030000_door_schedule_conformance_rollback.sql
 -- Rollback for registry 190: restores the 086 PART 9 body of catalog.set_session_door_schedule
 -- VERBATIM (authority after the boundary test, free-text freeze message, no custody guards, no
 -- audit row, two-key result). Guarded like the migration: the pre-flight accepts 190's body or

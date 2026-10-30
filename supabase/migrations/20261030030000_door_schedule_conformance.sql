@@ -1,5 +1,5 @@
 -- ============================================================================
--- 20261027035000_door_schedule_conformance.sql — registry 190 / pgTAP 260 (B writes, A reviews;
+-- 20261030030000_door_schedule_conformance.sql — registry 190 / pgTAP 260 (B writes, A reviews;
 -- A's allocation 2026-10-27).
 --
 -- WHAT THIS MIGRATION IS. DRAFT / unapplied / undeployed. Body-only re-create of ONE function,

@@ -1,5 +1,5 @@
 -- ============================================================================
--- 260_door_schedule_conformance.sql — migration 20261027035000 (registry 190).
+-- 260_door_schedule_conformance.sql — migration 20261030030000 (registry 190).
 --   catalog.set_session_door_schedule brought to RPC §20.6.5:
 --   (A) authority = org_owner/org_admin | venue_manager | platform_admin, checked BEFORE the
 --       boundary test so an outsider learns nothing about the boundary;
