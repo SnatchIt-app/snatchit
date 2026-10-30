@@ -63,6 +63,7 @@ function outcomeFromVerifyReason(reason: VerifyReason, atomId: string | null, to
     wrong_typ: "wrong_type",
     unsupported_alg: "not_trusted",
     unknown_key: "not_trusted",
+    key_scope: "not_trusted",
     key_revoked: "not_trusted",
     key_window: "not_trusted",
     alg_mismatch: "not_trusted",
@@ -147,7 +148,7 @@ export async function scanAction(input: ScanInput): Promise<ScanActionResult> {
   const kr = await readKeyring(g.keyringClient);
   if (!kr.ok) return { kind: "outcome", outcome: { kind: "cannot_verify", why: "keyring", retrySameKey: true, detail: kr.detail } };
   const nowSeconds = Math.floor(Date.now() / 1000);
-  const v = await verifyCredential(input.wire, { keyring: kr.keyring, boundSessionId: input.sessionId, nowSeconds, verify: webcryptoVerify });
+  const v = await verifyCredential(input.wire, { keyring: kr.keyring, boundSessionId: input.sessionId, scanVenueId: input.venueId, scanEventId: input.eventId, nowSeconds, verify: webcryptoVerify });
   if (!v.ok) return { kind: "outcome", outcome: outcomeFromVerifyReason(v.reason, v.claims?.atomId ?? null, v.claims?.sessionId ?? null) };
   const atomId = v.claims.atomId;
   if (typeof input.commandKey !== "string" || input.commandKey.length < 8 || input.commandKey.length > 128) return { kind: "outcome", outcome: { kind: "cannot_verify", why: "server_error", retrySameKey: false, detail: "bad command key" } };
