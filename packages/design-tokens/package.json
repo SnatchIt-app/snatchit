@@ -2,12 +2,13 @@
   "name": "@snatchit/design-tokens",
   "version": "0.1.0",
   "private": true,
-  "description": "Snatch It brand tokens (colors, spacing, radius, type scale, shadows) as TypeScript values and CSS custom properties. Values are copied verbatim from mobile src/theme/index.ts — mobile remains the source of truth; drift is caught by tests/.",
+  "description": "Snatch It design tokens. The BRAND layer (src/brand.ts) is the source of truth for new work and is measured from snatchitapp.com. The LEGACY layer (src/index.ts) mirrors the shipped mobile theme and is kept only for screens not yet migrated; drift between it and the mobile theme is caught by tests/.",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./brand": "./src/brand.ts",
     "./css": "./src/css.ts",
     "./tokens.css": "./tokens.css"
   },

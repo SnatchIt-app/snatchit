@@ -62,6 +62,12 @@ function getStorage() {
   };
 }
 
+// ── Environment pairing guard ────────────────────────────────────────────────
+// Imported for its side effect BEFORE createClient runs: it refuses any build
+// whose Supabase project and Stripe account are not a legitimate pair (e.g. a
+// TEST key against PRODUCTION data). See src/config/envGuard.ts.
+import { ENV_GUARD_FAILURE } from '../config/envGuard';
+
 // ── Env vars ─────────────────────────────────────────────────────────────────
 
 export const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
@@ -84,8 +90,12 @@ if (!supabaseUrl || !supabaseAnonKey) {
 }
 
 // Placeholder values keep createClient from throwing on URL parsing.
-const _safeSupabaseUrl  = supabaseUrl  || 'https://missing.supabase.invalid';
-const _safeSupabaseAnon = supabaseAnonKey || 'missing-anon-key';
+// A guard failure substitutes an unroutable host so that even a stray call made
+// before the blocking screen mounts cannot reach a real project.
+const _safeSupabaseUrl  = ENV_GUARD_FAILURE
+  ? 'https://blocked-by-env-guard.invalid'
+  : (supabaseUrl || 'https://missing.supabase.invalid');
+const _safeSupabaseAnon = ENV_GUARD_FAILURE ? 'blocked-by-env-guard' : (supabaseAnonKey || 'missing-anon-key');
 
 // ── Client ───────────────────────────────────────────────────────────────────
 export const supabase = createClient(_safeSupabaseUrl, _safeSupabaseAnon, {

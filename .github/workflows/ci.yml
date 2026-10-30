@@ -47,6 +47,374 @@ jobs:
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
+      # -----------------------------------------------------------------------
+      # OFFLINE-VERIFY-v1 byte-identity gate (docs-only; touches no database).
+      #
+      # PHASE_2_EDGE_FUNCTION_SPEC.md §5.4.3 states the offline door admission
+      # predicate ONCE, tagged `OFFLINE-VERIFY-v1`, and permits sanctioned
+      # mirrors elsewhere under docs/architecture/** on condition that they are
+      # reproduced byte-for-byte. Clause 3 of that single-source rule promises
+      # "a docs job ... fails the build unless every one is byte-identical".
+      # THIS IS THAT JOB. Until it existed the property held by inspection, not
+      # by construction — the exact defect class (a control described as
+      # structural that is only prose) the C53 correction was raised against.
+      #
+      # Why the predicate is worth a gate: ratification record C53. Four
+      # documents each held an editable copy of the offline door check; one was
+      # corrected and the others were not, and the copy that stayed wrong was
+      # the one a scanner SDK implements. It carried TWO conjuncts at 3b where
+      # FIVE are required, which made the OFFLINE door strictly more permissive
+      # than the ONLINE one: it admitted `paid_pending_transfer` and
+      # `refund_hold` atoms the online door refuses.
+      #
+      # Runs first, before `npm ci`, so a broken lockfile cannot take the gate
+      # offline. It is a step in an ALREADY-REQUIRED job rather than a new
+      # workflow: the check name "Typecheck / Lint / Unit tests" is load-bearing
+      # in branch protection (.github/workflows/README.md), so a gate added here
+      # blocks merge today with no branch-protection change and no rename.
+      #
+      # FAIL CLOSED, four ways. Byte-identity alone is not enough:
+      #   1. non-vacuity  — a scan over ZERO blocks passes silently forever.
+      #      This repo has shipped that bug: a bare UPDATE reported success
+      #      against zero rows and every audit that read the migration source
+      #      concluded the limits were in place. They were not. Hence a FLOOR.
+      #   2. anti-emptying — four blocks emptied together are byte-identical and
+      #      four in number. Hence a minimum body size.
+      #   3. anti-coordinated-weakening — four copies that all drop conjunct
+      #      3b.v are byte-identical too, and that is C53 reproduced exactly.
+      #      Hence the content anchors: the gate asserts the predicate's
+      #      STRENGTH, not merely its uniformity.
+      #   4. normative home — if §5.4.3's own block were deleted, the surviving
+      #      mirrors would happily agree with each other. Hence the requirement
+      #      that the edge spec contribute at least one block.
+      #
+      # Ratchets. Raise OFFLINE_VERIFY_MIN_BLOCKS when a mirror is added; NEVER
+      # lower it to make a red build pass. Removing a sanctioned mirror is a
+      # reviewed decision that lowers it deliberately, in the same commit that
+      # removes the mirror and amends §5.4.3's list of sanctioned mirrors.
+      # -----------------------------------------------------------------------
+      - name: OFFLINE-VERIFY-v1 spec byte-identity gate
+        env:
+          # Floor, not an equality. 4 today: edge §5.4.3 (normative) + door
+          # §9.2 + Wallet §2.3 + Wallet §11.9 — the Wallet spec carries TWO,
+          # which is why "three mirrors" and "three documents" are not the same
+          # number and why this is counted rather than assumed.
+          OFFLINE_VERIFY_MIN_BLOCKS: 4
+          # The canonical body is 2017 bytes / 34 lines. This floor exists only
+          # to catch a wholesale emptying or truncation of every copy at once;
+          # it is not a second copy of the length and must stay well under it.
+          OFFLINE_VERIFY_MIN_BODY_BYTES: 1900
+          # The normative home. At least one block MUST come from this file.
+          OFFLINE_VERIFY_NORMATIVE_FILE: docs/architecture/PHASE_2_EDGE_FUNCTION_SPEC.md
+        run: |
+          set -uo pipefail
+
+          scan_root="docs/architecture"
+          if [ ! -d "$scan_root" ]; then
+            echo "::error::${scan_root} does not exist — the OFFLINE-VERIFY-v1 gate cannot certify a tree it cannot read."
+            exit 1
+          fi
+
+          # Recursive on purpose. _governance/ and _superseded/ are real
+          # subdirectories of docs/architecture, and a mirror that lands in one
+          # of them must be gated, not silently exempted by a flat glob.
+          files_list="$RUNNER_TEMP/ov_files.txt"
+          find "$scan_root" -type f -name '*.md' | LC_ALL=C sort > "$files_list"
+          files_n=$(wc -l < "$files_list" | tr -d ' ')
+          if [ "${files_n:-0}" -eq 0 ]; then
+            echo "::error::no .md files found under ${scan_root} — refusing to certify an empty scan."
+            exit 1
+          fi
+          echo "OFFLINE-VERIFY-v1 gate: scanning ${files_n} markdown file(s) under ${scan_root}/"
+
+          ov_awk="$RUNNER_TEMP/ov_scan.awk"
+          cat > "$ov_awk" <<'OVAWK'
+          # ov_scan.awk — extract every fenced OFFLINE-VERIFY-v1 block under
+          # docs/architecture/**.
+          #
+          # Each qualifying block's body is written VERBATIM to
+          # OUTDIR/block_<n>.txt so the hash below is over bytes on disk, not
+          # over anything this script re-serialised. Emits on stdout:
+          #
+          #   BLOCK        <n> <file> <open_line> <body_lines> <outfile>
+          #   LOOSE        <file> <line> <source>
+          #   UNTERMINATED <file> <open_line>
+          #   TOTALS       <blocks> <loose> <unterminated>
+          #
+          # A block QUALIFIES when its FIRST body line begins with the tag. That
+          # is the same rule §5.4.3 clause 2 states for a sanctioned mirror
+          # ("inside a fence whose first line is the OFFLINE-VERIFY-v1 tag"), so
+          # the gate and the prose agree on what a mirror is.
+          #
+          # LOOSE: the tag at column 1 OUTSIDE any fence. That is a mirror whose
+          # fence was lost — the copy is still there and still editable, but it
+          # is no longer gated. Under a count-only check it would vanish from
+          # the census; here it is a hard failure.
+          #
+          # UNTERMINATED: a fence opened and never closed. FAIL CLOSED — an
+          # unterminated fence silently swallows the rest of the file, so every
+          # later block in it disappears from the scan.
+
+          BEGIN { blocks = 0; loose = 0; unterm = 0; infence = 0 }
+
+          FNR == 1 {
+            if (infence) { printf "UNTERMINATED\t%s\t%d\n", curfile, openline; unterm++ }
+            infence = 0; nbody = 0
+            curfile = FILENAME
+          }
+
+          {
+            line = $0
+            isfence = 0
+            if (match(line, /^`+/) && RLENGTH >= 3)      { isfence = 1; mchar = "`"; mlen = RLENGTH }
+            else if (match(line, /^~+/) && RLENGTH >= 3) { isfence = 1; mchar = "~"; mlen = RLENGTH }
+
+            # Opening fence. An info string ("```text") is allowed and is NOT
+            # part of the body, so a mirror may be fenced as ```text or ``` and
+            # still be byte-identical to the normative block.
+            if (isfence && !infence) {
+              infence = 1; fencechar = mchar; fencelen = mlen
+              openline = FNR; nbody = 0; bodyfirst = ""
+              next
+            }
+
+            # Closing fence: same character, at least as long, nothing after it.
+            # A shorter or different marker inside the fence is body text, which
+            # is what lets a fenced block quote a fence.
+            if (isfence && infence && mchar == fencechar && mlen >= fencelen && substr(line, mlen + 1) ~ /^[ \t]*$/) {
+              if (nbody > 0 && bodyfirst ~ /^OFFLINE-VERIFY-v1/) {
+                blocks++
+                out = OUTDIR "/block_" blocks ".txt"
+                for (i = 1; i <= nbody; i++) print bodyline[i] > out
+                close(out)
+                printf "BLOCK\t%d\t%s\t%d\t%d\t%s\n", blocks, FILENAME, openline, nbody, out
+              }
+              infence = 0; nbody = 0; bodyfirst = ""
+              next
+            }
+
+            if (infence) {
+              nbody++
+              bodyline[nbody] = line
+              if (nbody == 1) bodyfirst = line
+              next
+            }
+
+            if (line ~ /^OFFLINE-VERIFY-v1/) { loose++; printf "LOOSE\t%s\t%d\t%s\n", FILENAME, FNR, line }
+          }
+
+          END {
+            if (infence) { printf "UNTERMINATED\t%s\t%d\n", FILENAME, openline; unterm++ }
+            printf "TOTALS\t%d\t%d\t%d\n", blocks + 0, loose + 0, unterm + 0
+          }
+          OVAWK
+
+          ov_out="$RUNNER_TEMP/ov_blocks"
+          rm -rf "$ov_out"; mkdir -p "$ov_out"
+          ov_index="$RUNNER_TEMP/ov_index.txt"
+
+          # A bash array rather than xargs: one awk invocation (the block
+          # counter and OUTDIR numbering are global across files), safe with
+          # spaces in paths, and identical on GNU and BSD userlands so a
+          # developer can run this exact logic locally before pushing.
+          ov_files=()
+          while IFS= read -r f; do ov_files+=("$f"); done < "$files_list"
+          if ! awk -v OUTDIR="$ov_out" -f "$ov_awk" "${ov_files[@]}" > "$ov_index"; then
+            echo "::error::the OFFLINE-VERIFY-v1 scanner failed to run — refusing to certify the spec set as consistent."
+            exit 1
+          fi
+
+          # sha256sum on the runner; shasum is the BSD/macOS fallback so the
+          # gate is reproducible by hand off-CI. Neither is optional.
+          if command -v sha256sum >/dev/null 2>&1; then
+            ov_sha() { sha256sum "$1" | cut -d' ' -f1; }
+          elif command -v shasum >/dev/null 2>&1; then
+            ov_sha() { shasum -a 256 "$1" | cut -d' ' -f1; }
+          else
+            echo "::error::neither sha256sum nor shasum is available — refusing to certify byte-identity without a hash."
+            exit 1
+          fi
+
+          totals=$(grep -m1 '^TOTALS' "$ov_index" || true)
+          if [ -z "$totals" ]; then
+            echo "::error::the OFFLINE-VERIFY-v1 scanner produced no TOTALS line — refusing to certify the spec set as consistent."
+            exit 1
+          fi
+          found=$(printf '%s\n' "$totals" | cut -f2)
+          loose=$(printf '%s\n' "$totals" | cut -f3)
+          unterm=$(printf '%s\n' "$totals" | cut -f4)
+          for v in "$found" "$loose" "$unterm"; do
+            case "$v" in
+              ''|*[!0-9]*) echo "::error::the OFFLINE-VERIFY-v1 scanner emitted a non-numeric total (\"$v\") in: $totals"; exit 1 ;;
+            esac
+          done
+
+          awk -F'\t' '$1 == "BLOCK" { printf "  block %s  %s:%s  (%s lines)\n", $2, $3, $4, $5 }' "$ov_index"
+
+          # Guard 1 — a fence that never closed. Fail before counting anything.
+          if [ "$unterm" -gt 0 ]; then
+            echo "::error::${unterm} unterminated code fence(s) under ${scan_root} — every block after one is invisible to this scan."
+            awk -F'\t' '$1 == "UNTERMINATED" { printf "  %s: fence opened at line %s never closed\n", $2, $3 }' "$ov_index"
+            exit 1
+          fi
+
+          # Guard 2 — the tag at column 1 outside a fence: an ungated copy.
+          if [ "$loose" -gt 0 ]; then
+            echo "::error::${loose} OFFLINE-VERIFY-v1 tag(s) at column 1 outside any code fence. An unfenced copy is an ungated copy — it is exactly the fourth editable copy C53 was raised about. Re-fence it, or delete it and cite §5.4.3."
+            awk -F'\t' '$1 == "LOOSE" { printf "  %s:%s  %s\n", $2, $3, $4 }' "$ov_index"
+            exit 1
+          fi
+
+          # Guard 3 — NON-VACUITY. A scan over zero blocks is not a pass.
+          if [ "${found:-0}" -lt "$OFFLINE_VERIFY_MIN_BLOCKS" ]; then
+            echo "::error::found ${found} OFFLINE-VERIFY-v1 block(s), floor is ${OFFLINE_VERIFY_MIN_BLOCKS}. Either a sanctioned mirror was deleted or renamed out of ${scan_root}, or the tag was altered so the scan no longer sees it. A gate that scans nothing passes forever — that is why this is a floor and not a comparison against whatever happens to be there."
+            exit 1
+          fi
+
+          # Guard 4 — the normative home must still exist and still be tagged.
+          normative_n=$(awk -F'\t' -v f="$OFFLINE_VERIFY_NORMATIVE_FILE" '$1 == "BLOCK" && $3 == f { n++ } END { print n + 0 }' "$ov_index")
+          if [ "${normative_n:-0}" -lt 1 ]; then
+            echo "::error::no OFFLINE-VERIFY-v1 block found in ${OFFLINE_VERIFY_NORMATIVE_FILE} — the normative home (§5.4.3). Without it the mirrors would agree with each other and with nothing authoritative."
+            exit 1
+          fi
+          # The normative block's index, used below as the diff base.
+          norm_n=$(awk -F'\t' -v f="$OFFLINE_VERIFY_NORMATIVE_FILE" '$1 == "BLOCK" && $3 == f { print $2; exit }' "$ov_index")
+
+          # Guard 5 — BYTE-IDENTITY. The gate §5.4.3 clause 3 promises.
+          hash_list="$RUNNER_TEMP/ov_hashes.txt"
+          : > "$hash_list"
+          while IFS=$'\t' read -r _tag n file openline _lines out; do
+            printf '%s\t%s\t%s:%s\n' "$(ov_sha "$out")" "$n" "$file" "$openline" >> "$hash_list"
+          done < <(awk -F'\t' '$1 == "BLOCK"' "$ov_index")
+
+          distinct=$(cut -f1 "$hash_list" | LC_ALL=C sort -u | wc -l | tr -d ' ')
+          canonical=$(awk -F'\t' -v n="$norm_n" '$2 == n { print $1; exit }' "$hash_list")
+          body_bytes=$(wc -c < "$ov_out/block_${norm_n}.txt" | tr -d ' ')
+
+          {
+            echo ""
+            echo "### OFFLINE-VERIFY-v1 spec byte-identity gate"
+            echo ""
+            echo "| metric | value | gate |"
+            echo "|---|---|---|"
+            echo "| tagged blocks found | ${found} | at least ${OFFLINE_VERIFY_MIN_BLOCKS} |"
+            echo "| distinct body hashes | ${distinct} | exactly 1 |"
+            echo "| canonical body bytes | ${body_bytes} | at least ${OFFLINE_VERIFY_MIN_BODY_BYTES} |"
+            echo "| unfenced tags at column 1 | ${loose} | 0 (fail closed) |"
+            echo "| unterminated fences | ${unterm} | 0 (fail closed) |"
+            echo "| canonical sha256 | \`${canonical}\` | — |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "${distinct:-0}" -ne 1 ]; then
+            echo "::error::the ${found} OFFLINE-VERIFY-v1 blocks are NOT byte-identical (${distinct} distinct bodies). §5.4.3 is the single normative statement; a mirror that differs is a defect in that mirror, never a change to the predicate. Copy §5.4.3's block verbatim."
+            LC_ALL=C sort "$hash_list" | awk -F'\t' '{ printf "  %s  %s\n", substr($1,1,16), $3 }'
+            echo "--- each divergent body, diffed against the normative block ---"
+            while IFS=$'\t' read -r _h n where; do
+              [ "$n" = "$norm_n" ] && continue
+              if ! cmp -s "$ov_out/block_${norm_n}.txt" "$ov_out/block_${n}.txt"; then
+                echo "### ${where}"
+                diff -u "$ov_out/block_${norm_n}.txt" "$ov_out/block_${n}.txt" | head -60 || true
+              fi
+            done < "$hash_list"
+            exit 1
+          fi
+
+          # Guard 6 — ANTI-EMPTYING. Four empty blocks are byte-identical and
+          # four in number, and would sail through every guard above.
+          if [ "${body_bytes:-0}" -lt "$OFFLINE_VERIFY_MIN_BODY_BYTES" ]; then
+            echo "::error::the OFFLINE-VERIFY-v1 body is ${body_bytes} bytes, floor is ${OFFLINE_VERIFY_MIN_BODY_BYTES}. Identical copies of a truncated predicate are still identical — uniformity is not strength."
+            exit 1
+          fi
+
+          # Guard 7 — ANTI-COORDINATED-WEAKENING. This is the guard that would
+          # have caught C53 itself. Byte-identity says the four copies agree; it
+          # says nothing about WHAT they agree on. Four copies that all drop
+          # conjunct 3b.v are byte-identical, four in number, and full length —
+          # and the offline door is once again strictly more permissive than the
+          # online one. Each anchor below is a load-bearing clause of the
+          # ratified predicate (ratification record C53). Editing this list is a
+          # reviewed change to the predicate, made in §5.4.3 first.
+          anchors="$RUNNER_TEMP/ov_anchors.txt"
+          cat > "$anchors" <<'OVANCHORS'
+          Single source: PHASE_2_EDGE_FUNCTION_SPEC.md
+          The device MUST evaluate against the APPLIED set.
+          3b   FIVE conjuncts, ALL required
+          i    atom ∈ M2
+          ii   M2[atom] carries no applied
+          iii  token.credential_version == M2[atom].credential_version
+          iv   M2[atom].ticket_state  == 'active'
+          v    M2[atom].resale_state  == 'none'
+          3c   token.key_id == M2[atom].signing_key_id
+          MUST NOT admit
+          OVANCHORS
+          anchors_n=$(grep -c . "$anchors" | tr -d ' ')
+          if [ "${anchors_n:-0}" -lt 10 ]; then
+            echo "::error::the anchor list has ${anchors_n} entries, expected at least 10 — the heredoc was truncated and this guard would be vacuous."
+            exit 1
+          fi
+          missing=0
+          while IFS= read -r anchor; do
+            [ -z "$anchor" ] && continue
+            if ! grep -qF -- "$anchor" "$ov_out/block_${norm_n}.txt"; then
+              echo "::error::OFFLINE-VERIFY-v1 no longer contains the required clause: ${anchor}"
+              missing=$((missing + 1))
+            fi
+          done < "$anchors"
+          if [ "$missing" -gt 0 ]; then
+            echo "::error::${missing} load-bearing clause(s) missing from the predicate. All ${found} copies agreeing is not a defence — C53 is precisely the case where the offline door was weakened and every copy of it read consistently. Conjunct 3b.v in particular is load-bearing, not defence in depth: without it the offline door admits paid_pending_transfer and refund_hold atoms the ONLINE door refuses."
+            exit 1
+          fi
+
+          echo "OFFLINE-VERIFY-v1 gate OK: ${found} tagged block(s) (floor ${OFFLINE_VERIFY_MIN_BLOCKS}), 1 distinct body, ${body_bytes} bytes (floor ${OFFLINE_VERIFY_MIN_BODY_BYTES}), ${anchors_n} clause anchors present, ${loose} unfenced tags, ${unterm} unterminated fences; sha256=${canonical}"
+
+      # ---------------------------------------------------------------------
+      # Precedence gate — owner ruling OR-6 (ODR-7 / O11: HYBRID PRECEDENCE).
+      #
+      # OR-6 rule 4 is not advice: "an unresolved same-tier contradiction must
+      # FAIL CI / readiness, be registered, and be resolved explicitly. The
+      # implementer does not choose." A rule that only lives in prose is the
+      # defect class this corpus keeps re-discovering (C53: four editable copies
+      # of one predicate, one corrected, three not). So the rule gets a gate.
+      #
+      # Deliberately small: one parseable map, one script, this existing
+      # required job. It checks six mechanical properties and refuses to guess
+      # about anything else.
+      #
+      # --selftest runs FIRST and is the anti-vacuity control. It drives seven
+      # deliberately-broken fixtures through the checkers and fails the build if
+      # any of them PASSES. A parser that silently matches nothing therefore
+      # cannot go green — which is exactly how a gate like this dies quietly.
+      #
+      # Runs before `npm ci`, alongside the OFFLINE-VERIFY gate, so a broken
+      # lockfile cannot take the governance gates down with it.
+      - name: Precedence gate (OR-6 / ODR-7)
+        run: |
+          set -euo pipefail
+          python3 scripts/precedence_gate.py --selftest
+          python3 scripts/precedence_gate.py
+
+      # X-6 export-source gate (CRM EXPORT SPEC §10.2; X6_POSTGRES_OWNED_ASSURANCE_PLAN
+      # T-CI-X6-01/02/03). Text-only, no database, runs BEFORE `npm ci` for the
+      # same reason the OFFLINE-VERIFY gate does: a broken lockfile must not be
+      # able to take the gate offline. The scan set, the forbidden-term list, the
+      # column manifest and every floor live under supabase/ci/ — no check carries
+      # its own copy of a list; the pgTAP suite's embedded copies are diffed
+      # against the manifests here. Positive controls run against the poison
+      # directory so a broken scanner fails here, never silently passes a tree.
+      - name: X-6 export-source gate (T-CI-X6-01/02/03)
+        run: |
+          set -uo pipefail
+          scripts/ci/x6_gate.sh 2>&1 | tee "$RUNNER_TEMP/x6_gate.txt"
+          rc=${PIPESTATUS[0]}
+          {
+            echo "### X-6 export-source gate"
+            echo
+            echo '```'
+            grep -E '^(X-6|column manifest|positive control|suite manifests|### )' "$RUNNER_TEMP/x6_gate.txt" || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
+
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -57,6 +425,13 @@ jobs:
       - name: Install (clean, from lockfile)
         run: npm ci
 
+      # A build profile must never pair one environment's database with another
+      # environment's Stripe account (a TEST key against the PRODUCTION project
+      # reads and writes real data while payments silently cannot work). This is
+      # the build-time twin of src/config/envGuard.ts.
+      - name: Environment pairing gate (eas.json profiles)
+        run: node scripts/ci/assert-env-pairing.mjs
+
       - name: Typecheck
         run: npm run typecheck
 
@@ -65,6 +440,12 @@ jobs:
 
       - name: Unit tests
         run: npm run test
+
+      # F18: the shared-package parity suites (packages/core, packages/design-
+      # tokens) import the mobile + edge originals AND the package copies; they
+      # resolve `vitest` from the ROOT install, so they run here, not in web/.
+      - name: Shared package parity tests
+        run: npx vitest run -c packages/vitest.config.ts
 
   # ---------------------------------------------------------------------------
   # db: prove the migration chain applies cleanly on a FRESH database.
@@ -80,6 +461,10 @@ jobs:
     name: Migrations apply cleanly (fresh DB)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # packages: read lets this job authenticate its ghcr.io image pulls (see "Authenticate image pulls").
+    permissions:
+      contents: read
+      packages: read
     # SINGLE SOURCE OF TRUTH for the CLI pin. Both the installer input and the
     # drift assertion below read this one value — never repeat the literal.
     env:
@@ -136,10 +521,90 @@ jobs:
       # first start; a failure in any migration fails this step. We exclude
       # cosmetic / non-schema services to keep the run fast — everything that
       # creates schema (db, auth, storage, rest, realtime, pooler) stays up.
+      # 2026-09-09 (convergence): PR #56's run of this job failed with
+      #   failed to bind host port for 0.0.0.0:54322 ... address already in use
+      # The stack never booted, so the migration chain and the pgTAP suite never
+      # ran — an infrastructure collision, NOT a migration or test result. Free
+      # the ports deterministically first, then retry the boot once. A genuine
+      # migration error still fails the step on both attempts.
+      - name: Free the local stack ports
+        run: |
+          supabase stop --no-backup >/dev/null 2>&1 || true
+          docker ps -aq --filter "publish=54322" | xargs -r docker rm -f >/dev/null 2>&1 || true
+          docker ps -aq --filter "name=supabase_" | xargs -r docker rm -f >/dev/null 2>&1 || true
+          if ss -ltn 2>/dev/null | grep -q ':54322 '; then
+            echo "::warning::port 54322 is still bound after cleanup"
+            ss -ltnp 2>/dev/null | grep ':54322 ' || true
+          fi
+
+      # CI-only egress block (A, 2026-09-15, owner item 6). Four function bodies
+      # and five cron commands still hardcode the PRODUCTION project URL in
+      # net.http_post calls (032/033/034/035/087/099); 032's */2 cron fires
+      # unconditionally, so a live pg_net on this runner POSTs production
+      # (proven: run 34933664373, one 401). Until the config-driven migration
+      # (133) lands, containers on this runner may not reach port 80/443 outside
+      # private ranges. Host-originated traffic (CLI, image pulls) is untouched;
+      # inter-container traffic stays on private addresses and non-web ports. No
+      # DB state changes, so 132_replay_parity's job set is exactly production's.
+      # The gate step at the end of this job fails the run if any pg_net
+      # response carries an HTTP status (= a request was answered from outside).
+      - name: CI egress block — containers may not reach the outside web (CI-only)
+        run: |
+          set -euo pipefail
+          sudo iptables -I DOCKER-USER 1 -p tcp -m multiport --dports 80,443 -j REJECT --reject-with tcp-reset
+          for net in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 127.0.0.0/8; do
+            sudo iptables -I DOCKER-USER 1 -d "$net" -j RETURN
+          done
+          if command -v ip6tables >/dev/null 2>&1; then
+            sudo ip6tables -I DOCKER-USER 1 -p tcp -m multiport --dports 80,443 -j REJECT 2>/dev/null \
+              || sudo ip6tables -I FORWARD 1 -p tcp -m multiport --dports 80,443 -j REJECT 2>/dev/null || true
+          fi
+          echo "--- DOCKER-USER chain ---"; sudo iptables -S DOCKER-USER
+
+      # 2026-10-27 (A): on 2026-10-27 every image pull of this job hit ghcr.io's ANONYMOUS rate limit
+      # (`toomanyrequests` on all 8 supabase images; #172 three times, #186 once), so the stack never booted
+      # and the pgTAP gate correctly reported "no TAP output". Authenticated pulls use the job token's own
+      # budget. Non-fatal: if the login fails the pulls stay anonymous, exactly as before.
+      - name: Authenticate image pulls (ghcr.io)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin >/dev/null 2>&1; then
+            echo "OK: image pulls from ghcr.io are authenticated"
+          else
+            echo "::warning::ghcr.io login failed; image pulls stay anonymous"
+          fi
+
+      # Retry policy: a registry rate limit (seen in the start log) is retried with backoff, up to 4 attempts;
+      # any other failure keeps the original single retry, so a genuine migration error still fails the step.
       - name: Apply migration chain on fresh DB
         run: |
-          supabase start \
-            -x studio,inbucket,imgproxy,edge-runtime,logflare,vector
+          set -euo pipefail
+          start() {
+            supabase start \
+              -x studio,inbucket,imgproxy,edge-runtime,logflare,vector 2>&1 | tee /tmp/supabase-start.log
+            return "${PIPESTATUS[0]}"
+          }
+          cleanup() {
+            supabase stop --no-backup >/dev/null 2>&1 || true
+            docker ps -aq --filter "name=supabase_" | xargs -r docker rm -f >/dev/null 2>&1 || true
+          }
+          rate_limited() { grep -qiE 'toomanyrequests|429 Too Many Requests' /tmp/supabase-start.log; }
+          attempt=1
+          until start; do
+            if rate_limited && [ "$attempt" -lt 4 ]; then
+              wait=$((attempt * 45))
+              echo "::warning::image registry rate limit on attempt ${attempt}; cleaning up and retrying in ${wait}s"
+            elif [ "$attempt" -lt 2 ]; then
+              wait=5
+              echo "::warning::supabase start failed on the first attempt; cleaning up and retrying once"
+            else
+              exit 1
+            fi
+            cleanup
+            sleep "$wait"
+            attempt=$((attempt + 1))
+          done
 
       - name: Show applied migrations
         if: always()
@@ -193,10 +658,147 @@ jobs:
           # already existed. Until 072 is applied to production, the fresh replay
           # is intentionally ONE function and ONE trigger ahead of the production
           # catalog; that gap closes on apply. Tables and policies are unchanged.
-          EXPECT_TABLES: 27
-          EXPECT_FUNCS: 69
+          # 2026-09-02 (release-readiness): functions 69 -> 70 — production's
+          # 20260902003623_admin_relist_listing_rpc adds public.admin_relist_listing.
+          # 2026-09-03 (package 093, slice 30 §10): triggers 24 -> 26 —
+          # tg_profiles_connect_id_not_org_bound on public.profiles and
+          # tg_connect_archive_not_org_bound on public.stripe_connect_archive.
+          # A trigger, not an edge check, because the column is written by a
+          # direct service-role UPDATE with no RLS in the way (threat G-12).
+          # FUNCS is unchanged by the kernel: both new kernel functions live in
+          # `kernel`, and this counter reads `public` only. The kernel census is 077 A14.
+          # 2026-09-08 (admin/native line, migration 119): functions 70 -> 71 and
+          # triggers 26 -> 27 — public.guard_listing_seller_not_blocked and its
+          # trigger. 110-118 and 120 add nothing to `public` (ops.* only).
+          # 2026-09-06 payments-reliability packages 1-3 (converged RC): tables 27->30
+          # (payout_attempts, payment_refunds, account_deletions), functions +16
+          # (+1 P1, +2 P2, +12 P3, +1 BP-13 predicate 20260906130000), triggers +6
+          # (P3 guards incl. the append-only ledger DELETE/TRUNCATE guards).
+          # 2026-09-09 tickets ownership read (20260909000000): functions +1 —
+          # exactly one new public function, public.get_my_tickets(). Additive and
+          # read-only: no table, policy or trigger is created or altered.
+          # Convergence totals = production 135-line + payments packages + tickets.
+          # NOTE: the payments line and the admin line each independently moved
+          # this counter to 87 for DIFFERENT objects (get_my_tickets vs 119's
+          # guard_listing_seller_not_blocked). A textual merge silently keeps 87;
+          # the tree carries both, so the value below is read from the catalog of
+          # an actual replay, never inherited from either side.
+          # 2026-09-15 migration 132 (fresh-mint double charge, B): tables 31 -> 32 —
+          # +1 public.checkout_group_claim (RLS on, no policies, service_role only).
+          # 2026-09-25 migration 150 (refund lifecycle): tables 32 -> 34 — +2 public.payment_refund_state,
+          # public.payment_refund_state_log (RLS on, no policies, service_role only).
+          # 2026-10-15 migration 154 (listing public visibility): tables 34 -> 35 — +1 public.listing_visibility
+          # (RLS on, no policies, service_role SELECT/INSERT/DELETE only). Read from an actual local replay of
+          # the gate tip + 154-156 (Homebrew PG 17, scripts/local/replay.sh): 34|116|37|43 -> 35|123|37|47
+          # (re-read 2026-10-15 after the review fixes: +is_public, +set_listing_ends_at_from_duration and its trigger).
+          # Re-read 2026-10-15 for 156's ADDENDUM 3 (old-build purchase safeguard): 35|123|37|47 -> 35|126|37|49.
+          # 2026-10-22 registry 160 + 161 (D, S1 venue tiers/inventory; DARK, applied nowhere): NO change to any of
+          # the four counters. 160 creates venue.set_ticket_type_visibility / set_ticket_type_rank /
+          # get_inventory_counters, replaces four venue.* bodies in place (E-76) and re-creates
+          # venue_api.ticket_types with display_rank; 161 creates schema venue_cmd with six SECURITY INVOKER
+          # wrappers. Nothing lands in `public`, and this counter reads `public` only. The venue census moves
+          # 87 -> 90 (pgTAP 144 A15 / 145 A4 / 148 B5 / 180 A5) and the five-schema routine census 305 -> 308
+          # (148 B2 / 157 A46 / 180 A6); the venue_api / venue / venue_cmd ACLs are pinned by pgTAP 226/227/228.
+          # Read from a local PG17 replay of bfc5cf97 + 159 + 160 + 161 (a154c_green clone): still 35|126|37|49.
+          # 2026-10-26 registry 162 (D, S2 event policy / shared capacity / tier windows; DARK, applied nowhere): NO change
+          # to any of the four counters. 162 adds columns on catalog.venue / catalog.event / catalog.event_session /
+          # venue.ticket_type, creates catalog.set_venue_timezone / set_event_age_policy / set_session_sales_capacity and
+          # venue.set_ticket_type_sale_window / ticket_type_on_sale, replaces six venue.* bodies in place (R3 org arm +
+          # the shared-room guard), re-creates three venue_api views and adds five venue_cmd wrappers. Nothing lands in
+          # `public`, and this counter reads `public` only. The venue census moves 90 -> 92 (pgTAP 144 A15 / 145 A4 /
+          # 148 B5 / 179 A8 / 180 A5 / 227 A12), catalog 17 -> 20 (154 A10), the five-schema routine census 308 -> 313
+          # (148 B2 / 156 A20 / 157 A46 / 179 A9 / 180 A6), venue_cmd 6 -> 11 (228); ACLs are pinned by pgTAP 229.
+          # Read from a local PG17 replay of bfc5cf97 + 159 + 176 + 160 + 161 + 162 (a154c_green clone): still 35|126|37|49.
+          # 2026-10-26 registry 163 (D, scanner staff-session wrappers + identity-free session scan counters;
+          # DARK, applied nowhere): NO change to any of the four counters. 163 creates
+          # venue.get_session_scan_counters / list_session_scan_counters / record_scan_staff / filter_staff_scan_meta
+          # (zero-grant helper), the view venue_api.session_admissions and three venue_cmd wrappers
+          # (get_session_scan_counters, record_scan, validate_ticket_online). Nothing lands in `public`, and this
+          # counter reads `public` only. The venue census moves 90 -> 94 (pgTAP 144 A15 / 145 A4 / 148 B5 / 180 A5 /
+          # 227 A12), the five-schema routine census 308 -> 312 (148 B2 / 157 A46 / 180 A6), venue_api views 8 -> 9 (226 A2/F1/F5/F6) and venue_cmd
+          # 6 -> 9 (228); the new ACLs are pinned by pgTAP 230 (and 228/226 sweeps). Read from a local PG17 replay
+          # of ce1c9737 + 159 + 176 + 160 + 161 + 163 (a154c_green clone): still 35|126|37|49.
+          # 2026-10-27 registry 164 (D, the dashboard's route to the catalog event verbs; DARK, applied nowhere):
+          # NO change to any of the four counters. 164 creates seven venue_cmd SECURITY INVOKER sql wrappers
+          # (create_event, update_event, create_event_session, update_event_session, publish_event, cancel_event,
+          # update_venue) over the catalog.* definer bodies, which keep their 078/079/081/088 grants (no new grant,
+          # no revoke, no body change). Nothing lands in `public`, and this counter reads `public` only. The venue_cmd
+          # census moves 14 -> 21 (pgTAP 228 A2/A3/A5-A7/A14-A20/A23, 229 A26, 230 D13); no other census moves; the
+          # ACLs (wrappers and the seven targets) are pinned by pgTAP 231 and 228's sweep. Read from a local PG17
+          # replay of a154c_green + 159 + 176 + 160 + 161 + 162 + 163 + 182 + 164: 35|130|37|49.
+          # 2026-10-26 registry 166 (D, identity-free staff read of the session sales pool; DARK, applied nowhere): NO
+          # change to any of the four counters. 166 creates venue.get_session_capacity / list_session_capacity, the view
+          # venue_api.session_capacity and one venue_cmd wrapper (get_session_capacity). Nothing lands in `public`, and
+          # this counter reads `public` only. The venue census moves 96 -> 98 (pgTAP 144 A15 / 145 A4 / 148 B5 / 179 A8 /
+          # 180 A5 / 227 A12 / 229 A23 / 230 A19), the five-schema routine census 317 -> 319 (148 B2 / 156 A20 / 157 A46 /
+          # 179 A9 / 180 A6 / 229 A25), venue_api views 9 -> 10 (226 A2/F1/F5/F6, 230 A21), venue_cmd 14 -> 15 (21 -> 22 with 164 beneath; 228, 229 A26,
+          # 230 D13) and 140 PFA-1 names the two venue reads; the new ACLs are pinned by pgTAP 233. Read from a local PG17
+          # replay of a154c_green + 159 + 176 + 160 + 161 + 162 + 163 + 182 + 166: still 35|130|37|49.
+          # 2026-10-26 (stack 164 -> 166 on #170 13d46b22, measured): 164 beneath 166 changes no counter either; re-read from a154c_green +
+          # 159 + 176 + 160 + 161 + 162 + 163 + 182 + 164 + 166 with the service_role function default revoked: 35|130|37|49.
+          # 2026-10-29 registry 192 (D, the dashboard's route to venue.create_inventory_batch; DARK, applied nowhere):
+          # NO change to any of the four counters. 192 creates ONE venue_cmd SECURITY INVOKER sql wrapper
+          # (create_inventory_batch) over the 081/162 definer body, which keeps its 081 grant (no new grant, no revoke,
+          # no body change). Nothing lands in `public`, and this counter reads `public` only. The venue_cmd census
+          # moves 22 -> 23 (pgTAP 228 A2/A3/A5-A7/A14-A20/A23, 229 A26, 230 D13; 228 A4 flips: 161 had withheld the
+          # wrapper until S2's E-33 receipt); no other census moves; the ACLs (the wrapper and its target) are pinned by
+          # pgTAP 261 and 228's sweep. Read from a local PG17 replay of the gate tip ba96e859 + 192 with the service_role
+          # function default revoked: 35|133|37|49 (EVIDENCE-192).
+          EXPECT_TABLES: 35
+          # 2026-09-15 migration 130 (L1 concurrency, B): functions 94 -> 96 —
+          # +2 public.claim_checkout_supersede, public.release_checkout_supersede
+          # (on top of 129's revoke_push_token). Two nullable columns on payments;
+          # no table, policy or trigger.
+          # 2026-09-15 migration 132: functions 99 -> 102 (on top of 131's 99) — +3 public.claim_checkout_group,
+          # public.release_checkout_group, public.record_checkout_attempt (D review,
+          # reuse-order). No policy or trigger.
+          # 2026-09-16 migration 135 (b2 proof of possession): functions 102 -> 105 —
+          # +3 public.request_push_token_challenge, public.confirm_push_token_challenge,
+          # public.guard_push_token_client_delete; triggers 37 -> 38 (+trg_guard_push_token_client_delete).
+          # The challenge table is in notify (outside this census).
+          # 2026-09-25 migration 150: functions 108 -> 111 — +3 public.record_refund_state,
+          # public.payment_refund_state_log_append_only, public.guard_payment_refund_state_columns.
+          # 2026-10-13 migration 152 (marketplace safety): functions 111 -> 116 — +5 public.assert_marketplace_parties,
+          # public.guard_bid_parties, public.guard_listing_reservation_parties, public.listing_prohibited_term,
+          # public.guard_listing_content (all no-client-execute).
+          # 2026-10-15 migrations 154 + 155 + 156: functions 116 -> 123 — 154: +4 public.listing_is_public,
+          # public.listing_private_party (both anon-execute: the predicates of the anon-reachable listings/bids
+          # SELECT policies), public.is_public(listings) (anon-execute: the PostgREST computed field),
+          # public.guard_hidden_listing_not_live (no-client-execute); 155: +1
+          # public.set_listing_ends_at_from_duration (no-client-execute); 156: +2
+          # public.guard_listing_proof_waiver (no-client-execute), public.current_user_is_admin
+          # (authenticated-execute). 154 redefines get_profile_trust_stats in place (net 0).
+          # 2026-10-15 156 ADDENDUM 3 (old-build purchase safeguard): functions 123 -> 126 — +3
+          # public.client_shows_proof_disclosure, public.guard_bid_requires_disclosure,
+          # public.guard_reservation_requires_disclosure (all no-client-execute). Read from an actual local replay.
+          # 2026-10-26 registry 182 (D, primary buyer reads — A's C1/C5; DARK, applied nowhere): functions 126 -> 130 —
+          # +4 public.list_primary_sessions_on_sale, public.get_primary_session (anon-execute: the logged-out discovery
+          # surface; SECURITY DEFINER bodies restating the anon-visible rules), public.get_my_ticket_atoms,
+          # public.get_my_primary_orders (authenticated-execute: owner-scoped on auth.uid()). Tables / policies /
+          # triggers unchanged. Manifest rows in assert_public_table_grant_decisions.sql; expected_grants.txt
+          # unchanged (no table grant moves); pgTAP tests/162 P2 moved 126 -> 130 in the same package; rollback
+          # md5-asserted. Read from a local PG17 replay of a154c_green + 159 + 176 + 160 + 161 + 162 + 182: 35|130|37|49.
+          # 2026-10-26 registry 167 (D, buyer holds and order list; DARK, applied nowhere): functions 130 -> 133 —
+          # +3 public.reserve_primary_tier, public.release_primary_hold, public.list_my_primary_orders (all
+          # authenticated-execute: SECURITY DEFINER wrappers bound to auth.uid() over venue.reserve_primary_inventory,
+          # venue.release_inventory_hold and 182's get_my_primary_orders). Tables / policies / triggers unchanged.
+          # Manifest rows added; expected_grants.txt unchanged (no table grant moves); pgTAP tests/162 P2 and 252 A17
+          # moved 130 -> 133 in the same package; rollback md5-asserted. Read from a local PG17 replay of
+          # a154c_green + 159 + 176 + 160 + 161 + 162 + 182 + 167: 35|133|37|49.
+          EXPECT_FUNCS: 133
+          # 2026-10-15 migration 154: policies 37 -> 37 — listings_select_all -> listings_select_visible and
+          # bids_select_all -> bids_select_visible, 1-for-1; listing_visibility carries no policy.
           EXPECT_POLICIES: 37
-          EXPECT_TRIGGERS: 24
+          # 2026-09-25 migration 150: triggers 38 -> 40 — +trg_payment_refund_state_log_append_only,
+          # +trg_guard_payment_refund_state_columns (on payments).
+          # 2026-10-13 migration 152: triggers 40 -> 43 — +before_bid_guard_parties (bids),
+          # +trg_guard_listing_reservation_parties, +trg_guard_listing_content (listings).
+          # 2026-10-15 migrations 154 + 155 + 156: triggers 43 -> 47 — 154: +trg_hidden_listing_not_live (listings),
+          # +trg_listing_visibility_not_live (listing_visibility); 155: +trg_listing_ends_at_from_duration
+          # (listings); 156: +trg_guard_listing_proof_waiver (listings).
+          # 2026-10-15 156 ADDENDUM 3: triggers 47 -> 49 — +trg_reservation_requires_disclosure (listings),
+          # +trg_bid_requires_disclosure (bids). Read from an actual local replay.
+          EXPECT_TRIGGERS: 49
 
       # Privilege-parity diagnostic. Production's table grants come from Supabase's
       # DEFAULT PRIVILEGES, not from the migration chain (migration 063 says so
@@ -227,7 +829,7 @@ jobs:
             from information_schema.role_table_grants
             where table_schema='public' and grantee in ('anon','authenticated','service_role')
             group by grantee, table_name order by grantee, table_name;" \
-            | sed 's/[[:space:]]*$//' | sort > "$RUNNER_TEMP/actual_grants.txt"
+            | sed 's/[[:space:]]*$//' | LC_ALL=C sort > "$RUNNER_TEMP/actual_grants.txt"   # byte order: 150 added the first rows whose locale orders differ (payment_refund_state_log vs payment_refund_state)
           if ! diff -u supabase/ci/expected_grants.txt "$RUNNER_TEMP/actual_grants.txt"; then
             echo "::error::privilege surface does not match production. A count-only check would have missed this — an earlier revision over-granted public.transfers (production is SELECT-only there per migration 055) and silently broke three assertions."
             exit 1
@@ -322,9 +924,9 @@ jobs:
           # and nothing about it can be accidental.
           # Current truth, computed from the tree (see the OK line the gate
           # prints): 2 todo() calls masking 2 assertions, 0 skip(), 0 todo_start.
-          MASK_MAX_TODO_FAILURES=2      # runtime: '# Failed (TODO) test' lines in the TAP stream
-          MASK_MAX_TODO_CALLS=2         # static:  number of todo(...) call sites
-          MASK_MAX_MASKED_ASSERTIONS=2  # static:  SUM of how_many over all todo(...) calls
+          MASK_MAX_TODO_FAILURES=0      # runtime: '# Failed (TODO) test' lines in the TAP stream
+          MASK_MAX_TODO_CALLS=0         # static:  number of todo(...) call sites (ratcheted to 0 on 2026-09-06 — 060 F-2/F-3 are real assertions)
+          MASK_MAX_MASKED_ASSERTIONS=0  # static:  SUM of how_many over all todo(...) calls
           MASK_MAX_SKIP_CALLS=0         # static:  skip(...) call sites — banned
           MASK_MAX_TODO_BLOCKS=0        # static:  todo_start(/todo_end( — banned, unbounded by construction
           # >>> MASK-GATE-CONSTANTS-END
@@ -405,8 +1007,124 @@ jobs:
           # matching positive control that proves 17 raises on IDENTITY rather
           # than on listing state. It carries no todo()/skip(), so none of the
           # five masking ratchets below moves.
-          MIN_FILES=17
-          MIN_ASSERTIONS=305
+          # Ratchets raised 2026-08-30 with supabase/tests/140_phase2_outbox_foundation.sql
+          # (Phase-2 package 076): 17 -> 18 files, 305 -> 358 assertions.
+          # Recomputed from the tree at this commit, not carried from a note:
+          #   ls supabase/tests/*.sql | wc -l                             -> 18
+          #   grep -ho 'plan([0-9]*)' supabase/tests/*.sql | ... | bc     -> 358
+          # The file plans 53: five schemas + nine USAGE booleans + the OR-1
+          # inverted-D-1 role assertion + helper/default-priv/envelope catalog
+          # checks + hostile-role direct-mutation probes + the OR-14
+          # REQUIRED-rollback and BEST-EFFORT-survival transactional proofs +
+          # the per-aggregate UNIQUE concurrency backstop.
+          # Raised again 2026-08-30 (review hardenings A/B/C/D/E): 140 plans 59.
+          # Ratchets raised 2026-08-30 with supabase/tests/141_phase2_identity_orgs_deletion.sql
+          # (Phase-2 package 077): 18 -> 19 files, 364 -> 552 assertions.
+          # Recomputed from the tree at this commit:
+          #   ls supabase/tests/*.sql | wc -l                         -> 19
+          #   grep -ho 'plan([0-9]*)' supabase/tests/*.sql | sum      -> 552
+          # 141 plans 188: the twelve-table closed world + 15-label role columns
+          # + INV-NOFORCE + the 8-policy register + hostile grants + the
+          # PFA-1 walled-function ACL sweep + EXEC-set equalities + the eight
+          # approval_request CHECKs + AO guards + demographics/contact-pref
+          # contracts + org lifecycle + connect bind-once + platform-role
+          # PFA-4 posture + the OR-13 deletion machine (request/withdraw/Q5/
+          # sweep/BP live arms/terminal entry/ERASED refusals) + R2 emits +
+          # the eleven SEAM-2 stub identities.
+          # 143 plans 154: the 079 custody closed world (15 tables / 48 fns /
+          # 10 policies) + the C26 rig + T-SCHEMA-CUSTODY-01..-05 + the MB-4
+          # trigger + T-SCHEMA-EXPIRY-01 + is_transfer_frozen (total, session-
+          # wide, override subtraction) + lock/unlock/scan overlays +
+          # update_event_session time guard + BP-1 routing + the REAL
+          # T-SCHEMA-SENTINEL-05 + AO guards + adversarial RLS.
+          # 144 plans 114: the 080 authz closed world (six-label CHECK, the four
+          # predicates, AUTHZ-M7 tier guard, the four AUTHZ-PKG1 policies
+          # behaviourally per label, live revocation, INV #23/#24 through the
+          # sweep, the PFA-10 activation boundary, deny-by-default). 142 +1
+          # (Gate-M anchor split for the venue.staff_role arrival).
+          # 145 plans 94: the 081 inventory substrate (five tables, the C27
+          # oversell CHECK + generated remaining, the eight RPCs, set_batch_capacity's
+          # below-committed floor incl. platform_admin, the G-24 hold sweep both
+          # arms, publish_event's empty-inventory guard, the F-1 clause, E-28's
+          # fail-safe unseeded keys, E-29 counter-column hide, E-30 anon wall).
+          # 146 plans 68: the 082 order/consent closed world (venue.order +
+          # order_item, the two org_contact_consent tables, create_primary_checkout
+          # with the E-23 buyer-ACTIVE gate + F-1, cancel_pending_order service-role
+          # + noop, the 3 consent RPCs with AO event append, deletion_blockers_orders
+          # BP-12 pending arm, the IMM + candidate-freeze guards, order RLS).
+          # 147 plans 89: the 083 credential/wallet closed world (5 tables + .pkpass,
+          # C33/PFA-16 custody, PFA-18A + PFA-20 fail-closed parks with zero-mutation
+          # proof, the mint activation boundary + coherence + REAL idempotency replay
+          # + mint-path C27 oversell, the implemented wallet RPCs behaviorally, the
+          # four immutability guards FIRING, BP-2, the SEAM-2 no-op stub).
+          # 148 plans 14: the 084 ADOPT step (both late-binding tickets FKs
+          # validated + RESTRICT, unit_row_id bare (C42), the dumping-ground
+          # guard — zero relations/routines created — and both FKs biting).
+          # 149 plans 108: the 085 money kernel (four ledgers + the closed world,
+          # PFA-15/21 walls, finalize end-to-end with E-40/E-47(b) draw + replay,
+          # the void/refund executors with the Σ-guard, the NULL-fails-closed
+          # tier ladder + the full dual-control loop, payout holds + state sync,
+          # obligations/BP-10, PFA-22 BP-12 semantics, Q5, the denial witness,
+          # the destination SoD/step-up ladder).
+          # 150 plans 62: the 086 door/scan substrate (12 tables, the manifest
+          # engine open/snapshot/delta/get/close, PFA-24 no-public_key, the SEAM
+          # bodies, revoke_signing_key PARKED (PFA-18A), tokenized door sessions,
+          # RV-1, scan dark-gate, holder-mix R2 floor).
+          # 151 plans 235: the 087 settlement money engine (waterfall CHECK, AO
+          # lines, zero-net/no-payout, seeded-line rollup → pending payout, SoD-1,
+          # maturity, NULL-threshold park, on_payout_settled negative predicate
+          # T-SCHEMA-SETTLE-01) + the CRM export lifecycle (grammar, caps, X-9,
+          # history, claim/lease, finalize count_mismatch + canary, download
+          # template re-check T-RLS-CRM-06, revoke, sweep, purge claim/confirm,
+          # orphan pass both directions, EX-5 audit) + PFA-28 fail-closed parks
+          # (E1-E17) + cross-org isolation.
+          # 152 plans 27: X-6 under the postgres-owned builder — T-RPC-CRM-14
+          # (text+catalog limbs over 13 entry points), -15 (transitive closure to
+          # a fixed point with depth/view witnesses + poison pill), -19 (no dynamic
+          # SQL in the closure + positive control), OR-1 ownership.
+          # 153 plans 367: the 088 native rail (six tables / 24 routines / the
+          # seven SEAM-2a body-only replacements incl. PFA-13, ODR-16 SEAM state),
+          # grants + the 076 wall, dark rails, listing lifecycle + E-98 cap, the
+          # PFA-30 fail-closed parks (buy-now ⑦ and offer-accept: zero rows), the
+          # transfer engine E-22/E-23/R-40 + finalize/mark/bind/cancel/lapsed, the
+          # R-40 dispute surface (record legs, no-link arm, mark forward-only,
+          # PFA-31 park with zero mutation, PFA-13 re-arm + E-103), the PFA-29
+          # chargeback/royalty seam (owner tests A-E: +100 → gross, −N → next
+          # settlement, prior unchanged, no duplicate, both classes in one call),
+          # p2p (TTL park; accept/decline/cancel/sweep; F-4; E-99/E-101), door
+          # drain + freeze enforcement, C26 compensate (E-95), cancel_event
+          # (per-order refunds, E-102 skip, REQUIRED emits, re-entrancy), the
+          # deletion twins + 16d erase, the integer-exact split CHECK.
+          # Recomputed from the tree at this commit:
+          #   ls supabase/tests/*.sql | wc -l                         -> 31
+          #   grep -ho 'plan([0-9]*)' supabase/tests/*.sql | sum      -> 2166
+          # 154 plans 64: the 089 ADOPT step — the bridge VIEW (security_invoker, the
+          # exact discovery projection, the exact relation set it reads, not insertable,
+          # SELECT-only grants with NO anon arm per E-106/PFA-14, external-rail parity
+          # byte-identical to public.listings with the E-114 rail and E-115 unit rules,
+          # the native arm's own discovery+flag predicate — owner drafts never surface,
+          # dark ⇒ zero native rows even to a superuser, discovery opens no buying path)
+          # and the adopted payment_native.sale_id FK (validated, RESTRICT bites both ways).
+          # Recomputed from the tree at this commit:
+          # 2026-09-02 (package 090): 32 -> 33 files (155_phase2_venue_promoter_engine: the
+          # promoter engine — closed world, posture, normalization/immutability, the RPC
+          # contracts, eligibility, the P0–P10 precedence table, the freeze, self-deal,
+          # the commission seam/hold/release/deny, cross-settlement uniqueness, reads/RLS
+          # isolation, ODR-16; red-team remediation: held commission payouts, replay
+          # binding, currency, channel-preserving bind, cross-org confusables, review
+          # SoD/E-76, platform read arm), 2230 -> 2593 assertions.
+          # 2026-09-02 (package 091): 33 -> 34 files (156_phase2_kernel_reserve_stub: the Gate-M
+          # stub is a CHECKED property — one table, empty, deny-all, no writer, no routine
+          # references it, nothing else created), 2593 -> 2632 assertions.
+          #   ls supabase/tests/*.sql | wc -l                         -> 34
+          #   grep -ho 'plan([0-9]*)' supabase/tests/*.sql | sum      -> 2632
+          # 2026-09-06 (payments reliability, converged RC): 35 -> 59 files (the Phase-2
+          # 14x/15x/16x suites already in the tree + 120..125 payments suites), 2927 -> 4053
+          # assertions. Recomputed from the tree at this commit:
+          #   ls supabase/tests/*.sql | wc -l                         -> 59
+          #   grep -ho 'plan([0-9]*)' supabase/tests/*.sql | sum      -> 4053
+          MIN_FILES=59
+          MIN_ASSERTIONS=4053
           [ "${files_n:-0}" -ge "$MIN_FILES" ] || { echo "::error::pgTAP ran ${files_n:-0} files, floor is $MIN_FILES — test files were removed."; exit 1; }
           [ "$planned_total" -ge "$MIN_ASSERTIONS" ] || { echo "::error::suite plans $planned_total assertions, floor is $MIN_ASSERTIONS — coverage was reduced."; exit 1; }
           echo "coverage floor OK: $files_n files >= $MIN_FILES, $planned_total assertions >= $MIN_ASSERTIONS"
@@ -782,7 +1500,9 @@ jobs:
           # These remain deliberately blunt textual checks: they would also fire
           # on the string "skip(" in a comment or an identifier. A false positive
           # is a cheap, obvious fix; a missed skip() is silent.
-          todo_src=$(grep -hoiE '\btodo[[:space:]]*\(' supabase/tests/*.sql 2>/dev/null | wc -l | tr -d ' ')
+          # `|| true` inside the pipeline: under `set -o pipefail` a zero-match grep
+          # (exit 1) would abort the step silently once the last todo() is gone.
+          todo_src=$( { grep -hoiE '\btodo[[:space:]]*\(' supabase/tests/*.sql 2>/dev/null || true; } | wc -l | tr -d ' ')
           todo_src=${todo_src:-0}
           if [ "$todo_src" -gt "$MASK_MAX_TODO_CALLS" ]; then
             echo "::error::grep tripwire: $todo_src todo() calls in the suite, ratchet is $MASK_MAX_TODO_CALLS."
@@ -812,6 +1532,79 @@ jobs:
   # mobile quality job uses Node 20. Vendored @snatchit/* tarballs live in
   # web/vendor/ and resolve from the committed lockfile.
   # ---------------------------------------------------------------------------
+      - name: Diagnostic — did the replay's cron/pg_net reach outside? (CI-only, read-only; D 2026-09-15)
+        if: always()
+        env:
+          DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+        run: |
+          # Six migrations hardcode the production project URL in net.http_post
+          # bodies (032, 033, 034, 035, 087, 099). D's reading: 032's */2 cron fires
+          # UNCONDITIONALLY with a NULL bearer, so a live pg_net on this runner may
+          # POST to production's enforce-transfer-expiry (expected 401, no effect).
+          # This step only PRINTS what pg_cron ran and what pg_net answered on THIS
+          # stack; it never fails the job and reads nothing outside it.
+          echo "--- cron runs during this job ---"
+          psql "$DB_URL" -tA -c "select jobname, status, left(coalesce(return_message,''),120) from cron.job_run_details d join cron.job j using (jobid) order by start_time;" 2>/dev/null || echo "(cron.job_run_details unavailable)"
+          echo "--- pg_net responses by status ---"
+          psql "$DB_URL" -tA -c "select coalesce(status_code::text,'(none)') as status, count(*) from net._http_response group by 1 order by 1;" 2>/dev/null || echo "(net._http_response unavailable)"
+          echo "--- pg_net queue still pending ---"
+          psql "$DB_URL" -tA -c "select count(*) from net.http_request_queue;" 2>/dev/null || echo "(net.http_request_queue unavailable)"
+
+      # GATE (A, 2026-09-15, owner item 6): CI never reaches production. A pg_net
+      # response row WITH an HTTP status means a request left this runner and a
+      # real server answered — the egress block above failed. Rows with a NULL
+      # status and an error message are the block working (the cron attempted,
+      # the runner refused). Zero rows is also fine (after 133 the crons no-op
+      # without a configured URL). A query error fails the gate (closed).
+      - name: CI egress gate — no pg_net request was answered from outside (fails closed)
+        if: always()
+        env:
+          DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+        run: |
+          set -euo pipefail
+          # 1. Deterministic probe, so this gate is never vacuous (a run in which
+          #    no cron happened to fire proves nothing): enqueue one pg_net GET
+          #    from inside the database to a neutral, side-effect-free outside
+          #    host. With the egress block it must be REFUSED at the runner; if
+          #    it is ever answered, the block is broken and the run fails.
+          probe_id="$(psql "$DB_URL" -tA -c "select net.http_get('https://example.com/');")"
+          for i in $(seq 1 30); do
+            row="$(psql "$DB_URL" -tA -c "select coalesce(status_code::text,'(none)')||'|'||coalesce(error_msg,'') from net._http_response where id = ${probe_id};")"
+            [ -n "$row" ] && break
+            sleep 1
+          done
+          echo "probe #${probe_id} → ${row:-<no response row after 30 s>}"
+          case "${row:-}" in
+            "") echo "::error::the pg_net probe produced no response row in 30 s — the worker is not running, so this gate cannot prove anything"; exit 1;;
+            "(none)|"*)
+              err="${row#(none)|}"
+              # Only a REFUSED/RESET connection proves the block (D, 2026-09-15): a DNS
+              # failure or a timeout would pass without the firewall having done anything.
+              case "$(printf '%s' "$err" | tr '[:upper:]' '[:lower:]')" in
+                *resolve*|*timeout*|*timed\ out*) echo "::error::the probe failed for a reason other than the egress block (${err}) — the block was not exercised"; exit 1;;
+                *refused*|*reset*|*"failed to connect"*|*"couldn't connect"*|*"could not connect"*) echo "probe refused at the runner (${err}): OK";;
+                *) echo "::error::the probe failed with an unrecognised error (${err}); refusing to treat it as proof"; exit 1;;
+              esac;;
+            *) echo "::error::the pg_net probe to an outside host was ANSWERED (${row%%|*}) — the CI egress block is not effective"; exit 1;;
+          esac
+          # 2. Nothing else during the job was answered from outside either.
+          answered="$(psql "$DB_URL" -tA -c "select count(*) from net._http_response where status_code is not null;")"
+          refused="$(psql "$DB_URL" -tA -c "select count(*) from net._http_response where status_code is null;")"
+          echo "pg_net responses: answered_from_outside=${answered} refused_or_failed=${refused} (includes the probe)"
+          psql "$DB_URL" -tA -c "select left(coalesce(error_msg,''),100), count(*) from net._http_response where status_code is null group by 1 order by 2 desc;" || true
+          if [ "$answered" != "0" ]; then
+            echo "::error::${answered} pg_net request(s) were answered by an outside server during this CI run — CI must never reach production (owner item 6, 2026-09-15). Check the egress block step."
+            exit 1
+          fi
+          # 3. Nothing may still be in flight: a queued request could otherwise
+          #    pass as "0 answered" and leave after this gate (D, 2026-09-15).
+          queued="$(psql "$DB_URL" -tA -c "select count(*) from net.http_request_queue;")"
+          if [ "$queued" != "0" ]; then
+            echo "::error::${queued} pg_net request(s) still queued at the end of the job — cannot certify that nothing leaves this runner"
+            exit 1
+          fi
+          echo "OK: no pg_net request was answered from outside this runner, and none is queued."
+
   web:
     name: Web build (Next.js)
     runs-on: ubuntu-latest
@@ -845,6 +1638,20 @@ jobs:
         if: steps.detect.outputs.exists == 'yes'
         run: npm ci
 
+      # F18 (audit 2026-09-05): the web app's own unit tests, lint and type
+      # check, plus the shared-package parity suites, were not gated anywhere.
+      - name: Web typecheck
+        if: steps.detect.outputs.exists == 'yes'
+        run: npm run typecheck
+
+      - name: Web lint
+        if: steps.detect.outputs.exists == 'yes'
+        run: npm run lint
+
+      - name: Web unit tests
+        if: steps.detect.outputs.exists == 'yes'
+        run: npm run test
+
       - name: Build
         if: steps.detect.outputs.exists == 'yes'
         # The web app fails closed without these (by design — see web/src/lib/env).
@@ -856,3 +1663,146 @@ jobs:
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
           NEXT_PUBLIC_SITE_URL: https://ci-placeholder.snatchitapp.com
         run: npm run build
+
+  # ---------------------------------------------------------------------------
+  # admin: the founder operating console in admin/ (Next.js 16, Node 22).
+  # Typecheck + lint + unit tests + build. NOT a required status check (adding
+  # a never-reported required context deadlocks merges — ENGINEERING_STANDARDS
+  # §"required checks"); promote it via the branch ruleset in its own change.
+  # No secrets: the app fails closed without public env (admin/src/lib/env.ts),
+  # so CI compiles with well-formed placeholders and discards the artifact.
+  # ---------------------------------------------------------------------------
+  admin:
+    name: Admin console (Next.js)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: admin
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Detect admin app
+        id: detect
+        working-directory: .
+        run: echo "exists=$([ -f admin/package.json ] && echo yes || echo no)" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node
+        if: steps.detect.outputs.exists == 'yes'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
+
+      - name: Install (clean, from lockfile)
+        if: steps.detect.outputs.exists == 'yes'
+        run: npm ci
+
+      - name: Typecheck
+        if: steps.detect.outputs.exists == 'yes'
+        run: npm run typecheck
+
+      - name: Lint
+        if: steps.detect.outputs.exists == 'yes'
+        run: npm run lint
+
+      - name: Unit tests
+        if: steps.detect.outputs.exists == 'yes'
+        run: npm test
+
+      - name: Build
+        if: steps.detect.outputs.exists == 'yes'
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://ci-placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
+          NEXT_PUBLIC_SITE_URL: https://ci-placeholder.snatchitapp.com
+          NEXT_PUBLIC_ENV_LABEL: ci
+        run: npm run build
+
+  # ---------------------------------------------------------------------------
+  # deno-check: type-check the Supabase Edge Functions under the Deno toolchain
+  # they actually run on (F18: the root tsconfig excludes supabase/functions, so
+  # `npm run typecheck` never sees them; the vitest vm harness exercises
+  # behavior but not Deno's type resolution). Also closes the "deno check
+  # OUTSTANDING" item from the signing/door trains: the local engineering host
+  # has no Deno, so this is the sanctioned place to run it. Network is used only
+  # to fetch the pinned https imports (deno.land std, esm.sh supabase-js). No
+  # deploy, no secrets.
+  # ---------------------------------------------------------------------------
+  deno-check:
+    name: Deno type-check (edge functions)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # BLOCKING since 2026-09-06: the 21 pre-existing Deno type errors found on
+    # its first run (docs/security/PAYMENTS_RELIABILITY_2026-09/deno_check_baseline_errors.txt)
+    # were fixed type-level-only in the payments-reliability branch (run
+    # 34046189039 green).
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@e95548e56dfa95d4e1a28d6f422fafe75c4c26fb # v2.0.3
+        with:
+          deno-version: v2.x
+
+      # 2026-09-09 (convergence): three tiers, closed world. A function directory
+      # in none of the lists fails the job, so nothing can be added silently.
+      #  * deployed  — the eleven functions production actually runs
+      #                (list_edge_functions, 2026-09-09). BLOCKING.
+      #  * aligned   — the admin/ops and signing/door edges the production-aligned
+      #                135 line already type-checks clean (110-114 applied, ops
+      #                console live with refunds disabled). BLOCKING, so the
+      #                admin line cannot regress.
+      #  * native    — the never-deployed native arm. The expansion is paused and
+      #                native issuance stays dark, so its errors must be VISIBLE
+      #                but must not gate this release. It joins `deployed` in the
+      #                same PR that first deploys any of it.
+      # 2026-10-27 (webhook native restore): stripe-webhook's native arms are
+      # wired back into the deployed `stripe-webhook` entrypoint, which ships
+      # them (first deploy: the sandbox, S7). Its decision modules native.ts and
+      # native-dispute.ts therefore move to BLOCKING: checked transitively by the
+      # entrypoint step below and listed explicitly here so a module-level type
+      # error is named on its own. The four native EDGES below stay advisory
+      # until the PR that first deploys each of them.
+      - name: deno check — shared pure modules (blocking)
+        run: |
+          deno check \
+            supabase/functions/_shared/offline-verify.ts \
+            supabase/functions/_shared/payout-logic.ts \
+            supabase/functions/_shared/payouts.ts \
+            supabase/functions/credential-sign/credential.ts \
+            supabase/functions/credential-sign/kms-taxonomy.ts \
+            supabase/functions/door-manifest/pure.ts \
+            supabase/functions/door-session/pure.ts \
+            supabase/functions/ops-refund-execute/classify.ts \
+            supabase/functions/ops-refund-execute/handler.ts \
+            supabase/functions/stripe-webhook/native.ts \
+            supabase/functions/stripe-webhook/native-dispute.ts
+
+      - name: deno check — deployed + production-aligned entrypoints (blocking)
+        run: |
+          set -euo pipefail
+          deployed="auto-finalize-auctions confirm-and-release confirm-payment create-connect-account create-payment-intent delete-account enforce-transfer-expiry notify-report notify-transfer send-push stripe-webhook"
+          aligned="credential-sign door-manifest door-session ops-refund-execute"
+          native="connect-onboarding payout-execute primary-checkout refund-execute"
+          for d in supabase/functions/*/; do
+            n=$(basename "$d"); [ "$n" = "_shared" ] && continue
+            case " $deployed $aligned $native " in *" $n "*) ;; *) echo "::error::supabase/functions/$n is in none of the deployed/aligned/native deno-check lists — add it deliberately."; exit 1;; esac
+          done
+          files=""; for n in $deployed $aligned; do files="$files supabase/functions/$n/index.ts"; done
+          # shellcheck disable=SC2086
+          deno check $files
+          echo "deno check OK: $(echo $deployed $aligned | wc -w | tr -d ' ') entrypoints (11 deployed + 4 production-aligned)"
+
+      - name: deno check — never-deployed native arm (advisory until first deploy)
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          native="connect-onboarding payout-execute primary-checkout refund-execute"
+          files=""; for n in $native; do [ -f "supabase/functions/$n/index.ts" ] && files="$files supabase/functions/$n/index.ts"; done
+          # shellcheck disable=SC2086
+          if deno check $files; then echo "native arm type-checks clean"; else
+            echo "::warning::the never-deployed native arm has Deno type errors (advisory: none of it is deployed; fix before its first deploy)"; exit 1; fi

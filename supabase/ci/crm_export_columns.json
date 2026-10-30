@@ -1,0 +1,131 @@
+{
+  "_doc": "GENERATED from PHASE_2_CRM_EXPORT_SPEC.md §2.2 by scripts/ci/x6_gate.sh --emit-columns (T-CI-X6-02). Do not hand-edit: the gate diffs this file against the spec table on every PR; the pgTAP suite (T-RPC-CRM-16, at un-park) diffs it against the emitted header.",
+  "columns": [
+    {
+      "n": 1,
+      "field": "customer_ref",
+      "class": "IDENT",
+      "grain": "holder"
+    },
+    {
+      "n": 2,
+      "field": "display_name",
+      "class": "IDENT on screen / CONTACT in an export",
+      "grain": "holder"
+    },
+    {
+      "n": 3,
+      "field": "is_purchaser",
+      "class": "IDENT",
+      "grain": "holder"
+    },
+    {
+      "n": 4,
+      "field": "tickets_held",
+      "class": "IDENT",
+      "grain": "holder"
+    },
+    {
+      "n": 5,
+      "field": "ticket_types",
+      "class": "OPS",
+      "grain": "holder"
+    },
+    {
+      "n": 6,
+      "field": "source",
+      "class": "OPS",
+      "grain": "holder"
+    },
+    {
+      "n": 7,
+      "field": "acquired_via",
+      "class": "OPS",
+      "grain": "holder"
+    },
+    {
+      "n": 8,
+      "field": "checked_in",
+      "class": "OPS",
+      "grain": "holder"
+    },
+    {
+      "n": 9,
+      "field": "admitted_at",
+      "class": "OPS",
+      "grain": "holder"
+    },
+    {
+      "n": 10,
+      "field": "promoter_name",
+      "class": "OPS",
+      "grain": "holder"
+    },
+    {
+      "n": 11,
+      "field": "promoter_code",
+      "class": "OPS",
+      "grain": "holder"
+    },
+    {
+      "n": 12,
+      "field": "email",
+      "class": "CONTACT",
+      "grain": "holder"
+    },
+    {
+      "n": 13,
+      "field": "first_seen_at",
+      "class": "IDENT",
+      "grain": "org CRM"
+    },
+    {
+      "n": 14,
+      "field": "events_attended_count",
+      "class": "OPS",
+      "grain": "org CRM"
+    },
+    {
+      "n": 15,
+      "field": "sessions_held_count",
+      "class": "OPS",
+      "grain": "org CRM"
+    },
+    {
+      "n": 16,
+      "field": "order_ref",
+      "class": "MONEY",
+      "grain": "purchaser"
+    },
+    {
+      "n": 17,
+      "field": "order_status",
+      "class": "MONEY",
+      "grain": "purchaser"
+    },
+    {
+      "n": 18,
+      "field": "order_total",
+      "class": "MONEY",
+      "grain": "purchaser"
+    },
+    {
+      "n": 19,
+      "field": "unit_price",
+      "class": "MONEY",
+      "grain": "purchaser"
+    },
+    {
+      "n": 20,
+      "field": "refund_state",
+      "class": "MONEY",
+      "grain": "purchaser"
+    },
+    {
+      "n": 21,
+      "field": "tickets_purchased",
+      "class": "MONEY",
+      "grain": "purchaser"
+    }
+  ]
+}

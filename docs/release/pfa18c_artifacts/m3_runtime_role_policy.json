@@ -1,0 +1,23 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "SignWithTheOneProductionKeyOnly",
+      "Effect": "Allow",
+      "Action": "kms:Sign",
+      "Resource": "<PRODUCTION_KMS_KEY_ARN — exact ARN, filled in AFTER CreateKey, BEFORE ceremony completion>",
+      "Condition": {
+        "StringEquals": {
+          "kms:SigningAlgorithm": "ECDSA_SHA_256",
+          "kms:MessageType": "RAW"
+        }
+      }
+    },
+    {
+      "Sid": "DenyEverythingElseInKms",
+      "Effect": "Deny",
+      "NotAction": "kms:Sign",
+      "Resource": "*"
+    }
+  ]
+}

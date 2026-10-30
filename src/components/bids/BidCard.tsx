@@ -1,0 +1,173 @@
+/**
+ * src/components/bids/BidCard.tsx — one row on the Bids screen (V3).
+ *
+ * Board: `pkg6-bids-{clean,active,past}.png` (dark only; Daylight is the same composition
+ * through palette roles). Event artwork on the left — a 4:5 poster since the owner's 2026-09-24
+ * direction, filling the row's height rather than a square; the event name in the display voice with
+ * the state word (Badge) and, inside the closing hour, the amber urgency beside it; on the
+ * right the one price that matters, its "all-in" basis, and the state's action hint in the
+ * uppercase eyebrow voice — the board draws the hint on every row ("the hint says what the row
+ * will do, never what has happened to money"). The whole row is a single tap target — to the
+ * transfer flow for an in-flight purchase, otherwise to the listing.
+ *
+ * State is a word plus the hint — never colour alone. Money is passed in preformatted; this
+ * component does no arithmetic. Venue and date leave the drawn row (the board omits them) but
+ * stay in the spoken label, with the price's basis word, so nothing a V2 user heard is lost.
+ *
+ * DELIBERATE DIFFERENCES FROM THE BOARD, each with its reason:
+ *  - The urgency words are bidState's own ("Ends in 12m"), not the board's "12M LEFT":
+ *    endingSoonLabel is owner/A-ruled territory this task does not touch.
+ *  - The state words include 'Released' (auto_released) and 'Resolved' (operator decision),
+ *    which the board's ten-word list flattens into 'Received'. DR12/DR9 rule those labels;
+ *    the board is recorded as deviating, not followed.
+ */
+
+import { memo, useMemo } from 'react';
+import { Animated, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+
+import { EventMedia } from '@/src/components/media/EventMedia';
+import { NameText } from '@/src/components/NameText';
+import { Badge, usePressScale } from '@/src/components/ui';
+import type { BidPresentation, BidTone } from '@/src/lib/bids/bidState';
+import { MEDIA_SLOTS } from '@/src/lib/media/slots';
+import { identityStacks } from '@/src/lib/design/featureMetrics';
+import { AMOUNT_MIN_FONT_SCALE, textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
+import * as v2 from '@/src/theme/v2';
+
+export interface BidCardProps {
+  eventName: string;
+  venue: string;
+  whenLabel: string;
+  coverPath: string | null;
+  presentation: BidPresentation;
+  /** All-in, preformatted by allInFromDollars. */
+  priceAllIn: string;
+  secondaryAllIn?: string | null;
+  /** "Ends in 42m" while a live auction the user is in closes within the hour (CFT-505). */
+  urgencyLabel?: string | null;
+  onPress: () => void;
+}
+
+/**
+ * The row's artwork box (owner's 4:5 poster direction, 2026-09-24).
+ *
+ * 72 is the row's HEIGHT budget — the board's thumbnail edge, and the number the row's vertical
+ * rhythm was drawn against — so it goes to EventMedia as `height` and the poster takes whatever
+ * width the ratio gives it. Passed as `width` it would have been a 72-wide, 90-tall poster: 18pt
+ * taller than the row it sits in, which moves every divider on a screen the owner has accepted.
+ *
+ * The width is DERIVED, from the slot's own ratio rather than a number typed here, and exported so
+ * the Bids screen's loading placeholder is the same box: a skeleton whose shape is not the shape of
+ * the thing it stands for shifts the row the moment the artwork arrives.
+ */
+export const BID_ROW_ART_H = 72;
+export const BID_ROW_ART_W = Math.round(BID_ROW_ART_H * MEDIA_SLOTS.CHECKOUT_THUMBNAIL.aspectRatio);
+
+// Board tone for 'brand': "Won" wears the buying-path red — "red marks the buying path…
+// not a claim that money moves when you tap it" — and Badge has no brand slot, so the red
+// outline is the danger tone's ink.
+const TONE: Record<BidTone, 'neutral' | 'success' | 'warning' | 'danger'> = {
+  brand: 'danger', neutral: 'neutral', success: 'success', warning: 'warning', danger: 'danger',
+};
+
+function BidCardImpl({
+  eventName, venue, whenLabel, coverPath, presentation, priceAllIn, secondaryAllIn, urgencyLabel, onPress,
+}: BidCardProps) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
+  const press = usePressScale();
+  const dimmed = presentation.group === 'past';
+  const { fontScale } = useWindowDimensions();
+  const stacked = identityStacks(fontScale);
+  // B-D7: the approved rule. Above the shared threshold a money row stacks into one column and
+  // the amount shrinks to fit its full-width line; below it NOTHING changes (default pixel-identical).
+  const amountFit = stacked ? { adjustsFontSizeToFit: true, minimumFontScale: AMOUNT_MIN_FONT_SCALE } : null;
+
+  return (
+    <Animated.View style={press.style}>
+      <Pressable
+        onPress={onPress}
+        onPressIn={press.onPressIn}
+        onPressOut={press.onPressOut}
+        style={styles.row}
+        accessibilityRole="button"
+        accessibilityLabel={
+          `${eventName}. ${venue}${whenLabel ? ` · ${whenLabel}` : ''}. ${presentation.label}. ` +
+          `${urgencyLabel ? `${urgencyLabel}. ` : ''}` +
+          `${presentation.priceLabel} ${priceAllIn} all in.` +
+          `${presentation.secondaryLabel && secondaryAllIn ? ` ${presentation.secondaryLabel} ${secondaryAllIn}.` : ''}`
+        }
+        accessibilityHint={presentation.actionHint}
+      >
+        <View style={dimmed ? styles.dimmed : undefined}>
+          <EventMedia
+            asset={{ path: coverPath, contract: 'legacy', bucket: 'auction-media' }}
+            slot="CHECKOUT_THUMBNAIL"
+            title={eventName}
+            // The HEIGHT is this row's constrained edge; EventMedia derives the poster's width.
+            height={BID_ROW_ART_H}
+            decorative
+          />
+        </View>
+
+        {(() => {
+          const blocks = (
+            <>
+              <View style={styles.body}>
+                <NameText token="nameRow" maxLines={2} style={styles.name}>{eventName}</NameText>
+                <View style={styles.badgeRow}>
+                  <Badge label={presentation.label} tone={TONE[presentation.tone]} />
+                  {urgencyLabel ? (
+                    <Text style={[textStyle('label'), styles.urgency]} numberOfLines={1}>{urgencyLabel}</Text>
+                  ) : null}
+                </View>
+              </View>
+
+              <View style={stacked ? styles.rightStacked : styles.right}>
+                <Text style={[textStyle('price'), styles.price]} numberOfLines={1} {...amountFit}>{priceAllIn}</Text>
+                <Text style={[textStyle('bodySm'), styles.allIn]} numberOfLines={1}>all-in</Text>
+                {/* The board's hint, on every row, in the eyebrow voice — state metadata, not a
+                    control: the row is the control, and the hint is also the spoken hint above. */}
+                <Text style={[textStyle('label'), styles.hint]} numberOfLines={1}>
+                  {presentation.actionHint}
+                </Text>
+              </View>
+            </>
+          );
+          // Stacked (B-D7, same shape as FeedRow): the text and amount blocks share one column, so the
+          // amount has the row's width instead of competing for it. Unstacked: the row it always was.
+          return stacked ? <View style={styles.bodyStacked} testID="bidcard-body">{blocks}</View> : blocks;
+        })()}
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+export const BidCard = memo(BidCardImpl);
+
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    gap: v2.space.md,
+    alignItems: 'center',
+    paddingVertical: v2.space.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: p.border.default,
+  },
+  dimmed: { opacity: 0.55 },
+  body: { flex: 1, minWidth: 0, gap: v2.space.xs },
+  name: { color: p.text.primary },
+  badgeRow: { flexDirection: 'row', alignItems: 'center', gap: v2.space.sm },
+  urgency: { color: p.status.warning },
+  right: { alignItems: 'flex-end', gap: 2, flexShrink: 0 },
+  /* Stacked above IDENTITY_STACK_SCALE (B-D7): one column, the amount on its own full-width line. */
+  bodyStacked: { flex: 1, flexDirection: 'column', gap: v2.space.xs },
+  rightStacked: { alignItems: 'flex-start', gap: 2 },
+  price: { color: p.text.primary, fontVariant: ['tabular-nums'] },
+  allIn: { color: p.text.muted },
+  hint: { color: p.text.secondary, marginTop: v2.space.xs },
+  });
+}

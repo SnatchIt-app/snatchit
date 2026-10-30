@@ -1,5 +1,32 @@
 # Snatch It — Phase 2 Architecture Review
 
+> ## ⛔ SUPERSEDED — this document is NOT current design. Banner added 2026-08-28 (`R4-8`; ratification rows `C127` / `D34`).
+>
+> **Why this banner exists.** This file sits under `docs/architecture/_superseded/` and **carried no
+> supersession notice at all**, while the one `_governance/` document that was salvaged the same way
+> (`PHASE_2_FINAL_PREIMPLEMENTATION_GATE.md`) does carry one. A directory name is not a banner: a reader who
+> opens the file directly, follows a cross-reference into it, or reads a printed copy sees only live-sounding
+> present-tense prose. **Nothing below is deleted** — these documents are the provenance of ratified
+> decisions and are still cited by name — but nothing below may be implemented from.
+>
+> **Superseded by:** the **consolidated constitutions** — `docs/architecture/SNATCH_IT_DOMAIN_ARCHITECTURE.md`
+> and `docs/architecture/SNATCH_IT_CANONICAL_DATA_MODEL.md` — into whose bodies this review's findings were
+> folded, and `docs/architecture/_governance/PHASE_2_RATIFICATION_RECORD.md`, which records each as a row.
+> Its **Part 15 risk register** is superseded by
+> `docs/architecture/_governance/ARCHITECTURAL_RISK_REGISTER.md` (R1–R36), which merges it forward. The
+> five-persona **YES-IF** verdict below is a 2026-08 verdict on a document the record has since corrected
+> 114 times; the live readiness verdict is
+> `docs/architecture/_governance/IMPLEMENTATION_READINESS_SCORE.md`.
+>
+> **Still cited, legitimately:** `SNATCH_IT_DOMAIN_ARCHITECTURE.md` names this file as a companion for the
+> multi-persona critique, and that citation is to the critique, not to its conclusions about current design.
+>
+> **Reading rule.** Cite this file for **provenance** — what was found, by whom, and why a decision was
+> taken. **Never for current design, current numbers, or current scope.** Where it disagrees with the
+> superseding document named above, **the superseding document governs**, and that determination needs no
+> precedence rule: this one is dated and closed.
+
+
 **Companion to `docs/architecture/SNATCH_IT_DOMAIN_ARCHITECTURE.md`.** Design-only. This is the adversarial stress-test of the domain constitution: Part 17 (five independent principal-level critiques), the resolution of their disagreements, and Part 15 (the consolidated, ranked risk register with the must-fix gate). Every ratified fix appears in the constitution's §0.5 as C1–C11.
 
 ---

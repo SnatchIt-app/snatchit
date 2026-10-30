@@ -238,10 +238,10 @@ SELECT lives_ok(
   $$ INSERT INTO public.listings
        (seller_id, event_name, venue, neighborhood, event_date, event_time,
         ticket_type, quantity, transfer_method, starting_bid, buy_now_enabled,
-        buy_now_price, duration_hours, ends_at, current_bid, cover_image_path)
+        buy_now_price, duration_hours, ends_at, current_bid, cover_image_path, proof_of_ownership_path)
      VALUES (tap.seller(), 'Legit buy-now', 'Club Y', 'brickell', current_date + 7, '22:00',
              'VIP', 1, 'email', 80, true, 200, 12, now() + interval '12 hours', 80,
-             'covers/y.jpg') $$,
+             'covers/y.jpg', 'proof/y.jpg') $$,
   'Buy Now listing creation still succeeds (price fields are seller-set by design)');
 
 -- #17 — the trusted server path may seed anything (backfills, future RPCs).

@@ -1,5 +1,15 @@
 # Snatch It — Phase 2 Implementation GO / NO-GO
 
+> **DATED SESSION RECORD — numbering superseded. Preserved verbatim; do not act
+> on its migration numbers.** Throughout this file `071` denotes the *then*
+> next-free number that was still reserved for the first Phase-2 package. That
+> reservation was released the same day: `071`–`075` became applied production
+> security migrations (DB-1, H-1, SEC-3, SEC-1, SEC-4+D-5) and Phase-2 packages
+> were renumbered to **`076`–`091`**, with package A =
+> `076_create_phase2_schemas_and_grants`. The numbers below are left as written
+> to keep the decision trail intact. Canonical map:
+> `docs/architecture/PHASE_2_PACKAGE_REGISTRY.md`.
+
 **Date:** 2026-08-27 · **Session scope:** repository enforcement, database security gate, baseline re-verification, GO/NO-GO for migration 071. **Not an architecture session** — the Phase 2 architecture and implementation specifications are frozen and were not reopened.
 
 ---
@@ -53,7 +63,7 @@ Each is pinned to `integration_id: 15368` (the GitHub Actions app), so a third p
 
 ## 4. Migration guard status — **ACTIVE and now REQUIRED**
 
-Restored in PR #13. Zero `ALLOWED_RENAMES`, zero historical-rename exceptions. Runs on every PR with in-job change detection, so it reports a conclusive status on docs-only PRs — which is precisely what makes it requirable. Guard matrix: 22 cases + base-derivation set, all correct; `071_create_kernel_schema` PASSES.
+Restored in PR #13. Zero `ALLOWED_RENAMES`, zero historical-rename exceptions. Runs on every PR with in-job change detection, so it reports a conclusive status on docs-only PRs — which is precisely what makes it requirable. Guard matrix: 22 cases + base-derivation set, all correct; `071_create_kernel_schema` PASSES *(the then-planned package-A filename; numbering superseded — package A is now `076_create_phase2_schemas_and_grants`, see the banner above)*.
 
 ## 5. pgTAP branch / PR
 
@@ -193,6 +203,14 @@ pgTAP is not yet wired into CI. Deliberate: the gate stopped on §9 rather than 
 REPO-2, REPO-3, REPO-4 above, plus the storage behavioural-test gap (§11) and two documented pgTAP gaps (the 056c listing-guard bypass asymmetry, which would encode a known weakness as expected behaviour if asserted; and `pg_cron` job ownership / cross-role storage reads, out of the stated matrix).
 
 ## 18. The 071 collision — **OWNER DECISION REQUIRED**
+
+> **RESOLVED — historical record; do not act on the numbers in this section.**
+> Option (a) was taken, and four further security migrations followed. `071`–`075`
+> are now applied production security migrations (DB-1, H-1, SEC-3, SEC-1,
+> SEC-4+D-5) and Phase-2 packages were renumbered to **`076`–`091`**. The
+> statement below that `071` is "reserved for Phase 2" describes the state on
+> 2026-08-27 **before** the decision and is no longer true. Canonical map:
+> `docs/architecture/PHASE_2_PACKAGE_REGISTRY.md`.
 
 Fixing DB-1 requires a migration. The next free sequence number is **`071`**, which is **reserved for Phase 2 `071_create_kernel_schema`**. Per the standing protocol I did **not** consume it and did **not** renumber Phase 2.
 

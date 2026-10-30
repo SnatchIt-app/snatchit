@@ -1,194 +1,138 @@
 /**
- * app/settings/preferences.tsx — Your Scene
- * Multi-select neighborhood picker. Saves to profiles.preferred_neighborhoods.
+ * app/settings/preferences.tsx — Your scene (V2).
+ *
+ * PRESENTATION rebuilt on the V2 system; the data path is unchanged: the
+ * multi-select neighborhood picker hydrates from `get_my_profile` and saves to
+ * `profiles.preferred_neighborhoods`.
+ *
+ * PREMIUM BATCH 2 (CFT-204, item 11). Choosing an area updates at once and
+ * saves in the background — latest wins, one save in flight. A FAILED save
+ * never looks like a success: the chips return to what the server holds and a
+ * short notice says so (also announced to a screen reader). "Done" waits for
+ * an in-flight save and leaves only when the last change is committed; a back
+ * gesture while a save is still running asks first.
  */
 
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { AccessibilityInfo, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
 import type { MyProfileRPC } from '@/src/types';
 import { useAuth } from '@/src/hooks/useAuth';
-import { colors, fontSize, radius, spacing } from '@/src/theme';
+import { useUnsavedChangesGuard } from '@/src/hooks/useUnsavedChangesGuard';
+import { UNSAVED_COPY } from '@/src/lib/nav/unsavedChanges';
+import { createCoalescedSaver, type CoalescedSaver } from '@/src/lib/settings/coalescedSave';
+import { Button, Chip, Spinner, StickyBar } from '@/src/components/ui';
+import { SettingsHeader } from '@/src/components/account/SettingsHeader';
+import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
+import * as v2 from '@/src/theme/v2';
 import { NEIGHBORHOODS, NEIGHBORHOOD_LABELS } from '@/src/constants/neighborhoods';
 
-// ─── Screen ──────────────────────────────────────────────────────────────────
+/** Shown, briefly, when a background save fails and the chips roll back. */
+const SCENE_ROLLBACK_NOTICE =
+  "We couldn't save that change, so it's back to what you had. Check your connection and try again.";
 
 export default function PreferencesScreen() {
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const { user, loading: authLoading } = useAuth();
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [loading, setLoading]   = useState(true);
-  const [saving, setSaving]     = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [pending, setPending] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const saverRef = useRef<CoalescedSaver<string[]> | null>(null);
 
-  // Hydrate saved selections once auth resolves
   useEffect(() => {
     if (authLoading) return;
     if (!user) { setLoading(false); return; }
-
     let ignore = false;
-
     (async () => {
       const { data } = await supabase.rpc('get_my_profile').returns<MyProfileRPC[]>().maybeSingle();
-
       if (ignore) return;
-
       const saved = data?.preferred_neighborhoods;
-      setSelected(new Set(Array.isArray(saved) ? saved : []));
+      const initial: string[] = Array.isArray(saved) ? saved : [];
+      setSelected(new Set(initial));
+      saverRef.current = createCoalescedSaver<string[]>({
+        initial,
+        save: async (hoods) => {
+          const { error } = await supabase
+            .from('profiles')
+            .update({ preferred_neighborhoods: hoods })
+            .eq('id', user.id);
+          if (error) console.warn('[preferences] save failed:', error.message);
+          return !error;
+        },
+        // A failed save must not look like a success: show what the server
+        // holds, and say so once, briefly.
+        onRollback: (committed) => {
+          setSelected(new Set(committed));
+          setNotice(SCENE_ROLLBACK_NOTICE);
+          AccessibilityInfo.announceForAccessibility(SCENE_ROLLBACK_NOTICE);
+        },
+        onPendingChange: setPending,
+      });
       setLoading(false);
     })();
-
     return () => { ignore = true; };
   }, [user?.id, authLoading]);
 
+  // A back gesture while a save is still in flight asks first (CFT-208).
+  useUnsavedChangesGuard({ when: pending, ...UNSAVED_COPY.stillSaving });
+
   function toggle(hood: string) {
-    setSelected(prev => {
-      const next = new Set(prev);
-      next.has(hood) ? next.delete(hood) : next.add(hood);
-      return next;
-    });
+    setNotice(null);
+    const next = new Set(selected);
+    if (next.has(hood)) next.delete(hood); else next.add(hood);
+    // Reversible (item 11): shown at once, saved behind it, rolled back above.
+    setSelected(next);
+    saverRef.current?.submit(Array.from(next));
   }
 
-  async function save() {
-    if (!user) return;
-    setSaving(true);
-
-    await supabase
-      .from('profiles')
-      .update({ preferred_neighborhoods: Array.from(selected) })
-      .eq('id', user.id);
-
-    setSaving(false);
-    router.back();
+  async function done() {
+    const ok = (await saverRef.current?.settle()) ?? true;
+    // On failure the rollback notice is already on screen; the user decides.
+    if (ok) router.back();
   }
 
-  // ── Render ──────────────────────────────────────────────────────────────────
   return (
-    <SafeAreaView style={s.safe}>
-      <View style={s.topBar}>
-        <Pressable onPress={() => router.back()} style={s.backBtn} hitSlop={8}>
-          <Text style={s.backArrow}>←</Text>
-        </Pressable>
-        <Text style={s.topTitle}>Your Scene</Text>
-        <View style={s.backBtn} />
-      </View>
-
+    <View style={s.root}>
+      <SettingsHeader title="Your scene" />
       {loading ? (
-        <View style={s.loader}>
-          <ActivityIndicator color={colors.primary} />
-        </View>
+        <View style={s.center}><Spinner color={palette.brand.red} /></View>
       ) : (
-        <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false}>
-          <Text style={s.helper}>
-            Pick the areas you go out in most. We&apos;ll show those listings first.
-          </Text>
-
-          <View style={s.grid}>
-            {NEIGHBORHOODS.map(hood => {
-              const active = selected.has(hood);
-              return (
-                <Pressable
-                  key={hood}
-                  style={[s.chip, active && s.chipActive]}
-                  onPress={() => toggle(hood)}
-                >
-                  <Text style={[s.chipText, active && s.chipTextActive]}>
-                    {NEIGHBORHOOD_LABELS[hood]}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-
-          <Pressable
-            style={[s.saveBtn, saving && { opacity: 0.6 }]}
-            onPress={save}
-            disabled={saving}
-          >
-            {saving
-              ? <ActivityIndicator color={colors.text} size="small" />
-              : <Text style={s.saveBtnText}>Save</Text>
-            }
-          </Pressable>
-        </ScrollView>
+        <>
+          <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            <Text style={[textStyle('bodySm'), s.helper]}>
+              Pick the areas you go out in most. We&apos;ll show those listings first. Changes save as you go.
+            </Text>
+            <View style={s.grid}>
+              {NEIGHBORHOODS.map((hood) => (
+                <Chip key={hood} label={NEIGHBORHOOD_LABELS[hood]} selected={selected.has(hood)} onPress={() => toggle(hood)} />
+              ))}
+            </View>
+            {notice ? (
+              <Text style={[textStyle('bodySm'), s.notice]} accessibilityRole="alert">{notice}</Text>
+            ) : null}
+          </ScrollView>
+          <StickyBar>
+            <Button label="Done" pendingLabel="Saving…" onPress={done} loading={pending} disabled={pending} block />
+          </StickyBar>
+        </>
       )}
-    </SafeAreaView>
+    </View>
   );
 }
 
-// ─── Styles ──────────────────────────────────────────────────────────────────
-
-const s = StyleSheet.create({
-  safe:      { flex: 1, backgroundColor: colors.bg },
-  topBar:    {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
-    borderBottomWidth: 1, borderBottomColor: colors.border,
-  },
-  backBtn:   { width: 44, height: 44, alignItems: 'flex-start', justifyContent: 'center' },
-  backArrow: { color: colors.text, fontSize: fontSize.xl, fontWeight: '600' },
-  topTitle:  { color: colors.text, fontSize: fontSize.md, fontWeight: '700' },
-
-  loader: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-
-  body: {
-    padding: spacing.lg,
-    paddingBottom: spacing.xxl,
-  },
-
-  helper: {
-    fontSize: fontSize.sm,
-    color: colors.textMuted,
-    lineHeight: 20,
-    marginBottom: spacing.lg,
-  },
-
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-    marginBottom: spacing.xl,
-  },
-
-  chip: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm + 2,
-    borderRadius: radius.full,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.bgCard,
-  },
-  chipActive: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primarySoft,
-  },
-  chipText: {
-    fontSize: fontSize.sm,
-    fontWeight: '600',
-    color: colors.textMuted,
-  },
-  chipTextActive: {
-    color: colors.primary,
-  },
-
-  saveBtn: {
-    backgroundColor: colors.primary,
-    borderRadius: radius.md,
-    paddingVertical: spacing.md,
-    alignItems: 'center',
-  },
-  saveBtnText: {
-    color: colors.text,
-    fontWeight: '800',
-    fontSize: fontSize.md,
-    letterSpacing: 0.5,
-  },
-});
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  root: { flex: 1, backgroundColor: p.surface.canvas },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  body: { paddingHorizontal: v2.space.lg, paddingTop: v2.space.lg, paddingBottom: v2.space.xxl },
+  helper: { color: p.text.muted, marginBottom: v2.space.lg },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: v2.space.sm },
+  notice: { color: p.status.error, marginTop: v2.space.lg },
+  });
+}

@@ -24,7 +24,7 @@ The frozen money core + external-rail marketplace live in `public`. Do not alter
 - **Payouts/transfers writers:** existing service_role-only RPCs (migrations 056a/059/061/064). Native payouts extend this discipline, never bypass it.
 
 ## 3. Migration numbering baseline
-True applied max across the phase0 chain = **070** (`070_reconcile_rls_policies_and_triggers.sql`), plus website-form timestamped files. **Phase 2 migrations begin at `071_` and continue the zero-padded version-prefix scheme** (consistent with 066–070), NOT Supabase timestamp prefixes. Surface that this tree (`mobile/profile-rpc-compat`) only physically contains up to ~045; the authoritative chain incl. 000_baseline_schema.sql + 046–070 is on `phase0/lockdown` — Phase 2 migrations are authored assuming the phase0 chain is merged to the integration branch first (a stated precondition, not a Phase-2 migration).
+True applied max across the phase0 chain = **070** (`070_reconcile_rls_policies_and_triggers.sql`), plus website-form timestamped files. Five **production security migrations** were then applied on top of it on 2026-08-27 — `071` (DB-1 guard_proof_status), `072` (H-1 listing INSERT guards), `073` (SEC-3 storage bucket upload constraints), `074` (SEC-1 privilege cleanup), `075` (SEC-4 + D-5 replay parity / storage policies / cron) — so the **true applied max is now `075`**. **Phase 2 migrations begin at `076_` and continue the zero-padded version-prefix scheme** (consistent with 066–075), NOT Supabase timestamp prefixes. Phase-2 packages are `076`–`091`; `071`–`075` are **not** Phase-2 packages (canonical map: `docs/architecture/PHASE_2_PACKAGE_REGISTRY.md`). Surface that this tree (`mobile/profile-rpc-compat`) only physically contains up to ~045; the authoritative chain incl. 000_baseline_schema.sql + 046–070 is on `phase0/lockdown` — Phase 2 migrations are authored assuming the phase0 chain is merged to the integration branch first (a stated precondition, not a Phase-2 migration).
 
 ## 4. Resolved Gate-P physical decisions (BINDING — do not re-decide)
 
@@ -48,10 +48,28 @@ True applied max across the phase0 chain = **070** (`070_reconcile_rls_policies_
 
 ### C36 — Structural scope-qualified roles
 - Roles are **scope-typed**, never bare strings. Model:
-  - `kernel.org_member(org_id, identity_id, role)` where role ∈ `org_owner|org_admin|org_finance|org_member` (org scope).
-  - `venue.staff_role(venue_id, identity_id, role)` where role ∈ `venue_manager|venue_finance|venue_door|venue_promoter` (venue scope).
+  - `kernel.org_member(org_id, identity_id, role)` where role ∈ `org_owner|org_admin|org_finance|org_marketing|org_promoter_manager|org_member` (org scope). **`SPEC CORRECTION` (ROLE_MODEL `F-1`)**
+  - `venue.staff_role(venue_id, identity_id, role)` where role ∈ `venue_manager|venue_finance|venue_box_office|venue_marketing|venue_promoter_manager|venue_scanner` (venue scope). **`SPEC CORRECTION` (ROLE_MODEL `F-2`)**
   - `kernel.platform_role(identity_id, role)` where role ∈ `platform_admin|platform_support|platform_risk` (platform scope) — extends existing `public.admin_users`.
-- Predicate helpers: `kernel.has_org_role(org_id, role[])`, `kernel.has_venue_role(venue_id, role[])`, `kernel.has_event_role(event_id, role[])` (event → resolves via catalog to venue), `kernel.is_platform(role[])`. No RLS/RPC may compare a bare `role='finance'`; scope is always in the predicate. Org and venue role enums are DISJOINT label sets so cross-scope confusion is structurally impossible.
+- Predicate helpers — **the canonical TEN, enumerated and never counted** (defining contracts: `PHASE_2_RPC_FUNCTION_CONTRACTS.md` §1.1–§1.1e; membership rule: RLS §2.2 **`HELPER-DERIVED`**): `kernel.has_org_role(org_id, role[])`, `kernel.has_venue_role(venue_id, role[])`, `kernel.has_event_role(event_id, role[])` (event → resolves via catalog to venue), `kernel.is_platform(role[])` · **`kernel.has_org_role_over_venue(venue_id, role[])`** · **`kernel.has_org_role_over_event(event_id, role[])`** · **`kernel.is_org_affiliate(org_id)`** · **`kernel.is_promoter_for_event(event_id)`** · **`kernel.assert_door_session(device_id, session_id, door_session_id, token)`** · **`kernel.money_role_grant_matured(org_id)`**. **Door principals are NOT tested by `has_venue_role`** — see `PHASE_2_ROLE_MODEL_SPEC.md` §7; `assert_door_session` is `DEF`/`service_role` only and **never an RLS predicate** (RM-5). **`SPEC CORRECTION` (ROLE_MODEL `F-3`, extended; completed by `F-4` / `AUTHZ-C1C`)**
+
+> **`SPEC CORRECTION` — the C36 label lists above were the pre-O-2 sets (`SF-2`).** They named `venue_door` and `venue_promoter`, **the exact strings ruling O-2 abolished**, in the file every implementation spec is told to take its names from. O-2 (RATIFIED, Gate P) renames `venue_door → venue_scanner`, **removes `venue_promoter` entirely** — a promoter is a `promoter_link` row-ownership relationship, never a staff-role label — and fixes the canonical stored set at **fifteen plane-prefixed labels in three disjoint enums**: org (6), venue (6), platform (3). Standing rule **RM-1**: every label MUST begin with its plane token. This is the same defect ratification row **D5** purged from the constitutions; it survived here.
+>
+> **The helper list gained a fourth omission after F-3 was filed.** `kernel.money_role_grant_matured(org_id)` is **new** with `AUTHZ-C1B` and is what makes SoD-1/SoD-2 mean what they claim — without it the money-plane counterparty stays mintable by the role that needs one. ROLE_MODEL filed **F-1…F-3** and **no `F-4`**, so the helper is added here on the authz pass's own authority and the omission is reported back. **`PHASE_2_RLS_PERMISSION_SPEC.md` §2.2 additionally states its helper count four different ways** (heading "eleven", ten bullets, RM-2 "nine", two tests "eleven") — **not resolved here; reported to the RLS owner**, because `T-RLS-ROLE-02` enumerates "the eleven helpers" structurally and cannot be written until one number is right. No RLS/RPC may compare a bare `role='finance'`; scope is always in the predicate. Org and venue role enums are DISJOINT label sets so cross-scope confusion is structurally impossible.
+>
+> ---
+>
+> ### ✅ `DISCHARGED 2026-08-28` — `AUTHZ-C1C` · ratification rows **C76** / **D16** · RPC **§1.1e** · RLS **§2.2 `HELPER-DERIVED`**
+>
+> **The filing above stands as the record of what was found; this block records what was done about it. Nothing above is deleted.**
+>
+> **(1) The count.** The report named four statements in the RLS spec; there were **six** across four documents, and they gave **three** numbers over **two** sets. Resolved **mechanically, not by choosing**: the **union** of every name any statement gives is **ten**; the **intersection** of the three statements that actually *enumerate* (RLS §2.2's bullets, the traceability matrix's `C2 · O-2` row, and RPC §1.1–§1.1d) is **nine**; the sole element of the difference is **`kernel.money_role_grant_matured`**. **"Eleven" corresponds to no set — there is no eleventh helper anywhere in this corpus under any name** — and **"nine" is simply the membership before ratification row `C58`**. RLS §11.2's EXEC table, which nobody had counted, independently already carried all ten. All six statements now read **ten and enumerate by name**; `HELPER-DERIVED` clause 4 forbids any of them being a bare count again.
+>
+> **(2) `T-RLS-ROLE-02` is writable.** The report was right that it *"cannot be written until one number is right"* — and the fix is not to pick the number. **A count assertion passes on the wrong set of the right size**, which is exactly the failure that let a helper reach four money call sites with no definition. The test now consumes the **literal ten-name enumeration**; **`T-RLS-ROLE-06`** asserts that enumeration equals `pg_proc` in both directions with a non-vacuity guard; **`T-RLS-ROLE-07`** asserts the definer/owner/`STABLE`/`search_path`/grant shape per name.
+>
+> **(3) The helper this section added "on the authz pass's own authority" now has a contract and a ratification.** `kernel.money_role_grant_matured` was bound in RPC §10.3, §17.1, §17.2 and §17.7 and **defined nowhere**; RPC **§1.1e** supplies the full contract, and **C76** ratifies it. **`F-4` is filed** by the role model — this list was *also* missing `assert_door_session` and `is_promoter_for_event`, which no `F-n` row had ever asked for, and both are added above.
+>
+> **(4) Two things found that this report did not name, both recorded rather than fixed silently:** the **platform plane** of the maturity control is unbound and the ratified signature cannot express it (**C77 / `OPEN-GATED(O12)`**, RPC §20.14 `R-22`); and RPC **§10.3** took `p_org_id` and `p_settlement_id` without requiring them to agree, so every authority predicate could be a true statement about the wrong organization (fixed under the settlement's lock, `T-RPC-AUTHZ-20`).
 
 ### C41 — Re-entry (MVP decision)
 - **MVP = no re-entry.** `venue.scan` records admission; `kernel.tickets.state` terminal `scanned` stands for the single-night GA MVP. Re-entry is a **named future change** (like H6): the extension point is a `venue.scan` table that already supports **multiple scan rows per ticket per session** with a `direction` (`in|out`) column defaulting to `in` and a `scan_type`; MVP enforces first-`in`-wins and treats a second `in` as duplicate. Turning on re-entry later = relax the terminal rule + honor `out`/`in` pairs. No schema rewrite required. Document this explicitly in schema + RN specs.
@@ -103,6 +121,13 @@ Original working members (provenance; see supersession note above):
 | `kernel.refund` | `refund_id` | MUT | money reason; drives refund_void |
 | `kernel.reserve` | `reserve_id` | EXT | Gate M — stub only in MVP |
 | `kernel.admin_audit` | `id` | AO | privileged action log (extends existing admin logging) |
+| `kernel.identity_demographic` | `identity_id` | MUT | **J-4.** Voluntary self-described attributes; profile enrichment only, never signup. Value never leaves Postgres — no edge function, no log, no notification payload. Pkg `077` |
+| `kernel.identity_demographic_erasure` | `id` | AO | **J-4 / J-12.** Value-free erasure tombstone `(identity_id, erased_at, **purge_after** — tuple completed 2026-08-29: the column was ratified in DEMOG §8.5 and omitted here, the two-definitions defect J-12's shape derivation reconciled)`. `identity_id` is deliberately **FK-free** — a CASCADE FK would delete the tombstone in the very statement that creates the need for it. Written by a `BEFORE DELETE` row trigger, so *every* removal path produces one. Pkg `077` |
+| `kernel.identity_contact_pref` | `identity_id` | MUT | **K-8.** The fan's master contact switch. Definer-only; no client role reads it. Pkg `077` |
+| `kernel.identity_contact_pref_event` | `id` | AO | **K-8 / K-19.** `(identity_id, venue_email_contact, occurred_at)`. Exists so the consent gate is **as-of evaluable**: without history a paged export necessarily evaluates its conjuncts at inconsistent instants. Definer/`service_role` only, `REVOKE UPDATE, DELETE`. Pkg `077` |
+| `kernel.org_contact_consent` | `(identity_id, org_id)` | MUT | **K-8.** Per-org, per-order contact consent — the gate for **both** the email and the name cell in an export. Pkg `082` |
+| `kernel.org_contact_consent_event` | `id` | AO | **K-8 / K-19.** `(identity_id, org_id, event ∈ granted\|withdrawn, occurred_at, notice_version, source_order_id)`. Same as-of reason as above. Definer/`service_role` only, `REVOKE UPDATE, DELETE`. Pkg `082` |
+| `kernel.org_customer_key` | `org_id` | MUT | **K-8.** The per-org HMAC key behind `customer_ref`. Definer/`service_role` only — **no human role, including `platform_admin`**. Pkg `077` |
 
 ### catalog
 | table | PK | kind | notes |
@@ -133,6 +158,10 @@ Original working members (provenance; see supersession note above):
 | `venue.comp_allocation` | `id` | MUT | A4 |
 | `venue.guest_list` / `venue.guest_entry` | `id` | MUT | A4 |
 | `venue.promoter` / `venue.promoter_link` / `venue.attribution` | `id` | MUT | Phase 2D; commissions via kernel.payout |
+| `venue.door_session` | `door_session_id` | SoT | **H-3 — the bearer artifact the door actually holds.** The PIN *provisions*; this row is what every subsequent relay call presents. `token_hash` is never client-readable **on any path, for any role, including `platform_admin`** — there is no legitimate reader of a verifier. Deny-all RLS, no DELETE, revoke-only forward transition; `revoke_door_pin` cascades to it. Pkg `086`. **Two specifications of this table diverge — see the note below** |
+| `venue.holder_mix_snapshot` | `snapshot_id` | PROJ | **J-4.** Per-session published aggregate. Suppressed snapshots emit no denominators (R6). Pkg `087` |
+| `venue.holder_mix_bucket` | `(snapshot_id, bucket)` | PROJ | **J-4.** Per-bucket counts with the floor of 5 as a `CHECK` — **a sub-floor bucket cannot physically be stored**, not merely hidden. Pkg `087` |
+| `venue.export_job` | `job_id` | MUT | **K-8.** CRM export lifecycle `queued→running→ready→failed` + `revoked`/`expired`/`purged`, with `artifact_state` tracked **separately** from the job state because the two genuinely diverge (a job is `revoked` the instant the RPC commits; its object survives until the purge route runs). Pkg `087` |
 
 ### market (native rail; bridges to existing public.*)
 | table | PK | kind | notes |
@@ -142,6 +171,22 @@ Original working members (provenance; see supersession note above):
 | `market.offer` | `offer_id` | MUT | buyer-initiated |
 | `market.market_sale` | `sale_id` | SoT | consummated resale; terminal state machine pending→completed|compensated (C26) |
 | `market.p2p_transfer` | `transfer_id` | MUT | native P2P; distinct from public.transfers (external) |
+
+> **`SPEC CORRECTION` — eleven tables added to this inventory (`SF-1`).** Four passes recorded additions here and **none was applied**, so this section — the file every implementation spec is told to treat as the canonical name list — was missing objects that four other specs had already contracted, scheduled into packages, and written pgTAP against.
+>
+> | Source | Correction ID | Tables |
+> |---|---|---|
+> | `PHASE_2_DEMOGRAPHICS_PRIVACY_SPEC.md` §10.2 | **J-4** | `kernel.identity_demographic` · `kernel.identity_demographic_erasure` · `venue.holder_mix_snapshot` · `venue.holder_mix_bucket` |
+> | `PHASE_2_CRM_EXPORT_SPEC.md` §11.2 | **K-8** (as amended by **K-19**) | `kernel.identity_contact_pref` · **`kernel.identity_contact_pref_event`** · `kernel.org_contact_consent` · **`kernel.org_contact_consent_event`** · `kernel.org_customer_key` · `venue.export_job` |
+> | `PHASE_2_DOOR_LIFECYCLE_SPEC.md` §17 / schema §3.10a / edge §3.9a | **H-3** | `venue.door_session` |
+>
+> **The standing count of "eight" is stale and is corrected here to eleven.** `PHASE_2_SCOPE_AMENDMENT_2026_08.md` **X-14** and its request **R-6** both say *eight* — four demographics plus four CRM. That was accurate when written and is not now: **K-19 added the two consent event logs**, taking the CRM set from four to six (**K-8** says *six*, and the CRM spec's own RLS delta lists six deny-all rows). Adding `venue.door_session` gives **eleven**. Anyone reconciling against X-14's number will still find two missing and conclude this section is right.
+>
+> **Why the two event logs are not bookkeeping.** `kernel.identity_contact_pref` and `kernel.org_contact_consent` are **mutable**. A CRM export is built in **pages**, so without an append-only history the consent gate necessarily evaluates its conjuncts at *different instants across pages* — which falsifies the byte-identical determinism the export's replay property depends on. The event logs are what make the gate as-of evaluable at one stamped `gate_as_of`. They carry **no contact value** — an org id, a state, a timestamp.
+>
+> **REPORTED, NOT RESOLVED — `venue.door_session` has two divergent specifications, and this inventory deliberately states neither.** `PHASE_2_EDGE_FUNCTION_SPEC.md` §3.9a and `PHASE_2_PHYSICAL_POSTGRES_SCHEMA_SPEC.md` §3.10a (with migration plan `086`) disagree on four points: **(1)** the `assert_door_session` fourth argument (`p_session_ref` vs `p_door_session_id`); **(2)** the non-secret selector — a separate `UNIQUE` text `session_ref` column vs the PK itself, with the schema spec carrying **no `session_ref` column at all**; **(3)** the revocation model (`revoked_at IS NULL` + partial index vs a `status` column + partial `UNIQUE(device_id, event_session_id) WHERE status='active'`); **(4)** `UNIQUE(token_hash)`, present in the plan and absent from the edge spec's list. **These are not stylistic** — (1) is a signature the door's entire authorization surface is called through, and (2) decides what a client sends. **Owners: schema + RPC + edge, together.** This row names the table so it stops being invisible; it does not pick a side.
+>
+> **Also owed, and not this file's to give:** `PHASE_2_RLS_PERMISSION_SPEC.md` §6 needs the matching **deny-all rows** — ten from J-3/K-7, plus `venue.door_session`. A table in this inventory with no §6 row is a table an implementer creates with default grants.
 
 ## 7. Market bridge rule
 Native listings appear in the same discovery/checkout as external ones WITHOUT rewriting `public.listings`. Bridge = a read view (`market.listing_unified`) unioning `public.listings` (external) and `market.listing_native` (native) with a discriminator; checkout routes by rail. Native checkout calls `kernel.transfer_ticket_ownership` (C8); external checkout stays on the existing path. No native object mutates a `public.*` money/custody row except by linking to a `public.payments` id.

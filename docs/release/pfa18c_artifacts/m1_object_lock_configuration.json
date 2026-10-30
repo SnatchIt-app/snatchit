@@ -1,0 +1,9 @@
+{
+  "ObjectLockEnabled": "Enabled",
+  "Rule": {
+    "DefaultRetention": {
+      "Mode": "COMPLIANCE",
+      "Years": "<RETENTION_YEARS — OWNER DECISION, not frozen anywhere; see readiness report §M1>"
+    }
+  }
+}

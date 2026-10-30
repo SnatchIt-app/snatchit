@@ -29,14 +29,5 @@ export function useNetworkStatus(): { isOffline: boolean } {
   return { isOffline };
 }
 
-/**
- * True when an error smells like a connectivity failure rather than a
- * server/application error (fetch throws before any HTTP response exists).
- */
-export function isNetworkError(err: unknown): boolean {
-  const msg =
-    typeof err === 'string' ? err
-    : err instanceof Error ? err.message
-    : (err as { message?: string } | null)?.message ?? '';
-  return /network request failed|failed to fetch|fetch failed|network error|abort/i.test(msg);
-}
+// The classification itself is pure and lives with the state copy.
+export { isNetworkError } from '@/src/lib/ui/loadState';

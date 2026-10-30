@@ -1,24 +1,39 @@
 /**
- * src/screens/CreateListingScreen.tsx
+ * src/screens/CreateListingScreen.tsx — Sell your ticket (V3 surface, V2 logic).
  *
- * Full Create Listing form.
- * On Publish:
- *  1. Validates all required fields.
- *  2. Uploads cover image to Supabase Storage → gets storage path.
- *  3. Inserts a row into public.listings.
- *  4. Navigates to /listing/<newId>.
+ * PRESENTATION on the V3 boards (`pkg7-create-after.png` composition, `pkg8-create-dark/light`
+ * tokens, `pkg3-create-invalid.png` validation states); the SUBMISSION path is unchanged.
+ * Every gate in `handlePublish` — verified-phone, connected-payout, the
+ * `can_create_listing` risk check, content moderation, the cover + proof uploads,
+ * the `public.listings` insert and the navigate-to-detail — is the same logic in
+ * the same order it has always run. The whole-dollars listing contract, the fee
+ * math and the RPC/edge-function calls are untouched.
  *
- * Imported by app/(tabs)/create.tsx (thin wrapper).
+ * V3 (2026-09-24): sentence-case title in the screen-title voice; section heads are quiet
+ * uppercase eyebrows (the boards keep eyebrows uppercase — the display voice left this screen);
+ * transfer method is a picker ROW opening a sheet, like neighborhood and platform (board
+ * annotation ②: "pickers are rows, not dropdowns"); date and time stack full-width; quantity
+ * sits on the ticket-type row with a rounded stepper; money DISPLAY faces carry cents through
+ * sellState's V3 formatters; panels and controls take the role radii. All colours are palette
+ * roles, so both appearances render from the one stylesheet.
+ *
+ * The pure decisions (validation, moderation, risk parsing, money preview) live in
+ * src/lib/sell/sellState.ts where they are tested. Imported by the thin route
+ * wrapper app/(tabs)/create.tsx.
+ *
+ * HARNESS FIXTURE (`fixture` prop): passed only by `app/_dev/v3-search-create.tsx`. It seeds
+ * form state so the board's filled/invalid/risk-banner states render, and it makes the screen
+ * PREVIEW-ONLY: `handlePublish` returns before its first gate, so the harness can never walk
+ * the submit chain against a server. The live route (`app/(tabs)/create.tsx`) passes no
+ * fixture, and the live submit path is untouched.
  */
 
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -26,17 +41,40 @@ import {
   Switch,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
+  type TextStyle,
 } from 'react-native';
+import { useKeyboardUp } from '@/src/hooks/useKeyboardUp';
+import { TICKET_PLATFORMS } from '@/src/lib/listing/ticketPlatforms';
+import { readServerRefusal } from '@/src/lib/moderation/serverRefusal';
+import { ctaLift } from '@/src/lib/nav/keyboardLift';
 
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
 import { useImageUpload } from '@/src/hooks/useImageUpload';
-import { ImageUploadTile } from '@/src/components/ImageUploadTile';
-import { APP_CONFIG } from '@/src/config/app';
-import { allInLabel, sellerNetFromDollars } from '@/src/lib/money';
-import { colors, fontSize, radius, spacing } from '@/src/theme';
+import { useSingleFlight } from '@/src/hooks/useSingleFlight';
+import { Button, Chip, Input, MediaUpload, Sheet, StickyBar } from '@/src/components/ui';
+import { useDockScroll } from '@/src/components/nav/dockContext';
+import { useCtaDockOffset, useTopInset } from '@/src/lib/nav/navInsets';
+import {
+  digitsOnly,
+  findBannedContent,
+  isSellValid,
+  parseAmount,
+  parseRiskCheckResponse,
+  priceSummary,
+  RISK_COPY,
+  sellErrors,
+  sellingMethodBlurb,
+  publishBlock,
+  submitCtaLabel,
+  proceedsBasis,
+  proceedsKicker,
+} from '@/src/lib/sell/sellState';
+import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
+import * as v2 from '@/src/theme/v2';
 import { NEIGHBORHOOD_GROUPS, NEIGHBORHOOD_LABELS } from '@/src/constants/neighborhoods';
 import { CATEGORIES, CATEGORY_LABELS } from '@/src/constants/categories';
 import type {
@@ -51,193 +89,339 @@ import type {
   TransferMethod,
 } from '@/src/types';
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// ─── Constants (unchanged) ──────────────────────────────────────────────────────
 
-const TICKET_TYPES:     TicketType[]     = ['GA', 'VIP'];
+const TICKET_TYPES: TicketType[] = ['GA', 'VIP'];
 const TRANSFER_METHODS: { value: TransferMethod; label: string }[] = [
-  { value: 'mobile_transfer', label: 'Mobile Transfer' },
+  { value: 'mobile_transfer', label: 'Mobile transfer' },
   { value: 'email',           label: 'Email' },
 ];
-const DURATION_OPTIONS: DurationHours[]  = [1, 3, 6, 12, 24, 48];
+const DURATION_OPTIONS: DurationHours[] = [1, 3, 6, 12, 24, 48];
 
-// Confirmed platforms only — see TRANSFER_METHOD_RESEARCH.md for the official
-// source behind each. Ordered by Miami-market relevance.
-const TICKET_PLATFORMS: { value: TicketPlatform; label: string }[] = [
-  { value: 'ticketmaster', label: 'Ticketmaster' },
-  { value: 'tixr',         label: 'Tixr' },
-  { value: 'dice',         label: 'DICE' },
-  { value: 'posh',         label: 'Posh' },
-  { value: 'eventbrite',   label: 'Eventbrite' },
-  { value: 'axs',          label: 'AXS' },
-  { value: 'seatgeek',     label: 'SeatGeek' },
-  { value: 'mlb_ballpark', label: 'MLB Ballpark' },
-  { value: 'fever',        label: 'Fever' },
-  { value: 'shotgun',      label: 'Shotgun' },
-  { value: 'universe',     label: 'Universe' },
-  { value: 'see_tickets',  label: 'See Tickets' },
-  { value: 'stubhub',      label: 'StubHub' },
-  { value: 'vivid_seats',  label: 'Vivid Seats' },
-  { value: 'gametime',     label: 'Gametime' },
-  { value: 'other',        label: 'Other' },
-];
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Date/time helpers (unchanged) ──────────────────────────────────────────────
 
-function digitsOnly(s: string) { return s.replace(/\D/g, ''); }
-
-// ─── Content moderation (Apple Guideline 1.4.3 — controlled substances /
-// ─── illegal resale). Word-boundary regex over a small lexicon. Keeps false
-// ─── positives low; lives client-side as a first gate. Server-side review
-// ─── is in P1-01 (reports + moderation).
-const BANNED_CONTENT_PATTERNS: { pattern: RegExp; label: string }[] = [
-  { pattern: /\balcohol\b/i,         label: 'alcohol' },
-  { pattern: /\bdrugs?\b/i,          label: 'drugs' },
-  { pattern: /\bweed\b/i,            label: 'weed' },
-  { pattern: /\bcocaine\b/i,         label: 'cocaine' },
-  { pattern: /\bmolly\b/i,           label: 'molly' },
-  { pattern: /\bopen[\s-]?bar\b/i,   label: 'open bar' },
-  { pattern: /\bbottle[\s-]?service\b/i, label: 'bottle service' },
-  { pattern: /\bfake[\s-]?tickets?\b/i,  label: 'fake ticket' },
-  { pattern: /\bcounterfeit\b/i,     label: 'counterfeit' },
-  { pattern: /\bunderage\b/i,        label: 'underage' },
-];
-
-/**
- * Scan listing free-text fields for banned content.
- * @returns the first matched label, or null if clean.
- */
-function findBannedContent(fields: (string | null | undefined)[]): string | null {
-  const haystack = fields.filter(Boolean).join(' \n ');
-  for (const { pattern, label } of BANNED_CONTENT_PATTERNS) {
-    if (pattern.test(haystack)) return label;
-  }
-  return null;
-}
-
-function defaultDate() { const d = new Date(); d.setHours(0,0,0,0); return d; }
-function defaultTime() { const d = new Date(); d.setHours(d.getHours()+1,0,0,0); return d; }
-
+function defaultDate() { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }
+function defaultTime() { const d = new Date(); d.setHours(d.getHours() + 1, 0, 0, 0); return d; }
 function fmtDate(d: Date) {
-  return d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 }
 function fmtTime(d: Date) {
-  return d.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit', hour12:true });
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 }
 /** "2025-08-15" */
 function toDateStr(d: Date) { return d.toISOString().split('T')[0]; }
 /** "21:00:00" */
-function toTimeStr(d: Date) {
-  return d.toTimeString().split(' ')[0]; // "HH:MM:SS"
-}
+function toTimeStr(d: Date) { return d.toTimeString().split(' ')[0]; }
 
-// ─── Tiny shared components ───────────────────────────────────────────────────
+// ─── Presentational building blocks (V2) ────────────────────────────────────────
+//
+// These sit outside the screen function, so the resolved styles (and, where a colour
+// is applied inline, the palette) are handed to them as props — never read from
+// module scope, and never through a hook outside a component.
 
-function SectionHeader({ title }: { title: string }) {
+/** The screen's resolved stylesheet, built by makeStyles() from the live palette. */
+type SellStyles = ReturnType<typeof makeStyles>;
+
+function Section({ title, children, sx }: { title: string; children: React.ReactNode; sx: SellStyles }) {
+  // V3: the section head is a quiet uppercase EYEBROW (`label`), not the V2 Oswald display —
+  // the boards keep eyebrows and tabs uppercase while every action went sentence case. The
+  // rule above it is gone; sections separate with space.
   return (
-    <View style={sec.wrap}>
-      <View style={sec.line} />
-      <Text style={sec.text}>{title}</Text>
+    <View style={sx.section}>
+      <Text style={[textStyle('label'), sx.sectionTitle]} accessibilityRole="header">
+        {title}
+      </Text>
+      <View style={sx.sectionBody}>{children}</View>
     </View>
   );
 }
-const sec = StyleSheet.create({
-  wrap: { marginTop: 28, marginBottom: 12 },
-  line: { height: 1, backgroundColor: colors.border, marginBottom: 10 },
-  text: { fontSize: fontSize.xs, fontWeight: '700', color: colors.textDim,
-          textTransform: 'uppercase', letterSpacing: 1.5 },
-});
 
-function FieldError({ msg }: { msg?: string }) {
-  if (!msg) return null;
-  return <Text style={{ color: colors.error, fontSize: fontSize.xs, marginTop: -8, marginBottom: 8 }}>{msg}</Text>;
+/** A tappable row that opens a sheet/picker. Label above, current value below. */
+function SelectRow({
+  label,
+  value,
+  placeholder,
+  error,
+  onPress,
+  sx,
+  p,
+}: {
+  label: string;
+  value: string | null;
+  placeholder: string;
+  error?: string;
+  onPress: () => void;
+  sx: SellStyles;
+  p: Palette;
+}) {
+  return (
+    <View style={sx.field}>
+      <Text style={[textStyle('micro'), sx.fieldLabel]}>{label}</Text>
+      <Pressable
+        onPress={onPress}
+        style={[sx.selectRow, { borderBottomColor: error ? p.status.error : p.border.control }]}
+        accessibilityRole="button"
+        accessibilityLabel={`${label}. ${value ?? placeholder}`}
+      >
+        <Text style={[textStyle('body'), value ? sx.selectValue : sx.selectPlaceholder]} numberOfLines={1}>
+          {value ?? placeholder}
+        </Text>
+        <Text style={sx.chevron}>{'›'}</Text>
+      </Pressable>
+      {error ? (
+        <Text style={[textStyle('bodySm'), sx.fieldError]} accessibilityRole="alert">{error}</Text>
+      ) : null}
+    </View>
+  );
 }
 
-// ─── Main Component ───────────────────────────────────────────────────────────
+/** Currency field: obvious "$", numeric keyboard, red underline on focus/error. */
+function MoneyField({
+  label,
+  value,
+  onChange,
+  error,
+  helper,
+  sx,
+  p,
+}: {
+  label: string;
+  value: string;
+  onChange: (next: string) => void;
+  error?: string;
+  helper?: string;
+  sx: SellStyles;
+  p: Palette;
+}) {
+  const [focused, setFocused] = useState(false);
+  const underline = error ? p.status.error : focused ? p.brand.red : p.border.control;
+  return (
+    <View style={sx.field}>
+      <Text style={[textStyle('micro'), sx.fieldLabel]}>{label}</Text>
+      <View style={[sx.moneyRow, { borderBottomColor: underline }]}>
+        <Text style={[textStyle('title'), sx.moneyPrefix]}>$</Text>
+        <TextInput
+          style={[textStyle('title') as TextStyle, sx.moneyInput]}
+          value={value}
+          onChangeText={(t) => onChange(digitsOnly(t))}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          keyboardType="number-pad"
+          placeholder="0"
+          placeholderTextColor={p.text.faint}
+          selectionColor={p.brand.red}
+          accessibilityLabel={label}
+          accessibilityHint={error ?? helper}
+        />
+      </View>
+      {error ? (
+        <Text style={[textStyle('bodySm'), sx.fieldError]} accessibilityRole="alert">{error}</Text>
+      ) : helper ? (
+        // V3: the buyer-side line sits in the board's filled rounded panel, not as bare
+        // helper text — it is the other party's number, so it gets its own surface.
+        <View style={sx.helperPanel}>
+          <Text style={[textStyle('bodySm'), sx.fieldHelper]}>{helper}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
 
-export default function CreateListingScreen() {
+/** Multiline free text, same underline aesthetic as Input. */
+function MultilineField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  sx,
+  p,
+}: {
+  label: string;
+  value: string;
+  onChange: (t: string) => void;
+  placeholder: string;
+  sx: SellStyles;
+  p: Palette;
+}) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <View style={sx.field}>
+      <Text style={[textStyle('micro'), sx.fieldLabel]}>{label}</Text>
+      <TextInput
+        style={[
+          textStyle('body') as TextStyle,
+          sx.multiline,
+          { borderBottomColor: focused ? p.brand.red : p.border.control },
+        ]}
+        value={value}
+        onChangeText={onChange}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        placeholder={placeholder}
+        placeholderTextColor={p.text.faint}
+        selectionColor={p.brand.red}
+        multiline
+        numberOfLines={3}
+        accessibilityLabel={label}
+      />
+    </View>
+  );
+}
+
+function ChipRow({ children, sx }: { children: React.ReactNode; sx: SellStyles }) {
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={sx.chipRow}
+      keyboardShouldPersistTaps="handled"
+    >
+      {children}
+    </ScrollView>
+  );
+}
+
+function FieldLabel({ text, sx }: { text: string; sx: SellStyles }) {
+  return <Text style={[textStyle('micro'), sx.groupLabel]}>{text}</Text>;
+}
+
+function ReviewRow({ label, value, sx }: { label: string; value: string; sx: SellStyles }) {
+  return (
+    <View style={sx.reviewRow}>
+      <Text style={[textStyle('bodySm'), sx.reviewKey]}>{label}</Text>
+      <Text style={[textStyle('bodySm'), sx.reviewVal]} numberOfLines={1}>{value}</Text>
+    </View>
+  );
+}
+
+// ─── Screen ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Harness-only fixture (see the header note). Seeds presentation state so the dev route can
+ * render the board's filled, invalid and risk-banner states; its presence makes the screen
+ * preview-only. Never passed by the live route.
+ */
+export interface CreateFixture {
+  form?: {
+    eventName?: string;
+    venue?: string;
+    neighborhood?: Neighborhood | null;
+    eventDate?: Date;
+    eventTime?: Date;
+    ticketType?: TicketType | null;
+    quantity?: number;
+    transferMethod?: TransferMethod | null;
+    ticketPlatform?: TicketPlatform;
+    startingBid?: string;
+    durationHours?: DurationHours | null;
+    commitmentAccepted?: boolean;
+  };
+  submitted?: boolean;
+  riskBanner?: { reason: CanCreateListingReason | 'check_unavailable'; tier: RiskTier | null };
+}
+
+export default function CreateListingScreen({ fixture }: { fixture?: CreateFixture } = {}) {
   const { user } = useAuth();
+  const { palette } = useTheme();
+  const sx = useMemo(() => makeStyles(palette), [palette]);
+  const topPad = useTopInset();
+  // Lift the List ticket CTA above the floating dock: its own surface, clear gap —
+  // but not while a keyboard is up (F-SELL-1): the dock hides then, and the lift
+  // became a ~160 pt blank gap between the bar and the keyboard on build 17.
+  const ctaDockOffset = useCtaDockOffset();
+  const keyboardUp = useKeyboardUp();
+  // Create participates in the universal adaptive collapse (device revision).
+  const { onScroll: onDockScroll } = useDockScroll('create');
 
-  // A — Event
-  const [eventName,        setEventName]        = useState('');
-  const [venue,            setVenue]            = useState('');
-  const [neighborhood,     setNeighborhood]     = useState<Neighborhood | null>(null);
+  // A — Event. Initializers may come from the harness fixture; the live route passes none.
+  const fx = fixture?.form;
+  const [eventName,        setEventName]        = useState(fx?.eventName ?? '');
+  const [venue,            setVenue]            = useState(fx?.venue ?? '');
+  const [neighborhood,     setNeighborhood]     = useState<Neighborhood | null>(fx?.neighborhood ?? null);
   const [neighborhoodOpen, setNeighborhoodOpen] = useState(false);
   const [neighborhoodQuery, setNeighborhoodQuery] = useState('');
   const [category,         setCategory]         = useState<EventCategory>('nightlife');
   const [platformOpen,     setPlatformOpen]     = useState(false);
   const [platformQuery,    setPlatformQuery]    = useState('');
-  const [eventDate,        setEventDate]        = useState<Date>(defaultDate);
-  const [eventTime,        setEventTime]        = useState<Date>(defaultTime);
+  const [eventDate,        setEventDate]        = useState<Date>(fx?.eventDate ?? defaultDate);
+  const [eventTime,        setEventTime]        = useState<Date>(fx?.eventTime ?? defaultTime);
 
   // B — Ticket
-  const [ticketType,      setTicketType]      = useState<TicketType | null>(null);
-  const [quantity,        setQuantity]        = useState(1);
-  const [transferMethod,  setTransferMethod]  = useState<TransferMethod | null>(null);
-  const [restrictions,    setRestrictions]    = useState('');
+  const [ticketType,     setTicketType]     = useState<TicketType | null>(fx?.ticketType ?? null);
+  const [quantity,       setQuantity]       = useState(fx?.quantity ?? 1);
+  const [transferMethod, setTransferMethod] = useState<TransferMethod | null>(fx?.transferMethod ?? null);
+  const [transferOpen,   setTransferOpen]   = useState(false);
+  const [restrictions,   setRestrictions]   = useState('');
 
   // C — Pricing
-  const [startingBid,    setStartingBid]    = useState('');
-  const [buyNowEnabled,  setBuyNowEnabled]  = useState(false);
-  const [buyNowPrice,    setBuyNowPrice]    = useState('');
-  const [durationHours,  setDurationHours]  = useState<DurationHours | null>(null);
+  const [startingBid,   setStartingBid]   = useState(fx?.startingBid ?? '');
+  const [buyNowEnabled, setBuyNowEnabled] = useState(false);
+  const [buyNowPrice,   setBuyNowPrice]   = useState('');
+  const [durationHours, setDurationHours] = useState<DurationHours | null>(fx?.durationHours ?? null);
 
-  // D — Platform & Trust (Phase A)
-  const [ticketPlatform,           setTicketPlatform]           = useState<TicketPlatform>('other');
-  const [sellerCommitmentAccepted, setSellerCommitmentAccepted] = useState(false);
+  // D — Platform & Trust
+  const [ticketPlatform,           setTicketPlatform]           = useState<TicketPlatform>(fx?.ticketPlatform ?? 'other');
+  const [sellerCommitmentAccepted, setSellerCommitmentAccepted] = useState(fx?.commitmentAccepted ?? false);
 
   // E — Media
-  const coverUpload = useImageUpload({
-    userId: user?.id ?? '',
-    folder: 'covers',
-    aspect: [16, 9],
-    quality: 0.85,
-  });
+  // `aspect: null` — the cover is uploaded WHOLE (owner 2026-09-24). It used to be `[16, 9]`, which
+  // cropped the flyer in the picker: the discarded pixels never reached storage, so a portrait
+  // poster could not enter the app at all. The consumer app now fits the original into a 4:5 frame,
+  // and fitting needs the original to still have its edges. Stated rather than defaulted, so the
+  // one screen that uploads event artwork says out loud that it does not crop it.
+  const coverUpload = useImageUpload({ userId: user?.id ?? '', folder: 'covers', aspect: null, quality: 0.85 });
   const proofUpload = useImageUpload({
     userId: user?.id ?? '',
     folder: 'proofs',
     aspect: null,
     quality: 0.85,
-    bucket: 'proof-docs',   // PRIVATE bucket (migration 033) — owner + admin only
+    bucket: 'proof-docs', // PRIVATE bucket (migration 033) — owner + admin only
   });
 
-  // Picker modal
+  // F-IMG-1: one publish at a time (repeated taps and the risk-modal confirm share it).
+  const publishFlight = useSingleFlight();
+
+  // Picker
   const [pickerMode,    setPickerMode]    = useState<'date' | 'time'>('date');
   const [pickerVisible, setPickerVisible] = useState(false);
 
-  // Phase D — risk check state
+  // Phase D — risk state
   const [riskWarningVisible, setRiskWarningVisible] = useState(false);
-  const [riskBanner,         setRiskBanner]         = useState<{ reason: CanCreateListingReason; tier: RiskTier | null } | null>(null);
+  // The banner shows either a server verdict or the client's own "the check did not answer" state.
+  // `check_unavailable` is deliberately NOT added to CanCreateListingReason: the server never sends
+  // it, and widening the server contract to carry a client state is how the two got confused.
+  const [riskBanner,         setRiskBanner]         = useState<{ reason: CanCreateListingReason | 'check_unavailable'; tier: RiskTier | null } | null>(fixture?.riskBanner ?? null);
   const [riskCheckPassed,    setRiskCheckPassed]    = useState(false);
 
   // UI
-  const [submitted, setSubmitted] = useState(false);
+  const [submitted, setSubmitted] = useState(fixture?.submitted ?? false);
   const [loading,   setLoading]   = useState(false);
 
-  const startingBidNum = parseInt(startingBid, 10);
-  const buyNowPriceNum = parseInt(buyNowPrice, 10);
+  const startingBidNum = parseAmount(startingBid);
+  const buyNowPriceNum = parseAmount(buyNowPrice);
 
-  // Validation
-  const errors = useMemo(() => ({
-    eventName:     !eventName.trim()                        ? 'Event name is required.'            : '',
-    venue:         !venue.trim()                            ? 'Venue is required.'                 : '',
-    neighborhood:  !neighborhood                            ? 'Select a neighborhood.'             : '',
-    ticketType:    !ticketType                              ? 'Select a ticket type.'              : '',
-    transferMethod:!transferMethod                          ? 'Select a transfer method.'          : '',
-    startingBid:   (!startingBid || startingBidNum < 1)    ? 'Starting bid must be ≥ $1.'         : '',
-    buyNowPrice:   buyNowEnabled && (!buyNowPrice || buyNowPriceNum <= startingBidNum)
-                     ? `Buy Now must be > starting bid ($${startingBidNum || 0}).`                : '',
-    durationHours: !durationHours                          ? 'Select an auction duration.'        : '',
-    coverImage:    !coverUpload.localUri                   ? 'Cover image is required.'           : '',
-    proofImage:    !proofUpload.localUri                   ? 'Proof of ownership is required.'    : '',
-    commitment:    !sellerCommitmentAccepted               ? 'You must accept the commitment.'    : '',
-  }), [eventName, venue, neighborhood, ticketType, transferMethod,
-       startingBid, startingBidNum, buyNowEnabled, buyNowPrice, buyNowPriceNum,
-       durationHours, coverUpload.localUri, proofUpload.localUri,
-       sellerCommitmentAccepted]);
+  // Validation — pure, from sellState
+  const errors = useMemo(
+    () =>
+      sellErrors({
+        eventName, venue, neighborhood, ticketType, transferMethod,
+        startingBid, buyNowEnabled, buyNowPrice, durationHours,
+        coverLocalUri: coverUpload.localUri,
+        proofLocalUri: proofUpload.localUri,
+        commitmentAccepted: sellerCommitmentAccepted,
+      }),
+    [eventName, venue, neighborhood, ticketType, transferMethod, startingBid,
+     buyNowEnabled, buyNowPrice, durationHours, coverUpload.localUri,
+     proofUpload.localUri, sellerCommitmentAccepted],
+  );
+  const isValid = isSellValid(errors);
 
-  const isValid = Object.values(errors).every(e => !e);
+  // The listing price a buyer transacts at: Buy Now price if set, else starting bid.
+  const priceForPreview = buyNowEnabled && buyNowPriceNum > 0 ? buyNowPriceNum : startingBidNum;
+  const summary = priceSummary(priceForPreview);
 
-  // Date / time picker
+  // Date / time
   function openPicker(mode: 'date' | 'time') { setPickerMode(mode); setPickerVisible(true); }
   function onPickerChange(_e: DateTimePickerEvent, selected?: Date) {
     if (Platform.OS === 'android') setPickerVisible(false);
@@ -246,96 +430,51 @@ export default function CreateListingScreen() {
     else setEventTime(selected);
   }
 
-  // ── Phase D risk-check copy ────────────────────────────────────────────────
-  const RISK_COPY = {
-    medium_risk_warning: "We've noticed some recent issues. Please double-check your listing details.",
-    high_risk_warning:   'Your account is under review. Incorrect listings may result in restrictions.',
-    critical_risk:       'You cannot create listings at this time. Contact support.',
-    listing_blocked:     'You cannot create listings at this time. Contact support.',
-  } as const;
+  // Both blocked reasons get the identical treatment and the identical action: they differ in origin
+  // — an admin restriction against a computed tier — but not in what the seller can do about either.
+  const riskBlocked = riskBanner != null
+    && (riskBanner.reason === 'critical_risk' || riskBanner.reason === 'listing_blocked');
 
-  // ── Phase D: parse + validate RPC response ─────────────────────────────────
-
-  const VALID_REASONS = new Set<CanCreateListingReason>([
-    'ok', 'medium_risk_warning', 'high_risk_warning', 'critical_risk', 'listing_blocked',
-  ]);
-
-  type RiskCheckResult =
-    | { status: 'ok';          reason: 'ok';                         tier: RiskTier | null }
-    | { status: 'warn';        reason: CanCreateListingReason;       tier: RiskTier | null }
-    | { status: 'block';       reason: CanCreateListingReason;       tier: RiskTier | null }
-    | { status: 'transient';   message: string }
-    | { status: 'bad_shape';   raw: unknown };
-
-  function parseRiskCheckResponse(
-    data: unknown,
-    error: { message: string } | null,
-  ): RiskCheckResult {
-    // 1. Network / transient RPC error → fail-open with warning
-    if (error) {
-      return { status: 'transient', message: error.message };
-    }
-
-    // 2. Normalize: Supabase returns RETURNS TABLE as an array
-    const row = Array.isArray(data) ? data[0] : data;
-
-    // 3. Validate shape: must have allowed (boolean), reason (known string)
-    if (
-      !row ||
-      typeof row !== 'object' ||
-      typeof (row as Record<string, unknown>).allowed !== 'boolean' ||
-      typeof (row as Record<string, unknown>).reason  !== 'string' ||
-      !VALID_REASONS.has((row as Record<string, unknown>).reason as CanCreateListingReason)
-    ) {
-      return { status: 'bad_shape', raw: row };
-    }
-
-    const { allowed, reason, risk_tier } = row as {
-      allowed:   boolean;
-      reason:    CanCreateListingReason;
-      risk_tier: RiskTier | null;
-    };
-
-    if (!allowed) return { status: 'block', reason, tier: risk_tier };
-    if (reason === 'high_risk_warning' || reason === 'medium_risk_warning') {
-      return { status: 'warn', reason, tier: risk_tier };
-    }
-    return { status: 'ok', reason: 'ok', tier: risk_tier };
-  }
-
-  // ── Phase D pre-submit risk check ─────────────────────────────────────────
-
+  // ── Phase D pre-submit risk check (unchanged behaviour) ─────────────────────
   async function runRiskCheck(): Promise<boolean> {
     if (!user) return false;
 
-    const { data, error } = await supabase.rpc('can_create_listing', {
-      p_seller_id: user.id,
-    });
-
+    const { data, error } = await supabase.rpc('can_create_listing', { p_seller_id: user.id });
     const result = parseRiskCheckResponse(data, error);
 
     switch (result.status) {
       case 'ok':
         setRiskBanner(null);
         return true;
-
       case 'transient':
-        // Fail-open: allow submit but warn the seller + log for ops visibility
         console.warn('[CreateListingScreen] risk check transient error — allowing submit:', result.message);
-        setRiskBanner({ reason: 'medium_risk_warning', tier: null });
+        // Fails open, as before. The banner says the check did not answer; it does not report a
+        // verdict the server never gave.
+        setRiskBanner({ reason: 'check_unavailable', tier: null });
         return true;
-
-      case 'bad_shape':
-        // Unexpected payload: block submit with generic error, log raw data
+      case 'bad_shape': {
         console.error('[CreateListingScreen] risk check returned unexpected shape:', JSON.stringify(result.raw));
-        Alert.alert('Something went wrong', 'Unable to verify your account status. Please try again.');
+        const msg = 'Unable to verify your account status. Please try again.';
+        if (Platform.OS === 'web') { window.alert(msg); } else { Alert.alert('Something went wrong', msg); }
         return false;
-
-      case 'block':
+      }
+      case 'block': {
         setRiskBanner({ reason: result.reason, tier: result.tier });
-        Alert.alert('Listing blocked', RISK_COPY[result.reason as keyof typeof RISK_COPY]);
+        // "Contact support" is an instruction, so the app offers the route — the same courtesy the
+        // phone-verification and payout gates in this function already extend. The two blocked
+        // reasons differ in origin (an admin restriction vs a computed tier) but not in what the
+        // seller can do about either, so they keep one sentence and one treatment.
+        const msg = RISK_COPY[result.reason as keyof typeof RISK_COPY];
+        if (Platform.OS === 'web') {
+          window.alert(msg);
+        } else {
+          Alert.alert('Listing blocked', msg, [
+            { text: 'Not now', style: 'cancel' },
+            { text: 'Contact support', onPress: () => router.push('/settings/support') },
+          ]);
+        }
         return false;
-
+      }
       case 'warn':
         setRiskBanner({ reason: result.reason, tier: result.tier });
         if (result.reason === 'high_risk_warning') {
@@ -346,17 +485,36 @@ export default function CreateListingScreen() {
     }
   }
 
-  // Publish
+  // ── Publish (gate chain unchanged) ──────────────────────────────────────────
   async function handlePublish() {
+    // Harness renders are preview-only: with a fixture mounted, the submit chain is never
+    // entered, so the dev route cannot fire the gates or the insert against a server. The
+    // live route passes no fixture and takes the unchanged path below.
+    if (fixture) return;
     setSubmitted(true);
-    if (!isValid || !user) return;
+    /*
+     * One silent return used to cover two unrelated refusals. An incomplete form is still the
+     * fields' own business — `setSubmitted` above is what makes them speak — but a signed-out
+     * seller was told nothing at all (E, 2026-10-05). `!user` stays in the condition so the rest
+     * of this function keeps its non-null `user`; it is the same case as the block.
+     */
+    const block = publishBlock({ valid: isValid, signedIn: user != null });
+    if (block || !user) {
+      if (block?.kind === 'signed-out') {
+        if (Platform.OS === 'web') {
+          window.alert(`${block.title}\n\n${block.body}`);
+        } else {
+          Alert.alert(block.title, block.body);
+        }
+      }
+      return;
+    }
 
     // Content moderation gate (Guideline 1.4.3)
     const banned = findBannedContent([eventName, venue, restrictions]);
     if (banned) {
       const msg = `Listings can't mention "${banned}". Please revise your event name, venue, or restrictions and try again.`;
-      if (Platform.OS === 'web') { window.alert(msg); }
-      else { Alert.alert('Listing not allowed', msg); }
+      if (Platform.OS === 'web') { window.alert(msg); } else { Alert.alert('Listing not allowed', msg); }
       return;
     }
 
@@ -364,7 +522,6 @@ export default function CreateListingScreen() {
 
     try {
       // Gate 0: verified phone (trust step — matches the RLS guard in 038).
-      // Fresh getUser() — the cached session predates any recent verification.
       const { data: authData } = await supabase.auth.getUser();
       if (!authData?.user?.phone_confirmed_at) {
         setLoading(false);
@@ -383,22 +540,12 @@ export default function CreateListingScreen() {
       }
 
       // Gate: require FULLY connected Stripe payout account before listing.
-      // Two-tier check:
-      //   1. DB fast-path: stripe_onboarding_complete === true → pass
-      //   2. Edge function: authoritative Stripe details_submitted check
-      // If the profile query fails (e.g. column mismatch, network blip),
-      // fall through to the edge function rather than blocking immediately.
       let payoutConnected = false;
-
       const { data: profile } = await supabase.rpc('get_my_profile').returns<MyProfileRPC[]>().maybeSingle();
 
       if (profile?.stripe_onboarding_complete) {
-        // Fast path: DB already flagged onboarding complete.
         payoutConnected = true;
       } else {
-        // Authoritative check: always ask the edge function.
-        // This covers: no profile data, stripe_connect_id missing, or
-        // onboarding_complete not yet set.
         try {
           const { data: statusData, error: statusErr } = await supabase.functions.invoke(
             'create-connect-account',
@@ -437,12 +584,12 @@ export default function CreateListingScreen() {
         const canProceed = await runRiskCheck();
         if (!canProceed) return;
       }
-      setRiskCheckPassed(false); // reset for next attempt
+      setRiskCheckPassed(false);
 
       // 1. Upload cover image
       const coverPath = await coverUpload.uploadImage();
       if (!coverPath) {
-        const msg = coverUpload.error ?? 'Unknown upload error — check console for details.';
+        const msg = coverUpload.readError() ?? 'Unknown upload error — check console for details.';
         console.error('[CreateListingScreen] cover upload failed:', msg);
         if (Platform.OS === 'web') { window.alert(msg); } else { Alert.alert('Upload failed', msg); }
         return;
@@ -451,7 +598,7 @@ export default function CreateListingScreen() {
       // 1b. Upload proof of ownership image
       const proofPath = await proofUpload.uploadImage();
       if (!proofPath) {
-        const msg = proofUpload.error ?? 'Unknown upload error — check console for details.';
+        const msg = proofUpload.readError() ?? 'Unknown upload error — check console for details.';
         console.error('[CreateListingScreen] proof upload failed:', msg);
         if (Platform.OS === 'web') { window.alert(msg); } else { Alert.alert('Proof upload failed', msg); }
         return;
@@ -481,17 +628,25 @@ export default function CreateListingScreen() {
           ends_at:                       endsAt.toISOString(),
           current_bid:                   startingBidNum,
           cover_image_path:              coverPath,
-          // Phase A fields
           ticket_platform:               ticketPlatform,
           proof_of_ownership_path:       proofPath,
           seller_commitment_accepted_at: sellerCommitmentAccepted ? new Date().toISOString() : null,
-          // Migration 033 — marketplace expansion
           category,
         })
         .select('id')
         .single();
 
-      if (error) throw new Error(error.message);
+      if (error) {
+        // RC3 (152): a suspended seller or prohibited text is a refusal the seller can act on. It is
+        // shown as the policy sentence and the form is KEPT for revision — nothing is reset. Anything
+        // else is the unknown error it always was.
+        const refusal = readServerRefusal(error);
+        if (refusal) {
+          if (Platform.OS === 'web') { window.alert(refusal.body); } else { Alert.alert(refusal.title, refusal.body); }
+          return;
+        }
+        throw new Error(error.message);
+      }
 
       // 4. Reset form
       setEventName(''); setVenue(''); setNeighborhood(null);
@@ -507,7 +662,6 @@ export default function CreateListingScreen() {
 
       // 5. Navigate to detail screen
       router.push(`/listing/${data.id}`);
-
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Could not publish.';
       if (Platform.OS === 'web') { window.alert(msg); } else { Alert.alert('Error', msg); }
@@ -516,624 +670,660 @@ export default function CreateListingScreen() {
     }
   }
 
-  /** Called when user confirms past the high-risk warning modal */
+  /** Confirm past the high-risk warning modal. */
   function handleRiskWarningContinue() {
     setRiskWarningVisible(false);
     setRiskCheckPassed(true);
-    // Re-trigger publish — this time it will skip the risk check
-    handlePublish();
+    void publishFlight.run(handlePublish);
   }
 
-  const busy = loading || coverUpload.status === 'uploading' || proofUpload.status === 'uploading';
+  const busy = loading || coverUpload.busy || proofUpload.busy;
+  const platformLabel = TICKET_PLATFORMS.find((p) => p.value === ticketPlatform)?.label ?? null;
 
   // ────────────────────────────────────────────────────────────────────────────
   return (
-    <KeyboardAvoidingView style={s.root} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <ScrollView contentContainerStyle={s.inner} keyboardShouldPersistTaps="handled">
-        <Text style={s.pageTitle}>Create listing</Text>
+    <KeyboardAvoidingView style={sx.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <View style={[sx.header, { paddingTop: topPad + v2.space.sm }]}>
+        {/* V3: the title speaks the screen-title voice — sentence case, bold sans — as the
+            boards draw it. The display voice (Oswald) now belongs to event names only. */}
+        <Text style={[textStyle('screenTitle'), sx.pageTitle]} accessibilityRole="header">Sell your ticket</Text>
+      </View>
 
-        {/* ── A) EVENT DETAILS ─────────────────────────────── */}
-        <SectionHeader title="Event details" />
-
-        <Text style={s.label}>Event name *</Text>
-        <TextInput
-          style={[s.input, submitted && errors.eventName ? s.inputErr : null]}
-          placeholder="e.g. Weekend Pool Party"
-          placeholderTextColor={colors.textPlaceholder}
-          value={eventName} onChangeText={setEventName}
-        />
-        {submitted && <FieldError msg={errors.eventName} />}
-
-        <Text style={s.label}>Venue *</Text>
-        <TextInput
-          style={[s.input, submitted && errors.venue ? s.inputErr : null]}
-          placeholder="e.g. LIV Miami"
-          placeholderTextColor={colors.textPlaceholder}
-          value={venue} onChangeText={setVenue}
-        />
-        {submitted && <FieldError msg={errors.venue} />}
-
-        <Text style={s.label}>Neighborhood *</Text>
-        <TouchableOpacity
-          style={[s.input, s.row, submitted && errors.neighborhood ? s.inputErr : null]}
-          onPress={() => setNeighborhoodOpen(true)} activeOpacity={0.75}>
-          <Text style={neighborhood ? s.inputText : s.placeholder}>
-            {neighborhood ? NEIGHBORHOOD_LABELS[neighborhood] : 'Select neighborhood'}
-          </Text>
-          <Text style={s.chevron}>▾</Text>
-        </TouchableOpacity>
-        {submitted && <FieldError msg={errors.neighborhood} />}
-
-        <Text style={s.label}>Date & Time *</Text>
-        <View style={s.pickerRow}>
-          <TouchableOpacity style={s.pickerBtn} onPress={() => openPicker('date')} activeOpacity={0.75}>
-            <Text style={s.pickerText}>📅  {fmtDate(eventDate)}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={s.pickerBtn} onPress={() => openPicker('time')} activeOpacity={0.75}>
-            <Text style={s.pickerText}>🕐  {fmtTime(eventTime)}</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* ── B) TICKET INFO ───────────────────────────────── */}
-        <SectionHeader title="Ticket info" />
-
-        <Text style={s.label}>Category *</Text>
-        <View style={[s.pills, { flexWrap: 'wrap' }]}>
-          {CATEGORIES.map(c => (
-            <TouchableOpacity key={c}
-              style={[s.pill, category === c && s.pillOn]}
-              onPress={() => setCategory(c)} activeOpacity={0.75}>
-              <Text style={[s.pillText, category === c && s.pillTextOn]}>{CATEGORY_LABELS[c]}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        <Text style={s.label}>Ticket type *</Text>
-        <View style={s.pills}>
-          {TICKET_TYPES.map(t => (
-            <TouchableOpacity key={t}
-              style={[s.pill, ticketType === t && s.pillOn]}
-              onPress={() => setTicketType(t)} activeOpacity={0.75}>
-              <Text style={[s.pillText, ticketType === t && s.pillTextOn]}>{t}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-        {submitted && <FieldError msg={errors.ticketType} />}
-
-        <Text style={s.label}>Quantity *</Text>
-        <View style={s.stepper}>
-          <TouchableOpacity style={[s.stepBtn, quantity <= 1 && s.stepDisabled]}
-            onPress={() => setQuantity(q => Math.max(1, q - 1))} disabled={quantity <= 1} activeOpacity={0.75}>
-            <Text style={s.stepGlyph}>−</Text>
-          </TouchableOpacity>
-          <Text style={s.stepVal}>{quantity}</Text>
-          <TouchableOpacity style={s.stepBtn}
-            onPress={() => setQuantity(q => q + 1)} activeOpacity={0.75}>
-            <Text style={s.stepGlyph}>+</Text>
-          </TouchableOpacity>
-        </View>
-
-        <Text style={s.label}>Transfer method *</Text>
-        <View style={s.pills}>
-          {TRANSFER_METHODS.map(({ value, label }) => (
-            <TouchableOpacity key={value}
-              style={[s.pill, transferMethod === value && s.pillOn]}
-              onPress={() => setTransferMethod(value)} activeOpacity={0.75}>
-              <Text style={[s.pillText, transferMethod === value && s.pillTextOn]}>{label}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-        {submitted && <FieldError msg={errors.transferMethod} />}
-
-        <Text style={s.label}>Ticket platform *</Text>
-        <TouchableOpacity
-          style={[s.input, s.row]}
-          onPress={() => setPlatformOpen(true)}
-          activeOpacity={0.75}>
-          <Text style={s.inputText}>
-            {TICKET_PLATFORMS.find(p => p.value === ticketPlatform)?.label ?? 'Select platform'}
-          </Text>
-          <Text style={s.placeholder}>▾</Text>
-        </TouchableOpacity>
-
-        <Text style={s.label}>Restrictions (optional)</Text>
-        <TextInput
-          style={[s.input, s.textarea]}
-          placeholder="e.g. 21+, no re-entry, dress code..."
-          placeholderTextColor={colors.textPlaceholder}
-          multiline numberOfLines={3}
-          value={restrictions} onChangeText={setRestrictions}
-        />
-
-        {/* ── C) PRICING ───────────────────────────────────── */}
-        <SectionHeader title="Pricing" />
-
-        <Text style={s.label}>Starting bid *</Text>
-        <View style={[s.prefixRow, submitted && errors.startingBid ? s.inputErr : null]}>
-          <Text style={s.prefix}>$</Text>
-          <TextInput style={s.prefixInput}
-            placeholder="0" placeholderTextColor={colors.textPlaceholder}
-            keyboardType="number-pad"
-            value={startingBid} onChangeText={t => setStartingBid(digitsOnly(t))} />
-        </View>
-        {submitted && <FieldError msg={errors.startingBid} />}
-        {startingBidNum > 0 && (
-          <Text style={s.feeHint}>
-            Listing price ${startingBidNum.toLocaleString('en-US')} · you receive {sellerNetFromDollars(startingBidNum)} per ticket after the {Math.round(APP_CONFIG.SELLER_FEE_RATE * 100)}% seller fee. Buyers see {allInLabel(startingBidNum)} (includes their 10% service fee).
-          </Text>
-        )}
-
-        <View style={s.toggleCard}>
-          <View style={{ flex: 1, marginRight: spacing.md }}>
-            <Text style={s.toggleLabel}>Buy Now price</Text>
-            <Text style={s.toggleHint}>Let buyers skip the auction</Text>
-          </View>
-          <Switch
-            value={buyNowEnabled}
-            onValueChange={v => { setBuyNowEnabled(v); if (!v) setBuyNowPrice(''); }}
-            trackColor={{ false: colors.border, true: colors.primary }}
-            thumbColor={colors.text}
+      <ScrollView
+        contentContainerStyle={sx.scroll}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        onScroll={onDockScroll}
+        scrollEventThrottle={16}
+      >
+        {/* ── EVENT ─────────────────────────────────────────── */}
+        <Section title="Event" sx={sx}>
+          <Input
+            label="Event name"
+            placeholder="e.g. Weekend pool party"
+            value={eventName}
+            onChangeText={setEventName}
+            error={submitted ? errors.eventName || null : null}
+            returnKeyType="next"
           />
-        </View>
+          <Input
+            label="Venue"
+            placeholder="e.g. LIV Miami"
+            value={venue}
+            onChangeText={setVenue}
+            error={submitted ? errors.venue || null : null}
+            returnKeyType="next"
+          />
+          <SelectRow
+            label="Neighborhood"
+            value={neighborhood ? NEIGHBORHOOD_LABELS[neighborhood] : null}
+            placeholder="Select area or venue"
+            error={submitted ? errors.neighborhood : undefined}
+            onPress={() => setNeighborhoodOpen(true)}
+            sx={sx}
+            p={palette}
+          />
+          {/* V3 (pkg7-create-after): date and time stack full width like every other picker
+              row — the two-column pair was the V2 layout. */}
+          <SelectRow label="Date" value={fmtDate(eventDate)} placeholder="Pick a date" onPress={() => openPicker('date')} sx={sx} p={palette} />
+          <SelectRow label="Time" value={fmtTime(eventTime)} placeholder="Pick a time" onPress={() => openPicker('time')} sx={sx} p={palette} />
+        </Section>
 
-        {buyNowEnabled && (
-          <>
-            <View style={[s.prefixRow, submitted && errors.buyNowPrice ? s.inputErr : null]}>
-              <Text style={s.prefix}>$</Text>
-              <TextInput style={s.prefixInput}
-                placeholder="0" placeholderTextColor={colors.textPlaceholder}
-                keyboardType="number-pad"
-                value={buyNowPrice} onChangeText={t => setBuyNowPrice(digitsOnly(t))} />
+        {/* ── TICKET ────────────────────────────────────────── */}
+        <Section title="Ticket" sx={sx}>
+          <FieldLabel text="Category" sx={sx} />
+          <ChipRow sx={sx}>
+            {CATEGORIES.map((c) => (
+              <Chip key={c} label={CATEGORY_LABELS[c]} selected={category === c} onPress={() => setCategory(c)} />
+            ))}
+          </ChipRow>
+
+          <FieldLabel text="Ticket type" sx={sx} />
+          {/* V3 (pkg8-create): quantity shares the ticket-type row, right-aligned. The board's
+              static "Quantity 2" gains its working stepper here — rounded per the role radii —
+              because a mock does not need to change the number and a seller does. */}
+          <View style={sx.ticketTypeRow}>
+            <View style={sx.inlineChips}>
+              {TICKET_TYPES.map((t) => (
+                <Chip key={t} label={t} selected={ticketType === t} onPress={() => setTicketType(t)} />
+              ))}
             </View>
-            {submitted && <FieldError msg={errors.buyNowPrice} />}
-            {buyNowPriceNum > 0 && (
-              <Text style={s.feeHint}>
-                Listing price ${buyNowPriceNum.toLocaleString('en-US')} · you receive {sellerNetFromDollars(buyNowPriceNum)} per ticket after the {Math.round(APP_CONFIG.SELLER_FEE_RATE * 100)}% seller fee. Buyers see {allInLabel(buyNowPriceNum)} (includes their 10% service fee).
-              </Text>
-            )}
-          </>
-        )}
-
-        <Text style={[s.label, { marginTop: spacing.md }]}>Auction duration *</Text>
-        <View style={[s.pills, { flexWrap: 'wrap' }]}>
-          {DURATION_OPTIONS.map(h => (
-            <TouchableOpacity key={h}
-              style={[s.pill, { minWidth: 56, alignItems: 'center' }, durationHours === h && s.pillOn]}
-              onPress={() => setDurationHours(h)} activeOpacity={0.75}>
-              <Text style={[s.pillText, durationHours === h && s.pillTextOn]}>
-                {h < 24 ? `${h}h` : `${h / 24}d`}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-        {submitted && <FieldError msg={errors.durationHours} />}
-
-        {/* ── D) MEDIA ─────────────────────────────────────── */}
-        <SectionHeader title="Media" />
-
-        <Text style={s.label}>Cover image *</Text>
-        <ImageUploadTile
-          localUri={coverUpload.localUri}
-          status={coverUpload.status}
-          error={coverUpload.error}
-          onPress={coverUpload.pickImage}
-          label="Upload cover image"
-          hint="JPG or PNG · 16:9 recommended"
-          icon="🖼️"
-          height={180}
-          hasError={submitted && !!errors.coverImage}
-          disabled={busy}
-        />
-        {submitted && <FieldError msg={errors.coverImage} />}
-
-        <Text style={s.label}>Proof of ownership *</Text>
-        <ImageUploadTile
-          localUri={proofUpload.localUri}
-          status={proofUpload.status}
-          error={proofUpload.error}
-          onPress={proofUpload.pickImage}
-          label="Upload proof of ownership"
-          hint="Screenshot of ticket in app or confirmation email"
-          icon="🎟️"
-          height={140}
-          hasError={submitted && !!errors.proofImage}
-          disabled={busy}
-        />
-        {submitted && <FieldError msg={errors.proofImage} />}
-
-        {/* ── F) COMMITMENT + PUBLISH ─────────────────────── */}
-        <SectionHeader title="Seller commitment" />
-
-        <Pressable
-          style={s.commitRow}
-          onPress={() => setSellerCommitmentAccepted(v => !v)}
-        >
-          <View style={[s.checkbox, sellerCommitmentAccepted && s.checkboxOn]}>
-            {sellerCommitmentAccepted && <Text style={s.checkMark}>{'\u2713'}</Text>}
+            <View style={sx.quantityGroup}>
+              <Text style={[textStyle('bodySm'), sx.quantityWord]}>Quantity</Text>
+              <Pressable
+                style={[sx.stepBtn, quantity <= 1 && sx.stepDisabled]}
+                onPress={() => setQuantity((q) => Math.max(1, q - 1))}
+                disabled={quantity <= 1}
+                accessibilityRole="button"
+                accessibilityLabel="Decrease quantity"
+                hitSlop={8}
+              >
+                <Text style={sx.stepGlyph}>{'−'}</Text>
+              </Pressable>
+              <Text style={[textStyle('price'), sx.stepVal]} accessibilityLabel={`Quantity ${quantity}`}>{quantity}</Text>
+              <Pressable
+                style={sx.stepBtn}
+                onPress={() => setQuantity((q) => q + 1)}
+                accessibilityRole="button"
+                accessibilityLabel="Increase quantity"
+                hitSlop={8}
+              >
+                <Text style={sx.stepGlyph}>+</Text>
+              </Pressable>
+            </View>
           </View>
-          <Text style={s.commitText}>
-            I confirm I own these tickets and will transfer them within 24 hours of sale.
-          </Text>
-        </Pressable>
-        {submitted && <FieldError msg={errors.commitment} />}
+          {submitted && errors.ticketType ? (
+            <Text style={[textStyle('bodySm'), sx.fieldError]} accessibilityRole="alert">{errors.ticketType}</Text>
+          ) : null}
 
-        {submitted && !isValid && (
-          <Text style={s.validationMsg}>Please fix the errors above before publishing.</Text>
-        )}
+          {/* V3 (board annotation ②): pickers are rows, not inline choices — transfer method
+              opens a sheet like neighborhood and platform. Same two values, same state. */}
+          <SelectRow
+            label="Transfer method"
+            value={TRANSFER_METHODS.find((m) => m.value === transferMethod)?.label ?? null}
+            placeholder="Select transfer method"
+            error={submitted ? errors.transferMethod : undefined}
+            onPress={() => setTransferOpen(true)}
+            sx={sx}
+            p={palette}
+          />
 
-        {/* ── Phase D: risk banner ───────────────────────────── */}
-        {riskBanner && riskBanner.reason !== 'ok' && (
-          <View style={[
-            s.riskBanner,
-            (!riskBanner || riskBanner.reason === 'medium_risk_warning') && s.riskBannerMedium,
-            riskBanner.reason === 'high_risk_warning'                    && s.riskBannerHigh,
-            (riskBanner.reason === 'critical_risk' || riskBanner.reason === 'listing_blocked') && s.riskBannerCritical,
-          ]}>
-            <Text style={s.riskBannerText}>
-              {RISK_COPY[riskBanner.reason as keyof typeof RISK_COPY]}
+          <SelectRow
+            label="Ticket platform"
+            value={platformLabel}
+            placeholder="Select platform"
+            onPress={() => setPlatformOpen(true)}
+            sx={sx}
+            p={palette}
+          />
+
+          <MultilineField
+            label="Restrictions (optional)"
+            value={restrictions}
+            onChange={setRestrictions}
+            placeholder="e.g. 21+, no re-entry, dress code"
+            sx={sx}
+            p={palette}
+          />
+        </Section>
+
+        {/* ── SELLING METHOD + PRICE ────────────────────────── */}
+        <Section title="Selling method" sx={sx}>
+          <Text style={[textStyle('bodySm'), sx.blurb]}>{sellingMethodBlurb(buyNowEnabled)}</Text>
+
+          <MoneyField
+            label="Starting bid"
+            value={startingBid}
+            onChange={setStartingBid}
+            error={submitted ? errors.startingBid : undefined}
+            // "from" (A, 2026-09-24): this figure is the all-in on the STARTING bid, and an auction
+            // settles on the winning one, which can only be higher.
+            helper={summary.valid && (!buyNowEnabled || buyNowPriceNum <= 0)
+              ? `Buyers pay from ${summary.buyerAllInLabel}`
+              : undefined}
+            sx={sx}
+            p={palette}
+          />
+
+          <Pressable
+            style={sx.toggleRow}
+            onPress={() => { setBuyNowEnabled((v) => { const n = !v; if (!n) setBuyNowPrice(''); return n; }); }}
+            accessibilityRole="switch"
+            accessibilityState={{ checked: buyNowEnabled }}
+            accessibilityLabel="Buy Now price"
+          >
+            <View style={sx.toggleText}>
+              <Text style={[textStyle('title'), sx.toggleTitle]}>Buy Now price</Text>
+              <Text style={[textStyle('bodySm'), sx.toggleHint]}>Let a buyer skip the auction</Text>
+            </View>
+            <Switch
+              value={buyNowEnabled}
+              onValueChange={(v) => { setBuyNowEnabled(v); if (!v) setBuyNowPrice(''); }}
+              trackColor={{ false: palette.border.control, true: palette.brand.red }}
+              thumbColor={palette.onArt.primary}
+              ios_backgroundColor={palette.border.control}
+            />
+          </Pressable>
+
+          {buyNowEnabled ? (
+            <MoneyField
+              label="Buy Now price"
+              value={buyNowPrice}
+              onChange={setBuyNowPrice}
+              error={submitted ? errors.buyNowPrice : undefined}
+              helper={summary.valid && buyNowPriceNum > 0
+                ? `Buyers pay ${summary.buyerAllInLabel}`
+                : undefined}
+              sx={sx}
+              p={palette}
+            />
+          ) : null}
+
+          <FieldLabel text="Auction duration" sx={sx} />
+          <ChipRow sx={sx}>
+            {DURATION_OPTIONS.map((h) => (
+              <Chip
+                key={h}
+                label={h < 24 ? `${h}h` : `${h / 24}d`}
+                selected={durationHours === h}
+                onPress={() => setDurationHours(h)}
+              />
+            ))}
+          </ChipRow>
+          {submitted && errors.durationHours ? (
+            <Text style={[textStyle('bodySm'), sx.fieldError]} accessibilityRole="alert">{errors.durationHours}</Text>
+          ) : null}
+        </Section>
+
+        {/* ── PHOTOS ────────────────────────────────────────── */}
+        <Section title="Photos" sx={sx}>
+          <MediaUpload
+            variant="cover"
+            localUri={coverUpload.localUri}
+            status={coverUpload.status}
+            error={coverUpload.error}
+            onPress={coverUpload.pickImage}
+            onRemove={coverUpload.reset}
+            label="Cover image"
+            // States the target shape AND what happens to anything else, because nothing crops any
+            // more: an off-ratio flyer is contained in the 4:5 frame, not trimmed to fit it.
+            helper="JPG or PNG, 4:5 portrait — any other shape is fitted whole, never cropped."
+            icon="photo"
+            hasError={submitted && !!errors.coverImage}
+            disabled={busy}
+          />
+          {submitted && errors.coverImage ? (
+            <Text style={[textStyle('bodySm'), sx.fieldError]} accessibilityRole="alert">{errors.coverImage}</Text>
+          ) : null}
+
+          <MediaUpload
+            variant="compact"
+            localUri={proofUpload.localUri}
+            status={proofUpload.status}
+            error={proofUpload.error}
+            onPress={proofUpload.pickImage}
+            onRemove={proofUpload.reset}
+            label="Proof of ownership"
+            helper="Screenshot of the ticket or the confirmation email"
+            icon="doc.text"
+            hasError={submitted && !!errors.proofImage}
+            disabled={busy}
+          />
+          {submitted && errors.proofImage ? (
+            <Text style={[textStyle('bodySm'), sx.fieldError]} accessibilityRole="alert">{errors.proofImage}</Text>
+          ) : null}
+        </Section>
+
+        {/* ── CONFIRM ───────────────────────────────────────── */}
+        <Section title="Confirm" sx={sx}>
+          <Pressable
+            style={sx.commitRow}
+            onPress={() => setSellerCommitmentAccepted((v) => !v)}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: sellerCommitmentAccepted }}
+            accessibilityLabel="I confirm I own these tickets and will transfer them within 24 hours of sale."
+          >
+            <View style={[sx.checkbox, sellerCommitmentAccepted && sx.checkboxOn]}>
+              {sellerCommitmentAccepted ? <Text style={sx.checkMark}>{'✓'}</Text> : null}
+            </View>
+            <Text style={[textStyle('bodySm'), sx.commitText]}>
+              I confirm I own these tickets and will transfer them within 24 hours of sale.
             </Text>
-          </View>
-        )}
+          </Pressable>
+          {submitted && errors.commitment ? (
+            <Text style={[textStyle('bodySm'), sx.fieldError]} accessibilityRole="alert">{errors.commitment}</Text>
+          ) : null}
 
-        <TouchableOpacity
-          style={[s.publishBtn, busy && s.publishBtnBusy]}
-          onPress={handlePublish} disabled={busy} activeOpacity={0.85}>
-          {busy
-            ? <ActivityIndicator color={colors.text} />
-            : <Text style={s.publishBtnText}>Publish Auction</Text>
-          }
-        </TouchableOpacity>
+          {/* Lightweight review — authoritative money helpers only */}
+          {/* R-4 (owner 2026-09-23): the card keeps its purpose — it renders only when the form
+              is valid, reviewing WHAT will be listed. The money sides are stated once elsewhere
+              (buyer side on the price field, seller net at the sticky), so they are not repeated. */}
+          {summary.valid ? (
+            <View style={sx.reviewCard}>
+              <ReviewRow label="Event" value={eventName.trim() || '—'} sx={sx} />
+              <ReviewRow label="Tickets" value={ticketType ? `${quantity} × ${ticketType}` : `${quantity}`} sx={sx} />
+              <ReviewRow label="Selling" value={buyNowEnabled ? 'Auction + Buy Now' : 'Auction'} sx={sx} />
+            </View>
+          ) : null}
 
-        <View style={{ height: 56 }} />
+          {/* Risk banner */}
+          {riskBanner && riskBanner.reason !== 'ok' ? (
+            <View
+              style={[
+                sx.riskBanner,
+                riskBanner.reason === 'check_unavailable' && sx.riskBannerNeutral,
+                riskBanner.reason === 'medium_risk_warning' && sx.riskBannerMedium,
+                riskBanner.reason === 'high_risk_warning' && sx.riskBannerHigh,
+                riskBlocked && sx.riskBannerCritical,
+              ]}
+              accessibilityRole="alert"
+            >
+              <Text style={[textStyle('bodySm'), sx.riskBannerText]}>
+                {RISK_COPY[riskBanner.reason as keyof typeof RISK_COPY]}
+              </Text>
+              {/* The alert is dismissible and this banner is not, so the instruction needs its route
+                  here as well. Identical for both blocked reasons, so which one the seller is in
+                  stays unexposed. */}
+              {riskBlocked ? (
+                <Pressable
+                  onPress={() => router.push('/settings/support')}
+                  accessibilityRole="button"
+                  accessibilityLabel="Contact support"
+                  hitSlop={8}
+                  style={sx.riskBannerAction}
+                >
+                  <Text style={[textStyle('bodySm'), sx.riskBannerActionText]}>Contact support</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
+
+          {submitted && !isValid ? (
+            <Text style={[textStyle('bodySm'), sx.validationMsg]} accessibilityRole="alert">
+              Fix the highlighted fields before listing.
+            </Text>
+          ) : null}
+        </Section>
       </ScrollView>
 
-      {/* ── Neighborhood modal ──────────────────────────────── */}
-      <Modal visible={neighborhoodOpen} transparent animationType="slide"
-        onRequestClose={() => setNeighborhoodOpen(false)}>
-        <Pressable style={s.modalBdrop} onPress={() => setNeighborhoodOpen(false)} />
-        <View style={s.modalSheet}>
-          <View style={s.modalHead}>
-            <Text style={s.modalTitle}>Select Area or Venue</Text>
-            <TouchableOpacity onPress={() => { setNeighborhoodOpen(false); setNeighborhoodQuery(''); }}>
-              <Text style={s.modalDone}>Done</Text>
-            </TouchableOpacity>
+      {/* ── Sticky publish bar ──────────────────────────────── */}
+      <StickyBar
+        // A separate transactional surface that ENDS above the floating dock with
+        // a clear gap — never merged with navigation.
+        style={{ marginBottom: ctaLift({ keyboardUp, dockOffset: ctaDockOffset }), paddingBottom: v2.space.md }}
+        left={
+          <View>
+            {summary.valid ? (
+              <>
+                <Text style={[textStyle('micro'), sx.stickyKicker]}>{proceedsKicker(quantity)}</Text>
+                <Text style={[textStyle('price'), sx.stickyValue]} numberOfLines={1}>
+                  {summary.sellerNet}
+                </Text>
+                {/* The one fee clause: the seller net's basis, beside the figure being decided. For an
+                    auction-only listing that basis is a FLOOR — the preview is computed on the starting
+                    bid and the server pays on the winning one (A's ruling, 2026-09-24). */}
+                <Text style={[textStyle('micro'), sx.stickyHint]} numberOfLines={2}>
+                  {proceedsBasis({ buyNowEnabled, buyNowPriceSet: buyNowPriceNum > 0 })}
+                </Text>
+              </>
+            ) : submitted ? (
+              // §1: one validation summary, at the action, only after a submit found failures.
+              <Text style={[textStyle('bodySm'), sx.stickySummary]} numberOfLines={2}>
+                Fix the highlighted fields before listing.
+              </Text>
+            ) : (
+              <Text style={[textStyle('micro'), sx.stickyKicker]}>Set a price</Text>
+            )}
           </View>
-          <TextInput
-            style={[s.input, { marginHorizontal: spacing.md, marginBottom: spacing.sm }]}
-            placeholder="Search areas and venues…"
-            placeholderTextColor={colors.textPlaceholder}
-            value={neighborhoodQuery}
-            onChangeText={setNeighborhoodQuery}
-            autoCorrect={false}
-          />
-          <ScrollView keyboardShouldPersistTaps="handled">
-            {NEIGHBORHOOD_GROUPS.map(group => {
-              const q = neighborhoodQuery.trim().toLowerCase();
-              const items = q
-                ? group.items.filter(n =>
-                    n.includes(q) || NEIGHBORHOOD_LABELS[n].toLowerCase().includes(q))
-                : group.items;
-              if (items.length === 0) return null;
-              return (
-                <View key={group.title}>
-                  <Text style={s.nGroupHead}>{group.title.toUpperCase()}</Text>
-                  {items.map(n => (
-                    <TouchableOpacity key={n}
-                      style={[s.nRow, neighborhood === n && { backgroundColor: colors.primarySoft }]}
+        }
+      >
+        <Button
+          label={submitCtaLabel(quantity)}
+          size="lg"
+          onPress={() => { void publishFlight.run(handlePublish); }}
+          loading={busy}
+          disabled={busy}
+          block
+        />
+      </StickyBar>
+
+      {/* ── Neighborhood sheet ──────────────────────────────── */}
+      <Sheet
+        visible={neighborhoodOpen}
+        onClose={() => { setNeighborhoodOpen(false); setNeighborhoodQuery(''); }}
+        title="Area or venue"
+      >
+        <Input
+          label="Search"
+          placeholder="Search areas and venues"
+          value={neighborhoodQuery}
+          onChangeText={setNeighborhoodQuery}
+          autoCorrect={false}
+        />
+        <ScrollView style={sx.sheetList} keyboardShouldPersistTaps="handled">
+          {NEIGHBORHOOD_GROUPS.map((group) => {
+            const q = neighborhoodQuery.trim().toLowerCase();
+            const items = q
+              ? group.items.filter((n) => n.includes(q) || NEIGHBORHOOD_LABELS[n].toLowerCase().includes(q))
+              : group.items;
+            if (items.length === 0) return null;
+            return (
+              <View key={group.title}>
+                <Text style={[textStyle('micro'), sx.sheetGroup]}>{group.title}</Text>
+                {items.map((n) => {
+                  const on = neighborhood === n;
+                  return (
+                    <Pressable
+                      key={n}
+                      style={[sx.sheetRow, on && sx.sheetRowOn]}
                       onPress={() => { setNeighborhood(n); setNeighborhoodOpen(false); setNeighborhoodQuery(''); }}
-                      activeOpacity={0.7}>
-                      <Text style={[s.nText, neighborhood === n && { color: colors.primary, fontWeight: '600' }]}>
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: on }}
+                    >
+                      <Text style={[textStyle('body'), on ? sx.sheetRowTextOn : sx.sheetRowText]}>
                         {NEIGHBORHOOD_LABELS[n]}
                       </Text>
-                      {neighborhood === n && <Text style={{ color: colors.primary, fontWeight: '700' }}>✓</Text>}
-                    </TouchableOpacity>
-                  ))}
-                </View>
+                      {on ? <Text style={sx.sheetCheck}>{'✓'}</Text> : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            );
+          })}
+        </ScrollView>
+      </Sheet>
+
+      {/* ── Platform sheet ──────────────────────────────────── */}
+      <Sheet
+        visible={platformOpen}
+        onClose={() => { setPlatformOpen(false); setPlatformQuery(''); }}
+        title="Ticket platform"
+      >
+        <Input
+          label="Search"
+          placeholder="Search platforms"
+          value={platformQuery}
+          onChangeText={setPlatformQuery}
+          autoCorrect={false}
+        />
+        <ScrollView style={sx.sheetList} keyboardShouldPersistTaps="handled">
+          {TICKET_PLATFORMS
+            .filter(({ label }) => {
+              const q = platformQuery.trim().toLowerCase();
+              return !q || label.toLowerCase().includes(q);
+            })
+            .map(({ value, label }) => {
+              const on = ticketPlatform === value;
+              return (
+                <Pressable
+                  key={value}
+                  style={[sx.sheetRow, on && sx.sheetRowOn]}
+                  onPress={() => { setTicketPlatform(value); setPlatformOpen(false); setPlatformQuery(''); }}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: on }}
+                >
+                  <Text style={[textStyle('body'), on ? sx.sheetRowTextOn : sx.sheetRowText]}>{label}</Text>
+                  {on ? <Text style={sx.sheetCheck}>{'✓'}</Text> : null}
+                </Pressable>
               );
             })}
-          </ScrollView>
-        </View>
-      </Modal>
+        </ScrollView>
+      </Sheet>
 
-      {/* ── Ticket platform modal ───────────────────────────── */}
-      <Modal visible={platformOpen} transparent animationType="slide"
-        onRequestClose={() => setPlatformOpen(false)}>
-        <Pressable style={s.modalBdrop} onPress={() => setPlatformOpen(false)} />
-        <View style={s.modalSheet}>
-          <View style={s.modalHead}>
-            <Text style={s.modalTitle}>Select Ticket Platform</Text>
-            <TouchableOpacity onPress={() => { setPlatformOpen(false); setPlatformQuery(''); }}>
-              <Text style={s.modalDone}>Done</Text>
-            </TouchableOpacity>
-          </View>
-          <TextInput
-            style={[s.input, { marginHorizontal: spacing.md, marginBottom: spacing.sm }]}
-            placeholder="Search platforms…"
-            placeholderTextColor={colors.textPlaceholder}
-            value={platformQuery}
-            onChangeText={setPlatformQuery}
-            autoCorrect={false}
-          />
-          <ScrollView keyboardShouldPersistTaps="handled">
-            {TICKET_PLATFORMS
-              .filter(({ label }) => {
-                const q = platformQuery.trim().toLowerCase();
-                return !q || label.toLowerCase().includes(q);
-              })
-              .map(({ value, label }) => (
-                <TouchableOpacity key={value}
-                  style={[s.nRow, ticketPlatform === value && { backgroundColor: colors.primarySoft }]}
-                  onPress={() => { setTicketPlatform(value); setPlatformOpen(false); setPlatformQuery(''); }}
-                  activeOpacity={0.7}>
-                  <Text style={[s.nText, ticketPlatform === value && { color: colors.primary, fontWeight: '600' }]}>
-                    {label}
-                  </Text>
-                  {ticketPlatform === value && <Text style={{ color: colors.primary, fontWeight: '700' }}>✓</Text>}
-                </TouchableOpacity>
-              ))}
-          </ScrollView>
-        </View>
-      </Modal>
+      {/* ── Transfer method sheet (V3: picker row, like platform) ── */}
+      <Sheet
+        visible={transferOpen}
+        onClose={() => setTransferOpen(false)}
+        title="Transfer method"
+      >
+        <ScrollView style={sx.sheetList} keyboardShouldPersistTaps="handled">
+          {TRANSFER_METHODS.map(({ value, label }) => {
+            const on = transferMethod === value;
+            return (
+              <Pressable
+                key={value}
+                style={[sx.sheetRow, on && sx.sheetRowOn]}
+                onPress={() => { setTransferMethod(value); setTransferOpen(false); }}
+                accessibilityRole="button"
+                accessibilityState={{ selected: on }}
+              >
+                <Text style={[textStyle('body'), on ? sx.sheetRowTextOn : sx.sheetRowText]}>{label}</Text>
+                {on ? <Text style={sx.sheetCheck}>{'✓'}</Text> : null}
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </Sheet>
 
-      {/* ── Date / Time picker ──────────────────────────────── */}
+      {/* ── Date / time picker ──────────────────────────────── */}
       {Platform.OS === 'ios' ? (
-        <Modal visible={pickerVisible} transparent animationType="slide"
-          onRequestClose={() => setPickerVisible(false)}>
-          <Pressable style={s.modalBdrop} onPress={() => setPickerVisible(false)} />
-          <View style={s.modalSheet}>
-            <View style={s.modalHead}>
-              <Text style={s.modalTitle}>{pickerMode === 'date' ? 'Event Date' : 'Event Time'}</Text>
-              <TouchableOpacity onPress={() => setPickerVisible(false)}>
-                <Text style={s.modalDone}>Done</Text>
-              </TouchableOpacity>
-            </View>
-            <DateTimePicker
-              value={pickerMode === 'date' ? eventDate : eventTime}
-              mode={pickerMode} display="spinner" textColor={colors.text}
-              onChange={onPickerChange}
-              minimumDate={pickerMode === 'date' ? new Date() : undefined}
-            />
-          </View>
-        </Modal>
+        <Sheet
+          visible={pickerVisible}
+          onClose={() => setPickerVisible(false)}
+          title={pickerMode === 'date' ? 'Event date' : 'Event time'}
+        >
+          <DateTimePicker
+            value={pickerMode === 'date' ? eventDate : eventTime}
+            mode={pickerMode}
+            display="spinner"
+            textColor={palette.text.primary}
+            onChange={onPickerChange}
+            minimumDate={pickerMode === 'date' ? new Date() : undefined}
+          />
+        </Sheet>
       ) : (
         pickerVisible && (
           <DateTimePicker
             value={pickerMode === 'date' ? eventDate : eventTime}
-            mode={pickerMode} display="default"
+            mode={pickerMode}
+            display="default"
             onChange={onPickerChange}
             minimumDate={pickerMode === 'date' ? new Date() : undefined}
           />
         )
       )}
-      {/* ── Phase D: high-risk warning modal ──────────────── */}
-      <Modal visible={riskWarningVisible} transparent animationType="fade"
-        onRequestClose={() => setRiskWarningVisible(false)}>
-        <View style={s.riskModalOverlay}>
-          <View style={s.riskModalCard}>
-            <Text style={s.riskModalTitle}>Account Under Review</Text>
-            <Text style={s.riskModalBody}>
-              {RISK_COPY.high_risk_warning}
-            </Text>
-            <View style={s.riskModalActions}>
-              <TouchableOpacity
-                style={s.riskModalBtnCancel}
-                onPress={() => setRiskWarningVisible(false)}
-                activeOpacity={0.75}>
-                <Text style={s.riskModalBtnCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={s.riskModalBtnContinue}
-                onPress={handleRiskWarningContinue}
-                activeOpacity={0.85}>
-                <Text style={s.riskModalBtnContinueText}>Continue Anyway</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+
+      {/* ── High-risk warning ───────────────────────────────── */}
+      <Sheet visible={riskWarningVisible} onClose={() => setRiskWarningVisible(false)} title="Account under review">
+        <Text style={[textStyle('body'), sx.riskModalBody]}>{RISK_COPY.high_risk_warning}</Text>
+        <View style={sx.riskModalActions}>
+          <Button label="Cancel" variant="secondary" onPress={() => setRiskWarningVisible(false)} style={sx.riskModalBtn} />
+          <Button label="Continue anyway" onPress={handleRiskWarningContinue} style={sx.riskModalBtn} />
         </View>
-      </Modal>
+      </Sheet>
     </KeyboardAvoidingView>
   );
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
-const s = StyleSheet.create({
-  root:      { flex: 1, backgroundColor: colors.bg },
-  inner:     { paddingTop: 60, paddingHorizontal: spacing.lg, paddingBottom: 48 },
-  pageTitle: { fontSize: fontSize.xl, fontWeight: '800', color: colors.text, marginBottom: 4 },
-  label:     { fontSize: fontSize.sm, color: colors.textMuted, marginBottom: 6 },
-  feeHint:   { fontSize: fontSize.xs, color: colors.textMuted, marginTop: -8, marginBottom: spacing.md, fontStyle: 'italic' },
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  root: { flex: 1, backgroundColor: p.surface.canvas },
 
-  input: {
-    backgroundColor: colors.bgInput, color: colors.text,
-    borderWidth: 1, borderColor: colors.borderInput,
-    borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 13,
-    fontSize: fontSize.md, marginBottom: spacing.md,
+  header: { paddingHorizontal: v2.space.lg, paddingBottom: v2.space.md },
+  pageTitle: { color: p.text.primary },
+
+  scroll: { paddingHorizontal: v2.space.lg, paddingBottom: v2.space.xxxl },
+
+  section: { marginTop: v2.space.xl },
+  // V3: the eyebrow head — uppercase `label`, muted, no rule; sections separate with space.
+  sectionTitle: { color: p.text.muted, marginBottom: v2.space.lg },
+  sectionBody: { gap: v2.space.lg },
+
+  field: { alignSelf: 'stretch' },
+  fieldLabel: { color: p.text.muted, marginBottom: v2.space.xs },
+  fieldError: { color: p.status.error, marginTop: v2.space.xs },
+  fieldHelper: { color: p.text.secondary },
+  // V3: the buyer-side money line's filled rounded panel (pkg8-create boards).
+  helperPanel: {
+    backgroundColor: p.surface.elevated,
+    borderRadius: v2.radius.sm,
+    paddingVertical: v2.space.md,
+    paddingHorizontal: v2.space.lg,
+    marginTop: v2.space.md,
   },
-  inputErr:    { borderColor: colors.error },
-  inputText:   { color: colors.text, fontSize: fontSize.md, flex: 1 },
-  placeholder: { color: colors.textPlaceholder, fontSize: fontSize.md, flex: 1 },
-  textarea:    { height: 80, textAlignVertical: 'top' },
+  groupLabel: { color: p.text.muted, marginBottom: v2.space.sm },
 
-  row:     { flexDirection: 'row', alignItems: 'center' },
-  chevron: { color: colors.textMuted, fontSize: fontSize.sm },
-
-  pickerRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
-  pickerBtn: {
-    flex: 1, backgroundColor: colors.bgInput, borderWidth: 1, borderColor: colors.borderInput,
-    borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 13,
-  },
-  pickerText: { color: colors.text, fontSize: fontSize.sm, fontWeight: '500' },
-
-  pills:       { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
-  pill:        { paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
-                 borderRadius: radius.full, borderWidth: 1,
-                 borderColor: colors.borderInput, backgroundColor: colors.bgInput },
-  pillOn:      { backgroundColor: colors.primary, borderColor: colors.primary },
-  pillText:    { color: colors.textMuted, fontSize: fontSize.sm, fontWeight: '600' },
-  pillTextOn:  { color: colors.text },
-
-  stepper:     { flexDirection: 'row', alignItems: 'center', gap: spacing.lg, marginBottom: spacing.md },
-  stepBtn:     { width: 44, height: 44, borderRadius: radius.md, backgroundColor: colors.bgInput,
-                 borderWidth: 1, borderColor: colors.borderInput, alignItems: 'center', justifyContent: 'center' },
-  stepDisabled:{ opacity: 0.35 },
-  stepGlyph:   { color: colors.text, fontSize: 22, fontWeight: '600' },
-  stepVal:     { fontSize: fontSize.lg, fontWeight: '700', color: colors.text, minWidth: 28, textAlign: 'center' },
-
-  prefixRow:   { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.bgInput,
-                 borderWidth: 1, borderColor: colors.borderInput, borderRadius: radius.md,
-                 paddingHorizontal: spacing.md, marginBottom: spacing.md },
-  prefix:      { color: colors.textMuted, fontSize: fontSize.md, marginRight: 4 },
-  prefixInput: { flex: 1, color: colors.text, fontSize: fontSize.md, paddingVertical: 13 },
-
-  toggleCard:  { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.bgCard,
-                 borderWidth: 1, borderColor: colors.border, borderRadius: radius.md,
-                 padding: spacing.md, marginBottom: spacing.sm },
-  toggleLabel: { color: colors.text, fontSize: fontSize.md, fontWeight: '600' },
-  toggleHint:  { color: colors.textMuted, fontSize: fontSize.xs, marginTop: 2 },
-
-  validationMsg: { color: colors.error, fontSize: fontSize.sm, textAlign: 'center', marginTop: spacing.sm },
-
-  publishBtn: {
-    backgroundColor: colors.primary, paddingVertical: spacing.md,
-    borderRadius: radius.md, alignItems: 'center', marginTop: spacing.lg,
-    shadowColor: colors.primary, shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4, shadowRadius: 10, elevation: 6,
-  },
-  publishBtnBusy: { opacity: 0.65 },
-  publishBtnText: { color: colors.text, fontWeight: '800', fontSize: fontSize.md, letterSpacing: 0.8 },
-
-  modalBdrop: { flex: 1, backgroundColor: colors.bgOverlay },
-  modalSheet: { backgroundColor: colors.bgModal, borderTopLeftRadius: radius.xl,
-                borderTopRightRadius: radius.xl, paddingBottom: 48, maxHeight: '75%' },
-  modalHead:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-                paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
-                borderBottomWidth: 1, borderBottomColor: colors.border },
-  modalTitle: { color: colors.text, fontSize: fontSize.md, fontWeight: '700' },
-  modalDone:  { color: colors.primary, fontSize: fontSize.md, fontWeight: '700' },
-
-  nRow:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-           paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
-           borderBottomWidth: 1, borderBottomColor: colors.border },
-  nText: { color: colors.text, fontSize: fontSize.md },
-  nGroupHead: { color: colors.textDim, fontSize: fontSize.xs, fontWeight: '700',
-                letterSpacing: 1.2, paddingHorizontal: spacing.lg,
-                paddingTop: spacing.md, paddingBottom: spacing.xs },
-
-  // Commitment checkbox
-  commitRow: {
+  selectRow: {
+    minHeight: 50,
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderBottomWidth: 1,
+    paddingVertical: v2.space.sm,
   },
+  selectValue: { color: p.text.primary, flex: 1 },
+  selectPlaceholder: { color: p.text.muted, flex: 1 },
+  chevron: { color: p.text.muted, fontSize: 22, marginLeft: v2.space.sm },
+
+  moneyRow: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, paddingVertical: v2.space.sm },
+  moneyPrefix: { color: p.text.muted, marginRight: v2.space.xs },
+  moneyInput: { flex: 1, color: p.text.primary, padding: 0 },
+
+  multiline: {
+    minHeight: 76,
+    color: p.text.primary,
+    borderBottomWidth: 1,
+    paddingVertical: v2.space.sm,
+    textAlignVertical: 'top',
+  },
+
+  chipRow: { gap: v2.space.sm, paddingRight: v2.space.lg },
+  inlineChips: { flexDirection: 'row', gap: v2.space.sm },
+
+  // V3: quantity shares the ticket-type row; the stepper keys are rounded (`md`, the stepper
+  // radius the bid screen set) — the 44pt squares were V2. hitSlop restores the 44pt target.
+  ticketTypeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: v2.space.sm,
+    flexWrap: 'wrap',
+  },
+  quantityGroup: { flexDirection: 'row', alignItems: 'center', gap: v2.space.sm, marginLeft: 'auto' },
+  quantityWord: { color: p.text.secondary, marginRight: v2.space.xs },
+  stepBtn: {
+    width: 36, height: 36,
+    borderRadius: v2.radius.md,
+    borderWidth: 1, borderColor: p.border.control,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  stepDisabled: { opacity: 0.35 },
+  stepGlyph: { color: p.text.primary, fontSize: 20, lineHeight: 24 },
+  stepVal: { color: p.text.primary, minWidth: 28, textAlign: 'center' },
+
+  blurb: { color: p.text.secondary },
+
+  toggleRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    borderTopWidth: 1, borderBottomWidth: 1, borderColor: p.border.default,
+    paddingVertical: v2.space.md,
+  },
+  toggleText: { flex: 1, marginRight: v2.space.md },
+  toggleTitle: { color: p.text.primary },
+  toggleHint: { color: p.text.muted, marginTop: 2 },
+
+  commitRow: { flexDirection: 'row', alignItems: 'flex-start' },
+  // V3: rounded, and checked is the board's high-contrast fill — primary ink with canvas
+  // check, which flips with the appearance. Red stays for actions, not acknowledgements.
   checkbox: {
-    width: 22,
-    height: 22,
-    borderRadius: radius.sm,
-    borderWidth: 2,
-    borderColor: colors.borderInput,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: spacing.sm,
-    marginTop: 1,
+    width: 24, height: 24,
+    borderRadius: v2.radius.sm,
+    borderWidth: 2, borderColor: p.border.control,
+    alignItems: 'center', justifyContent: 'center',
+    marginRight: v2.space.sm, marginTop: 1,
   },
-  checkboxOn: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  checkMark: {
-    color: colors.text,
-    fontSize: 14,
-    fontWeight: '700',
-    lineHeight: 18,
-  },
-  commitText: {
-    flex: 1,
-    color: colors.textMuted,
-    fontSize: fontSize.sm,
-    lineHeight: 20,
-  },
+  checkboxOn: { backgroundColor: p.text.primary, borderColor: p.text.primary },
+  checkMark: { color: p.surface.canvas, fontSize: 14, fontWeight: '700', lineHeight: 18 },
+  commitText: { flex: 1, color: p.text.secondary },
 
-  // Phase D — risk banner
-  riskBanner: {
-    borderRadius: radius.md,
-    padding: spacing.md,
-    marginTop: spacing.md,
+  reviewCard: {
+    borderWidth: 1, borderColor: p.border.default, backgroundColor: p.surface.surface,
+    borderRadius: v2.radius.md,
+    padding: v2.space.md, gap: v2.space.sm, marginTop: v2.space.md,
   },
-  riskBannerMedium: {
-    backgroundColor: '#332B00',
-    borderWidth: 1,
-    borderColor: '#665500',
-  },
-  riskBannerHigh: {
-    backgroundColor: '#331A00',
-    borderWidth: 1,
-    borderColor: '#663300',
-  },
-  riskBannerCritical: {
-    backgroundColor: '#330000',
-    borderWidth: 1,
-    borderColor: '#660000',
-  },
-  riskBannerText: {
-    color: '#FFDDBB',
-    fontSize: fontSize.sm,
-    lineHeight: 20,
-  },
+  reviewRow: { flexDirection: 'row', justifyContent: 'space-between', gap: v2.space.md },
+  reviewKey: { color: p.text.muted },
+  reviewVal: { color: p.text.primary, flexShrink: 1, textAlign: 'right' },
 
-  // Phase D — high-risk warning modal
-  riskModalOverlay: {
-    flex: 1,
-    backgroundColor: colors.bgOverlay,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: spacing.lg,
+  riskBanner: { padding: v2.space.md, marginTop: v2.space.md, borderWidth: 1, borderRadius: v2.radius.md },
+  // The edge is a status token, so it is graded in both appearances (6.07–11.48:1 on the canvas).
+  // My first pass used translucent literals: they composite over either canvas, but ungraded they
+  // measured 1.32–1.75:1 in Daylight, and the three fills were 1.03–1.07:1 against EACH OTHER — a
+  // severity ranking that nobody could see. The tier is carried by three different sentences
+  // (RISK_COPY) inside an accessibilityRole="alert", so the colour layer only owes a legible edge.
+  // "The check did not answer" is not a caution about the seller, so it does not borrow one.
+  riskBannerNeutral:  { borderColor: p.border.control },
+  riskBannerMedium:   { borderColor: p.status.warning },
+  riskBannerHigh:     { borderColor: p.status.error },
+  riskBannerCritical: { borderColor: p.status.error },
+  riskBannerText: { color: p.text.primary },
+  riskBannerAction: { marginTop: v2.space.sm, alignSelf: 'flex-start' },
+  riskBannerActionText: { color: p.brand.redText, textDecorationLine: 'underline' },
+
+  validationMsg: { color: p.status.error, textAlign: 'center', marginTop: v2.space.md },
+
+  stickyKicker: { color: p.text.muted },
+  stickyValue: { color: p.text.primary, marginTop: 2 },
+  stickyHint: { color: p.text.muted, marginTop: 2 },
+  stickySummary: { color: p.status.error },
+
+  sheetList: { marginTop: v2.space.sm, maxHeight: 380 },
+  sheetGroup: { color: p.text.muted, paddingTop: v2.space.md, paddingBottom: v2.space.xs },
+  sheetRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    minHeight: 48, paddingVertical: v2.space.sm,
+    borderBottomWidth: 1, borderBottomColor: p.border.default,
   },
-  riskModalCard: {
-    backgroundColor: colors.bgModal,
-    borderRadius: radius.xl,
-    padding: spacing.lg + 4,
-    width: '100%',
-    maxWidth: 360,
-  },
-  riskModalTitle: {
-    color: colors.text,
-    fontSize: fontSize.lg,
-    fontWeight: '700',
-    marginBottom: spacing.sm,
-  },
-  riskModalBody: {
-    color: colors.textMuted,
-    fontSize: fontSize.sm,
-    lineHeight: 22,
-    marginBottom: spacing.lg,
-  },
-  riskModalActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: spacing.sm,
-  },
-  riskModalBtnCancel: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm + 2,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.borderInput,
-  },
-  riskModalBtnCancelText: {
-    color: colors.textMuted,
-    fontSize: fontSize.sm,
-    fontWeight: '600',
-  },
-  riskModalBtnContinue: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm + 2,
-    borderRadius: radius.md,
-    backgroundColor: colors.primary,
-  },
-  riskModalBtnContinueText: {
-    color: colors.text,
-    fontSize: fontSize.sm,
-    fontWeight: '700',
-  },
-});
+  sheetRowOn: { backgroundColor: p.brand.redSoft },
+  sheetRowText: { color: p.text.primary },
+  sheetRowTextOn: { color: p.brand.redText },
+  sheetCheck: { color: p.brand.redText, fontSize: 16, fontWeight: '700' },
+
+  riskModalBody: { color: p.text.secondary },
+  riskModalActions: { flexDirection: 'row', gap: v2.space.sm, marginTop: v2.space.md },
+  riskModalBtn: { flex: 1 },
+  });
+}

@@ -32,6 +32,36 @@
 #      re-sorts by parsed version, and those two orders disagree.
 #   4. Monotonic ordering — a new migration must sort after the latest existing
 #      migration of the same scheme.
+#   5. Assembler integrity (G-4) — a migration GENERATED from reviewed slices
+#      must be exactly its committed assembler's output over EXACTLY the set of
+#      slices committed to git, byte for byte. The slices are canonical; the
+#      migration is a build artifact.
+#      Spec and evidence: docs/phase2/_impl/G4_assembler_integrity.md.
+#
+#      THE GATE NEVER TAKES THE ASSEMBLER'S WORD FOR WHAT TO CHECK. Its first
+#      revision read the assembler's own `--manifest` as the source of truth for
+#      which slices existed and where they lived; an adversarial pass then made
+#      it exit 0 four different ways while the slices and the artifact genuinely
+#      disagreed (a manifest that omits a slice, a smuggled non-slice input, a
+#      symlinked slice, a decoy slice directory). Every fact is now derived from
+#      `git ls-files` and from the assembler's FILENAME, and the manifest is only
+#      cross-checked against those. Do not reintroduce trust in it.
+#
+# WHY 5 LIVES IN THIS JOB, AND WHY IT RUNS FIRST.
+#   * Same job, not a new one. `Migrations guard / Immutability + ordering` is
+#     already the required status check for this directory. A second required
+#     context reports nothing until it has run once — the "disappearing required
+#     check" deadlock this repo has already paid for twice (see the pgTAP step
+#     comment in ci.yml). Two steps in one job cost one check and block merge
+#     just as hard.
+#   * Before the change detection in step 0b, and before the AUTODEPLOY
+#     acknowledgement in 0c. The drift this catches is most often a PR that
+#     edits ONLY the slices and never regenerates the migration. Such a PR
+#     touches nothing under supabase/migrations/, so anything placed after the
+#     early-exit would never see it — the guard would be silent in exactly the
+#     case it exists for.
+#   * Unconditional. It never early-exits: a repo with no assembler and no
+#     generated migration fails the floor rather than passing vacuously.
 #
 # HISTORY: a one-time allowlist here permitted the 16 Scheme-B normalization
 # renames (055b -> 0551, …) as content-identical renames. The production ledger
@@ -58,6 +88,54 @@ jobs:
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           fetch-depth: 0
+
+      # --- Invariant 5: assembled migrations reproduce from their slices ------
+      # Deliberately the FIRST check in the job and deliberately unconditional:
+      # a slices-only PR changes nothing under supabase/migrations/ and would be
+      # waved through by the change detection in the next step.
+      #
+      # The gate is generic. It discovers scripts/assemble_*.sh, reads each
+      # assembler's `--manifest`, rebuilds the artifact in a scratch directory
+      # from the committed slices, and compares byte-for-byte. Adding 094 needs
+      # no edit here.
+      - name: Assembled migrations match their slices (G-4)
+        run: |
+          set -euo pipefail
+          test -x scripts/ci/assembled_migration_integrity.sh || {
+            echo "::error::scripts/ci/assembled_migration_integrity.sh is missing or not executable — the slice/artifact drift gate would silently pass."
+            exit 1
+          }
+          # --require-committed: every build input must equal its HEAD blob, so
+          # CI can never validate a worktree that differs from what was reviewed.
+          # (It is implied by $CI too; passed explicitly so the intent is legible
+          # here and does not depend on a runner environment variable.)
+          scripts/ci/assembled_migration_integrity.sh --require-committed
+
+      # Proves the gate above actually fires. It rebuilds the assembler inputs in
+      # $RUNNER_TEMP, breaks them one way at a time (missing slice, duplicated
+      # slice, reordered slices, stale artifact, hand-edited artifact, whitespace
+      # drift, plus anti-vacuity, determinism, and the ASSEMBLER-LEVEL bypasses)
+      # and asserts a non-zero exit with the right message each time — and a
+      # clean PASS on the untouched baseline, so a gate that failed
+      # unconditionally could not score well.
+      #
+      # The B-series matters most: those scenarios subvert the ASSEMBLER and
+      # leave the artifact perfectly consistent with the subverted build, so the
+      # byte comparison alone cannot see them. All of them passed the gate's
+      # first revision. Sandboxes are real git repositories, because the gate
+      # takes its facts from the git index.
+      #
+      # It runs on every PR rather than only when the gate's own sources change:
+      # the thing most likely to quietly defeat it is a change to an ASSEMBLER or
+      # a slice layout, not a change to the gate.
+      - name: G-4 gate self-test (the guard must be seen to fail)
+        run: |
+          set -euo pipefail
+          test -x scripts/ci/assembled_migration_integrity_selftest.sh || {
+            echo "::error::scripts/ci/assembled_migration_integrity_selftest.sh is missing or not executable — the drift gate would be unproven."
+            exit 1
+          }
+          scripts/ci/assembled_migration_integrity_selftest.sh
 
       - name: Check migrations
         env:

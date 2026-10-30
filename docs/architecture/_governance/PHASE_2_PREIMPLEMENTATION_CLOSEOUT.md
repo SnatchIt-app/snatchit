@@ -1,15 +1,23 @@
 # Snatch It — Phase 2 Pre-Implementation Closeout
 
-**Session:** RATIFY → CONSOLIDATE → MERGE BASELINE → FREEZE → PREPARE 071 (2026-08-24/25).
-**Scope honored:** documentation, branch structure, and Phase-0 source integration only. **No 071 SQL, no Phase-2 tables/RPCs/edge functions, no React Native implementation, no production behavior change.** The only non-doc changes are CI/tooling health fixes on Phase-0 code (§7).
+> **Numbering note (added 2026-08-27).** This record was written while the first
+> Phase-2 package was numbered `071`. Numbers `071`–`075` were subsequently
+> consumed by applied production security migrations (DB-1, H-1, SEC-3, SEC-1,
+> SEC-4+D-5). Phase-2 packages are now **`076`–`091`**, and every Phase-2 package
+> number below has been restated on that final scale. `071`–`075` appearing
+> anywhere in this repo now mean the applied security migrations, never a Phase-2
+> package. Canonical map: `docs/architecture/PHASE_2_PACKAGE_REGISTRY.md`.
+
+**Session:** RATIFY → CONSOLIDATE → MERGE BASELINE → FREEZE → PREPARE 076 (2026-08-24/25).
+**Scope honored:** documentation, branch structure, and Phase-0 source integration only. **No 076 SQL, no Phase-2 tables/RPCs/edge functions, no React Native implementation, no production behavior change.** The only non-doc changes are CI/tooling health fixes on Phase-0 code (§7).
 
 ---
 
 ## 1. Verdict
 
-# PREIMPLEMENTATION BASELINE READY — AUTHORIZE 071
+# PREIMPLEMENTATION BASELINE READY — AUTHORIZE 076
 
-Authorization is for **authoring** implementation package `071_*` on a `phase2/implementation` branch per the execution protocol. **Applying** anything to any real database remains gated on Owner Action 1 (§9) — the migration-history repair event must complete and the CI `db` job must go green **before any Phase-2 migration is applied anywhere**, per the standing production-gate rules.
+Authorization is for **authoring** implementation package `076_*` on a `phase2/implementation` branch per the execution protocol. **Applying** anything to any real database remains gated on Owner Action 1 (§9) — the migration-history repair event must complete and the CI `db` job must go green **before any Phase-2 migration is applied anywhere**, per the standing production-gate rules.
 
 Adversarial final review (Agent G, read-only, non-author): **CONSOLIDATION ACCEPTED — zero Critical, zero High.** Its three Medium findings are closed by Freeze Amendment A-1 (`6fb1dc5`) and the disclosure in §8; its Low notes are recorded in §10.
 
@@ -26,8 +34,8 @@ Adversarial final review (Agent G, read-only, non-author): **CONSOLIDATION ACCEP
 | **Gate-2** | **Certification stands** (27 tables / 68 functions / 37 policies / 23 triggers / 3 buckets). Repair is ledger-only; no schema change. A paid fresh-branch re-replay is unnecessary now. |
 | **Migration history** | `PHASE_2_MIGRATION_HISTORY_RECONCILIATION.md`: **77 proposed repair commands** (41 `--status applied`, 36 `--status reverted`) + Addendum A (rename the 11 letter-suffix files in the same event). **PROPOSED ONLY — nothing executed; production untouched.** |
 | **CI** | **The CI workflow ran for the first time in its existence** after the root-cause fix (job-level `hashFiles()` made GitHub reject the whole workflow at startup since Phase 0). Final state: **quality ✓** (typecheck clean · lint 0 errors · 116/116 tests) · **web ✓** · **db ✗ = the known letter-suffix blocker (owner-gated)**. Separate `Security` workflow: TruffleHog ✓, npm-audit ✓; **Dependency-review + CodeQL red = GitHub Advanced Security / code-scanning settings-gated on the private repo** (pre-existing, documented Phase-0 owner item — disclosed per Agent G M2). |
-| **Next migration number** | **`071`** (no `071+` file exists anywhere; re-verify max at authoring time per the plan). |
-| **Feature flags** | `feature.native_issuance_enabled` / `native_scanning_enabled` / `native_resale_enabled` — **do not exist yet** (no Phase-2 migration authored). Plan `073` seeds all three **false**; flips are audited runtime ops, never migrations. Nothing in this session created or flipped any flag. |
+| **Next migration number** | **`076`** (`071`–`075` were consumed by applied production security migrations on 2026-08-27; no `076+` file exists anywhere; re-verify max at authoring time per the plan). |
+| **Feature flags** | `feature.native_issuance_enabled` / `native_scanning_enabled` / `native_resale_enabled` — **do not exist yet** (no Phase-2 migration authored). Plan `078` seeds all three **false**; flips are audited runtime ops, never migrations. Nothing in this session created or flipped any flag. |
 | **Supabase auto production deploy** | **OFF**, and stays OFF until the repair event completes (Freeze Rule 5, Reconciliation banner). |
 
 ## 3. Operating model & skills (per §0 of the brief)
@@ -63,21 +71,21 @@ The prompt-named ECC skill names (`planner`, `search-first`, `database-reviewer`
 - The CI `db` job is red **by a fully-diagnosed cause** (letter-suffix filenames; Addendum A). Treat any *other* db failure after the repair as a new regression.
 - Four post-`51cce52` commits edited covered docs before Amendment A-1 formalized the rule — all were independent-review closures converging on already-ratified corrections (Agent G verified: no new decision). Rule 1 now binds strictly after `dd960c4`.
 
-## 9. Owner actions (exact blockers for the next stage — none blocks *authoring* 071)
+## 9. Owner actions (exact blockers for the next stage — none blocks *authoring* 076)
 
 1. **Execute the migration-history repair event** (Reconciliation §6 + Addendum A: 77 ledger commands + rename the 11 letter-suffix files + migrations-guard exemption in the same PR) → then **CI `db` must go green**. **Required before any Phase-2 migration is APPLIED to any real database** (staging or prod). Needs owner authorization + fresh F/G-style review at execution.
-2. **Decide the untracked `043_profiles_select_column_restriction.sql`** on `mobile/profile-rpc-compat` (renumber ≥ 071 or fold/delete — currently a back-dated-version hazard).
+2. **Decide the untracked `043_profiles_select_column_restriction.sql`** on `mobile/profile-rpc-compat` (renumber above the applied max `075`, **without colliding with the `076`–`091` Phase-2 reservation** — see `docs/architecture/PHASE_2_PACKAGE_REGISTRY.md` — or fold/delete; currently a back-dated-version hazard).
 3. **Merge or close PR #3** (docs + CI-health into `main`) after review.
 4. GitHub plan/settings: enable code scanning + Advanced Security (or trim those two Security-workflow jobs); branch protection (Pro); optional tag `phase2-architecture-v1`.
 5. Enable **Auth leaked-password protection** (Supabase console; last advisor WARN).
 6. Optional hygiene (Agent G Lows, §10): mobile branch stray binary + stale comment; historical `ALTER TABLE public.payments` text in pre-freeze planning docs on main; `docs/security/PHASE_0_EXECUTION.md` audit-era intro.
 
-## 10. Recorded Low-severity notes (no action required for 071)
+## 10. Recorded Low-severity notes (no action required for 076)
 
 L3 "byte-identical" wording in the no-loss proof (equivalence is content-level; comments differ) · L4 `useListingRealtime.ts` comment on main contradicts its constant and cites a nonexistent 043 · L5 `ALTER TABLE public.payments` text survives in `docs/product/IMPLEMENTATION_TICKETS.md`/`docs/product/LAUNCH_PLAN.md` (historical planning docs, outside the freeze set, superseded by OBS-1) · L6 mobile-branch stray `ziZhyOZe` binary + stale fix text · L7 `docs/security/PHASE_0_EXECUTION.md` stale intro.
 
 ## 11. Next session (per the protocol — do NOT start in this one)
 
-Cut `phase2/implementation` from the post-merge baseline → author package `071_create_kernel_schema` following `docs/architecture/_governance/PHASE_2_ENGINEERING_EXECUTION_PROTOCOL.md` (read → plan → invariant analysis → tests-first → smallest package → specialist review → verification loop → adversarial review → staging → gated production → document → stop at the package boundary). Apply nothing anywhere until Owner Action 1 is complete and CI `db` is green.
+Cut `phase2/implementation` from the post-merge baseline → author package `076_create_phase2_schemas_and_grants` following `docs/architecture/_governance/PHASE_2_ENGINEERING_EXECUTION_PROTOCOL.md` (read → plan → invariant analysis → tests-first → smallest package → specialist review → verification loop → adversarial review → staging → gated production → document → stop at the package boundary). Apply nothing anywhere until Owner Action 1 is complete and CI `db` is green.
 
 — Closeout prepared by the session Chair; adversarially reviewed (Agent G) before the verdict above.

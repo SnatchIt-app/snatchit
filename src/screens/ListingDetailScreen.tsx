@@ -20,50 +20,114 @@
  * Baseline: set once in useEffect([rt.loading, authReady]) — silent, no haptics.
  * Haptics + animated banner: fire ONLY inside onNewBid (realtime INSERT callback).
  * This guarantees zero false positives on screen entry or auth-token refresh.
+ *
+ * Card handoff — display only
+ * ───────────────────────────
+ * A card that pushes here stages what it already showed (src/lib/listing/
+ * cardHandoff.ts). Until the first row arrives the screen paints that — hero,
+ * identity, the card's price label — instead of a spinner. It never feeds
+ * detailState, a checkout total, a reservation or a bid: all of those read the
+ * fetched `listing` and nothing else (contract A-17).
  */
 
-import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 // import { Audio } from 'expo-av'; // re-enable once mallet-hit.mp3 is added
-import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  ActionSheetIOS,
-  Animated,
-  ActivityIndicator,
-  Alert,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-  useWindowDimensions,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect } from '@react-navigation/native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActionSheetIOS, Alert, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 
 import { supabase } from '@/src/lib/supabase';
+import { readServerRefusal } from '@/src/lib/moderation/serverRefusal';
+import { blockConfirmMessage } from '@/src/lib/moderation/blockCopy';
 import { PriceDisplay } from '@/src/components/PriceDisplay';
 import { useAuth } from '@/src/hooks/useAuth';
+import { useSingleFlight } from '@/src/hooks/useSingleFlight';
+import { connectionNotice, resultPollDelayMs, shouldPollForResult } from '@/src/lib/listing/liveState';
 import { useListingRealtime } from '@/src/hooks/useListingRealtime';
-import { getCoverImageUrl } from '@/src/lib/coverImage';
 import { finalSoldPrice } from '@/src/lib/salePrice';
-import { allInFromDollars, allInLabel, baseFromDollars, buyerFeeFromDollars, buyerTotalCents, dollarsToCents } from '@/src/lib/money';
-import { getAvatarUrl } from '@/src/lib/avatarImage';
+import { allInFromDollars, buyerTotalCents, dollarsToCents } from '@/src/lib/money';
+import { clockLabel } from '@/src/lib/listing/feedRowState';
+import { PLATFORM_INSTRUCTIONS } from '@/src/lib/platformInstructions';
 import { APP_CONFIG } from '@/src/config/app';
 import { sendLocalNotification } from '@/src/utils/notifications';
-import { colors, fontSize, radius, shadow, spacing } from '@/src/theme';
-import VerifiedSellerBadge from '@/src/components/VerifiedSellerBadge';
-import TransferStatusBadge from '@/src/components/TransferStatusBadge';
+import { StateView, EmptyState, Spinner, StickyBar } from '@/src/components/ui';
+// `BarAction` is the V3 pill with its sub-line inside it. Imported from the module rather than
+// the `ui` barrel because that barrel is owned centrally; it belongs in the barrel's exports.
+import { BarAction } from '@/src/components/ui/StickyBar';
+import { BidActivity } from '@/src/components/listing/BidActivity';
+import { ListingHero } from '@/src/components/listing/ListingHero';
+import { ListingStatusBanner } from '@/src/components/listing/ListingStatusBanner';
+import { OutbidToast } from '@/src/components/listing/OutbidToast';
+import { TransactionPanel } from '@/src/components/listing/TransactionPanel';
+import { BID_COMMITMENT_COPY, LISTING_READ_FAILED_COPY, RESALE_FEE_LABEL, detailState, listingAllInV3, listingPriceLinesV3, offersBid, reserveBusy, type ActionKind } from '@/src/lib/listing/detailState';
+import { readCardHandoff, type CardHandoff } from '@/src/lib/listing/cardHandoff';
+import { shouldReleaseReservation } from '@/src/lib/listing/reservationExit';
+import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
+import * as v2 from '@/src/theme/v2';
 import ScreenState from '@/src/components/ScreenState';
+import { identityStacks } from '@/src/lib/design/featureMetrics';
 import { isNetworkError } from '@/src/hooks/useNetworkStatus';
 import type { Bid, Listing, TransferStatus } from '@/src/types';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
-type Props = { id: string };
+/**
+ * DEVELOPMENT RENDERING ONLY (owner 2026-09-24). When supplied, the screen paints these rows
+ * instead of READING them, so the approved boards can be compared against what the real
+ * component renders without a session, a listing row or a seller. Only `app/_dev/v3-listing.tsx`
+ * passes it, and that route redirects unless the bundle is a sandbox or `__DEV__` build; the real
+ * `/listing/[id]` route never passes it, so the production path is the read path, untouched.
+ *
+ * It short-circuits READS ONLY. Every offer, gate, total, reservation and bid below still comes
+ * from `listing` through `detailState`, exactly as it does for a fetched row.
+ */
+export interface ListingDetailFixture {
+  listing: Listing;
+  /**
+   * Seeds a FAILED read, so the screen's two failure faces can be rendered (owner, 2026-10-06).
+   * It says which KIND of read failed, never which state appears: the message it seeds goes through
+   * the screen's own `isNetworkError` below, which is what chooses the offline screen over the
+   * neutral read-failure one. A fixture that named the state could show a face the classifier
+   * would never give it.
+   */
+  failure?: 'offline' | 'error';
+  seller?: { display_name: string | null; is_verified_seller: boolean; avatar_url: string | null; avatar_path: string | null } | null;
+  /** Painted in Bid activity. The price, the minimum and the outbid logic still read the live hook. */
+  bids?: Bid[];
+  /** Which of those bids reads as "You". Display only — it is never an identity for a transaction. */
+  viewerId?: string;
+  /**
+   * Seeds the reserve-in-flight state, so the "Reserving…" treatment can be RENDERED without a
+   * reservation existing (B's native review of f3f08930 could not see it at all).
+   *
+   * It seeds the screen's own `reserving` state rather than faking the footer, which matters: that
+   * one value feeds BOTH the resolver — where it disables each action — and `reserveBusy`, where it
+   * decides which button shows the pending label. So the harness exercises the real path from one
+   * flag, and a regression in either half still shows up here.
+   *
+   * It does NOT start, simulate or stand in for a reserve call. Nothing is requested, no single
+   * flight is taken, and the screen's handlers are untouched — this is the busy PRESENTATION only.
+   * Repeat-tap protection lives in `useSingleFlight` and is covered by tests/v3-reserve-feedback.
+   */
+  reserving?: boolean;
+}
+
+type Props = { id: string; fixture?: ListingDetailFixture };
+
+/** One row of the board's fact list: quiet label left, the fact right, a hairline under it. */
+type FactRow = {
+  label: string;
+  value: string;
+  /** Tabular figures, so a column of amounts lines up instead of jittering. */
+  money?: boolean;
+  /** Long free text (restrictions) wraps under its label instead of fighting it. */
+  block?: boolean;
+  /** Makes the row a control. Only the seller row has one, and it opens their profile. */
+  onPress?: () => void;
+};
 
 const VALID_TRANSFER_STATUSES: readonly TransferStatus[] = [
   'pending', 'seller_sent', 'buyer_confirmed', 'disputed', 'expired', 'auto_released',
@@ -75,13 +139,6 @@ function toTransferStatus(s: string | null | undefined): TransferStatus | null {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function fmt$(n: number | null | undefined) {
-  if (n == null) return '$0';
-  return n % 1 === 0
-    ? `$${n.toLocaleString('en-US')}`
-    : `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
 function fmtCountdownMs(ms: number): string {
   if (ms <= 0) return '0:00';
   const totalSec = Math.floor(ms / 1000);
@@ -90,40 +147,11 @@ function fmtCountdownMs(ms: number): string {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-function useAuctionCountdown(endsAt: string | null): string {
-  const [label, setLabel] = useState('');
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+// V3: the panel clock is clockLabel(listing.ends_at, now) — the §5 forms, driven by the
+// screen's existing one-second ticker. The old hh:mm:ss hook went with its only consumer.
 
-  useEffect(() => {
-    if (!endsAt) return;
-    function tick() {
-      const diff = new Date(endsAt!).getTime() - Date.now();
-      if (diff <= 0) {
-        setLabel('Ended');
-        if (timerRef.current) clearInterval(timerRef.current);
-        return;
-      }
-      const h   = Math.floor(diff / 3_600_000);
-      const m   = Math.floor((diff % 3_600_000) / 60_000);
-      const sec = Math.floor((diff % 60_000) / 1_000);
-      if (h > 23) setLabel(`${Math.floor(h / 24)}d ${h % 24}h left`);
-      else        setLabel(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`);
-    }
-    tick();
-    timerRef.current = setInterval(tick, 1000);
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [endsAt]);
-
-  return label;
-}
-
-function fmtDate(date: string, time: string): string {
-  const d = new Date(`${date}T${time}`);
-  return d.toLocaleDateString('en-US', {
-    weekday: 'short', month: 'short', day: 'numeric',
-    hour: 'numeric', minute: '2-digit', hour12: true,
-  });
-}
+// V3: the hero builds its own dated line through feedRowState, so home, search and the
+// listing agree on the format; the local formatter went with it.
 
 function timeAgo(iso: string): string {
   const sec = (Date.now() - new Date(iso).getTime()) / 1000;
@@ -134,75 +162,12 @@ function timeAgo(iso: string): string {
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
-
-function InfoRow({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={ir.row}>
-      <Text style={ir.label}>{label}</Text>
-      <Text style={ir.value}>{value}</Text>
-    </View>
-  );
-}
-const ir = StyleSheet.create({
-  row:   { flexDirection:'row', justifyContent:'space-between', alignItems:'center',
-           paddingVertical: 10, borderBottomWidth:1, borderBottomColor: colors.border },
-  label: { fontSize: fontSize.sm, color: colors.textMuted },
-  value: { fontSize: fontSize.sm, color: colors.text, fontWeight:'600', flexShrink:1,
-           textAlign:'right', marginLeft: spacing.md },
-});
-
-function BidRowItem({ bid }: { bid: Bid }) {
-  // Prefer display_name, fall back to a short id tag.
-  const short = bid.bidder_id ? bid.bidder_id.slice(0, 4).toUpperCase() : '----';
-  const name  = bid.profiles?.display_name
-             ?? `Bidder ${short}`;
-  const initial = name.charAt(0).toUpperCase();
-  return (
-    <View style={br.row}>
-      <View style={br.avatar}><Text style={br.initial}>{initial}</Text></View>
-      <View style={{ flex:1 }}>
-        <Text style={br.name}>{name}</Text>
-        <Text style={br.time}>{timeAgo(bid.created_at)}</Text>
-      </View>
-      <Text style={br.amount}>{fmt$(bid.amount)}</Text>
-    </View>
-  );
-}
-const br = StyleSheet.create({
-  row:     { flexDirection:'row', alignItems:'center', gap: spacing.sm,
-             paddingVertical: 10, borderBottomWidth:1, borderBottomColor: colors.border },
-  avatar:  { width:36, height:36, borderRadius:18, backgroundColor: colors.bgInput,
-             alignItems:'center', justifyContent:'center' },
-  initial: { color: colors.textMuted, fontSize: fontSize.sm, fontWeight:'700' },
-  name:    { color: colors.text, fontSize: fontSize.sm, fontWeight:'600' },
-  time:    { color: colors.textDim, fontSize: fontSize.xs, marginTop:1 },
-  amount:  { color: colors.text, fontSize: fontSize.md, fontWeight:'800' },
-});
-
-// ─── Auction status banner ────────────────────────────────────────────────────
-
-type AuctionBannerVariant = 'winning' | 'outbid' | 'won' | 'lost';
-
-function AuctionBanner({ variant }: { variant: AuctionBannerVariant }) {
-  const cfg: Record<AuctionBannerVariant, { bg: string; border: string; text: string; label: string }> = {
-    winning: { bg: 'rgba(34,197,94,0.12)',  border: colors.success, text: colors.success, label: "🏆 You're Winning" },
-    outbid:  { bg: 'rgba(255,77,109,0.10)', border: colors.error,   text: colors.error,   label: "⚡ You've Been Outbid — Bid Again" },
-    won:     { bg: 'rgba(34,197,94,0.14)',  border: colors.success, text: colors.success, label: '🎉 You Won — Tap "Pay Now" below' },
-    lost:    { bg: colors.bgCard,           border: colors.border,  text: colors.textMuted, label: 'Auction Ended' },
-  };
-  const c = cfg[variant];
-  return (
-    <View style={[ab.wrap, { backgroundColor: c.bg, borderColor: c.border }]}>
-      <Text style={[ab.text, { color: c.text }]}>{c.label}</Text>
-    </View>
-  );
-}
-const ab = StyleSheet.create({
-  wrap: { marginHorizontal: spacing.lg, marginTop: spacing.sm, marginBottom: 2,
-          borderRadius: radius.md, borderWidth: 1, paddingVertical: 9,
-          alignItems: 'center' },
-  text: { fontSize: fontSize.sm, fontWeight: '700' },
-});
+//
+// InfoRow, BidRowItem and AuctionBanner used to live here, each with its own
+// StyleSheet. They are gone, not renamed: their jobs are now done by
+// src/components/listing/{TicketDetails,BidActivity,ListingStatusBanner}, which
+// are shared, tokenised and testable. The four grey cards they produced are what
+// made this screen read as a stack of boxes.
 
 // ─── Auction-win rotating titles ──────────────────────────────────────────────
 // One title is chosen per win event using a deterministic index from listing.id
@@ -218,13 +183,23 @@ const WIN_TITLES = [
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
-export default function ListingDetailScreen({ id }: Props) {
+export default function ListingDetailScreen({ id, fixture }: Props) {
 
-  // Sticky-bar layout: side-by-side (price | buttons) on wide screens,
-  // stacked (price row above button row) on phones and iPad compatibility
-  // mode. 480pt splits real iPads (≥744pt) from every iPhone/compat width.
-  const { width: windowWidth } = useWindowDimensions();
-  const stackBar = windowWidth < 480;
+  // Sticky-bar stacking is decided by StickyBar itself, from the live window
+  // width against a threshold derived from the layout. This screen no longer
+  // carries a device breakpoint.
+
+  const { palette } = useTheme();
+  const { fontScale: factFontScale } = useWindowDimensions();
+  /*
+   * The content scrolls UNDER the fixed footer, so it has to end above it. `s.scroll` padded by a
+   * constant, and the footer is not a constant: its labels scale, so at the largest accessibility
+   * size it is far taller than the padding and slices the last fact row (B, batch 4 at 91a5a58c —
+   * "Mobile transfer · DICE" cut, CTA top at 688 pt). The bar reports its measured height instead.
+   */
+  const [footerHeight, setFooterHeight] = useState(0);
+  const scrollPad = { paddingBottom: footerHeight + v2.space.lg };
+  const s = useMemo(() => makeStyles(palette), [palette]);
 
   // ── Auth — wait for getSession() before any outbid logic ──────────────────
   // authLoading is true until the stored session has been resolved once.
@@ -232,18 +207,65 @@ export default function ListingDetailScreen({ id }: Props) {
   const { user, loading: authLoading } = useAuth();
   const authReady = !authLoading;
 
+  // ── Reservation exit (owner rule) ─────────────────────────────────────────
+  // Leaving the listing back to Home releases our Buy Now hold immediately so the
+  // ticket returns to other buyers. `beforeRemove` fires when THIS screen is
+  // popped; pushing Checkout on top does not fire it, so Checkout -> Listing keeps
+  // the hold and its remaining timer. Backgrounding, the Stripe sheet, modals and
+  // the keyboard are not navigation removals and never release.
+  const navigation = useNavigation();
+  const releasedRef = useRef(false);
+  const purchasedRef = useRef(false);
+  const listingRef = useRef<Listing | null>(null);
+
   // ── State ──────────────────────────────────────────────────────────────────
   const [listing,    setListing]    = useState<Listing | null>(null);
+
+  // ── Card handoff (display only) ────────────────────────────────────────────
+  // What the tapped card already showed, read once so the first frame is
+  // content rather than a spinner. It is never a listing: every offer, gate and
+  // total below reads `listing`, the fresh row, exactly as before.
+  const [handoff] = useState<CardHandoff | null>(() => readCardHandoff(id));
+
+  // Keep the latest listing for the exit listener, and latch "purchased" so an
+  // exit after a completed sale never even asks to release.
+  useEffect(() => {
+    listingRef.current = listing;
+    if (listing?.status === 'sold') purchasedRef.current = true;
+  }, [listing]);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', () => {
+      const l = listingRef.current;
+      const decide = shouldReleaseReservation({
+        status: l?.status,
+        reservedBy: l?.reserved_by,
+        userId: user?.id,
+        alreadyReleased: releasedRef.current,
+        purchased: purchasedRef.current,
+      });
+      if (!decide || !user?.id) return;
+      releasedRef.current = true;
+      // Fire and forget: navigation is never blocked, and the server-side
+      // expiry remains the safety net if this request never lands.
+      supabase
+        .rpc('release_reservation', { p_listing_id: id, p_user_id: user.id })
+        .then(({ error }) => {
+          if (error) console.warn('[listing] release_reservation failed:', error.message);
+        });
+    });
+    return unsubscribe;
+  }, [navigation, user?.id, id]);
   const [loading,    setLoading]    = useState(true);
   const [error,      setError]      = useState<string | null>(null);
-  const [coverUrl,   setCoverUrl]   = useState<string | null>(null);
-  const [reserving,  setReserving]  = useState(false);
+  // Seeded from the fixture in the sandbox harness only; `undefined` in the product, so this is
+  // `useState(false)` everywhere a real buyer sees it.
+  const [reserving,  setReserving]  = useState(fixture?.reserving ?? false);
   const [finalizing, setFinalizing] = useState(false);
   const [sellerProfile, setSellerProfile] = useState<{ display_name: string | null; is_verified_seller: boolean; avatar_url: string | null; avatar_path: string | null } | null>(null);
   const [transferStatus,        setTransferStatus]        = useState<TransferStatus | null>(null);
   const [transferId,            setTransferId]            = useState<string | null>(null);
   const [transferBuyerId,       setTransferBuyerId]       = useState<string | null>(null);
-  const [transferActionLoading, setTransferActionLoading] = useState(false);
 
   // ── Realtime bids hook ─────────────────────────────────────────────────────
   const rt         = useListingRealtime(id, listing?.starting_bid ?? 0, {
@@ -251,7 +273,9 @@ export default function ListingDetailScreen({ id }: Props) {
     // so the hook always dispatches to the latest version of the callback.
     onNewBid: (bid, allBids) => handleNewBidRef.current(bid, allBids),
   });
-  const bids       = rt.bids;
+  // Display list only. `rt.bids` still drives the price, the outbid detection and every gate —
+  // the fixture replaces what Bid activity paints, never what the screen decides.
+  const bids       = fixture?.bids ?? rt.bids;
   const bidsLoaded = !rt.loading;
 
   // ── Ticker ─────────────────────────────────────────────────────────────────
@@ -285,17 +309,16 @@ export default function ListingDetailScreen({ id }: Props) {
   // Always-current handleNewBid — hook calls this via a stable wrapper.
   const handleNewBidRef      = useRef<(bid: Bid, allBids: Bid[]) => void>(() => {});
 
-  // ── Animation refs ────────────────────────────────────────────────────────
-  const outbidAnimY       = useRef(new Animated.Value(-30)).current;
-  const outbidAnimOpacity = useRef(new Animated.Value(0)).current;
+  // ── Outbid notice ─────────────────────────────────────────────────────────
+  // The animation now lives inside OutbidToast, which honours reduced motion.
+  // This screen owns only WHEN it shows, which is the part that took several
+  // iterations to get free of false positives — see handleNewBid below.
+  const [outbidToastVisible, setOutbidToastVisible] = useState(false);
   const hideTimerRef      = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Win banner refs ───────────────────────────────────────────────────────
   // winTitleRef: holds the chosen title string for this win event (set once).
   const winTitleRef        = useRef<string>('');
-  const winAnimY           = useRef(new Animated.Value(-30)).current;
-  const winAnimOpacity     = useRef(new Animated.Value(0)).current;
-  const winHideTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Notification guard refs — prevent duplicate sends ──────────────────
   const endingSoonSentRef = useRef(false);
@@ -303,8 +326,41 @@ export default function ListingDetailScreen({ id }: Props) {
   const lostNotifSentRef  = useRef(false);
 
   // ── Countdown ──────────────────────────────────────────────────────────────
-  const countdown = useAuctionCountdown(listing?.ends_at ?? null);
-  const ended     = listing ? new Date(listing.ends_at) <= new Date() : false;
+  const ended = listing ? new Date(listing.ends_at) <= new Date() : false;
+
+  // ── Result at zero (CFT-501) ───────────────────────────────────────────────
+  // This device's clock ran out; the server decides. Re-read the row on the
+  // liveState schedule until auction_status leaves 'active' (the finalize cron
+  // runs every two minutes). Reads only — no finalize call is added here and
+  // nothing about the auction's timing moves.
+  const pollAttemptRef = useRef(0);
+  const auctionStatusNow = listing?.auction_status;
+  const listingStatusNow = listing?.status;
+  useEffect(() => {
+    const active = !!listing && shouldPollForResult({
+      clockEnded: ended, auctionStatus: auctionStatusNow, sold: listingStatusNow === 'sold',
+    });
+    if (!active) { pollAttemptRef.current = 0; return; }
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const tick = () => {
+      const delay = resultPollDelayMs(++pollAttemptRef.current);
+      if (delay == null) return;
+      timer = setTimeout(async () => {
+        const { data } = await supabase
+          .from('listings')
+          .select('auction_status, status, winner_user_id, winning_bid_amount, current_bid, bid_count')
+          .eq('id', id)
+          .maybeSingle();
+        if (cancelled) return;
+        if (data) setListing((prev) => (prev ? { ...prev, ...(data as Partial<Listing>) } : prev));
+        if (!data || (data as { auction_status?: string | null }).auction_status === 'active') tick();
+      }, delay);
+    };
+    tick();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ended, auctionStatusNow, listingStatusNow, id]);
 
   // ── Derived render values ──────────────────────────────────────────────────
   // Gate on authReady so banner/derived state never shows while auth is
@@ -342,6 +398,23 @@ export default function ListingDetailScreen({ id }: Props) {
   // ── fetchData ─────────────────────────────────────────────────────────────
   // Only fetches the listing row — bids are owned by useListingRealtime.
   async function fetchData(silent = false) {
+    // Development rendering only: the fixture stands in for every READ this function makes —
+    // the listing row, the seller profile, the transfer row and the finalize call that follows a
+    // dead clock. Nothing below this line runs, and nothing above the guard writes anything.
+    if (fixture) {
+      if (fixture.failure) {
+        // 'Network request failed' is the text `isNetworkError` recognises; any other sentence is
+        // a server failure. The screen classifies it exactly as it classifies a real one.
+        setError(fixture.failure === 'offline' ? 'Network request failed' : 'The listing could not be read');
+        setLoading(false);
+        return;
+      }
+      setListing(fixture.listing);
+      setSellerProfile(fixture.seller ?? null);
+      setError(null);
+      setLoading(false);
+      return;
+    }
     if (!silent) setLoading(true);
     setError(null);
 
@@ -448,38 +521,10 @@ export default function ListingDetailScreen({ id }: Props) {
     return () => { cancelled = true; };
   }, [listing?.status, listing?.id, transferId]);
 
-  // ── Animation helpers ──────────────────────────────────────────────────────
-  const animateOutbidIn = useCallback(() => {
-    outbidAnimY.setValue(-30);
-    outbidAnimOpacity.setValue(0);
-    Animated.parallel([
-      Animated.timing(outbidAnimY,       { toValue: 0,   duration: 220, useNativeDriver: true }),
-      Animated.timing(outbidAnimOpacity, { toValue: 1,   duration: 220, useNativeDriver: true }),
-    ]).start();
-  }, [outbidAnimY, outbidAnimOpacity]);
-
-  const animateOutbidOut = useCallback(() => {
-    Animated.parallel([
-      Animated.timing(outbidAnimY,       { toValue: -30, duration: 200, useNativeDriver: true }),
-      Animated.timing(outbidAnimOpacity, { toValue: 0,   duration: 200, useNativeDriver: true }),
-    ]).start();
-  }, [outbidAnimY, outbidAnimOpacity]);
-
-  const animateWinIn = useCallback(() => {
-    winAnimY.setValue(-30);
-    winAnimOpacity.setValue(0);
-    Animated.parallel([
-      Animated.timing(winAnimY,       { toValue: 0, duration: 260, useNativeDriver: true }),
-      Animated.timing(winAnimOpacity, { toValue: 1, duration: 260, useNativeDriver: true }),
-    ]).start();
-  }, [winAnimY, winAnimOpacity]);
-
-  const animateWinOut = useCallback(() => {
-    Animated.parallel([
-      Animated.timing(winAnimY,       { toValue: -30, duration: 220, useNativeDriver: true }),
-      Animated.timing(winAnimOpacity, { toValue: 0,   duration: 220, useNativeDriver: true }),
-    ]).start();
-  }, [winAnimY, winAnimOpacity]);
+  // ── Outbid notice show/hide ────────────────────────────────────────────────
+  // Same names, same call sites, same 4-second dwell. Only the mechanism moved.
+  const animateOutbidIn  = useCallback(() => setOutbidToastVisible(true), []);
+  const animateOutbidOut = useCallback(() => setOutbidToastVisible(false), []);
 
   // ── Always-current userId ref ─────────────────────────────────────────────
   // Updated every render (no deps) so INSERT callback never reads a stale value.
@@ -694,7 +739,7 @@ export default function ListingDetailScreen({ id }: Props) {
       body:  `You won ${listing.event_name}. Complete checkout to claim your ticket.`,
       data:  { listingId: listing.id, type: 'auction_won' },
     });
-  }, [listing?.auction_status, listing?.winner_user_id, listing?.event_name, listing?.id, user?.id, animateWinIn, animateWinOut]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [listing?.auction_status, listing?.winner_user_id, listing?.event_name, listing?.id, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── "Auction lost" notification ─────────────────────────────────────────
   // Fires once when auction_status flips to 'ended', the user had placed a
@@ -716,20 +761,20 @@ export default function ListingDetailScreen({ id }: Props) {
     });
   }, [listing?.auction_status, listing?.winner_user_id, listing?.event_name, listing?.id, user?.id, bids, bidsLoaded]);
 
-  // ── Cleanup hide timers on unmount ────────────────────────────────────────
+  // ── Cleanup hide timer on unmount ─────────────────────────────────────────
   useEffect(() => {
     return () => {
-      if (hideTimerRef.current)    clearTimeout(hideTimerRef.current);
-      if (winHideTimerRef.current) clearTimeout(winHideTimerRef.current);
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     };
   }, []);
 
   // ── Cover image ────────────────────────────────────────────────────────────
-  useEffect(() => {
-    const raw: string | null =
-      (listing as any)?.cover_image_path || (listing as any)?.cover_image_url || null;
-    setCoverUrl(raw ? getCoverImageUrl(raw) : null);
-  }, [(listing as any)?.cover_image_path, (listing as any)?.cover_image_url]);
+  // The RAW stored value, handed straight to EventMedia. It resolves the URL
+  // itself — encoding the path, checking the host allowlist and requesting a
+  // derivative sized to the frame it measured. Pre-resolving here would bypass
+  // all three and re-introduce the full-size original.
+  const coverPath: string | null =
+    (listing as any)?.cover_image_path || (listing as any)?.cover_image_url || null;
 
   // ── Checkout navigation ─────────────────────────────────────────────────
   // Display estimates use the canonical money util (integer cents); the
@@ -748,23 +793,37 @@ export default function ListingDetailScreen({ id }: Props) {
   function navigateToWinnerCheckout() {
     if (!listing) return;
     const winAmount = (listing as any).winning_bid_amount ?? listing.current_bid ?? 0;
+    // B-D10: the checkout mode is the server's contract — 'buy_now' | 'auction'. This pushed the
+    // legacy literal 'bid', which only ever worked because `params.mode === 'buy_now'` read
+    // anything else as auction; F4 parses the mode and rejects unknown values, so 'bid' sent every
+    // winner into the no-mode branch and Pay never appeared.
     router.push({
       pathname: '/checkout/[id]',
-      params: { id: listing.id, mode: 'bid', bidAmount: String(winAmount),
+      params: { id: listing.id, mode: 'auction', bidAmount: String(winAmount),
                 totalCents: String(buyerTotalCents(dollarsToCents(winAmount))),
                 eventName: listing.event_name, venue: listing.venue },
     });
   }
 
   // ── Buy Now ────────────────────────────────────────────────────────────────
+  // One reservation call at a time (CFT-205): a second tap that lands before
+  // the re-render disables the button is dropped by the lock, not by state.
+  const buyFlight = useSingleFlight();
   async function handleBuyNow() {
+    await buyFlight.run(reserveAndCheckout).catch(() => setReserving(false));
+  }
+
+  async function reserveAndCheckout() {
     if (!listing) return;
     if (!user?.id) { Alert.alert('Sign in required', 'Please log in to buy tickets.'); return; }
     if (listing.seller_id === user.id) {
       Alert.alert('Not allowed', 'You cannot purchase your own listing.'); return;
     }
     if (!listing.buy_now_enabled || listing.buy_now_price == null) {
-      Alert.alert('Buy Now unavailable', 'This listing does not have Buy Now enabled.'); return;
+      // F-29 → R-5 (owner 2026-09-24): offer the bid recovery only when the RESOLVER offers a bid on
+      // this screen — the same actions the buttons render — never a locally re-derived guess (which
+      // said "yes" while the viewer held a reservation and the screen showed no bid at all).
+      Alert.alert('Buy Now unavailable', offersBid(state) ? 'You can place a bid instead.' : "Buy Now isn't offered on this listing."); return;
     }
     if (ended || isSold) { Alert.alert('Not available', 'This listing is no longer available.'); return; }
     if (reservedByOther) {
@@ -778,103 +837,39 @@ export default function ListingDetailScreen({ id }: Props) {
     });
     if (rpcError) {
       setReserving(false);
+      // RC3 (152): blocked party, suspended viewer or suspended seller — the server's refusal, as
+      // the policy sentence, OK-only, no retry offered. Any other error keeps the branches below.
+      const refusal = readServerRefusal(rpcError);
+      if (refusal) { Alert.alert(refusal.title, refusal.body); return; }
       const msg = rpcError.message ?? 'Could not reserve this listing.';
       if      (msg.includes('already reserved')) Alert.alert('Currently reserved', 'Reserved by another buyer. Try again soon.');
       else if (msg.includes('sold'))             Alert.alert('Already sold', 'This listing has already been sold.');
       else                                       Alert.alert('Reservation failed', msg);
       return;
     }
-    await fetchData();
+    // SILENT, deliberately (F-V3-READFAIL-1, D 2026-09-24): a reservation has just LEFT this
+    // screen, so the failed-read view — whose copy promises "nothing was sent from this screen"
+    // — must be unreachable from here. This refresh is a courtesy for the screen left mounted
+    // under checkout; if it fails, the loaded listing stays up, which is strictly more truthful
+    // than replacing it with a reassurance that is now false.
+    await fetchData(true);
     setReserving(false);
     navigateToCheckout();
   }
 
   // ── Transfer actions ───────────────────────────────────────────────────────
-
-  async function handleMarkSent() {
-    if (!transferId || !user?.id) return;
-    setTransferActionLoading(true);
-    const { error } = await supabase.rpc('mark_transfer_sent', {
-      p_transfer_id: transferId,
-      p_user_id:     user.id,
-    });
-    setTransferActionLoading(false);
-    if (error) { Alert.alert('Error', error.message); return; }
-    setTransferStatus('seller_sent');
-    Alert.alert('Sent!', 'Transfer marked as sent.');
-  }
-
-  async function handleConfirmReceived() {
-    if (!transferId || !user?.id) return;
-    setTransferActionLoading(true);
-
-    try {
-      const { data, error: fnError } = await supabase.functions.invoke(
-        'confirm-and-release',
-        {
-          body: { transfer_id: transferId },
-        },
-      );
-
-      setTransferActionLoading(false);
-
-      if (fnError) {
-        let message = 'Something went wrong. Please try again.';
-        try {
-          const ctx = (fnError as any).context;
-          if (ctx && typeof ctx.json === 'function') {
-            const body = await ctx.json();
-            console.error('[confirm-and-release] server error:', JSON.stringify(body));
-            if (body?.error) message = body.error;
-          } else {
-            const body = typeof data === 'string' ? JSON.parse(data) : data;
-            if (body?.error) message = body.error;
-          }
-        } catch {
-        }
-        Alert.alert('Error', message);
-        return;
-      }
-
-      // Success — includes both fresh confirmations and idempotent retries
-      // (already_released: true). Either way, the transfer is confirmed
-      // and the seller payout has been released.
-      setTransferStatus('buyer_confirmed');
-      Alert.alert('Confirmed!', 'Transfer complete. Enjoy the event! 🎉');
-    } catch (err) {
-      setTransferActionLoading(false);
-      console.error('handleConfirmReceived: unexpected error:', err);
-      Alert.alert('Error', 'Something went wrong. Please try again.');
-    }
-  }
-
-  async function handleReportIssue() {
-    if (!transferId || !user?.id) return;
-    Alert.alert(
-      'Report Issue',
-      'Are you sure you want to report a problem with this transfer? This will freeze the transfer and notify support.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Report Issue',
-          style: 'destructive',
-          onPress: async () => {
-            setTransferActionLoading(true);
-            const { error } = await supabase.rpc('buyer_dispute_transfer', {
-              p_transfer_id: transferId,
-            });
-            setTransferActionLoading(false);
-            if (error) {
-              Alert.alert('Error', error.message);
-              return;
-            }
-            setTransferStatus('disputed');
-            Alert.alert('Reported', 'The transfer has been flagged. Support will review.');
-          },
-        },
-      ],
-    );
-  }
+  //
+  // handleMarkSent, handleConfirmReceived and handleReportIssue used to live
+  // here. They were ALREADY UNREACHABLE before this redesign — lint flagged all
+  // three as defined-but-never-used on the previous revision, because the screen
+  // routes to app/transfer/send/[id] and app/transfer/receive/[id], which carry
+  // the live implementations of exactly these three calls.
+  //
+  // They are deleted rather than kept, deliberately: one of them invoked
+  // `confirm-and-release`, which releases a seller's payout. A second, divergent
+  // copy of that call sitting in a file where nothing invokes it is a hazard, not
+  // a safety net. No capability is lost — the routes that own these actions are
+  // unchanged and are still the sticky bar's destinations.
 
   // ── Seller actions on their own listing ────────────────────────────────────
   // Section is ALWAYS rendered when isSeller === true (no gate).
@@ -982,33 +977,39 @@ export default function ListingDetailScreen({ id }: Props) {
     if (!listing) return;
     const sellerId   = listing.seller_id;
     const sellerName = sellerProfile?.display_name?.trim() || 'this seller';
+    const owner      = !!user?.id && listing.seller_id === user.id;
 
-    // expo-router typed routes regenerate on next `expo prebuild` /
-    // dev-server start; until then, the string-path form bypasses the
-    // outdated route manifest cleanly.
-    const actions: { label: string; handler: () => void }[] = [
-      {
-        label: 'Report this listing',
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        handler: () => router.push(`/report/listing/${listing.id}` as any),
-      },
-      {
-        label: 'Report this seller',
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        handler: () => router.push(`/report/user/${sellerId}` as any),
-      },
-      {
-        label: `Block ${sellerName}`,
-        handler: () => handleBlockSeller(sellerId, sellerName),
-      },
-    ];
+    // Two menus behind one control. The seller of a listing manages it; everyone
+    // else reports or blocks. Owner controls used to sit in a permanent "Owner
+    // Actions" block above the artwork, in the middle of the buyer's purchase
+    // flow, with a red Delete competing with the primary action.
+    const actions: { label: string; destructive?: boolean; handler: () => void }[] = owner
+      ? [
+          { label: 'Edit listing',   handler: handleSellerEdit },
+          { label: 'Cancel listing', destructive: true, handler: handleSellerCancel },
+          { label: 'Delete listing', destructive: true, handler: handleSellerDelete },
+        ]
+      : [
+          // expo-router typed routes regenerate on the next prebuild / dev-server
+          // start; the string-path form bypasses the stale manifest cleanly.
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          { label: 'Report this listing', handler: () => router.push(`/report/listing/${listing.id}` as any) },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          { label: 'Report this seller',  handler: () => router.push(`/report/user/${sellerId}` as any) },
+          { label: `Block ${sellerName}`, destructive: true, handler: () => handleBlockSeller(sellerId, sellerName) },
+        ];
 
     if (Platform.OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
         {
-          options:           [...actions.map(a => a.label), 'Cancel'],
-          cancelButtonIndex: actions.length,
-          destructiveButtonIndex: 2, // "Block …"
+          options:                [...actions.map(a => a.label), 'Cancel'],
+          cancelButtonIndex:      actions.length,
+          // The LAST destructive entry, found rather than hardcoded: the index
+          // used to be a literal 2, which is only correct for one of these menus.
+          destructiveButtonIndex: actions.reduce(
+            (idx, a, i) => (a.destructive ? i : idx),
+            -1,
+          ),
         },
         (idx) => {
           if (idx >= 0 && idx < actions.length) actions[idx].handler();
@@ -1020,7 +1021,11 @@ export default function ListingDetailScreen({ id }: Props) {
         'More actions',
         '',
         [
-          ...actions.map(a => ({ text: a.label, onPress: a.handler, style: a.label.startsWith('Block') ? 'destructive' as const : 'default' as const })),
+          ...actions.map(a => ({
+            text: a.label,
+            onPress: a.handler,
+            style: (a.destructive ? 'destructive' : 'default') as 'destructive' | 'default',
+          })),
           { text: 'Cancel', style: 'cancel' as const },
         ],
       );
@@ -1039,7 +1044,8 @@ export default function ListingDetailScreen({ id }: Props) {
     }
     Alert.alert(
       `Block ${sellerName}?`,
-      'Their listings will be hidden from your feed. You can unblock from Settings → Blocked Users.',
+      // RC3: K1 — what a block now does on the server (152), identical on every surface.
+      blockConfirmMessage(),
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -1068,36 +1074,81 @@ export default function ListingDetailScreen({ id }: Props) {
 
   // ─── Guards ────────────────────────────────────────────────────────────────
 
+  // The card's content, painted while the FIRST row loads. Nothing on this
+  // branch can be tapped into a transaction: the sticky bar carries the card's
+  // price label and a spinner where the actions will appear, and the actions
+  // themselves only exist below, once `listing` has arrived. A later non-silent
+  // reload (listing already held) keeps the plain spinner it always had.
+  if (loading && !listing && handoff) return (
+    <View style={s.safe}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[s.scroll, scrollPad]}
+        contentInsetAdjustmentBehavior="never"
+      >
+        <ListingHero
+          asset={{ path: handoff.coverPath, contract: 'legacy', bucket: 'auction-media' }}
+          eventName={handoff.eventName}
+          venue={handoff.venue}
+          eventDate={handoff.eventDate}
+          eventTime={handoff.eventTime}
+          onBack={() => router.back()}
+        />
+      </ScrollView>
+
+      <StickyBar
+        onLayout={(e) => setFooterHeight(e.nativeEvent.layout.height)}
+        left={
+          handoff.priceAllIn ? (
+            <PriceDisplay size="sticky" label={handoff.priceLabel} amount={handoff.priceAllIn} />
+          ) : undefined
+        }
+      >
+        <Spinner label="Loading this listing" />
+      </StickyBar>
+    </View>
+  );
+
   if (loading) return (
-    <SafeAreaView style={s.centered}>
-      <ActivityIndicator color={colors.primary} size="large" />
-    </SafeAreaView>
+    <View style={s.centered}>
+      <Spinner size="large" label="Loading this listing" />
+    </View>
   );
 
   if (error) return (
-    // Raw fetch failure → dedicated offline / server-error screen. The
-    // "Listing not found" (data null) case below stays its own state.
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
-      <ScreenState
-        state={isNetworkError(error) ? 'offline' : 'error'}
-        onRetry={() => fetchData()}
-      />
-    </SafeAreaView>
+    // A raw fetch failure: offline keeps the dedicated offline screen; any other failure carries
+    // the V3 §5 copy — the read failed, nothing left this screen, and nothing is claimed about
+    // server state. "Listing not found" (data null) stays its own state below: a listing that
+    // was deleted is not a connection problem, and saying so wastes a retry.
+    <View style={s.centered}>
+      {isNetworkError(error) ? (
+        <ScreenState state="offline" onRetry={() => fetchData()} />
+      ) : (
+        <StateView
+          kind="error"
+          title={LISTING_READ_FAILED_COPY.title}
+          body={LISTING_READ_FAILED_COPY.body}
+          action={{ label: LISTING_READ_FAILED_COPY.retry, onPress: () => fetchData() }}
+        />
+      )}
+    </View>
   );
 
   if (!listing) return (
-    <SafeAreaView style={s.centered}>
-      <Text style={s.errText}>Listing not found.</Text>
-      <TouchableOpacity style={s.retryBtn} onPress={() => router.back()}>
-        <Text style={s.retryText}>Go Back</Text>
-      </TouchableOpacity>
-    </SafeAreaView>
+    <View style={s.centered}>
+      <EmptyState
+        title="Listing not found"
+        body="It may have been sold or taken down."
+        // From a notification or a cold start there is nothing to go back to
+        // (CFT-605): the live feed is the outcome that always works.
+        action={{ label: 'Browse live listings', onPress: () => router.replace('/(tabs)/home') }}
+      />
+    </View>
   );
 
   // ─── Derived display values ────────────────────────────────────────────────
 
-  const ticketLabel   = listing.ticket_type;
-  const transferLabel = listing.transfer_method === 'mobile_transfer' ? 'Mobile Transfer' : 'Email';
+  const transferLabel = listing.transfer_method === 'mobile_transfer' ? 'Mobile transfer' : 'Email';
 
   const isSold          = listing.status === 'sold';
   const isSeller        = listing.seller_id === user?.id;
@@ -1115,591 +1166,425 @@ export default function ListingDetailScreen({ id }: Props) {
   const iAmWinner     = auctionEnded && !!user?.id && winnerUserId === user?.id;
   const userHasBid    = myMaxBid > 0;
 
-  let auctionBannerVariant: AuctionBannerVariant | null = null;
-  if (auctionEnded) {
-    if (iAmWinner)       auctionBannerVariant = 'won';
-    else if (userHasBid) auctionBannerVariant = 'lost';
-  } else if (!ended && userHasBid) {
-    auctionBannerVariant = myMaxBid >= currentHighest ? 'winning' : 'outbid';
+  // Preformatted by the canonical money helper. Nothing downstream does arithmetic.
+  // V3 display: cents are shown on every amount (pkg8 boards), which is the only difference.
+  const buyNowAllIn = listing.buy_now_price != null ? listingAllInV3(listing.buy_now_price) : null;
+
+  // ─── One state object drives the whole screen ──────────────────────────────
+  // Every offer, refusal and status decision is made in src/lib/listing/detailState.ts
+  // and tested there. The render below reads it; it does not re-derive it.
+  const state = detailState({
+    listing: {
+      status:          listing.status,
+      auction_status:  listing.auction_status,
+      buy_now_enabled: listing.buy_now_enabled,
+      buy_now_price:   listing.buy_now_price,
+      seller_id:       listing.seller_id,
+      reserved_by:     listing.reserved_by,
+      winner_user_id:  listing.winner_user_id,
+      bid_count:       listing.bid_count,
+      quantity:        listing.quantity,
+    },
+    userId:            user?.id,
+    clockEnded:        ended,
+    reservationActive: isReserved,
+    finalizing,
+    reserving,
+    transfer:          { id: transferId, status: transferStatus, buyerId: transferBuyerId },
+    isHighestBidder:   userHasBid && myMaxBid >= currentHighest,
+    hasBid:            userHasBid,
+    buyNowAllIn,
+    // V3 (O-2): the informational minimum under "Place a bid" — same derivation as the breakdown
+    // below, and never shown once the auction is closed (detailState guards mode).
+    nextBidAllIn:      listingAllInV3(currentHighest + APP_CONFIG.MIN_BID_INCREMENT),
+  });
+
+  // A frozen screen must not look live (CFT-504): say when the bids channel is
+  // reconnecting, while there is still a clock to be wrong about.
+  const liveNotice = connectionNotice(rt.connection, state.mode);
+
+  // The reservation status carries a live clock, which a pure function cannot.
+  const status = state.status && state.status.kind === 'reserved_by_you'
+    ? { ...state.status, detail: `${fmtCountdownMs(reservationMsLeft)} left to finish checkout.` }
+    : state.status;
+
+  // The sold-but-transfer-not-loaded case. The webhook writes the transfer row
+  // after the listing flips to sold, so a seller can arrive before it exists.
+  // The retry effect above polls for ten seconds; this is the manual escape.
+  const needsTransferRefresh = isSold && isSeller && !transferId;
+
+  const soldAllIn = isSold ? listingAllInV3(finalSoldPrice(listing)) : null;
+  const currentAllIn = listingAllInV3(currentHighest);
+  // The panel's breakdown GATE, in the legacy display form. The rows themselves are rendered
+  // below in the board's list, so this value is never printed.
+  const nextBidAllIn = allInFromDollars(currentHighest + APP_CONFIG.MIN_BID_INCREMENT);
+  // §5 breakdown rows for "If you bid the minimum" — same base, through the one money module.
+  const minBid = listingPriceLinesV3(currentHighest + APP_CONFIG.MIN_BID_INCREMENT);
+  const minBidBase = minBid.base;
+  const minBidFee = minBid.fee;
+
+  // "Mobile transfer · DICE": the platform's display name from the existing instruction table.
+  // 'other' adds nothing — "· Other" is noise, not information.
+  const platformName =
+    listing.ticket_platform && listing.ticket_platform !== 'other'
+      ? PLATFORM_INSTRUCTIONS[listing.ticket_platform]?.displayName
+      : null;
+
+  // ─── The facts, as ONE list (pkg8 board) ───────────────────────────────────
+  // The board draws the minimum-bid breakdown and the two facts that decide whether this ticket
+  // is worth bidding on — how it is delivered and who is selling it — as the same kind of row,
+  // under one eyebrow and separated by hairlines. Type and quantity are NOT repeated here: the
+  // panel above already states "2 × GA tickets".
+  //
+  // The breakdown rows exist only while a bid can be placed, and `offersBid` is the one predicate
+  // that answers that — the same one the commitment sentence and the Buy Now recovery already use
+  // (R-5). `mode !== 'closed'` was a second, wider answer: it admitted the seller's own listing and a
+  // reservation the viewer is holding, where there is no bid to break down (B's F-91-4; E's item 1).
+  /*
+   * At a large text scale a two-column fact row cannot fit, and the VALUE is the half that loses:
+   * the C-operated a3xl capture at d301ccb4 showed Delivery as "…le t…". The screen already has a
+   * stacked form for these rows — `factRowBlock`, which Restrictions uses — so every row takes it
+   * above the same threshold the feature's identity block uses. Existing visual language, no new
+   * one, and `row.block` still wins on its own.
+   */
+  const stackRows = identityStacks(factFontScale);
+  const showBreakdown = offersBid(state);
+  const sellerName = sellerProfile?.display_name?.trim() || 'Seller';
+  const detailRows: FactRow[] = [
+    ...(showBreakdown
+      ? [
+          { label: 'Tickets', value: minBidBase, money: true },
+          { label: RESALE_FEE_LABEL, value: minBidFee, money: true },
+        ]
+      : []),
+    { label: 'Delivery', value: platformName ? `${transferLabel} · ${platformName}` : transferLabel },
+    // The seller row replaces the avatar strip the board drops. The verified mark survives as a
+    // WORD rather than a colour, and the row still opens the seller's profile.
+    ...(sellerProfile
+      ? [{
+          label: 'Seller',
+          value: sellerProfile.is_verified_seller ? `${sellerName} · Verified seller` : sellerName,
+          onPress: () => router.push(`/profile/${listing.seller_id}`),
+        }]
+      : []),
+    // V3: the hero no longer carries the neighborhood; it lives here rather than vanishing.
+    ...(listing.neighborhood
+      ? [{
+          label: 'Neighborhood',
+          value: listing.neighborhood.replace(/\b\w/g, c => c.toUpperCase()),
+        }]
+      : []),
+  ];
+  // Ownership proof appears only after a human reviewed it. It never claims
+  // verification before review (migration 033).
+  if (listing.proof_status === 'approved') {
+    detailRows.push({ label: 'Ownership proof', value: 'Reviewed by Snatch It' });
+  }
+  // A material term of the sale. It is never dropped to make the list match a sample board.
+  if (listing.restrictions) {
+    detailRows.push({ label: 'Restrictions', value: listing.restrictions, block: true });
   }
 
-  const hardLocked    = ended || isSold || reservedByOther || reserving || finalizing;
-  const bidLocked     = hardLocked || auctionEnded;
-  const buyNowVisible = listing.buy_now_enabled && listing.buy_now_price != null
-                        && !ended && !isSold && !auctionEnded && !isSeller;
-  // Buy Now CTA carries the all-in total the buyer will actually pay.
-  const buyNowLabel   = reservedByMe ? 'Continue' : `Buy · ${allInFromDollars(listing.buy_now_price!)}`;
-  const placeBidLabel = isSold        ? 'Sold'
-    : reservedByOther                 ? 'Reserved'
-    : auctionEnded                    ? 'Ended'
-    : ended                           ? 'Ended'
-    : '⚡ Place Bid';
+  // ─── Action wiring ─────────────────────────────────────────────────────────
+  // `detailState` decides WHAT is offered; this maps it onto the existing,
+  // unchanged handlers. No new navigation target and no new RPC is introduced.
+  function runAction(kind: ActionKind) {
+    switch (kind) {
+      case 'buy_now':
+      case 'continue_reservation':
+        handleBuyNow();
+        return;
+      case 'place_bid':
+        router.push(`/bid/${listing!.id}`);
+        return;
+      case 'pay_now':
+        navigateToWinnerCheckout();
+        return;
+      case 'send_tickets':
+      case 'view_transfer':
+        if (!transferId) return;
+        router.push(isSeller ? `/transfer/send/${transferId}` : `/transfer/receive/${transferId}`);
+        return;
+      case 'review_transfer':
+      case 'view_dispute':
+        if (!transferId) return;
+        router.push(`/transfer/receive/${transferId}`);
+        return;
+      default:
+        return;
+    }
+  }
+
+  /*
+   * BUSY FOLLOWS THE ACTION, NOT ITS POSITION (B's finding at 3c6f15a4, owner-confirmed).
+   *
+   * The rule lives in `reserveBusy` so both buttons read one predicate and neither can drift from
+   * the other again — see that function for what broke and why repeat-tap protection was a separate
+   * question that was already sound.
+   */
+  const busy = reserveBusy(state, reserving);
+
+  // The live action's sub-line, read off the resolved action. Destructured so the ONE place that
+  // spells `state.primary.subLabel` is the unavailable-state sentence in the footer, which is the
+  // one that must stay outside the dimmed button.
+  const { subLabel: primarySubLabel } = state.primary;
 
   // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <SafeAreaView style={s.safe}>
+    <View style={s.safe}>
+      <OutbidToast visible={outbidToastVisible} message="You've been outbid" />
 
-      {/* ── Top bar ─────────────────────────────────────────── */}
-      <View style={s.topBar}>
-        <Pressable onPress={() => router.back()} style={s.backBtn} hitSlop={8}>
-          <Text style={s.backArrow}>←</Text>
-        </Pressable>
-        <Text style={s.topTitle} numberOfLines={1}>{listing.event_name}</Text>
-        {/* Overflow menu — hidden for the seller's own listing (no point
-            reporting yourself), shown for everyone else (App Store 1.2). */}
-        {!isSeller ? (
-          <Pressable
-            onPress={openListingActions}
-            style={s.backBtn}
-            hitSlop={8}
-            accessibilityLabel="More actions"
-            accessibilityRole="button"
-          >
-            <Text style={s.backArrow}>{'⋯'}</Text>{/* horizontal ellipsis */}
-          </Pressable>
-        ) : (
-          <View style={{ width: 44 }} />
-        )}
-      </View>
-
-      {/* ── Animated outbid banner ──────────────────────────────────────────
-          position:absolute — always mounted, never shifts layout.
-          Starts at translateY:-60 (off-screen above the topBar).
-          Slides to translateY:56 on false→true outbid transition; auto-hides
-          after 4s.  pointerEvents="none" — never blocks taps.              */}
-      <Animated.View
-        pointerEvents="none"
-        style={[s.outbidBanner, { transform: [{ translateY: outbidAnimY }], opacity: outbidAnimOpacity }]}
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[s.scroll, scrollPad]}
+        // The sticky bar sits over the bottom of the content; this keeps the last
+        // section reachable instead of permanently hidden behind it.
+        contentInsetAdjustmentBehavior="never"
       >
-        <Text style={s.outbidBannerText}>You&apos;ve been outbid</Text>
-      </Animated.View>
+        <ListingHero
+          asset={{
+            path: coverPath,
+            // Legacy assets were cropped destructively to 16:9 before upload, and those portrait
+            // pixels cannot be recovered. Under the 4:5 poster direction the hero FITS the asset
+            // into a portrait frame rather than cropping it again — so a legacy cover shows as a
+            // contained band over the blurred copy of itself, and the curve scrim keeps the
+            // identity legible either way.
+            contract: 'legacy',
+            bucket: 'auction-media',
+          }}
+          eventName={listing.event_name}
+          venue={listing.venue}
+          eventDate={listing.event_date}
+          eventTime={listing.event_time}
+          onBack={() => router.back()}
+          onOverflow={openListingActions}
+        />
 
-      {/* ── Win notification ────────────────────────────────────────────────
-          The slide-in win banner that previously rendered here has been
-          removed — it overlapped the navigation header and only worked when
-          the user was foregrounded on this screen. The win signal is now
-          delivered via a system notification (see the win-detect effect).
-          The static "You Won — Tap Pay Now below" pill remains in
-          AuctionBanner; that one sits inside the content area and never
-          overlaps the header. */}
-
-      {/* ── Reservation / sold banners ─────────────────────── */}
-      {isSold && (
-        <View style={[s.resBanner, s.resBannerSold]}>
-          <Text style={s.resBannerText}>SOLD</Text>
-          {transferStatus && (
-            <View style={{ marginTop: 4 }}>
-              <TransferStatusBadge status={transferStatus} />
-            </View>
-          )}
-        </View>
-      )}
-      {/* ── Seller refresh hint when transfer not yet visible ─────────── */}
-      {isSold && isSeller && !transferStatus && !loading && (
-        <TouchableOpacity
-          style={s.refreshHint}
-          onPress={() => fetchData(true)}
-          activeOpacity={0.7}
-        >
-          <Text style={s.refreshHintText}>
-            Transfer loading… tap to refresh
-          </Text>
-        </TouchableOpacity>
-      )}
-      {/* ── Transfer action buttons — route to dedicated screens ──────── */}
-      {isSold && isSeller && transferId && (transferStatus === 'pending' || transferStatus === 'seller_sent') && (
-        <View style={s.transferActionRow}>
-          <TouchableOpacity
-            style={s.transferBtn}
-            onPress={() => router.push(`/transfer/send/${transferId}`)}
-            activeOpacity={0.8}
-          >
-            <Text style={s.transferBtnText}>
-              {transferStatus === 'pending' ? '📤 Send Tickets' : '📋 View Transfer'}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      )}
-      {isSold && isBuyer && transferId && (transferStatus === 'pending' || transferStatus === 'seller_sent') && (
-        <View style={s.transferActionRow}>
-          <TouchableOpacity
-            style={[s.transferBtn, s.transferBtnConfirm]}
-            onPress={() => router.push(`/transfer/receive/${transferId}`)}
-            activeOpacity={0.8}
-          >
-            <Text style={s.transferBtnText}>
-              {transferStatus === 'seller_sent' ? '📥 Review Transfer' : '📋 View Transfer'}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      )}
-      {isSold && isBuyer && transferId && transferStatus === 'disputed' && (
-        <View style={s.transferActionRow}>
-          <TouchableOpacity
-            style={[s.transferBtn, s.transferBtnDispute]}
-            onPress={() => router.push(`/transfer/receive/${transferId}`)}
-            activeOpacity={0.8}
-          >
-            <Text style={s.transferBtnText}>⚠️ View Dispute</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* ── Seller-owner actions ───────────────────────────────
-          ALWAYS rendered when isSeller === true. No status/bid_count/sold
-          gate. Each handler validates legality and surfaces an alert when
-          the action isn't allowed. Debug strip shows runtime state.       */}
-      {isSeller && (
-        <View style={s.ownerActionsWrap}>
-          <Text style={s.ownerActionsHeader}>Owner Actions</Text>
-          <View style={s.ownerActionsRow}>
-            <TouchableOpacity
-              style={[s.ownerBtn, s.ownerBtnEdit]}
-              onPress={handleSellerEdit}
-              activeOpacity={0.8}
-              accessibilityRole="button"
-              accessibilityLabel="Edit listing"
-            >
-              <Text style={s.ownerBtnText}>✏️  Edit</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[s.ownerBtn, s.ownerBtnCancel]}
-              onPress={handleSellerCancel}
-              activeOpacity={0.8}
-              accessibilityRole="button"
-              accessibilityLabel="Cancel listing"
-            >
-              <Text style={s.ownerBtnText}>⛔️  Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[s.ownerBtn, s.ownerBtnDelete]}
-              onPress={handleSellerDelete}
-              activeOpacity={0.8}
-              accessibilityRole="button"
-              accessibilityLabel="Delete listing"
-            >
-              <Text style={s.ownerBtnText}>🗑  Delete</Text>
-            </TouchableOpacity>
+        {liveNotice ? (
+          <View style={s.liveNotice} accessibilityRole="alert" accessibilityLiveRegion="polite">
+            <Text style={[textStyle('label'), s.liveNoticeText]} numberOfLines={1}>{liveNotice}</Text>
           </View>
-          {/* Debug strip — dev / preview builds only. Production hides it. */}
-          {process.env.EXPO_PUBLIC_APP_ENV !== 'production' && (
-            <Text style={s.ownerActionsDebug}>
-              owner={String(isSeller)} · status={listing.status ?? 'null'} · auction={listing.auction_status ?? 'null'} · bids={listing.bid_count ?? 0}
-            </Text>
-          )}
-        </View>
-      )}
+        ) : null}
 
-      {!isSold && reservedByMe && (
-        <View style={[s.resBanner, s.resBannerMine]}>
-          <Text style={s.resBannerText}>
-            🔒  Reserved for you — {fmtCountdownMs(reservationMsLeft)} remaining
-          </Text>
-        </View>
-      )}
-      {!isSold && reservedByOther && (
-        <View style={[s.resBanner, s.resBannerOther]}>
-          <Text style={s.resBannerText}>⏳  Reserved — payment pending</Text>
-        </View>
-      )}
-
-      {/* ── Static auction status banner ────────────────────── */}
-      {auctionBannerVariant !== null && <AuctionBanner variant={auctionBannerVariant} />}
-
-      {finalizing && (
-        <View style={s.finalizingRow}>
-          <ActivityIndicator color={colors.textMuted} size="small" />
-          <Text style={s.finalizingText}>Calculating winner…</Text>
-        </View>
-      )}
-
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
-
-        {coverUrl ? (
-          <Image source={{ uri: coverUrl }} style={s.cover} contentFit="cover" />
-        ) : (
-          <View style={[s.cover, s.coverPlaceholder]}>
-            <Text style={s.coverPlaceholderText}>🎟️</Text>
+        {status ? (
+          <View style={s.statusWrap}>
+            <ListingStatusBanner status={status} />
+            {needsTransferRefresh ? (
+              <Pressable
+                onPress={() => fetchData(true)}
+                style={s.refreshRow}
+                accessibilityRole="button"
+                accessibilityLabel="Refresh transfer status"
+                hitSlop={8}
+              >
+                <Text style={[textStyle('label'), s.refreshText]}>Refresh</Text>
+              </Pressable>
+            ) : null}
           </View>
-        )}
+        ) : null}
 
-        <View style={s.body}>
+        <TransactionPanel
+          mode={state.mode}
+          currentAllIn={currentAllIn}
+          nextBidAllIn={state.mode === 'closed' ? null : nextBidAllIn}
+          // The breakdown is rendered below, as the board draws it: one list, one row idiom,
+          // hairlines under every row — not two differently-styled blocks.
+          minBidBase={null}
+          minBidFee={null}
+          // §5 clock forms, from the server's ends_at. Display only: the live/ended DECISION
+          // stays with detailState, exactly as before.
+          clock={state.mode === 'closed' ? null : clockLabel(listing.ends_at, now)}
+          soldAllIn={soldAllIn}
+          bidCount={listing.bid_count ?? 0}
+          quantity={listing.quantity}
+          ticketType={listing.ticket_type}
+        />
 
-          {/* Hero card. flexWrap lets the TIME LEFT block drop to its own row
-              on narrow widths instead of crushing the price column — the
-              amount itself can never wrap (PriceDisplay, numberOfLines=1). */}
-          <View style={s.heroCard}>
-            <View style={s.heroLeft}>
-              {/* All-in pricing: buyer-facing price includes the 10% service fee. */}
-              <PriceDisplay
-                size="detail"
-                label={isSold ? 'SOLD FOR' : 'CURRENT BID'}
-                amount={allInFromDollars(isSold ? finalSoldPrice(listing) : currentHighest)}
-                muted={isSold}
-              />
-              <Text style={s.heroFeeNote}>
-                Includes {baseFromDollars(isSold ? finalSoldPrice(listing) : currentHighest)} ticket
-                {' + '}{buyerFeeFromDollars(isSold ? finalSoldPrice(listing) : currentHighest)} service fee
-              </Text>
-            </View>
-            <View style={s.heroRight}>
-              <Text style={s.heroLabel}>TIME LEFT</Text>
-              <Text style={[s.heroCountdown, ended && { color: colors.error }]} numberOfLines={1}>
-                {countdown || '—'}
-              </Text>
-            </View>
-          </View>
-
-          {sellerProfile && (
-            <Pressable
-              style={s.sellerRow}
-              onPress={() => router.push(`/profile/${listing.seller_id}` as any)}
-              accessibilityRole="button"
-              accessibilityLabel={`View ${sellerProfile.display_name || 'seller'}'s profile`}
-            >
-              {(() => {
-                const sellerAvatar = getAvatarUrl(sellerProfile.avatar_path ?? sellerProfile.avatar_url);
-                const initial = (sellerProfile.display_name || 'S').trim().charAt(0).toUpperCase();
-                return sellerAvatar ? (
-                  <Image source={{ uri: sellerAvatar }} style={s.sellerAvatar} contentFit="cover" />
-                ) : (
-                  <View style={[s.sellerAvatar, s.sellerAvatarFallback]}>
-                    <Text style={s.sellerAvatarInitial}>{initial}</Text>
-                  </View>
-                );
-              })()}
-              <Text style={s.sellerName}>{sellerProfile.display_name || 'Seller'}</Text>
-              <VerifiedSellerBadge isVerified={sellerProfile.is_verified_seller} />
-              <Text style={s.sellerChevron}>{'›'}</Text>
-            </Pressable>
-          )}
-
-          <Text style={s.sectionHead}>EVENT DETAILS</Text>
-          <View style={s.card}>
-            <InfoRow label="Venue"        value={listing.venue} />
-            <InfoRow label="Date & Time"  value={fmtDate(listing.event_date, listing.event_time)} />
-            <InfoRow label="Area / Venue" value={listing.neighborhood.replace(/\b\w/g, c => c.toUpperCase())} />
-            <InfoRow label="Category"
-              value={(listing.category ?? 'nightlife').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())} />
-          </View>
-
-          <Text style={s.sectionHead}>TICKET INFO</Text>
-          <View style={s.card}>
-            <InfoRow label="Type"     value={ticketLabel} />
-            <InfoRow label="Quantity" value={String(listing.quantity)} />
-            <InfoRow label="Transfer" value={transferLabel} />
-            {/* Ownership-proof badge: shown ONLY after manual admin approval
-                (migration 033). Never claims verification before review. */}
-            {listing.proof_status === 'approved' && (
-              <InfoRow label="Ownership proof" value="✓ Reviewed by Snatch It" />
-            )}
-            {listing.restrictions ? <InfoRow label="Restrictions" value={listing.restrictions} /> : null}
-          </View>
-
-          <Text style={s.sectionHead}>PRICING</Text>
-          <View style={s.card}>
-            {/* All-in pricing: every buyer-facing price includes the 10% service fee. */}
-            <InfoRow label="Starting bid" value={allInLabel(listing.starting_bid)} />
-            {listing.buy_now_enabled && listing.buy_now_price != null && (
-              <InfoRow label="Buy Now" value={allInLabel(listing.buy_now_price)} />
-            )}
-            <InfoRow label="Pricing" value="Totals include the 10% service fee" />
-          </View>
-
-          <Text style={s.sectionHead}>BID HISTORY ({bids.length})</Text>
-          <View style={s.card}>
-            {bids.length === 0 ? (
-              <Text style={s.emptyBids}>No bids yet — be the first!</Text>
+        <View style={s.facts}>
+          {showBreakdown ? (
+            <Text style={[textStyle('micro'), s.factEyebrow]}>If you bid the minimum</Text>
+          ) : null}
+          {detailRows.map((row) => {
+            const cells = (
+              <>
+                <Text style={[textStyle('body'), s.factLabel]}>{row.label}</Text>
+                <Text
+                  style={[
+                    textStyle('body'),
+                    s.factValue,
+                    row.money ? s.factMoney : null,
+                    row.block || stackRows ? s.factValueBlock : null,
+                  ]}
+                  numberOfLines={row.block || stackRows ? undefined : 2}
+                >
+                  {row.value}
+                </Text>
+              </>
+            );
+            return row.onPress ? (
+              <Pressable
+                key={row.label}
+                onPress={row.onPress}
+                style={[s.factRow, row.block || stackRows ? s.factRowBlock : null]}
+                accessibilityRole="button"
+                accessibilityLabel={`${row.label}: ${row.value}`}
+                accessibilityHint="Opens the seller's profile"
+              >
+                {cells}
+              </Pressable>
             ) : (
-              bids.map(bid => <BidRowItem key={bid.id} bid={bid} />)
-            )}
-          </View>
-
+              <View
+                key={row.label}
+                style={[s.factRow, row.block || stackRows ? s.factRowBlock : null]}
+                accessible
+                accessibilityLabel={`${row.label}: ${row.value}`}
+              >
+                {cells}
+              </View>
+            );
+          })}
         </View>
+
+        {/* The commitment sentence, wherever a bid can actually be placed from here. De-dup:
+            it carries no numbers — the panel and the CTA sub-label already do. */}
+        {offersBid(state) ? (
+          <Text style={[textStyle('bodySm'), s.commitment]}>{BID_COMMITMENT_COPY}</Text>
+        ) : null}
+
+        {state.showsBidActivity ? (
+          <BidActivity
+            bids={bids}
+            amountFor={(b) => listingAllInV3(b.amount)}
+            timeFor={(b) => timeAgo(b.created_at)}
+            viewerId={fixture?.viewerId ?? user?.id}
+            // Nobody leads an auction that was cancelled: the bids are void, and the row that
+            // was in front is history like the rest of them.
+            highlightTop={!isSold && !auctionEnded && !ended && listing.auction_status !== 'cancelled'}
+          />
+        ) : null}
+
       </ScrollView>
 
-      {/* ── Sticky bottom action bar ───────────────────────────────────────
-          Wide: [price] [buttons] on one row. Narrow (all iPhones + iPad
-          compatibility mode): price row on top, full-width button row below.
-          The Jul 29 App Review screenshots showed the old flex:1 price block
-          crushed into a vertical letter-stack — PriceDisplay + this stacking
-          make that geometrically impossible. */}
-      <View style={[s.bar, stackBar && s.barStacked]}>
-        <View style={stackBar ? s.barPriceStacked : s.barPrice}>
-          <PriceDisplay
-            size="sticky"
-            label={isSold ? 'SOLD FOR' : 'CURRENT BID'}
-            amount={allInFromDollars(isSold ? finalSoldPrice(listing) : currentHighest)}
-            muted={isSold}
+      {/*
+        THE FOOTER AS THE BOARD DRAWS IT (pkg8-listing-dark/light). Full-width pill actions in a
+        COLUMN, each with its own sub-line inside it, on the page rather than on a raised bar.
+        What this replaces: both actions and both sub-lines were being pushed through the bar's
+        horizontal `actions` container, which clipped and crowded them.
+
+        The price is not repeated here. The panel at the top of the screen states it once, which
+        is what the board draws and what "each number once" has meant on this screen since §5.
+      */}
+      <StickyBar layout="stack" onLayout={(e) => setFooterHeight(e.nativeEvent.layout.height)}>
+        {/* A dimmed control may not be the only place a listing's STATE is written: Button drops a
+            disabled pill to 0.4. So an unavailable primary keeps its sentence OUTSIDE the pill, at
+            full strength — the live actions below carry theirs inside. */}
+        {(state.primary.disabled || state.primary.kind === 'unavailable') && state.primary.subLabel ? (
+          <Text style={[textStyle('bodySm'), s.ctaSubLabel]} numberOfLines={2}>{state.primary.subLabel}</Text>
+        ) : null}
+
+        {/*
+          HIERARCHY COMES FROM THE RESOLVER (owner rulings 2026-09-24, then 2026-09-25). The screen
+          paints whatever the resolver selects: the primary is the FILLED red action and it leads
+          the column, the secondary is outlined below it. On a listing that offers BOTH actions the
+          resolver now selects the bid as primary (owner 2026-09-25, Option B), superseding the
+          earlier Buy-Now-first hierarchy — and because the emphasis is read off the selection
+          rather than overridden here, that ruling took one change in `detailState` and none in
+          this file;
+          the bid follows, outlined. The earlier reading — pkg8-listing-{dark,light} draws the bid
+          filled with Buy Now outlined beneath it — pinned the emphasis to the board and inverted
+          the resolver; that flip is what this ruling closes. The board's remaining footer facts
+          (full-width pills stacked on the page, each sub-line inside its own pill, no repeated
+          price) are unchanged, and nothing about what either action DOES moved with the paint.
+        */}
+        <BarAction
+          label={state.primary.label}
+          // V3 (O-2): informational — a minimum or a consequence, never the amount a tap submits.
+          subLabel={state.primary.disabled || state.primary.kind === 'unavailable' ? undefined : primarySubLabel}
+          // Visible while the reserve call is in flight (CFT-203), on whichever button carries the
+          // reserve action — see `isReserveAction` above.
+          pendingLabel="Reserving…"
+          variant="primary"
+          disabled={state.primary.disabled || state.primary.kind === 'unavailable'}
+          loading={busy.primary}
+          onPress={() => runAction(state.primary.kind)}
+        />
+        {state.secondary ? (
+          <BarAction
+            label={state.secondary.label}
+            subLabel={state.secondary.subLabel}
+            variant="secondary"
+            // The same pending treatment as the primary: under Option B this is the button that
+            // reserves, and a control that starts a network call must say so wherever it sits.
+            pendingLabel="Reserving…"
+            disabled={state.secondary.disabled}
+            loading={busy.secondary}
+            onPress={() => runAction(state.secondary!.kind)}
           />
-        </View>
-
-        <View style={[s.barActions, stackBar && s.barActionsStacked]}>
-
-          {buyNowVisible && (
-            <TouchableOpacity
-              style={[s.buyBtn, hardLocked && s.buyBtnDisabled]}
-              onPress={hardLocked ? undefined : handleBuyNow}
-              disabled={hardLocked}
-              activeOpacity={0.8}
-            >
-              {reserving
-                ? <ActivityIndicator color={colors.text} size="small" />
-                : <Text style={[s.buyBtnText, hardLocked && s.btnTextDisabled]} numberOfLines={1}>{buyNowLabel}</Text>
-              }
-            </TouchableOpacity>
-          )}
-
-          {iAmWinner && (
-            <TouchableOpacity style={s.payNowBtn} onPress={navigateToWinnerCheckout} activeOpacity={0.85}>
-              <Text style={s.payNowBtnText} numberOfLines={1}>💳 Pay Now</Text>
-            </TouchableOpacity>
-          )}
-
-          {!iAmWinner && (
-            <TouchableOpacity
-              style={[s.bidBtn, bidLocked && s.bidBtnDisabled]}
-              onPress={bidLocked ? undefined : () => router.push(`/bid/${listing.id}`)}
-              disabled={bidLocked}
-              activeOpacity={0.85}
-            >
-              {finalizing ? (
-                <ActivityIndicator color={colors.text} size="small" />
-              ) : (
-                <Text style={[s.bidBtnText, bidLocked && s.btnTextDisabled]} numberOfLines={1}>{placeBidLabel}</Text>
-              )}
-            </TouchableOpacity>
-          )}
-
-        </View>
-      </View>
-
-    </SafeAreaView>
+        ) : null}
+      </StickyBar>
+    </View>
   );
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
-const s = StyleSheet.create({
-  safe:     { flex: 1, backgroundColor: colors.bg },
-  centered: { flex: 1, justifyContent:'center', alignItems:'center',
-              backgroundColor: colors.bg, gap: spacing.md },
-  errText:  { color: colors.error, fontSize: fontSize.md, textAlign:'center',
-              paddingHorizontal: spacing.xl },
-  retryBtn: { backgroundColor: colors.primary, paddingHorizontal: spacing.xl,
-              paddingVertical: spacing.sm, borderRadius: radius.md },
-  retryText:{ color: colors.text, fontWeight:'700' },
-
-  // Animated outbid banner — absolute, sits just below the topBar.
-  // top:60 ≈ topBar height (paddingVertical:8×2 + height:44 + border:1 = 61px).
-  // translateY -30→0 slides it into its natural position; opacity 0→1 fades in.
-  // zIndex:1 keeps it visually under the topBar (zIndex:2) while animating.
-  outbidBanner: {
-    position: 'absolute', left: 0, right: 0, top: 60, zIndex: 1,
-    backgroundColor: colors.bgCard,
-    borderBottomWidth: 2, borderBottomColor: colors.primary,
-    paddingVertical: 10, alignItems: 'center', justifyContent: 'center',
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  liveNotice: {
+    paddingVertical: v2.space.sm, paddingHorizontal: v2.space.lg,
+    borderLeftWidth: 2, borderLeftColor: p.status.warning, backgroundColor: p.surface.surface,
   },
-  outbidBannerText: {
-    color: colors.text, fontWeight: '700',
-    fontSize: fontSize.sm, letterSpacing: 0.3,
-  },
+  liveNoticeText: { color: p.status.warning },
+  ctaSubLabel: { color: p.text.muted, textAlign: 'center' },
+  safe: { flex: 1, backgroundColor: p.surface.canvas },
 
-  // Win banner — green accent, two lines (title + body)
-  winBanner: {
-    position: 'absolute', left: 0, right: 0, top: 60, zIndex: 1,
-    backgroundColor: 'rgba(20, 48, 24, 0.97)',
-    borderBottomWidth: 2, borderBottomColor: colors.success,
-    paddingVertical: 11, paddingHorizontal: spacing.lg,
-    alignItems: 'center', gap: 2,
-  },
-  winBannerTitle: {
-    color: colors.success, fontWeight: '800',
-    fontSize: fontSize.sm, letterSpacing: 0.5, textAlign: 'center',
-  },
-  winBannerBody: {
-    color: '#a0b8a2', fontWeight: '500',
-    fontSize: fontSize.xs, textAlign: 'center',
-  },
+  // The artwork runs under the status bar: the hero is the first thing on the
+  // screen and a safe-area gap above it would frame it like a card.
+  /*
+   * No constant here any more. Clearance is `scrollPad`, computed from the footer's MEASURED
+   * height — a 96 pt spacer plus a 64 pt constant came to about 160 pt against a footer that is
+   * 176 pt at the largest accessibility size, which is the ~16 pt slice B measured on the last
+   * fact row. Three sources of the same spacing is how that gap went unnoticed.
+   */
+  scroll: {},
+  // §5 commitment sentence: quiet body ink, on the gutter, above the sticky actions.
+  commitment: { color: p.text.secondary, paddingHorizontal: v2.space.lg, paddingTop: v2.space.md },
 
-  topBar:   { flexDirection:'row', alignItems:'center', justifyContent:'space-between',
-              paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
-              borderBottomWidth:1, borderBottomColor: colors.border, zIndex: 2 },
-  backBtn:  { width:44, height:44, alignItems:'flex-start', justifyContent:'center' },
-  backArrow:{ color: colors.text, fontSize: fontSize.xl, fontWeight:'600' },
-  topTitle: { flex:1, textAlign:'center', color: colors.text,
-              fontSize: fontSize.md, fontWeight:'700' },
-
-  resBanner:      { paddingVertical: spacing.sm, paddingHorizontal: spacing.lg, alignItems: 'center' },
-  resBannerMine:  { backgroundColor: colors.primary },
-  resBannerOther: { backgroundColor: colors.bgInput },
-  resBannerSold:  { backgroundColor: colors.bgCard, borderBottomWidth: 1,
-                    borderBottomColor: colors.border },
-  resBannerText:  { fontSize: fontSize.sm, fontWeight: '700', color: colors.text },
-
-  finalizingRow:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-                    gap: spacing.sm, paddingVertical: 6, backgroundColor: colors.bgInput },
-  finalizingText: { fontSize: fontSize.xs, color: colors.textMuted, fontWeight: '600' },
-
-  cover:                { width:'100%', height: 220 },
-  coverPlaceholder:     { backgroundColor: colors.bgInput, alignItems:'center', justifyContent:'center' },
-  coverPlaceholderText: { fontSize: 48 },
-
-  body: { padding: spacing.lg },
-
-  heroCard: {
-    flexDirection:'row', alignItems:'center', flexWrap:'wrap', rowGap: spacing.sm,
-    backgroundColor: colors.bgCard, borderRadius: radius.lg,
-    borderWidth:1, borderColor: colors.border,
-    padding: spacing.lg, marginBottom: spacing.lg, ...shadow.card,
-  },
-  heroLabel:     { fontSize: fontSize.xs, fontWeight:'700', color: colors.textDim,
-                   letterSpacing:1.2, textTransform:'uppercase', marginBottom:4 },
-  // flexBasis 60% + minWidth floor: price owns the row until the row is too
-  // narrow to hold both columns, at which point TIME LEFT wraps below.
-  heroLeft:      { flexGrow:1, flexShrink:1, flexBasis:'60%', minWidth: 170 },
-  heroFeeNote:   { fontSize: fontSize.xs, color: colors.textDim, marginTop: 2 },
-  heroRight:     { flexGrow:1, flexShrink:0, alignItems:'flex-end' },
-  heroCountdown: { fontSize: fontSize.lg, fontWeight:'800', color: colors.primary,
-                   fontVariant:['tabular-nums'] },
-
-  sellerRow:   { flexDirection:'row', alignItems:'center', gap: spacing.sm, marginBottom: spacing.md },
-  sellerAvatar:{ width: 28, height: 28, borderRadius: 14 },
-  sellerAvatarFallback: { backgroundColor: colors.primarySoft, alignItems:'center', justifyContent:'center' },
-  sellerAvatarInitial:  { color: colors.primary, fontSize: fontSize.xs, fontWeight:'800' },
-  sellerName:  { fontSize: fontSize.sm, fontWeight:'600', color: colors.text },
-  sellerChevron: { marginLeft:'auto', color: colors.textDim, fontSize: fontSize.lg, fontWeight:'700' },
-
-  sectionHead: { fontSize: fontSize.xs, fontWeight:'700', color: colors.textDim,
-                 letterSpacing:1.4, textTransform:'uppercase', marginBottom: spacing.sm },
-  card:        { backgroundColor: colors.bgCard, borderRadius: radius.lg,
-                 borderWidth:1, borderColor: colors.border,
-                 paddingHorizontal: spacing.md, marginBottom: spacing.lg, ...shadow.card },
-  emptyBids:   { color: colors.textMuted, fontSize: fontSize.sm, textAlign:'center',
-                 paddingVertical: spacing.lg },
-
-  bar: {
-    flexDirection:'row', alignItems:'center',
-    paddingHorizontal: spacing.lg, paddingVertical: spacing.md, paddingBottom: spacing.xl,
-    backgroundColor: colors.bgCard,
-    borderTopWidth:1, borderTopColor: colors.border, gap: spacing.md,
-  },
-  barStacked:      { flexDirection:'column', alignItems:'stretch', gap: spacing.sm },
-  // Wide: price keeps its intrinsic width and never gets crushed by buttons.
-  barPrice:        { flexShrink: 0, minWidth: 0 },
-  barPriceStacked: { minWidth: 0 },
-  barActions:        { flexDirection:'row', gap: spacing.sm, flex: 1, justifyContent:'flex-end' },
-  // Stacked: buttons share the full row width equally (flexGrow on each).
-  barActionsStacked: { flex: 0 },
-
-  buyBtn:         { backgroundColor: colors.bgInput, borderWidth:1, borderColor: colors.borderInput,
-                    borderRadius: radius.md, paddingVertical: spacing.sm+2, paddingHorizontal: spacing.md,
-                    alignItems:'center', justifyContent:'center', minWidth: 80, minHeight: 44,
-                    flexGrow: 1, flexShrink: 1, flexBasis: 0 },
-  buyBtnDisabled: { opacity: 0.4 },
-  buyBtnText:     { color: colors.text, fontSize: fontSize.sm, fontWeight:'700',
-                    fontVariant:['tabular-nums'] },
-
-  payNowBtn:     { backgroundColor: colors.success, borderRadius: radius.md,
-                   paddingVertical: spacing.sm+2, paddingHorizontal: spacing.lg,
-                   alignItems:'center', justifyContent:'center', minHeight: 44,
-                   flexGrow: 1, flexShrink: 1, flexBasis: 0 },
-  payNowBtnText: { color: '#fff', fontSize: fontSize.sm, fontWeight:'800', letterSpacing:0.5 },
-
-  bidBtn:         { backgroundColor: colors.primary, borderRadius: radius.md,
-                    paddingVertical: spacing.sm+2, paddingHorizontal: spacing.lg,
-                    alignItems:'center', justifyContent:'center', minHeight: 44,
-                    flexGrow: 1, flexShrink: 1, flexBasis: 0 },
-  bidBtnDisabled: { backgroundColor: colors.borderInput },
-  bidBtnText:     { color: colors.text, fontSize: fontSize.sm, fontWeight:'800', letterSpacing:0.5 },
-  btnTextDisabled:{ color: colors.textDim },
-
-  // Transfer refresh hint (seller sees SOLD but transfer not yet loaded)
-  refreshHint: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical:   spacing.sm,
-    alignItems:        'center',
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  refreshHintText: {
-    color:      colors.textMuted,
-    fontSize:   fontSize.xs,
-    fontWeight: '600',
-  },
-  disputedBanner: {
-    backgroundColor: 'rgba(139, 0, 0, 0.15)',
-    borderRadius:    10,
-    padding:         14,
-    marginTop:       10,
-  },
-  disputedBannerText: {
-    color:     '#FF6B6B',
-    fontSize:  14,
-    textAlign: 'center' as const,
-  },
-
-  // Transfer action buttons
-  transferActionRow: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical:   spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  transferBtn: {
-    backgroundColor: colors.primary,
-    borderRadius:    radius.md,
-    paddingVertical: spacing.sm + 2,
-    alignItems:      'center',
-    justifyContent:  'center',
-  },
-  transferBtnConfirm:  { backgroundColor: colors.success },
-  transferBtnDispute:  { backgroundColor: '#8B0000' },
-  transferBtnDisabled: { opacity: 0.4 },
-  transferBtnText: {
-    color:      colors.text,
-    fontSize:   fontSize.sm,
-    fontWeight: '700',
-  },
-
-  // Seller-owner action section (Edit / Cancel / Delete) — always visible
-  ownerActionsWrap: {
-    paddingHorizontal: spacing.lg,
-    paddingTop:        spacing.sm,
-    paddingBottom:     spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    backgroundColor:   colors.bgCard,
-  },
-  ownerActionsHeader: {
-    color:          colors.textMuted,
-    fontSize:       fontSize.xs,
-    fontWeight:     '700',
-    letterSpacing:  1.2,
-    textTransform:  'uppercase',
-    marginBottom:   spacing.xs,
-  },
-  ownerActionsRow: {
+  // The board's fact list: one eyebrow, then rows of the same weight separated by hairlines.
+  facts: { paddingHorizontal: v2.space.lg },
+  factEyebrow: { color: p.text.muted, paddingBottom: v2.space.xs },
+  factRow: {
     flexDirection: 'row',
-    gap:           spacing.sm,
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: v2.space.lg,
+    paddingVertical: v2.space.md,
+    borderBottomWidth: 1,
+    borderBottomColor: p.border.default,
   },
-  ownerActionsDebug: {
-    color:     colors.textDim,
-    fontSize:  10,
-    marginTop: spacing.xs,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  factRowBlock: { flexDirection: 'column', alignItems: 'flex-start', gap: v2.space.xs },
+  factLabel: { color: p.text.secondary },
+  factValue: { color: p.text.primary, flexShrink: 1, textAlign: 'right' },
+  factValueBlock: { textAlign: 'left' },
+  factMoney: { fontVariant: ['tabular-nums'] },
+
+  statusWrap: { marginTop: v2.space.lg },
+  refreshRow: {
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: v2.space.lg,
   },
-  ownerBtn: {
-    flex:            1,
-    borderRadius:    radius.md,
-    paddingVertical: spacing.sm + 2,
-    alignItems:      'center',
-    justifyContent:  'center',
-    borderWidth:     1,
+  refreshText: { color: p.brand.redText },
+
+  centered: {
+    flex: 1,
+    backgroundColor: p.surface.canvas,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: v2.space.md,
+    paddingHorizontal: v2.space.xl,
   },
-  ownerBtnEdit:   { backgroundColor: colors.bgInput,  borderColor: colors.primary },
-  ownerBtnDelete: { backgroundColor: colors.bgInput,  borderColor: colors.error },
-  ownerBtnCancel: { backgroundColor: '#3A1A00',       borderColor: colors.warning },
-  ownerBtnText:   { color: colors.text, fontSize: fontSize.sm, fontWeight: '700' },
-});
+  errText: { color: p.text.secondary, textAlign: 'center' },
+  });
+}

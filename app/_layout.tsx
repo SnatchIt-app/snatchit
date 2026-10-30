@@ -9,17 +9,34 @@
  * require.context can process it safely for both native and web builds.
  */
 
-import { DarkTheme, ThemeProvider } from '@react-navigation/native';
-import { router, Stack } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+// FIRST import, before anything that can reach the session cipher. Hermes has no
+// `crypto` global; this installs `crypto.getRandomValues` from the device RNG.
+// Module evaluation follows the import graph, so a leaf-module import is order
+// by luck — build 14 crashed at cold launch when that luck ran out.
+import 'react-native-get-random-values';
 
+import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
+import { AppearanceProvider, useTheme } from '@/src/theme/appearance';
+import { router, Stack, useSegments } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen';
+import { StatusBar } from 'expo-status-bar';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { SANDBOX_BADGE_EXTRA } from '@/src/lib/nav/keyboardLift';
+
+import { ENV_GUARD_FAILURE, IS_SANDBOX_BUILD } from '@/src/config/envGuard';
 import { useAuth } from '@/src/hooks/useAuth';
+import { useReducedMotion } from '@/src/hooks/useReducedMotion';
+import { useIsOnboarding } from '@/src/lib/auth/onboardingGate';
+import { authPhase, rootRouteDecision, type AuthPhase } from '@/src/lib/auth/rootRoute';
 import { supabase } from '@/src/lib/supabase';
 import ErrorBoundary from '@/src/components/ErrorBoundary';
-import { colors } from '@/src/theme';
+// Imported from the leaf module (not the ui barrel) so the web-safe root layout
+// pulls in no native-only siblings. Spinner's own deps are all platform-safe.
+import { Spinner } from '@/src/components/ui/Spinner';
+import { useBrandFonts } from '@/src/theme/fonts';
 
 // Platform-resolved: .native.tsx wraps in StripeProvider + Sentry;
 // .web.tsx is a passthrough.
@@ -35,9 +52,66 @@ export const unstable_settings = {
   anchor: '(tabs)',
 };
 
+// Hold the native splash until the brand fonts AND the persisted appearance choice are ready
+// (B, package 8 §6): the first painted frame must be the chosen appearance, never a System
+// frame that then flips. AppearanceProvider withholds its tree until the choice is read, and
+// ThemedShell — which mounts only inside that tree — releases the splash once fonts land. On
+// web the call resolves as a no-op.
+void SplashScreen.preventAutoHideAsync().catch(() => {});
+
+/**
+ * Appearance (owner 2026-09-23): the navigation theme and the status bar follow the resolved
+ * scheme — System by default, or the user's explicit Light/Dark — instead of a hard-coded dark.
+ */
+function ThemedShell({ children, fontsReady }: { children: ReactNode; fontsReady: boolean }) {
+  const { scheme, palette } = useTheme();
+  // Mounted only once the appearance choice is read; fonts ready here means both gates are open.
+  useEffect(() => {
+    if (fontsReady) void SplashScreen.hideAsync().catch(() => {});
+  }, [fontsReady]);
+  const navTheme = useMemo(() => {
+    const base = scheme === 'dark' ? DarkTheme : DefaultTheme;
+    return {
+      ...base,
+      colors: {
+        ...base.colors,
+        primary: palette.brand.red,
+        background: palette.surface.canvas,
+        card: palette.surface.surface,
+        text: palette.text.primary,
+        border: palette.border.default,
+      },
+    };
+  }, [scheme, palette]);
+  return (
+    <ThemeProvider value={navTheme}>
+      {children}
+      <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
+    </ThemeProvider>
+  );
+}
+
 function RootLayout() {
   const { session, loading } = useAuth();
   const [isRecovery, setIsRecovery] = useState(false);
+  // Sign up creates the account partway through, so a session appears while the
+  // person still has steps to answer. While that flag is raised the signup screen
+  // owns navigation and this gate stays out of the way. It gates routing only:
+  // it grants nothing and blocks nothing else.
+  const onboarding = useIsOnboarding();
+  // The phase this layout last navigated for. Navigation follows a change of
+  // authentication phase, never a change of session object identity: Supabase
+  // hands out a fresh session on USER_UPDATED and TOKEN_REFRESHED too, and
+  // treating those as sign-ins is what threw a signed-in person out of Settings
+  // phone verification and onto Home the moment the code was sent.
+  const routedPhaseRef = useRef<AuthPhase | null>(null);
+
+  // Brand typefaces. The navigator is held until these register, because
+  // `fontFamily()` resolves when a StyleSheet is constructed: a screen built
+  // before the faces land would keep the system face for its whole life, since
+  // nothing re-renders it when loading completes. The wait is over bundled
+  // assets, and a load failure reports ready, so the app can never wedge here.
+  const fontsReady = useBrandFonts();
 
   // Native-only: deep link handling, push token registration.
   // No-op on web.
@@ -61,25 +135,50 @@ function RootLayout() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Identity reporting tracks the current user on every change, including the
+  // ones that must not navigate.
   useEffect(() => {
     if (loading) return;
-    if (isRecovery) return;
+    setSentryUser(session ? { id: session.user.id, email: session.user.email ?? undefined } : null);
+  }, [session, loading]);
 
-    if (session) {
-      setSentryUser({ id: session.user.id, email: session.user.email ?? undefined });
-      router.replace('/(tabs)/home');
-    } else {
-      setSentryUser(null);
-      router.replace('/(auth)/login');
-    }
-  }, [session, loading, isRecovery]);
+  // The V3 rendering harness under `app/_dev/` must paint a screen without a session, and the
+  // auth gate below would replace the route before it ever renders. The exemption is false FOR A
+  // PRODUCTION PAIRING at runtime — __DEV__ is false in a release bundle, and IS_SANDBOX_BUILD
+  // requires the env guard's three conjuncts (guard passed, APP_ENV 'sandbox', sandbox host) —
+  // so the gate behaves exactly as before there, though the _dev modules do still ship. The
+  // app/_dev/_layout.tsx gate is the second, independent runtime refusal.
+  // (owner 2026-09-24: web rendering of the approved boards; wording per A's review.)
+  const segments = useSegments();
+  const inDevHarness = (__DEV__ || IS_SANDBOX_BUILD) && segments[0] === '_dev';
+
+  // Navigation is a separate concern and runs only on a real phase boundary.
+  useEffect(() => {
+    if (inDevHarness) return;
+    const phase = authPhase(session);
+    const decision = rootRouteDecision({
+      loading,
+      isRecovery,
+      onboarding,
+      phase,
+      lastRoutedPhase: routedPhaseRef.current,
+    });
+    if (!decision.navigate) return;
+    routedPhaseRef.current = phase;
+    router.replace(decision.to);
+  }, [session, loading, isRecovery, onboarding, inDevHarness]);
+
+  // Reduce Motion: every push and pop still happens, as a cross-fade (CFT-206).
+  const reduceMotion = useReducedMotion();
 
   return (
     <ErrorBoundary>
     <AppShell>
     <SafeAreaProvider>
-    <ThemeProvider value={DarkTheme}>
-      <Stack screenOptions={{ headerShown: false }}>
+    <AppearanceProvider>
+    <ThemedShell fontsReady={fontsReady}>
+      {fontsReady ? (
+      <Stack screenOptions={{ headerShown: false, animation: reduceMotion ? 'fade' : 'default' }}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="listing/[id]" />
@@ -104,17 +203,31 @@ function RootLayout() {
         <Stack.Screen name="settings/blocked-users" />
         <Stack.Screen name="profile/[id]" />
       </Stack>
+      ) : null}
 
-      {loading && (
-        <View style={StyleSheet.absoluteFill} pointerEvents="none">
-          <View style={styles.splash}>
-            <ActivityIndicator color={colors.accent} size="large" />
+      {(loading || !fontsReady) && <SplashOverlay />}
+
+      {/* Environment pairing failure: a non-dismissible blocker. Rendered last so
+          it covers everything, and it captures touches (no pointerEvents="none")
+          so the app underneath cannot be used. */}
+      {ENV_GUARD_FAILURE ? (
+        <View style={StyleSheet.absoluteFill}>
+          <View style={styles.envBlock}>
+            <Text style={styles.envBlockTitle}>Build misconfigured</Text>
+            <Text style={styles.envBlockBody}>
+              This build pairs the wrong Supabase project with the wrong Stripe account and has been
+              stopped before any network call.
+            </Text>
+            <Text style={styles.envBlockCode}>{ENV_GUARD_FAILURE}</Text>
           </View>
         </View>
-      )}
+      ) : null}
 
-      <StatusBar style="light" />
-    </ThemeProvider>
+      {/* Unmistakable label so a sandbox build is never mistaken for production. */}
+      {IS_SANDBOX_BUILD ? <SandboxBadge /> : null}
+
+    </ThemedShell>
+    </AppearanceProvider>
     </SafeAreaProvider>
     </AppShell>
     </ErrorBoundary>
@@ -124,10 +237,65 @@ function RootLayout() {
 // On native: Sentry.wrap(RootLayout). On web: identity (returns RootLayout).
 export default wrapRootComponent(RootLayout);
 
+/**
+ * Unmistakable label so a sandbox build is never mistaken for production. It
+ * overlays the top of every screen; its height past the status-bar inset is
+ * SANDBOX_BADGE_EXTRA, which screen headers add through useTopInset()
+ * (F-SELL-1: the seller form's heading sat under it on build 17).
+ */
+/**
+ * The in-app splash held over the navigator while auth resolves. It is a child of
+ * ThemedShell, so it mounts only after the stored appearance choice is read — which is why
+ * it can read the palette and never shows a Midnight canvas to someone in Light.
+ */
+function SplashOverlay() {
+  const { palette } = useTheme();
+  return (
+    <View style={StyleSheet.absoluteFill} pointerEvents="none">
+      <View style={[styles.splash, { backgroundColor: palette.surface.canvas }]}>
+        <Spinner size="large" color={palette.brand.red} label="Loading Snatch It" />
+      </View>
+    </View>
+  );
+}
+
+function SandboxBadge() {
+  const insets = useSafeAreaInsets();
+  return (
+    <View style={[styles.sandboxBadge, { paddingTop: insets.top }]} pointerEvents="none">
+      {/* S-1 (D): a build banner, not content — fixed size so its height stays SANDBOX_BADGE_EXTRA at every text setting. */}
+      <Text style={styles.sandboxBadgeText} allowFontScaling={false}>SANDBOX — TEST MONEY ONLY</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  envBlock: {
+    flex: 1,
+    backgroundColor: '#1a0000',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 28,
+    gap: 14,
+  },
+  envBlockTitle: { color: '#FF1A1A', fontSize: 22, fontWeight: '700', textAlign: 'center' },
+  envBlockBody: { color: '#fff', fontSize: 15, textAlign: 'center', lineHeight: 21 },
+  envBlockCode: { color: '#ffb3b3', fontSize: 12, textAlign: 'center', fontFamily: 'Courier' },
+  sandboxBadge: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#7a3b00',
+    paddingBottom: 6,
+    alignItems: 'center',
+  },
+  // Line height + the 6 pt below it = SANDBOX_BADGE_EXTRA, which headers add (useTopInset).
+  sandboxBadgeText: { color: '#ffd9a0', fontSize: 11, lineHeight: SANDBOX_BADGE_EXTRA - 6, fontWeight: '700', letterSpacing: 1 },
+  // The canvas comes from the resolved palette at render (SplashOverlay); everything
+  // else about the overlay is appearance-independent.
   splash: {
     flex: 1,
-    backgroundColor: colors.bg,
     justifyContent: 'center',
     alignItems: 'center',
   },

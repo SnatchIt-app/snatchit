@@ -1,0 +1,12 @@
+{
+  "_doc": "F-DISPUTE-SELLERWIN-1: the ONE enumeration of hold states for a seller-win transfer (status buyer_confirmed, buyer_confirmed_at NULL, dispute_resolution resolved_seller_paid). Read by tests/seller-win-dispute.test.ts (edge selection + JS claim mirror) and pinned to the copy embedded in supabase/tests/215_seller_win_dispute_payout_and_notice.sql between MATRIX-BEGIN/MATRIX-END (a vitest test fails if the two differ). hold_offset_min is minutes from now; null = no hold_until. expect null = payable; otherwise the claim_payout_attempt refusal.",
+  "cases": [
+    { "case": "no_hold",                      "review": null,            "hold_offset_min": null, "expect": null },
+    { "case": "held_future",                  "review": "held",          "hold_offset_min": 4320, "expect": "PAYOUT_HELD" },
+    { "case": "held_past",                    "review": "held",          "hold_offset_min": -60,  "expect": null },
+    { "case": "held_no_end",                  "review": "held",          "hold_offset_min": null, "expect": "PAYOUT_HELD" },
+    { "case": "hold_until_future_no_review",  "review": null,            "hold_offset_min": 60,   "expect": "PAYOUT_HELD" },
+    { "case": "manual_review",                "review": "manual_review", "hold_offset_min": null, "expect": "PAYOUT_UNDER_REVIEW" },
+    { "case": "manual_review_past_hold",      "review": "manual_review", "hold_offset_min": -60,  "expect": "PAYOUT_UNDER_REVIEW" }
+  ]
+}

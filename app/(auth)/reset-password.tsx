@@ -1,145 +1,101 @@
 /**
- * app/(auth)/reset-password.tsx
+ * app/(auth)/reset-password.tsx — Set a new password (V2).
  *
- * Landed on when the user taps the Supabase password-reset email link.
- * _layout.tsx detects the PASSWORD_RECOVERY auth event and routes here.
- * Calls supabase.auth.updateUser() with the new password, then redirects to login.
+ * Landed on from the Supabase recovery link (_layout routes here on the
+ * PASSWORD_RECOVERY event). PRESENTATION rebuilt; the path is unchanged:
+ * `updateUser({ password })`, then sign out and back to login. Validation copy
+ * moves to src/lib/auth/authForms.ts.
  */
 
 import { router } from 'expo-router';
-import { useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { useMemo, useState } from 'react';
+import { Alert, StyleSheet, Text, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
-import { colors, fontSize, radius, spacing } from '@/src/theme';
+import { SIGN_OUT_FAILED_COPY, signOutAllDevices } from '@/src/lib/auth/signOut';
+import { Button, Input } from '@/src/components/ui';
+import { friendlyAuthError, validateReset } from '@/src/lib/auth/authForms';
+import { AuthScreen } from '@/src/components/auth/AuthScreen';
+import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
+import * as v2 from '@/src/theme/v2';
+
 
 export default function ResetPasswordScreen() {
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const [password, setPassword] = useState('');
-  const [confirm,  setConfirm]  = useState('');
-  const [loading,  setLoading]  = useState(false);
+  const [confirm, setConfirm] = useState('');
+  const [loading, setLoading] = useState(false);
 
   async function handleReset() {
-    if (!password.trim() || !confirm.trim()) {
-      Alert.alert('Both fields are required.');
-      return;
-    }
-    if (password !== confirm) {
-      Alert.alert('Passwords do not match.');
-      return;
-    }
+    const invalid = validateReset(password, confirm);
+    if (invalid) { Alert.alert(invalid); return; }
     setLoading(true);
     const { error } = await supabase.auth.updateUser({ password });
     setLoading(false);
-    if (error) {
-      Alert.alert('Error', error.message);
+    if (error) { Alert.alert('Error', friendlyAuthError(error.message)); return; }
+    await signOutAfterPasswordChange();
+  }
+
+  // K-2: a new password ends every session; the login screen says why.
+  // F-K2-3: if the sign-out fails (offline), the password is already changed
+  // and every binding revoked, so the user is told exactly that and retries.
+  async function signOutAfterPasswordChange(): Promise<void> {
+    setLoading(true);
+    const r = await signOutAllDevices({ reason: 'password_changed' });
+    setLoading(false);
+    if (!r.signedOut) {
+      Alert.alert('Password updated', `Your password has been updated, but this device could not sign out. ${SIGN_OUT_FAILED_COPY}`, [
+        { text: 'Try again', onPress: () => { void signOutAfterPasswordChange(); } },
+      ]);
       return;
     }
-    await supabase.auth.signOut();
-    Alert.alert(
-      'Password updated',
-      'Your password has been updated. Please sign in.',
-      [{ text: 'OK', onPress: () => router.replace('/(auth)/login') }],
-    );
+    Alert.alert('Password updated', 'Your password has been updated. Please sign in.', [
+      { text: 'OK', onPress: () => router.replace('/(auth)/login') },
+    ]);
   }
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      <View style={styles.inner}>
+    <AuthScreen>
+        <Text style={[textStyle('screenTitle'), s.title]} accessibilityRole="header">New password</Text>
 
-        <Text style={styles.logo}>SnatchIt</Text>
-        <Text style={styles.heading}>Set New Password</Text>
+        <View style={s.fields}>
+          <Input
+            label="New password"
+            placeholder="At least 6 characters"
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
+            autoCapitalize="none"
+            autoComplete="new-password"
+            textContentType="newPassword"
+            returnKeyType="next"
+          />
+          <Input
+            label="Confirm password"
+            placeholder="Re-enter your password"
+            value={confirm}
+            onChangeText={setConfirm}
+            secureTextEntry
+            autoCapitalize="none"
+            autoComplete="new-password"
+            textContentType="newPassword"
+            returnKeyType="done"
+            onSubmitEditing={handleReset}
+          />
+        </View>
 
-        <TextInput
-          style={styles.input}
-          placeholder="New password"
-          placeholderTextColor={colors.textPlaceholder}
-          secureTextEntry
-          autoCapitalize="none"
-          value={password}
-          onChangeText={setPassword}
-        />
-        <TextInput
-          style={styles.input}
-          placeholder="Confirm new password"
-          placeholderTextColor={colors.textPlaceholder}
-          secureTextEntry
-          autoCapitalize="none"
-          value={confirm}
-          onChangeText={setConfirm}
-        />
-
-        <TouchableOpacity
-          style={[styles.button, loading && styles.buttonDisabled]}
-          onPress={handleReset}
-          disabled={loading}
-          activeOpacity={0.8}
-        >
-          {loading
-            ? <ActivityIndicator color={colors.text} />
-            : <Text style={styles.buttonText}>Update Password</Text>
-          }
-        </TouchableOpacity>
-
-      </View>
-    </KeyboardAvoidingView>
+        <Button label="Update password" onPress={handleReset} loading={loading} disabled={loading} block style={s.cta} />
+    </AuthScreen>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bg },
-  inner: {
-    flex: 1,
-    paddingHorizontal: spacing.lg,
-    justifyContent: 'center',
-  },
-  logo: {
-    fontSize: fontSize.xxl,
-    fontWeight: '800',
-    color: colors.text,
-    letterSpacing: 2,
-    marginBottom: spacing.xs,
-  },
-  heading: {
-    fontSize: fontSize.md,
-    color: colors.textMuted,
-    marginBottom: spacing.xl,
-  },
-  input: {
-    backgroundColor: colors.bgInput,
-    color: colors.text,
-    borderWidth: 1,
-    borderColor: colors.borderInput,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 14,
-    fontSize: fontSize.md,
-    marginBottom: spacing.sm + 2,
-  },
-  button: {
-    backgroundColor: colors.accent,
-    paddingVertical: spacing.md,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    marginTop: spacing.xs,
-  },
-  buttonDisabled: { opacity: 0.6 },
-  buttonText: {
-    color: colors.text,
-    fontWeight: '700',
-    fontSize: fontSize.md,
-    letterSpacing: 1,
-  },
-});
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  title: { color: p.text.primary, marginBottom: v2.space.xl },
+  fields: { gap: v2.space.lg },
+  cta: { marginTop: v2.space.xl },
+  });
+}

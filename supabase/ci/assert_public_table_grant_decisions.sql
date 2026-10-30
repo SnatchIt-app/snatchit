@@ -117,6 +117,104 @@
 --      name(argtypes) — argument TYPES only, no parameter names, so a rename
 --      cannot silently orphan the entry.
 --
+-- SCOPE NOTE (2026-10-22, registry 160/161 — D, S1 venue tiers/inventory; DARK,
+-- applied nowhere). Parts A and B enumerate `public` only, and B2 fails closed
+-- on a row whose function is not in public, so the objects 160/161 create
+-- OUTSIDE public carry NO row here (159 added none for the same reason):
+--   venue.set_ticket_type_visibility(uuid, text, text, text)   authenticated-execute
+--   venue.set_ticket_type_rank(uuid, smallint, text)           authenticated-execute
+--   venue.get_inventory_counters(uuid)                         authenticated-execute
+--   venue_cmd.* — six SECURITY INVOKER wrappers                authenticated-execute;
+--                 schema USAGE to authenticated only
+--   (anon, PUBLIC and service_role hold nothing on any of them; no proacl is
+--   left DEFAULTED; the four venue.* bodies 160 replaces keep their 081 grants.)
+-- Those decisions are ASSERTED by pgTAP 227 (A8/A9/A16/B11) and 228 (A10-A17,
+-- swept over EVERY function in venue_cmd, not a fixed list), the way 226 F1/F2
+-- gate venue_api. Nothing in public changed; the manifests below are unchanged.
+--
+-- SCOPE NOTE (2026-10-26, registry 162 — D, S2 event policy / shared capacity /
+-- tier windows; DARK, applied nowhere). Same reasoning: every object 162 creates
+-- lives OUTSIDE public and carries NO row here:
+--   catalog.set_venue_timezone(uuid, text, text, text)                        authenticated-execute
+--   catalog.set_event_age_policy(uuid, text, text, text)                      authenticated-execute
+--   catalog.set_session_sales_capacity(uuid, integer, text, text)             authenticated-execute
+--   venue.set_ticket_type_sale_window(uuid, timestamptz, timestamptz, text, text) authenticated-execute
+--   venue.ticket_type_on_sale(uuid, timestamptz)   STABLE boolean read        authenticated-execute
+--   venue_cmd.* — five more SECURITY INVOKER wrappers (11 in all)             authenticated-execute
+--   catalog.venue.timezone, catalog.event.age_policy   column SELECT          anon + authenticated (the 078
+--                 column lists + one column each; public listing information)
+--   catalog.event_session.sales_capacity               column SELECT          NONE (E-29 posture)
+--   venue.ticket_type.sale_starts_at / sale_ends_at    covered by 081:988's table-grain SELECT
+--   (anon, PUBLIC and service_role hold nothing on any function; the six venue.*
+--   bodies 162 replaces keep their 081/160 grants.)
+-- Those decisions are ASSERTED by pgTAP 229 (A19-A20, A28-A29, A38, A40-A42,
+-- W46). Nothing in public changed; the manifests below are unchanged.
+--
+-- SCOPE NOTE (2026-10-26, registry 163 — D, scanner staff-session wrappers +
+-- identity-free session scan counters; DARK, applied nowhere). Same reasoning:
+-- every object is outside public, so NO row is added here:
+--   venue.get_session_scan_counters(uuid)            authenticated-execute (SECURITY DEFINER, STABLE)
+--   venue.list_session_scan_counters()               authenticated-execute (SECURITY DEFINER, STABLE)
+--   venue.record_scan_staff(uuid, uuid, jsonb, text) authenticated-execute (SECURITY DEFINER; PART B, droppable)
+--   venue.filter_staff_scan_meta(jsonb)              NO grant to any principal (IMMUTABLE helper the definer calls)
+--   venue_api.session_admissions                     SELECT to authenticated only (security_invoker view)
+--   venue_cmd.get_session_scan_counters(uuid)        authenticated-execute (SECURITY INVOKER sql wrappers;
+--   venue_cmd.record_scan(uuid, uuid, jsonb, text)   schema USAGE unchanged from 161)
+--   venue_cmd.validate_ticket_online(uuid, uuid)
+--   (anon, PUBLIC and service_role hold nothing on any of them; no proacl is
+--   left DEFAULTED; the 086/108 grants on venue.record_scan / record_scan_door /
+--   _record_scan_core / validate_ticket_online are unchanged — 230 D12.)
+-- ASSERTED by pgTAP 230 (A10-A12, A15, D5, D10-D12, H3/H4), 228 (the venue_cmd sweep,
+-- now fourteen on the stacked 160-163 tree: 161's six + 162's five + 163's three) and 226 F1
+-- (+ the 163 hunk, F's). Nothing in public changed.
+--
+-- SCOPE NOTE (2026-10-27, registry 164 — D, the dashboard's route to the catalog
+-- event / session / venue verbs; DARK, applied nowhere). Same reasoning: every
+-- object is outside public, so NO row is added here:
+--   venue_cmd.create_event(uuid, text, jsonb, text)       authenticated-execute (SECURITY INVOKER sql
+--   venue_cmd.update_event(uuid, jsonb, text)               wrappers, one-line delegation to
+--   venue_cmd.create_event_session(uuid, jsonb, text)       catalog.<same name>; schema USAGE
+--   venue_cmd.update_event_session(uuid, jsonb, text)       unchanged from 161)
+--   venue_cmd.publish_event(uuid, text, text)
+--   venue_cmd.cancel_event(uuid, text, text)
+--   venue_cmd.update_venue(uuid, jsonb, text)
+--   (anon, PUBLIC and service_role hold nothing on any of them; no proacl is
+--   left DEFAULTED.) The seven catalog.* targets are UNCHANGED: no grant, no
+--   revoke, no body change — still exactly owner + authenticated (078 PART 7,
+--   079, 081 PART 16, 088 PART 8), which 164's post-flight and 231 A15-A17 pin.
+-- ASSERTED by pgTAP 231 (A1-A18, C1-C9, L1-L9) and 228 (the venue_cmd sweep, now
+-- twenty-one). Nothing in public changed.
+--
+-- SCOPE NOTE (2026-10-26, registry 166 — D, identity-free staff read of the session
+-- sales pool; DARK, applied nowhere). Same reasoning: every object is outside public,
+-- so NO row is added here:
+--   venue.get_session_capacity(uuid)        authenticated-execute (SECURITY DEFINER, STABLE)
+--   venue.list_session_capacity()           authenticated-execute (SECURITY DEFINER, STABLE)
+--   venue_api.session_capacity              SELECT to authenticated only (security_invoker view)
+--   venue_cmd.get_session_capacity(uuid)    authenticated-execute (SECURITY INVOKER sql wrapper;
+--                                           schema USAGE unchanged from 161)
+--   (anon, PUBLIC and service_role hold nothing on any of them — the REVOKE names
+--   service_role explicitly; no proacl is left DEFAULTED; catalog.event_session.
+--   sales_capacity and venue.inventory_batch.capacity keep NO client column grant —
+--   the definers read them.)
+-- ASSERTED by pgTAP 233 (A11-A16, A19-A22), 228 (the venue_cmd sweep, now fifteen without 164 /
+-- twenty-two on the stacked tree: 161's six + 162's five + 163's three + 164's seven + 166's one) and 226 F1 (+ the 166 hunk, F's).
+-- Nothing in public changed.
+--
+-- SCOPE NOTE (2026-10-29, registry 192 — D, the dashboard's route to
+-- venue.create_inventory_batch; DARK, applied nowhere). Same reasoning: the object
+-- is outside public, so NO row is added here:
+--   venue_cmd.create_inventory_batch(uuid, uuid, text, integer, integer, text)
+--                                    authenticated-execute (SECURITY INVOKER sql wrapper,
+--                                    one-line delegation to venue.create_inventory_batch;
+--                                    schema USAGE unchanged from 161)
+--   (anon, PUBLIC and service_role hold nothing on it — the REVOKE names service_role
+--   explicitly; no proacl is left DEFAULTED.) The target venue.create_inventory_batch
+--   is UNCHANGED: no grant, no revoke, no body change — still exactly owner +
+--   authenticated (081 PART 16), which 192's post-flight and 261 A8/C3 pin.
+-- ASSERTED by pgTAP 261 (A1-A9, C1-C3) and 228 (the venue_cmd sweep, now
+-- twenty-three). Nothing in public changed.
+--
 -- Table decisions:
 --   no-client-access  deny-all. RLS on, service_role only. ASSERTED: anon and
 --                     authenticated must hold zero table privileges.
@@ -163,6 +261,26 @@ INSERT INTO _grant_decisions (table_name, decision) VALUES
   ('transfer_notifications',       'no-client-access'),
   -- webhook_retries is the table this whole assertion exists because of.
   ('webhook_retries',              'no-client-access'),
+  -- 20260906120000 (Package 3): payout attempt ledger, append-only refund
+  -- facts, account-deletion phase ledger. All service_role only.
+  ('account_deletions',            'no-client-access'),
+  ('payment_refunds',              'no-client-access'),
+  -- 150 (refund lifecycle): per-refund Stripe state and its append-only log. Service-role only;
+  -- the app reads the three sums on payments through the existing own-row SELECT.
+  ('payment_refund_state',         'no-client-access'),
+  ('payment_refund_state_log',     'no-client-access'),
+  ('payout_attempts',              'no-client-access'),
+  -- 128 (F7): the epoch that makes the push-token legacy path transitional.
+  -- Service-role only: a client that could move applied_at would reopen the
+  -- legacy rebind path for every hash-less row.
+  ('push_token_rebind_epoch',      'no-client-access'),
+  -- 132: the pre-mint checkout group record. Service-role only: a client that
+  -- could write it could wedge or free another buyer's checkout serialization.
+  ('checkout_group_claim',         'no-client-access'),
+  -- 154: a row hides its listing from public reads. RLS on, no policies; service_role
+  -- holds SELECT/INSERT/DELETE only. A client that could write it could unhide (or hide)
+  -- any listing; one that could read it would learn which ids are hidden.
+  ('listing_visibility',           'no-client-access'),
 
   -- column-scoped only; never a table-level client grant.
   ('profiles',                     'column-grants'),
@@ -324,6 +442,12 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   -- ── no-client-execute ────────────────────────────────────────────────────
   -- Trigger functions, cron/maintenance entry points, and service-role-only
   -- money and webhook internals. Nothing a browser may call.
+  -- 2026-09-02 (release-readiness): production's 20260902003623 admin relist
+  -- verb, reconstructed into the repo — REVOKE PUBLIC/anon/authenticated +
+  -- GRANT EXECUTE service_role in the migration itself (E-164).
+  ('admin_relist_listing(uuid, timestamp with time zone, uuid)',     'no-client-execute'),
+  ('account_deletion_blockers(uuid)',                                'no-client-execute'),
+  ('account_deletion_block_reason(uuid)',                            'no-client-execute'),
   ('admin_release_held_payout(uuid, uuid, text)',                    'no-client-execute'),
   ('admin_resolve_dispute(uuid, text, uuid)',                        'no-client-execute'),
   ('apply_auto_release(uuid)',                                       'no-client-execute'),
@@ -331,6 +455,33 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   ('apply_payout_hold(uuid, timestamp with time zone, text, text[])','no-client-execute'),
   ('auto_finalize_expired_auctions()',                               'no-client-execute'),
   ('check_rate_limit(uuid, text, integer, integer)',                 'no-client-execute'),
+  -- 127 (L1/L2): the webhook's payment-scoped hold release. service_role only;
+  -- a client never drives a release from a payment id.
+  ('release_reservation_for_payment(uuid, uuid, uuid)',              'no-client-execute'),
+  -- 128 (F7): the write guard behind push_tokens.device_secret_hash, and the
+  -- support unbind for a squatted token. Neither is a client verb.
+  ('guard_push_token_secret_hash()',                                 'no-client-execute'),
+  ('unbind_push_token(text)',                                        'no-client-execute'),
+  -- 128 fold-in: the epoch row is immutable (BEFORE UPDATE/DELETE/TRUNCATE raises).
+  ('guard_push_token_rebind_epoch()',                                'no-client-execute'),
+  -- 129: the client's sign-out revoke, reachable through public (notify is not exposed).
+  ('revoke_push_token(text)',                                        'authenticated-execute'),
+  -- 131: sign-out-everywhere fast path (client verb) and the session guard pair on push_tokens.
+  ('revoke_all_push_bindings()',                                     'authenticated-execute'),
+  ('guard_push_token_session_stmt()',                                'no-client-execute'),
+  ('guard_push_token_session_row()',                                 'no-client-execute'),
+  ('guard_push_token_client_delete()',                               'no-client-execute'),       -- 135
+  -- 130 (L1 concurrency): the checkout's per-(listing, buyer, mode) secret
+  -- hand-out claim and its token-bound release. service_role only; the edge
+  -- calls them, a client never does.
+  ('claim_checkout_supersede(uuid, uuid, uuid)',                     'no-client-execute'),
+  ('release_checkout_supersede(uuid, uuid)',                         'no-client-execute'),
+  -- 132 (fresh-mint double charge): the pre-mint group claim and its
+  -- token-bound release. service_role only; the edge calls them, a client never does.
+  ('claim_checkout_group(uuid, uuid, text)',                         'no-client-execute'),
+  ('release_checkout_group(uuid, uuid, text, uuid)',                 'no-client-execute'),
+  ('record_checkout_attempt(uuid, uuid, text, uuid, uuid, integer, integer, integer, integer, text, boolean)', 'no-client-execute'),
+  ('claim_payout_attempt(uuid, text, interval)',                     'no-client-execute'),
   ('claim_stripe_webhook_event(text, text, integer)',                'no-client-execute'),
   ('cleanup_expired_reservations()',                                 'no-client-execute'),
   ('complete_stripe_webhook_event(text)',                            'no-client-execute'),
@@ -341,19 +492,28 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   ('enforce_transfer_expiry()',                                      'no-client-execute'),
   ('enqueue_notification(uuid, text, text, text, text, text, jsonb)','no-client-execute'),
   ('fail_stripe_webhook_event(text, text)',                          'no-client-execute'),
+  ('flag_payout_reversal_required(uuid, text, jsonb)',               'no-client-execute'),
   ('freeze_transfer_for_dispute(uuid)',                              'no-client-execute'),
   ('get_auto_release_candidates()',                                  'no-client-execute'),
   ('get_disputes_awaiting_refund()',                                 'no-client-execute'),
   ('get_incomplete_webhook_events(integer, integer)',                'no-client-execute'),
+  -- Package 2 (20260906110000): the reconciliation sweep's work list.
+  -- service_role only — asserted in 121.
+  ('get_unsettled_payments(integer)',                                'no-client-execute'),
   ('get_payout_review_queue()',                                      'no-client-execute'),
   ('guard_listing_identity_columns()',                               'no-client-execute'),
   ('guard_listing_insert_columns()',                                 'no-client-execute'),
+  ('guard_listing_seller_not_blocked()',                             'no-client-execute'),   -- 119
   ('guard_listing_state_columns()',                                  'no-client-execute'),
+  ('guard_payment_refund_state_columns()',                           'no-client-execute'),
+  ('guard_payment_transitions()',                                    'no-client-execute'),
+  ('guard_payout_attempt_columns()',                                 'no-client-execute'),
   ('guard_proof_status()',                                           'no-client-execute'),
   ('guard_transfer_state_columns()',                                 'no-client-execute'),
   ('handle_new_user()',                                              'no-client-execute'),
   ('handle_new_user_notification_prefs()',                           'no-client-execute'),
   ('is_admin()',                                                     'no-client-execute'),
+  ('mark_payout_requested(uuid)',                                    'no-client-execute'),
   ('mark_transfer_reversed(text)',                                   'no-client-execute'),
   ('notify_auction_won_inbox()',                                     'no-client-execute'),
   ('notify_bid_inbox()',                                             'no-client-execute'),
@@ -363,28 +523,100 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   ('notify_transfer_created_inbox()',                                'no-client-execute'),
   ('notify_transfer_event()',                                        'no-client-execute'),
   ('notify_transfer_state_inbox()',                                  'no-client-execute'),
+  ('payment_refund_state_log_append_only()',                         'no-client-execute'),
+  ('payment_refunds_append_only()',                                  'no-client-execute'),
+  ('payout_attempts_no_delete()',                                    'no-client-execute'),
+  ('reconcile_payout_attempt(uuid, text)',                           'no-client-execute'),
+  ('record_payment_refund(text, text, text, integer, text)',         'no-client-execute'),
+  ('record_refund_state(text, text, text, integer, text, text, text)', 'no-client-execute'),
+  ('record_payout_attempt_result(uuid, text, text, jsonb)',          'no-client-execute'),
   ('record_transfer_payout(uuid, text)',                             'no-client-execute'),
   ('refresh_all_seller_risk_scores()',                               'no-client-execute'),
   ('refresh_seller_risk_score(uuid)',                                'no-client-execute'),
   ('request_is_service_role()',                                      'no-client-execute'),
+  ('reset_payment_guard_bypass()',                                   'no-client-execute'),
   ('reset_transfer_guard_bypass()',                                  'no-client-execute'),
   ('resolve_transfer_dispute(uuid, text, uuid, text, text)',         'no-client-execute'),
   ('set_updated_at()',                                               'no-client-execute'),
+  -- Package 1 (20260906100000): settlement core, reached only through owner
+  -- functions (mark_listing_sold, complete_auction_payment, Package 2's
+  -- settle_verified_payment). service_role is revoked too — asserted in 120.
+  ('settle_listing_for_payment(uuid)',                               'no-client-execute'),
+  -- Package 2 (20260906110000): the ONE verified-settlement contract used by
+  -- stripe-webhook / confirm-payment / the sweep. service_role only — 121.
+  ('settle_verified_payment(text, text, integer, text, boolean, integer, text, text, jsonb, text)', 'no-client-execute'),
   ('sweep_auth_password_changes()',                                  'no-client-execute'),
   ('sync_listing_current_bid()',                                     'no-client-execute'),
   ('validate_and_apply_bid()',                                       'no-client-execute'),
+  -- 152 (20261013000000): the marketplace refusal rule, its three trigger guards and the content list.
+  -- Reached only from triggers; REVOKE PUBLIC/anon/authenticated in the migration itself.
+  ('assert_marketplace_parties(uuid, uuid)',                         'no-client-execute'),
+  ('guard_bid_parties()',                                            'no-client-execute'),
+  ('guard_listing_content()',                                        'no-client-execute'),
+  ('guard_listing_reservation_parties()',                            'no-client-execute'),
+  ('listing_prohibited_term(text[])',                                'no-client-execute'),
+  -- 154 (20261015000000): the "hidden listing is never live" invariant, a trigger function on
+  -- listings (BEFORE UPDATE) and listing_visibility (BEFORE INSERT). REVOKE PUBLIC/anon/authenticated.
+  ('guard_hidden_listing_not_live()',                                'no-client-execute'),
+  -- 156 (20261015000200): the owner proof waiver guard, a trigger function on listings.
+  ('guard_listing_proof_waiver()',                                   'no-client-execute'),
+  -- 156 ADDENDUM 3a (old-build purchase safeguard): the x-snatchit-caps header reader, read only by the two
+  -- trigger functions below (which run as definer), and the two trigger functions themselves (bids BEFORE
+  -- INSERT; listings BEFORE UPDATE OF reserved_by). REVOKE ALL FROM PUBLIC, anon, authenticated.
+  ('client_shows_proof_disclosure()',                                'no-client-execute'),
+  ('guard_bid_requires_disclosure()',                                'no-client-execute'),
+  ('guard_reservation_requires_disclosure()',                        'no-client-execute'),
+  -- 155 (20261015000100): the server-owned end time, a trigger function on listings (BEFORE INSERT OR
+  -- UPDATE; SECURITY INVOKER). REVOKE PUBLIC/anon/authenticated.
+  ('set_listing_ends_at_from_duration()',                            'no-client-execute'),
 
   -- ── authenticated-execute ────────────────────────────────────────────────
   -- Signed-in RPCs. Each derives caller identity from auth.uid() internally;
   -- anon is stripped so an unauthenticated key cannot reach them.
   ('buyer_dispute_transfer(uuid, uuid, text, text, text)',           'authenticated-execute'),
+  -- 128 (F7): the device-proof push-token registration verb. Client-callable by
+  -- design; rebinding requires the device secret, never token knowledge.
+  ('register_push_token(text, text, text, text)',                    'authenticated-execute'),
+  ('request_push_token_challenge(text, text, text)',                 'authenticated-execute'),   -- 135
+  ('confirm_push_token_challenge(uuid, text)',                       'authenticated-execute'),   -- 135
+  ('get_my_security_notices()',                                      'authenticated-execute'),   -- 136
+  ('mark_security_notices_read(uuid[])',                             'authenticated-execute'),   -- 136
   ('can_create_listing(uuid)',                                       'authenticated-execute'),
   ('cancel_listing(uuid, uuid)',                                     'authenticated-execute'),
   ('complete_auction_payment(uuid, uuid)',                           'authenticated-execute'),
   ('confirm_transfer_received(uuid, uuid)',                          'authenticated-execute'),
   ('ensure_transfer_exists(uuid, uuid)',                             'authenticated-execute'),
   ('finalize_auction(uuid)',                                         'authenticated-execute'),
+  -- 140: the seller's explicit recovery for a transfer sent with no proof. Same
+  -- shape as the other seller verbs — REVOKEd from PUBLIC/anon AND service_role
+  -- (no service_role fallback in v1), EXECUTE to authenticated only. Asserted in 207.
+  ('attach_transfer_evidence(uuid, text)',                           'authenticated-execute'),
   ('get_my_profile()',                                               'authenticated-execute'),
+  -- 20260909000000: zero-argument, owner-scoped Tickets read. Same shape as
+  -- get_my_profile(): binds to auth.uid(), REVOKEd from PUBLIC/anon, EXECUTE to
+  -- authenticated only. Asserted in 187.
+  ('get_my_tickets()',                                               'authenticated-execute'),
+  -- 182 (20261026200000, D, 2026-10-26): the two owner-scoped C5 buyer reads for the Tickets/QR
+  -- screen. Same shape as get_my_tickets(): bind to auth.uid() (28000 on a NULL subject; another
+  -- buyer's or a forged session id -> 0 rows), REVOKE ALL FROM PUBLIC, anon, authenticated then
+  -- GRANT EXECUTE to authenticated, plus an EXPLICIT GRANT EXECUTE to service_role (A's house posture,
+  -- 2026-10-26: never inherited from a default ACL, which CI's fresh stack does not carry). Resulting
+  -- ACL: authenticated + service_role, no anon, no PUBLIC. This class does not examine service_role.
+  -- Asserted in 252 A10/A11 and 182's post-flight.
+  ('get_my_ticket_atoms(uuid)',                                      'authenticated-execute'),
+  ('get_my_primary_orders(uuid)',                                    'authenticated-execute'),
+  -- 167 (20261027015500, D, 2026-10-26; registry 167/234): the buyer's reserve / release / all-orders verbs.
+  -- SECURITY DEFINER wrappers bound to auth.uid() (none takes an identity): reserve_primary_tier picks the
+  -- tier's public_sale batch and calls venue.reserve_primary_inventory (its refusals pass through);
+  -- release_primary_hold releases OWN holds only (a foreign id answers like an unknown one);
+  -- list_my_primary_orders calls get_my_primary_orders per own session. REVOKE ALL FROM PUBLIC, anon,
+  -- authenticated; GRANT EXECUTE to authenticated, plus an EXPLICIT GRANT EXECUTE to service_role (182's
+  -- posture; auth.uid() is NULL for it, so it is refused in the bodies). Resulting ACL: authenticated +
+  -- service_role, no anon, no PUBLIC. This class does not examine service_role. Asserted in 234 A7-A9 and
+  -- 167's post-flight.
+  ('reserve_primary_tier(uuid, uuid, integer, text)',                'authenticated-execute'),
+  ('release_primary_hold(uuid, text)',                               'authenticated-execute'),
+  ('list_my_primary_orders()',                                       'authenticated-execute'),
   ('get_profile_trust_stats(uuid)',                                  'authenticated-execute'),
   ('mark_listing_sold(uuid, uuid)',                                  'authenticated-execute'),
   ('mark_transfer_sent(uuid, uuid)',                                 'authenticated-execute'),
@@ -396,6 +628,9 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   ('release_reservation(uuid, uuid)',                                'authenticated-execute'),
   ('reserve_buy_now(uuid, uuid, integer)',                           'authenticated-execute'),
   ('set_transfer_delivery_info(uuid, text, text)',                   'authenticated-execute'),
+  -- 156 (20261015000200): the caller's own admin boolean only (EXISTS admin_users for auth.uid());
+  -- web /sell shows the owner-waiver box with it. REVOKE PUBLIC/anon; GRANT authenticated.
+  ('current_user_is_admin()',                                        'authenticated-execute'),
 
   -- ── anon-execute ─────────────────────────────────────────────────────────
   -- RE-BASELINED 2026-08-27 (was 'authenticated-execute' in PR #22, on the
@@ -414,6 +649,30 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   -- FOLLOW-UP (074): wire it into the listings feed policy as 0230 intended, or
   -- revoke anon/authenticated and drop it. Either way, move this row.
   ('is_blocked_by_me(uuid)',                                         'anon-execute'),
+  -- 154 (20261015000000): the two predicates of listings_select_visible / bids_select_visible.
+  -- JUSTIFICATION (written in the migration): both policies apply TO anon, and a policy calls its
+  -- functions with the caller's privileges, so anon must hold EXECUTE or every logged-out read of
+  -- a public listing fails. Each returns only a boolean: listing_is_public(id) says whether a
+  -- listing id the caller already holds is hidden; listing_private_party(id) is false for anon
+  -- (no auth.uid()) and, for a signed-in caller, says only whether THEY are a party. Explicit
+  -- GRANT anon, authenticated after REVOKE ALL FROM PUBLIC, anon, authenticated (B5).
+  ('listing_is_public(uuid)',                                        'anon-execute'),
+  ('listing_private_party(uuid)',                                    'anon-execute'),
+  -- 154 ADDENDUM 2: the PostgREST computed field listings.is_public (= listing_is_public(id)), so a build
+  -- can filter .eq('is_public', true). anon reads listings, so anon must hold EXECUTE or that filter fails
+  -- for every logged-out read. Boolean only; SECURITY INVOKER (reads nothing itself). Explicit GRANT anon,
+  -- authenticated after REVOKE ALL FROM PUBLIC, anon, authenticated (B5).
+  ('is_public(listings)',                                            'anon-execute'),
+  -- 182 (20261026200000, D, 2026-10-26): the two C1 buyer DISCOVERY reads — the logged-out surface.
+  -- JUSTIFICATION (written in the migration header): SECURITY DEFINER bodies that RESTATE the
+  -- anon-visible rules (event on_sale/live, never draft/announced, approved room, public tiers only,
+  -- remaining = the public_sale sum; capacity/held/sold never serialised; an unknown/unpublished id
+  -- yields 0 rows, no existence leak); neither takes a user id. Explicit GRANT anon, authenticated
+  -- after REVOKE ALL FROM PUBLIC, anon, authenticated (B5), plus an EXPLICIT GRANT EXECUTE to
+  -- service_role (A's house posture, 2026-10-26). Resulting ACL: anon + authenticated + service_role,
+  -- no PUBLIC. This class does not examine service_role. Asserted in 252 A8/A9 and 182's post-flight.
+  ('list_primary_sessions_on_sale()',                                'anon-execute'),
+  ('get_primary_session(uuid)',                                      'anon-execute'),
 
   -- ── public-execute-known-gap ─────────────────────────────────────────────
   -- Exactly two members, each asserted by name. See B4 for the full reasoning
@@ -715,8 +974,11 @@ END $$;
 --                                      is actually exposing the function, and
 --                                      the row describes the wrong mechanism).
 --
--- Current sole member: is_blocked_by_me(uuid) — 0230 grants anon explicitly,
--- 074 revoked PUBLIC only and left that grant standing on purpose.
+-- Members: is_blocked_by_me(uuid) — 0230 grants anon explicitly, 074 revoked
+-- PUBLIC only and left that grant standing on purpose; listing_is_public(uuid) and
+-- listing_private_party(uuid) — 154 grants anon explicitly (the predicates of the
+-- anon-reachable listings/bids SELECT policies; booleans only); is_public(listings) — 154's
+-- PostgREST computed field over listing_is_public (boolean only).
 -- ---------------------------------------------------------------------------
 DO $$
 DECLARE

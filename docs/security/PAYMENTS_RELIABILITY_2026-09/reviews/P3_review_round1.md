@@ -1,0 +1,55 @@
+# Package 3 independent review — `fix/payments-p3-payout-integrity` (35cbdf6..403afa3)
+
+**Verdict: APPROVE WITH CHANGES** — no blocker; two MAJORs in the deletion gate (decision 8 coverage), the rest MINOR/NOTE.
+
+## Findings
+
+**MAJOR-1 — `account_deletion_blockers` misses unresolved `webhook_retries` rows (decision 5/8 seam).**
+`migrations/20260906120000…sql:788` — `pending_payment` only blocks for 24h. Package 2's `settle_verified_payment` parks a captured-but-mismatched charge as `binding_mismatch` in `webhook_retries` with the payment still `pending`; after 24h the buyer can delete and `delete_account_cleanup` anonymises the row while the platform still holds the money. Reproduced (scratch `review3/adversarial.sql` A1): pending payment aged 3 days + unresolved retries row → `blockers(buyer)` = **0 rows**. (`unfulfillable` rows are covered indirectly via `paid_no_transfer`; `unknown_payment` rows have no party.) Fix: add `UNION ALL SELECT 'unresolved_review', w.payment_id FROM webhook_retries w JOIN payments p ON p.id = w.payment_id WHERE w.resolved IS NOT TRUE AND (p.buyer_id = $1 OR p.seller_id = $1)` and drop the 24h bound (or keep it only for rows with no retries entry).
+
+**MAJOR-2 — post-payout manual reviews do not block deletion.** `…sql:808` filters `open_manual_review` to `t.payout_released_at IS NULL`; `reversal_required` attempts (`:812`) cover only new-scheme attempts. A legacy paid transfer (no attempt row) whose dispute is lost → `flag_payout_reversal_required` inserts `DISPUTE_LOST_AFTER_PAYOUT` (`attempt_id: null`) and the payment is `refunded` → transfer counts as settled. Reproduced (A2): decision row exists, `blockers(seller)` = **0 rows**. Seller deletes while a reversal is owed (Connect id survives only on `account_deletions.connect_id`). Fix: block on any `manual_review` decision not superseded by a later `release` decision and whose transfer is not `reversed`, regardless of `payout_released_at`.
+
+**MINOR-1 — deletion retry never re-runs gate/cleanup after `cleaned`** (`delete-account/index.ts:202,247`). `payments/transfers.buyer_id/seller_id → auth.users` have **no ON DELETE** (A5: `DELETE FROM auth.users` → FK violation). An obligation created between `cleaned` and `deleteUser` (user can still log in) makes `:306` fail 500 forever; retries skip the gate and cleanup. Fail-closed but unrecoverable without ops. The stated rationale is inverted: after cleanup the user's old rows are sentinel-owned, so re-running gate + cleanup (both idempotent) only sees *new* obligations. Suggest: always run gate and cleanup while `phase < done`.
+
+**MINOR-2 — lock-order inversion.** `claim_payout_attempt` locks transfers → payout_attempts (`:472,483`); `record_payout_attempt_result` locks payout_attempts → transfers (`:585,589`) — verified A6. A `transfer.created` webhook racing the 2b sweep can deadlock (40P01); loser surfaces as `db_error stage=record` (Sentry, attempt stays open, sweep reconciles) — never silent, but avoidable: lock `transfers` first in `record_…` / `flag_…`.
+
+**MINOR-3 — `payout_attempts` is not append-only.** Trigger is `BEFORE UPDATE` only (`:190`); service_role has DELETE and BYPASSRLS. A3: `SET ROLE service_role; DELETE FROM payout_attempts` → 0 rows left. `payment_refunds` got the UPDATE/DELETE guard; the attempt ledger (the audit trail decision 7 relies on) should too.
+
+**MINOR-4 — first attempt on a pre-migration transfer skips the transfer_group search.** `payouts.ts:327` reconciles only when an open attempt exists. Legacy POSTs (pre-package `payouts.ts` at 35cbdf6) sent no `transfer_group`, so nothing can be found anyway; the only backstop against a legacy lost-response duplicate is Stripe's `source_transaction` ceiling (seller net ≈ 0.9×amount, two would exceed the charge). Acceptable; recommend a one-time ops query listing live transfers with `stripe_transfer_id IS NULL` and `payout_decisions` `PAYOUT_TRANSFER_FAILED` before enabling the new edges.
+
+**MINOR-5 — `transfer.created` with an unknown `metadata.attempt_id` loops.** `stripe-webhook/index.ts:854-864` → `ATTEMPT_NOT_FOUND` raises (A4) → `finish(false)` → Stripe retries ~3 days. Only reachable after a rollback that destroyed `payout_attempts` or a hand-made transfer; suggest treating `ATTEMPT_NOT_FOUND` as ack + review row rather than 500.
+
+**NOTE-1** — `record_payout_attempt_result('unknown')` and the 2b sweep reconcile a `claimed` (never `requested`) attempt with a Stripe list call it does not need; harmless.
+**NOTE-2** — `flag_payout_reversal_required` hard-codes `actor = 'edge:stripe-webhook'` and `dispute_open = true`; fine for today's single caller.
+**NOTE-3** — `stripe_connect_archive` already contains rows (044 backfill, `create-connect-account:251`); those users cannot delete at all (profiles cascade → FK violation) until the FK follow-up lands — worth recording next to the lead's disposition.
+**NOTE-4** — `scripts/rehearsal_test.sh:80` still expects 060=2 on this branch (harness reports REGRESSION); already corrected on the integration branch (`7ad55f7`/`afb8c7b`), as is `edge-harness.test.ts`.
+**NOTE-5** — `authenticated|stripe_connect_archive|DELETE,INSERT,SELECT,UPDATE` in `expected_grants.txt` is pre-existing and out of scope, but is a client write path to a Stripe-id table.
+
+## Invariant verification (own evidence)
+- **I8 refund/dispute facts.** Transition set enumerated (`:296-304`): pending→{processing,succeeded,failed,refunded}, processing→{succeeded,failed,refunded}, failed→{pending,succeeded,refunded}, succeeded→refunded, refunded terminal; money/identity frozen once succeeded; refund refs set-once; `amount_refunded_cents` non-decreasing ≤ total. Writers checked: webhook succeeded/failed claims (`.neq`), create-payment-intent `pending→failed`, Phase 1/1b via `record_payment_refund`, quarantine (`stripe_livemode`, unguarded), `delete_account_cleanup` sentinel rewrite via `app.bypass_transfer_guard` (party-only branch requires every money/refund column unchanged), Package 2 `settle_verified_payment` (`NOT IN ('succeeded','refunded')` claim, `pending→failed`, any→refunded, partial-refund `refunded_at`/`stripe_refund_id` set-once) — all pass the guard (A7 + pgTAP 123 51/51). Dispute path passes `p_stripe_refund_id = NULL`; A2 shows `stripe_refund_id` empty after chargeback. `payment_refunds` UPDATE/DELETE raise.
+- **I10 reconcile-before-money.** `claim_payout_attempt` returns an open attempt (`needs_reconcile`) *before* eligibility, so disputed transfers still reconcile; `executePayoutAttempt` never POSTs on that path; list failure → `unknown` + lease +10m, `reconcile_pending`; unmatched transfers in group → attempt stays open, `PAYOUT_UNMATCHED_TRANSFER` review (sweep only). Live lease → `PAYOUT_ATTEMPT_IN_PROGRESS`; two claimers serialise on `transfers FOR UPDATE`, the second sees the extended lease. Per-attempt key `payout_<transfer>_a<n>` is deterministic and UNIQUE; a >24h retry never re-sends an old key because an open attempt is reconciled and a closed one gets `_a(n+1)` (vitest F08(c)/(d)/(e) pass).
+- **I11 transfer always recorded.** `record_payout_attempt_result('succeeded')` writes `transfers.stripe_transfer_id/payout_released_at` under the guard bypass before evaluating dispute state; dispute → `reversal_required` + `PAID_DURING_DISPUTE`; different existing id → `DUPLICATE_TRANSFER`; `failed→succeeded` advance allowed so a late `transfer.created` still lands. No-metadata transfers are logged only (legacy) — acceptable, they predate the ledger.
+- **I12 deletion.** Every transfer status maps to a blocker kind unless paid out or fully refunded; `paid_no_transfer`, open `disputes`, open attempts, `reversal_required` (until `reversed`) covered; lookup error → 503, blockers → 409 (vitest). Gaps: MAJOR-1/2, MINOR-1. Auth-delete failure leaves phase `storage`; retry resumes at `deleteUser`.
+- **Attack surface.** Catalog on rehearsal DB: all 11 functions owner `postgres`, `search_path=public`, ACL `{postgres, service_role}` only; 3 tables `relacl` postgres+service_role, RLS on, 0 policies; manifest + `expected_grants` lines present. Partial-unique pre-flight `DO` block aborts on duplicates before the index. Rollback drops only P3 objects (`BEGIN/COMMIT`, guarded column drop).
+- **Edge order.** No DB lock spans a network call (each RPC is one statement). confirm-and-release: `already_released` only when `payout_released_at` set or a reconciled transfer found; `processing` for open/unknown/reconciled-absent/db_error. 2b sweeps expired-lease attempts (incl. disputed) then stuck rows. Owned webhook branches return 500 via `finish(false)` → `fail_stripe_webhook_event` releases the lease.
+
+## Author deviations
+- `stripe_connect_archive` not written: **justified** — `profile_id` FK has no `ON DELETE`; an archive row would block the auth cascade (see NOTE-3, it already does for backfilled users). Ledger-only archive acceptable; FK relaxation is a real follow-up, not optional.
+- `flag_payout_reversal_required` beyond spec: **accept** — atomic flag + review for dispute-lost-after-payout; needs MAJOR-2 to make the review row actually gate deletion.
+- `source_charge_id` never frozen at claim: **accept** (no `payments.stripe_charge_id`); pre-flight mismatch refusal is the right fallback.
+- No `deno check`: accept given vm-loaded handler suites.
+
+## Evidence run
+- `scripts/rehearsal_reset.sh snatchit_rev3_rehearsal`: REPLAY OK, GATE-2 tables=30 functions=80 policies=37 triggers=28.
+- `scripts/rehearsal_test.sh`: 427 planned, 425 ok; only 132 D-5/8,9 (db-name artefacts) fail; 122 53/53, 123 51/51, 124 24/24, 060 12/12. Harness flags 060 "REGRESSION" only because `known_notok` still says 2 (NOTE-4).
+- `npx vitest run`: 168/170; the 2 failures are `tests/edge-harness.test.ts` (lead-owned, expected).
+- Scratch probes `…/scratchpad/review3/adversarial.sql` (A1–A7, BEGIN…ROLLBACK on the rehearsal DB): A1 gap, A2 gap, A3 ledger deletable, A4 `ATTEMPT_NOT_FOUND`, A5 FK blocks auth delete, A6 lock order, A7 P2 writers pass the guard.
+
+## Suggested change set before merge
+1. Extend `account_deletion_blockers` (MAJOR-1, MAJOR-2) + pgTAP cases in 124.
+2. delete-account: run gate + cleanup on every attempt until `done` (MINOR-1); update `tests/delete-account.test.ts:110` expectation.
+3. Lock `transfers` before `payout_attempts` in `record_payout_attempt_result` (MINOR-2); add `BEFORE DELETE` raise on `payout_attempts` (MINOR-3).
+4. Optional: MINOR-5 ack path; record NOTE-3 in the FK follow-up.
+
+## Lead disposition
+Accepted: MAJOR-1 (unresolved webhook_retries rows block deletion; 24h bound dropped for rows with a review entry), MAJOR-2 (manual_review decisions not superseded by a later release block regardless of payout_released_at, until the transfer is reversed), MINOR-1 (gate + cleanup re-run on every attempt until done), MINOR-2 (lock transfers before payout_attempts everywhere), MINOR-3 (BEFORE DELETE raise on payout_attempts), MINOR-5 (ATTEMPT_NOT_FOUND on transfer.created ⇒ ack + review row). MINOR-4 recorded as a pre-enable ops query in the release plan. NOTE-3 recorded next to the FK follow-up; NOTE-5 out of scope.

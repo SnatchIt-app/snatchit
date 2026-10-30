@@ -1,0 +1,146 @@
+/**
+ * The escrow line hides whenever the payment status is unknown (owner, 2026-09-19, direct).
+ *
+ * Owner: "hide 'Payment is held until your ticket reaches you. Secured by Stripe.' whenever payment status is unknown.
+ * It implies a payment state we haven't established."
+ *
+ * Observed on Build 22's H5 screen (owner's screenshot): the line showed under "We couldn't check whether this has
+ * already been paid." Checkout has exactly two states in which the payment status is unknown:
+ * - the settled-payment lookup failed (F-CHK-READERR: "We couldn't check whether this has already been paid."), from
+ *   setup or re-validation;
+ * - a payment result could not be confirmed (`checkUnreachable`: "We couldn't confirm your payment yet").
+ *
+ * Owner, 2026-09-19 (refinement): "hide the payment-held assurance in the unknown-reservation state too, including while
+ * its recheck is pending. The distinction is whether the message is supported, not merely whether payment status is
+ * known. A successful lookup finding no payment does not establish that money is being held." So the reservation-
+ * unknown state ("We couldn't check your reservation.") hides it as well, until a listing read succeeds. Visibility of
+ * the assurance only: no payment decision, reservation behaviour, Pay or "Check again" action changes.
+ */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { describe, expect, it } from 'vitest';
+
+import { ESCROW_NOTE_COPY, showEscrowNote } from '../src/lib/checkout/holdState';
+
+describe('the rule', () => {
+  it("E1 (A's ruling §2f, 2026-09-24): the line states what the product actually does — no delivery-linked hold", () => {
+    /*
+     * WITHDRAWN by A: "Payment is held until your ticket reaches you." The system never observes
+     * delivery, and the seller's payout follows one of four things, none of which is the ticket
+     * arriving: the buyer's confirmation; the release decision after the review window with no
+     * report; an operator releasing an unreleased seller_sent row (admin_release_held_payout, 0551);
+     * or a dispute resolved for the seller. "Held"/"on hold" also reads as a card authorisation,
+     * while the card is charged at checkout.
+     *
+     * TRUE and usable, from A's table: a report freezes the seller's payout. `buyer_dispute_transfer`
+     * (0550) accepts a report only while the order is seller_sent, and every release path needs that
+     * status with no open dispute — so an accepted report always precedes any release.
+     */
+    expect(ESCROW_NOTE_COPY).toBe("You pay now. If the tickets don't arrive, report it from your order; a report freezes the seller's payout.");
+    // A's must-nots, asserted rather than trusted.
+    expect(ESCROW_NOTE_COPY.toLowerCase()).not.toMatch(/held|on hold|until (your|the) ticket|reaches you|escrow/);
+    expect(ESCROW_NOTE_COPY).not.toMatch(/\bby [A-Z]|\d{1,2} [A-Z][a-z]{2}/);   // no deadline as a guarantee
+  });
+
+  it('E2: hidden when the payment lookup failed', () => {
+    expect(showEscrowNote({ paymentStatusUnknown: true, reservationStatusUnknown: false, confirmUnreachable: false })).toBe(false);
+  });
+
+  it('E3: hidden when a payment result could not be confirmed', () => {
+    expect(showEscrowNote({ paymentStatusUnknown: false, reservationStatusUnknown: false, confirmUnreachable: true })).toBe(false);
+    expect(showEscrowNote({ paymentStatusUnknown: true, reservationStatusUnknown: false, confirmUnreachable: true })).toBe(false);
+  });
+
+  it('E10: hidden when the reservation could not be checked (owner: the assurance is not supported there)', () => {
+    expect(showEscrowNote({ paymentStatusUnknown: false, reservationStatusUnknown: true, confirmUnreachable: false })).toBe(false);
+  });
+
+  it('E4 (witness): shown when neither the payment nor the reservation is unknown', () => {
+    expect(showEscrowNote({ paymentStatusUnknown: false, reservationStatusUnknown: false, confirmUnreachable: false })).toBe(true);
+  });
+});
+
+// ── The screen's wiring (no CheckoutNative render harness; these pin how it applies the rule) ─────────────────────
+const src = () => readFileSync(resolve(__dirname, '../src/screens/checkout/CheckoutNative.tsx'), 'utf8');
+const between = (s: string, from: string, to: string) => {
+  const a = s.indexOf(from), b = s.indexOf(to, a + 1);
+  expect(a, from).toBeGreaterThan(-1);
+  expect(b, to).toBeGreaterThan(a);
+  return s.slice(a, b);
+};
+
+describe('the screen applies it', () => {
+  it('E5: the line renders once, only through the rule, fed every unknown state; the screen no longer spells it out', () => {
+    // RETARGETED 2026-09-24: the presentation moved to CheckoutView.tsx (a module the native payment
+    // module cannot be reached from). The rule keeps both halves in one place each: the SCREEN
+    // evaluates it against all three unknown flags and hands down the sentence or null; the VIEW
+    // paints whatever it was handed, and decides nothing.
+    const s = src();
+    expect(s).toContain('showEscrowNote({ paymentStatusUnknown, reservationStatusUnknown, confirmUnreachable: checkUnreachable })');
+    expect(s.split('ESCROW_NOTE_COPY').length - 1).toBe(2);      // the import and the one use
+    const view = readFileSync(resolve(__dirname, '../src/screens/checkout/CheckoutView.tsx'), 'utf8');
+    expect(view.split('escrowNote').length - 1).toBe(4);         // its type, its parameter, and the one render's test + value
+    expect(view).toMatch(/\{escrowNote \? <Text[^>]*>\{escrowNote\}<\/Text> : null\}/);
+    // Neither file spells the sentence out, and neither can decide to show it on its own.
+    expect(s).not.toContain('Payment is held until your ticket reaches you');   // witness: E1 finds it in holdState
+    expect(view).not.toContain('Payment is held until your ticket reaches you');
+    expect(view).not.toContain('showEscrowNote');
+  });
+
+  it('E6: setup marks the payment status unknown when its payment lookup fails', () => {
+    const block = between(src(), "if (decision.kind === 'payment_status_unknown') {", "if (decision.kind === 'already_settled')");
+    expect(block).toContain('setPaymentStatusUnknown(true);');
+  });
+
+  it('E7: re-validation marks it too', () => {
+    const block = between(src(), "if (outcome.kind === 'payment_status_unknown') {", '}\n');
+    expect(block).toContain('setPaymentStatusUnknown(true);');
+  });
+
+  it('E8: a reservation-unknown state does not mark the PAYMENT flag — it has its own (witness: E6, E7)', () => {
+    const s = src();
+    expect(between(s, "if (decision.kind === 'reservation_unverifiable') {", "if (decision.kind === 'not_held')")).not.toContain('setPaymentStatusUnknown');
+    expect(between(s, "if (outcome.kind === 'reservation_unverifiable') {", '}\n')).not.toContain('setPaymentStatusUnknown');
+  });
+
+  it('E9: only a SUCCESSFUL payment lookup clears it — not the start of the re-check, while the status is still unknown', () => {
+    /*
+     * F4 (2026-10-12) added a second settled read: with no checkout mode the screen reads what is
+     * settled and nothing else, before decideCheckoutSetup. So the pin is no longer "exactly one
+     * clear, inside the dependency"; it is the invariant that clear was guarding, stated directly:
+     * EVERY clear is immediately preceded by the settled-read error throw (a failed read can never
+     * reach a clear), and the setup preamble before the FIRST read clears nothing.
+     */
+    const s = src();
+    const dep = between(s, 'fetchSettledPayment: async (lid, bid) => {', 'fetchListing: async (lid) => {');
+    const afterRead = between(dep, "if ('error' in read) throw new SettledReadError(read.error);", 'return read.rows;');
+    expect(afterRead).toContain('setPaymentStatusUnknown(false);');
+    const beforeFirstRead = between(s, 'async function setupPayment() {', 'readSettledPayments(supabase, ');
+    expect(beforeFirstRead).not.toContain('setPaymentStatusUnknown');
+    const clears = s.split('setPaymentStatusUnknown(false);').length - 1;
+    expect(clears, 'the dependency read and the no-mode read').toBe(2);
+    // Each clear sits right after the throw line — nothing between them but whitespace/comments.
+    const guarded = s.match(/if \('error' in read\) throw new SettledReadError\(read\.error\);\s*(\/\/[^\n]*\n\s*)*setPaymentStatusUnknown\(false\);/g) ?? [];
+    expect(guarded, 'every clear must be immediately preceded by the settled-read throw').toHaveLength(clears);
+  });
+
+  it('E11: setup marks the reservation unknown when its listing read fails', () => {
+    const block = between(src(), "if (decision.kind === 'reservation_unverifiable') {", "if (decision.kind === 'not_held')");
+    expect(block).toContain('setReservationStatusUnknown(true);');
+  });
+
+  it('E12: re-validation marks it too', () => {
+    const block = between(src(), "if (outcome.kind === 'reservation_unverifiable') {", '}\n');
+    expect(block).toContain('setReservationStatusUnknown(true);');
+  });
+
+  it('E13: only a SUCCESSFUL listing read clears it — so the line stays hidden while the recheck is pending', () => {
+    const s = src();
+    const dep = between(s, 'fetchListing: async (lid) => {', 'createIntent: () =>');
+    expect(dep).toContain('if (!error) setReservationStatusUnknown(false);');
+    expect(dep.indexOf('if (!error) setReservationStatusUnknown(false);')).toBeLessThan(dep.indexOf('return error ? null : data;'));
+    const setupStart = between(s, 'async function setupPayment() {', 'const decision = await decideCheckoutSetup(');
+    expect(setupStart).not.toContain('setReservationStatusUnknown');   // witness: the same query finds it in the dependency
+    expect(s.split('setReservationStatusUnknown(false)').length - 1).toBe(1);
+  });
+});

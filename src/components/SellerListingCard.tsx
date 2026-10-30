@@ -1,225 +1,234 @@
 /**
- * src/components/SellerListingCard.tsx
+ * src/components/SellerListingCard.tsx — the seller's My Listings row (V3).
  *
- * Compact horizontal card for the seller's "My Listings" screen.
- * Layout: 80×80 cover thumbnail (left) + stacked info (right).
+ * Board: composition `pkg3-my-listings-clean.png`, tokens `pkg8-mylistings-{dark,light}.png`.
+ * A hairline-separated list row, not a boxed card: cover on the left, the event name in the
+ * display voice with the status Badge at the row's right edge, one meta line ("6 bids · $90.00",
+ * or "Sold Fri 17 Oct" once sold), and a contextual bottom line — the live countdown in the
+ * status's own colour, "Winner selected", or "Action needed — send the tickets".
  *
- * Differences from the home-feed ListingCard:
- *  - Horizontal (not tall vertical)
- *  - Seller-oriented status: ACTIVE / ENDING SOON / ENDED / RESERVED / SOLD
- *  - Shows bid_count, current_bid pills
- *  - Conditional bottom row: countdown, winner info, sold date, delete action
+ * The status and the edit/delete/cancel gates come from src/lib/listing/sellerListing.ts,
+ * which mirrors the server rule: a listing with bids or a non-active auction can only be
+ * cancelled. Behaviour is unchanged from V2; only the surface moved to the approved boards.
+ *
+ * DELIBERATE DIFFERENCES FROM THE BOARD, each with its reason:
+ *  - Edit / Delete / Cancel stay on the row. The board draws no affordance, but this row is
+ *    the ONLY place a seller can edit, delete or cancel today (the listing detail offers
+ *    none); removing them is a functional change that needs its own ruling, not a re-skin.
+ *    They speak the V3 action voice, not the V2 tracked uppercase.
+ *  - EC7 (owner-pinned): a cancelled row says "Cancelled" ONCE — the Badge. The board prints
+ *    it a second time as a bottom line; the ruling wins over the board.
+ *  - The cancelled recession dims the ARTWORK and recedes the name to secondary ink instead
+ *    of scaling the whole row to 0.55 as pkg3 annotation ③ draws: the owner ruled 2026-09-24
+ *    "keep meaningful text outside dimmed artwork layers" after 0.55 text measured 2.71:1 on
+ *    the Daylight canvas (tests/v3-dimmed-layers.test.ts walks the tree for this).
+ *
+ * The cover goes through EventMedia like every other event image: it takes the RAW stored
+ * path and provides the frame, the branded fallback, the slot-sized derivative and the
+ * recycling key a raw Image never had.
  */
 
-import { Image } from 'expo-image';
-import { Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useMemo } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
 
-import { colors, fontSize, radius, spacing } from '@/src/theme';
+import { EventMedia } from '@/src/components/media/EventMedia';
+import { Badge, Tappable } from '@/src/components/ui';
+import { NameText } from '@/src/components/NameText';
 import VerifiedSellerBadge from '@/src/components/VerifiedSellerBadge';
+import {
+  canCancelListing,
+  canDeleteListing,
+  canEditListing,
+  sellerBadge,
+  sellerBadgeLabel,
+  timeLeftLabel,
+  type SellerBadge,
+} from '@/src/lib/listing/sellerListing';
+import { MEDIA_SLOTS } from '@/src/lib/media/slots';
+import { formatDollars } from '@/src/lib/money';
+import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
+import * as v2 from '@/src/theme/v2';
 import type { Listing } from '@/src/types';
 
-// ─── Props ───────────────────────────────────────────────────────────────────
+/**
+ * The row's thumbnail box — 76 is its HEIGHT, not its edge (owner 2026-09-24, the 4:5 poster).
+ *
+ * `THUMB = 76` was passed to EventMedia as `width` and read as a 76pt square. Under the poster
+ * direction only one of the two edges can stay fixed, and it has to be the height: 76 is the row's
+ * VERTICAL budget — the row's height is content-driven from this image plus its padding, and every
+ * My Listings row the owner accepted was measured against a 76pt-tall thumbnail. Holding the width
+ * instead would make the poster 95 tall and grow every row by 19pt. So the height stays 76 and the
+ * width comes down to 61.
+ *
+ * The width is DERIVED from the slot this card actually renders, using the same expression
+ * EventMedia uses internally (`round(height × aspectRatio)`), so the skeleton that stands in for
+ * this box cannot drift from the box by a rounding point. Exported for that skeleton
+ * (app/my-listings.tsx) — the screen must not compute a poster edge of its own.
+ */
+export const SELLER_THUMB_H = 76;
+export const SELLER_THUMB_W = Math.round(SELLER_THUMB_H * MEDIA_SLOTS.SEARCH_RESULT.aspectRatio);
 
 type Props = {
   listing: Listing;
-  coverUrl: string | null;
   onPress: () => void;
   onDelete?: () => void;
+  /** F-DESTRUCT-1: a destructive request is running for this listing — the actions stand down. */
+  busy?: boolean;
   onEdit?: () => void;
   isVerifiedSeller?: boolean;
-  /** Sold but tickets not sent yet — surfaces the "Send tickets" call to action. */
+  /** Sold but tickets not sent yet — surfaces the "send the tickets" line. */
   needsTicketSend?: boolean;
 };
 
-// ─── Status badge ────────────────────────────────────────────────────────────
+/** Whole-dollar bid display through the one formatter (CFT-207). */
+const fmt$ = formatDollars;
 
-type Badge = 'ACTIVE' | 'ENDING SOON' | 'ENDED' | 'RESERVED' | 'SOLD' | 'CANCELLED';
-
-function getBadge(listing: Listing): Badge {
-  if (listing.auction_status === 'cancelled') return 'CANCELLED';
-  if (listing.status === 'sold') return 'SOLD';
-  if (
-    listing.status === 'reserved' &&
-    listing.reserved_until &&
-    new Date(listing.reserved_until).getTime() > Date.now()
-  ) return 'RESERVED';
-  const clockExpired = new Date(listing.ends_at).getTime() <= Date.now();
-  if (listing.auction_status === 'ended' || clockExpired) return 'ENDED';
-  const msLeft = new Date(listing.ends_at).getTime() - Date.now();
-  if (msLeft <= 15 * 60 * 1000) return 'ENDING SOON';
-  return 'ACTIVE';
-}
-
-const BADGE_STYLE: Record<Badge, { bg: string; text: string }> = {
-  'ACTIVE':      { bg: 'rgba(74,222,128,0.15)', text: colors.success },
-  'ENDING SOON': { bg: 'rgba(255,77,109,0.15)', text: colors.error },
-  'ENDED':       { bg: 'rgba(255,255,255,0.06)', text: colors.textMuted },
-  'RESERVED':    { bg: 'rgba(251,191,36,0.12)',  text: colors.warning },
-  'SOLD':        { bg: 'rgba(255,215,0,0.12)',   text: '#FFD700' },
-  'CANCELLED':   { bg: 'rgba(255,255,255,0.06)', text: colors.textDim },
+/**
+ * Board badge tones (pkg8-mylistings-{dark,light}): Ending soon and Sold are the AMBER words —
+ * one urgency, one action pending — where V2 had red and green. Local to this card because
+ * src/lib/listing/sellerListing.ts is outside this task's files; the label still comes from
+ * sellerBadgeLabel, so the WORD cannot drift.
+ */
+const V3_BADGE_TONE: Record<SellerBadge, 'neutral' | 'success' | 'warning' | 'danger'> = {
+  active: 'success',
+  ending_soon: 'warning',
+  ended: 'neutral',
+  reserved: 'warning',
+  sold: 'warning',
+  cancelled: 'neutral',
 };
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+const WEEKDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
+const MONTH = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
 
-function fmt$(n: number) { return `$${Math.round(n).toLocaleString('en-US')}`; }
-
-function timeLabel(endsAt: string): string {
-  const diff = new Date(endsAt).getTime() - Date.now();
-  if (diff <= 0) return 'Ended';
-  const h = Math.floor(diff / 3_600_000);
-  const m = Math.floor((diff % 3_600_000) / 60_000);
-  if (h > 23) return `${Math.floor(h / 24)}d ${h % 24}h left`;
-  if (h > 0) return `${h}h ${m}m left`;
-  return `${m}m left`;
+/**
+ * "Sold Fri 17 Oct" — the board's meta line for a sold row. Fixed tables, not
+ * toLocaleDateString, for the same reason as feedRowState: the row must read identically on
+ * every device locale. Empty when unparseable, so the row never shows "Sold Invalid Date".
+ */
+export function soldOnLabel(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return `Sold ${WEEKDAY[d.getDay()]} ${d.getDate()} ${MONTH[d.getMonth()]}`;
 }
 
-function shortDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
+export default function SellerListingCard({ listing, onPress, onDelete, onEdit, isVerifiedSeller, needsTicketSend, busy }: Props) {
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
+  const badge = sellerBadge(listing);
+  const cancelled = badge === 'cancelled';
+  const canEdit = canEditListing(listing);
+  const canDelete = canDeleteListing(listing);
+  const canCancel = canCancelListing(listing);
 
-// ─── Component ───────────────────────────────────────────────────────────────
+  const bidMeta = listing.bid_count === 0
+    ? 'No bids'
+    : `${listing.bid_count} bid${listing.bid_count !== 1 ? 's' : ''} · ${fmt$(listing.current_bid)}`;
+  // Board meta line: the sale date once sold, otherwise the bid activity.
+  const metaLine = badge === 'sold' && listing.sold_at ? soldOnLabel(listing.sold_at) : bidMeta;
 
-export default function SellerListingCard({ listing, coverUrl, onPress, onDelete, onEdit, isVerifiedSeller, needsTicketSend }: Props) {
-  const badge      = getBadge(listing);
-  const badgeS     = BADGE_STYLE[badge];
-  const ended      = badge === 'ENDED' || badge === 'SOLD' || badge === 'CANCELLED';
-  const cancelled  = badge === 'CANCELLED';
-  // Edit allowed only when no bids have come in AND the auction is active.
-  // Once bids exist, listings become contractual — sellers must Cancel.
-  const canEdit    = !ended && listing.bid_count === 0 && listing.auction_status === 'active';
-  const canDelete  = !ended && listing.bid_count === 0 && listing.auction_status === 'active';
-  const canCancel  = !ended && listing.bid_count > 0 && listing.auction_status === 'active';
+  // Compose one spoken label: the grouped Pressable otherwise announces only the
+  // event name, dropping the status badge and bid/price a sighted user sees.
+  const a11yLabel = `${listing.event_name}. ${sellerBadgeLabel(badge)}. ${metaLine}.`;
 
   return (
-    <Pressable
-      style={[s.card, cancelled && s.cardCancelled]}
-      onPress={onPress}
-      android_ripple={{ color: colors.primarySoft }}
-    >
+    // The row carries the product's press response like every other tappable (CFT-201).
+    <Tappable style={s.card} onPress={onPress} accessibilityRole="button" accessibilityLabel={a11yLabel}>
+      {/* A dense list: recognition, not persuasion — the SEARCH_RESULT poster at the row's own
+          76pt HEIGHT, the width taken from the 4:5 ratio. Decorative: the row text already names
+          the event. */}
+      {/* Cancelled recedes by dimming the artwork and shifting the name to secondary ink; the
+          words never sit under an opacity layer (owner 2026-09-24, v3-dimmed-layers). */}
+      <EventMedia
+        asset={{ path: listing.cover_image_path, contract: 'legacy', bucket: 'auction-media' }}
+        slot="SEARCH_RESULT"
+        height={SELLER_THUMB_H}
+        title={listing.event_name}
+        decorative
+        style={cancelled ? s.cardCancelled : undefined}
+      />
 
-      {/* ── Thumbnail ───────────────────────────────────────────── */}
-      {coverUrl ? (
-        <Image source={{ uri: coverUrl }} style={s.thumb} contentFit="cover" />
-      ) : (
-        <View style={[s.thumb, s.thumbPlaceholder]}>
-          <Text style={s.thumbEmoji}>🎟️</Text>
-        </View>
-      )}
-
-      {/* ── Content ─────────────────────────────────────────────── */}
       <View style={s.content}>
-        {/* Row 1: event name + verified badge */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-          <Text style={[s.eventName, { marginBottom: 0 }]} numberOfLines={1}>{listing.event_name}</Text>
-          {isVerifiedSeller != null && <VerifiedSellerBadge isVerified={isVerifiedSeller} />}
+        <View style={s.titleRow}>
+          <NameText token="nameRow" maxLines={2} style={cancelled ? s.eventCancelled : s.event}>
+            {listing.event_name}
+          </NameText>
+          {isVerifiedSeller != null ? <VerifiedSellerBadge isVerified={isVerifiedSeller} /> : null}
+          <Badge label={sellerBadgeLabel(badge)} tone={V3_BADGE_TONE[badge]} />
         </View>
 
-        {/* Row 2: venue + neighborhood */}
-        <Text style={s.venue} numberOfLines={1}>
-          {listing.venue} · {listing.neighborhood?.replace(/\b\w/g, c => c.toUpperCase()) ?? ''}
-        </Text>
+        <Text style={[textStyle('bodySm'), s.meta]} numberOfLines={1}>{metaLine}</Text>
 
-        {/* Row 3: info pills */}
-        <View style={s.pillRow}>
-          <View style={[s.pill, { backgroundColor: badgeS.bg }]}>
-            <Text style={[s.pillText, { color: badgeS.text }]}>{badge}</Text>
-          </View>
-          <View style={s.infoPill}>
-            <Text style={s.infoPillText}>
-              {listing.bid_count === 0 ? 'No bids' : `${listing.bid_count} bid${listing.bid_count !== 1 ? 's' : ''}`}
-            </Text>
-          </View>
-          <View style={s.infoPill}>
-            <Text style={s.infoPillText}>
-              {listing.bid_count > 0 ? fmt$(listing.current_bid) : '—'}
-            </Text>
-          </View>
-        </View>
-
-        {/* Row 4: contextual bottom line */}
         <View style={s.bottomRow}>
-          {cancelled ? (
-            <Text style={[s.bottomText, { color: colors.textDim }]}>Cancelled</Text>
-          ) : badge === 'ACTIVE' || badge === 'ENDING SOON' ? (
-            <Text style={[s.bottomText, badge === 'ENDING SOON' && { color: colors.error }]}>
-              {timeLabel(listing.ends_at)}
-            </Text>
-          ) : badge === 'ENDED' && listing.winner_user_id ? (
-            <Text style={[s.bottomText, { color: colors.success }]}>Winner selected</Text>
-          ) : badge === 'SOLD' && needsTicketSend ? (
-            <Text style={[s.bottomText, { color: colors.warning, fontWeight: '700' }]}>
-              🎟 Action needed — send the tickets
-            </Text>
-          ) : badge === 'SOLD' && listing.sold_at ? (
-            <Text style={s.bottomText}>Sold {shortDate(listing.sold_at)}</Text>
-          ) : (
-            <Text style={s.bottomText}>{ended ? 'No winner' : ''}</Text>
-          )}
+          <View style={s.bottomLeft}>
+            {/* No `cancelled` branch: the Badge beside it already reads "Cancelled" (EC7) and the
+                word is in a11yLabel through sellerBadgeLabel(badge). The sold date lives on the
+                meta line above (board), so this slot carries only what the badge does not say. */}
+            {badge === 'active' || badge === 'ending_soon' ? (
+              <Text style={[textStyle('bodySm'), badge === 'ending_soon' ? s.urgent : s.live]}>{timeLeftLabel(listing.ends_at)}</Text>
+            ) : badge === 'ended' && listing.winner_user_id ? (
+              <Text style={[textStyle('bodySm'), s.ok]}>Winner selected</Text>
+            ) : badge === 'sold' && needsTicketSend ? (
+              <Text style={[textStyle('bodySm'), s.action]}>Action needed — send the tickets</Text>
+            ) : null}
+          </View>
 
-          {/* Edit — no bids, active */}
-          {canEdit && onEdit && (
-            <TouchableOpacity onPress={onEdit} hitSlop={8}>
-              <Text style={s.editText}>Edit</Text>
-            </TouchableOpacity>
-          )}
-
-          {/* Delete — no bids, active */}
-          {canDelete && onDelete && (
-            <TouchableOpacity onPress={onDelete} hitSlop={8}>
-              <Text style={s.deleteText}>Delete</Text>
-            </TouchableOpacity>
-          )}
-
-          {/* Cancel — has bids, active */}
-          {canCancel && onDelete && (
-            <TouchableOpacity onPress={onDelete} hitSlop={8}>
-              <Text style={s.cancelText}>Cancel</Text>
-            </TouchableOpacity>
-          )}
+          <View style={s.actions}>
+            {canEdit && onEdit ? (
+              <Tappable onPress={onEdit} hitSlop={8} accessibilityRole="button" accessibilityLabel="Edit listing">
+                <Text style={[textStyle('action'), s.edit]}>Edit</Text>
+              </Tappable>
+            ) : null}
+            {canDelete && onDelete ? (
+              <Tappable onPress={onDelete} disabled={busy} hitSlop={8} accessibilityRole="button" accessibilityLabel="Delete listing">
+                <Text style={[textStyle('action'), s.delete]}>Delete</Text>
+              </Tappable>
+            ) : null}
+            {canCancel && onDelete ? (
+              <Tappable onPress={onDelete} disabled={busy} hitSlop={8} accessibilityRole="button" accessibilityLabel="Cancel listing">
+                <Text style={[textStyle('action'), s.cancel]}>Cancel</Text>
+              </Tappable>
+            ) : null}
+          </View>
         </View>
       </View>
-
-    </Pressable>
+    </Tappable>
   );
 }
 
-// ─── Styles ──────────────────────────────────────────────────────────────────
-
-const s = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  // Board: a hairline-separated row on the canvas, not a bordered box.
   card: {
     flexDirection: 'row',
-    backgroundColor: colors.bgCard,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.md,
-    marginBottom: spacing.sm,
+    gap: v2.space.md,
+    paddingVertical: v2.space.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: p.border.default,
   },
-  cardCancelled: {
-    opacity: 0.6,
-  },
+  cardCancelled: { opacity: 0.55 },
 
-  // Thumbnail
-  thumb:            { width: 80, height: 80, borderRadius: radius.sm },
-  thumbPlaceholder: { backgroundColor: colors.bgInput, alignItems: 'center', justifyContent: 'center' },
-  thumbEmoji:       { fontSize: 28 },
+  content: { flex: 1, minWidth: 0, justifyContent: 'center', gap: v2.space.xs },
+  titleRow: { flexDirection: 'row', alignItems: 'flex-start', gap: v2.space.sm },
+  event: { color: p.text.primary, flex: 1 },
+  // Receded, not scaled: secondary ink keeps the cancelled name legible on both canvases.
+  eventCancelled: { color: p.text.secondary, flex: 1 },
 
-  // Content area
-  content:   { flex: 1, marginLeft: spacing.md, justifyContent: 'center' },
-  eventName: { fontSize: fontSize.sm, fontWeight: '700', color: colors.text, marginBottom: 2 },
-  venue:     { fontSize: fontSize.xs, color: colors.textMuted, marginBottom: spacing.xs },
+  meta: { color: p.text.muted },
 
-  // Info pills row
-  pillRow:      { flexDirection: 'row', gap: 6, marginBottom: spacing.xs, flexWrap: 'wrap' },
-  pill:         { paddingHorizontal: 7, paddingVertical: 2, borderRadius: radius.sm },
-  pillText:     { fontSize: 10, fontWeight: '700', letterSpacing: 0.4 },
-  infoPill:     { backgroundColor: 'rgba(255,255,255,0.06)', paddingHorizontal: 7, paddingVertical: 2, borderRadius: radius.sm },
-  infoPillText: { fontSize: 10, fontWeight: '600', color: colors.textMuted },
+  bottomRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: v2.space.sm },
+  bottomLeft: { flexShrink: 1, minWidth: 0 },
+  // Board: the live countdown wears the status colour — green while active, amber under 15m.
+  live: { color: p.status.success },
+  urgent: { color: p.status.warning },
+  ok: { color: p.status.success },
+  action: { color: p.status.warning },
 
-  // Bottom contextual row
-  bottomRow:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  bottomText: { fontSize: fontSize.xs, color: colors.textDim, fontWeight: '600' },
-  deleteText: { fontSize: fontSize.xs, color: colors.error, fontWeight: '700' },
-  cancelText: { fontSize: fontSize.xs, color: colors.warning, fontWeight: '700' },
-  editText:   { fontSize: fontSize.xs, color: colors.primary, fontWeight: '700', marginRight: spacing.sm },
-});
+  actions: { flexDirection: 'row', gap: v2.space.md },
+  edit: { color: p.brand.redText },
+  delete: { color: p.status.error },
+  cancel: { color: p.status.warning },
+  });
+}

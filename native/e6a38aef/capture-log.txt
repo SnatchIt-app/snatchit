@@ -1,0 +1,43 @@
+C-operated captures at e6a38aefbd0b (v3/midnight-app) — S-1, the settings row labels
+=====================================================================================
+Window declared to C in a98389fc; B had released the device and Metro, and I held both from
+boot to shutdown. Metro through the repaired guard, cwd read from the kernel. Every frame
+banner-gated with the content size read on both sides.
+
+FRAMES
+------
+settings-hub-a3xl-light-Coperated.png   the hub, labels no longer cut
+settings-hub-a3xl-dark-Coperated.png    the same, Dark
+appearance-a3xl-light-Coperated.png     one sub-screen, so the shared row is seen twice over
+appearance-a3xl-dark-Coperated.png      the same, Dark
+
+Default size is settled by pixel diff rather than re-shot, as asked: default light at 1ab2c8e2
+versus e6a38aef differs by ZERO pixels below the header. The change only touches the branch
+above the stacking threshold.
+
+WHAT IS FIXED
+-------------
+No label is truncated any more. "Edit profile" breaks on its space; "Phone verification" reads
+whole across two lines; "Payout setup", "Blocked users", "Help & support" likewise. The rows B
+and E could not tell apart — "Payout s…" and "Phone v…" — now say which is which, which was the
+point: the label is the navigation.
+
+WHAT IS NOT, AND WHY I STOPPED
+------------------------------
+"Notifications" still breaks mid-word, as "Notificatio / ns".
+
+It is one word, and at this size one word is wider than the column. Two things were tried and
+the frames are what rejected them:
+  1. Wrapping alone (a98389fc) gave "Notificatio / ns" AND "Phone verificatio / n".
+  2. Two lines plus shrink-to-fit (e6a38aef) fixed the multi-word labels, because they can break
+     on a space. It does not fix the single word: shrink-to-fit shrinks only until the text fits
+     the allowed lines, and "Notificatio / ns" already fits two, so nothing triggers.
+
+Getting "Notifications" onto one whole line needs numberOfLines={1} with aggressive shrink — the
+header's treatment — which would also squeeze every multi-word label onto one line and shrink it
+far below the size the reader asked for. On a navigation list that trades a legible two-line
+label for a small one-line label on EVERY row, to fix one word.
+
+So this is left as it is, deliberately, and it is an owner/B call rather than mine: the text is
+complete and identifiable, and the remaining fault is one mid-word break on one label. If that
+is judged unacceptable, the options are the one-line shrink above, or shorter copy.

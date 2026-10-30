@@ -1,129 +1,292 @@
 /**
- * app/transfer/receive/[id].tsx — Buyer Transfer Receive Screen
+ * app/transfer/receive/[id].tsx — the buyer's order ("Your order", V3).
  *
- * Phase A enhancements:
- *   - Collects buyer delivery info (email/phone) via DeliveryInfoForm
- *   - Shows platform-specific receiving instructions via PlatformInstructions
- *   - Preserves existing confirm / dispute / countdown behaviour
+ * V3 (map row "Order": `midnight-order-clean.png` composition, `pkg7-order-after-*.png` copy,
+ * `pkg8-order-{dark,light}.png` tokens). The screen leads with the event summary and the
+ * four-step PROGRESS track (src/lib/orders/orderPresentation.ts), prices state only what the
+ * buyer's own settled payment row records, and the unapproved auto-release sentence (O-1)
+ * stays out. The unreachable state remains the app's LIVE error/offline state — the board's
+ * cached-order panel is out of scope by the map's own ruling ("live data only").
+ * The `fixture` prop exists for the `_dev/v3-tickets` harness only and short-circuits ONLY
+ * the network reads; every action still needs the real server.
+ *
+ * PRESENTATION previously rebuilt on the V2 system; the transfer path is unchanged: the
+ * owner-scoped fetch, `mark_transfer_viewed`, the seller's signed proof URL, the
+ * countdown, the delivery-info gate (`set_transfer_delivery_info` via
+ * DeliveryInfoForm), confirm (`confirm-and-release` edge function) and dispute
+ * (`buyer_dispute_transfer`). Countdown + status vocabulary come from
+ * src/lib/transfer/transferState.ts. The proof viewer and platform instructions
+ * are untouched. Ownership is never implied before authoritative confirmation.
+ *
+ * PREMIUM BATCH 2 (CFT-203/205). Confirm and Report are separate pending
+ * states with visible labels ("Confirming receipt…", "Reporting…"), each held
+ * by a single-flight lock so a double tap cannot invoke confirm-and-release
+ * twice; the success haptic fires only after the edge function returned
+ * success, paired with the "Tickets received" state block.
+ *
+ * PREMIUM BATCH 3 (CFT-402/404). The seller's claim ("Seller marked as sent")
+ * and the buyer's possession ("Tickets received") never share a word. The
+ * buyer can open the ticket provider from here; coming back re-reads the
+ * order from the server and, only if the seller's claim is still the latest
+ * state, asks "Did the tickets arrive?" — a question, never a confirmation.
+ * "They're here" dismisses the question and leaves the buyer at the one
+ * control that releases payment, which explains itself first.
  */
 
 import { router, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  Image,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, AppState, KeyboardAvoidingView, Linking, Platform, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
+import { confirmBlock, showMoreActions } from '@/src/lib/moderation/blockFlow';
 import { useAuth } from '@/src/hooks/useAuth';
+import { useSingleFlight } from '@/src/hooks/useSingleFlight';
+import { hapticSuccess } from '@/src/lib/feedback/haptics';
 import DeliveryInfoForm from '@/src/components/DeliveryInfoForm';
 import { ProofImageViewer } from '@/src/components/ProofImageViewer';
 import PlatformInstructions from '@/src/components/PlatformInstructions';
+import { NameText } from '@/src/components/NameText';
 import ScreenState from '@/src/components/ScreenState';
 import { isNetworkError } from '@/src/hooks/useNetworkStatus';
 import { normalizeUSPhone } from '@/src/utils/phone';
-import { colors, fontSize, radius, spacing } from '@/src/theme';
-import type { TicketPlatform, TransferMethod } from '@/src/types';
+import { Badge, Button, EmptyState, IconButton, Spinner, Tappable } from '@/src/components/ui';
+import { exitRoute } from '@/src/lib/nav/leaveScreen';
+import { EventMedia } from '@/src/components/media/EventMedia';
+// The row poster's height — the one value both transfer summaries measure their artwork by.
+import { identityStacks, ROW_ART } from '@/src/lib/design/featureMetrics';
+import {
+  orderProgress,
+  orderProgressA11y,
+  orderTicketsLine,
+  orderWhenWhereLine,
+  youPaidAmount,
+  YOU_PAID_LABEL,
+} from '@/src/lib/orders/orderPresentation';
+import {
+  formatCountdown,
+  buyerAutoReleasedCopy,
+  buyerNeedsDelivery,
+  REPORT_PROBLEM_UNCONFIRMED,
+  transferReadOutcome,
+  transferStatusCopy,
+  transferStatusMeta,
+  TRANSFER_EXPIRY_COPY,
+  CONFIRM_RECEIPT_DIALOG,
 
-// ─── Local types ─────────────────────────────────────────────────────────────
+} from '@/src/lib/transfer/transferState';
+import { BuyerClosedBlock, BuyerSellerSentBlock, StateBlock } from '@/src/components/transfer/TransferStateBlocks';
+import {
+  HANDOFF_IDLE,
+  leaveForProvider,
+  onForeground,
+  providerLink,
+  RETURN_PROMPT,
+  returnPrompt,
+  returnPromptBody,
+  type HandoffState,
+} from '@/src/lib/transfer/providerHandoff';
+import { AMOUNT_MIN_FONT_SCALE, textStyle } from '@/src/theme/typography';
+import { refundReadState, refundStateLine, type RefundRead } from '@/src/lib/transfer/refundState';
+import { disputeDecision, disputedStateCopy, disputedStateMeta, refundDueContext } from '@/src/lib/transfer/disputeOutcome';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
+import * as v2 from '@/src/theme/v2';
+import type { TicketPlatform, TransferMethod } from '@/src/types';
+import { useTopInset } from '@/src/lib/nav/navInsets';
+import { readSettledPayments } from '@/src/lib/checkout/settledRead';
 
 type TransferData = {
   id: string;
+  /** For the buyer's own settled-payment read (the refund fact lives on `payments`, not here). */
+  listing_id: string | null;
   status: string;
   transfer_method: TransferMethod;
   expires_at: string | null;
+  /** The buyer's review window (A's table 2e). Shown only when the server gives it — never assumed. */
+  auto_release_at: string | null;
+  /** Written only after the Stripe payout transfer succeeded; gates the buyer's money sentence. */
+  buyer_confirmed_at: string | null;
+  payout_released_at: string | null;
+  /** The fourth gated read (A, 2026-09-24): an operator's ruling and its display timestamp. */
+  dispute_resolution: string | null;
+  dispute_resolved_at: string | null;
   delivery_email: string | null;
   delivery_phone: string | null;
   transfer_evidence_path: string | null;
   seller: { display_name: string | null };
+  /** RC3: the counterparty, for the Block entry only — never used to change this order. */
+  seller_id?: string | null;
   listing: {
     event_name: string | null;
     ticket_platform: TicketPlatform | null;
-  };
+    /** V3 summary columns — the same live listings columns Home selects with `*`. */
+    event_date: string | null;
+    event_time: string | null;
+    venue: string | null;
+    quantity: number | null;
+    ticket_type: string | null;
+    cover_image_path: string | null;
+      };
 };
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+/** Harness-only literals in place of the network reads (rows supplied, actions still real). */
+export type OrderFixture = {
+  transfer: TransferData;
+  /** The buyer's own settled payment rows, as readSettledPayments would return them. */
+  settled?: { status?: string | null; amount_refunded_cents?: number | null; refunded_at?: string | null; total?: number | null }[];
+};
 
-function formatCountdown(expiresAt: string | null): string | null {
-  if (!expiresAt) return null;
-  const diff = new Date(expiresAt).getTime() - Date.now();
-  if (diff <= 0) return 'Expired';
-  const h = Math.floor(diff / 3_600_000);
-  const m = Math.floor((diff % 3_600_000) / 60_000);
-  if (h > 0) return `${h}h ${m}m remaining`;
-  return `${m}m remaining`;
+/*
+ * The exit this screen's terminal state offers. `router.back()` on its own is a dead control here:
+ * the push dispatcher opens this screen from a notification (NativeAppShell), so there is often
+ * nothing underneath. It falls back to the board the screen is reached from.
+ */
+function leave(): void {
+  const exit = exitRoute(router.canGoBack(), '/(tabs)/bids');
+  if (exit.kind === 'back') router.back();
+  else router.replace(exit.href as never);
 }
 
-// ─── Screen ──────────────────────────────────────────────────────────────────
-
-export default function TransferReceiveScreen() {
+export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixture } = {}) {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
+  const { fontScale } = useWindowDimensions();
+  const stacked = identityStacks(fontScale);
+  // B-D7: the approved rule. Above the shared threshold a money row stacks into one column and
+  // the amount shrinks to fit its full-width line; below it NOTHING changes (default pixel-identical).
+  const amountFit = stacked ? { adjustsFontSizeToFit: true, minimumFontScale: AMOUNT_MIN_FONT_SCALE } : null;
   const { session } = useAuth();
   const userId = session?.user.id ?? '';
+  // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
+  const topPad = useTopInset();
 
   const [transfer, setTransfer] = useState<TransferData | null>(null);
+
+  // The RECORDED REFUND is a fact on the buyer's own payment row (RLS: buyer_id = auth.uid()), read
+  // through the one settled-payments read and only for the closed states that can carry one.
+  //
+  // FOUR outcomes, kept apart: in flight, failed, read-with-no-refund, read-with-a-refund. They used
+  // to collapse into one `null`, which renders a line ABOUT THE PAYMENT ROW — and after a failed read
+  // the app knows nothing about that row. The state also resets to `loading` whenever the order
+  // changes, so a previous order's figure cannot sit on a new order's block while its read is in
+  // flight.
+  const [refundRead, setRefundRead] = useState<RefundRead>({ kind: 'idle' });
+  // A DECIDED buyer-win or partial dispute is also a state whose block speaks about a refund, so
+  // the settled read runs for it too — the obligation line needs the capture behind it (16:51Z (ii)).
+  const decision = disputeDecision(transfer ?? { status: '', dispute_resolution: null, dispute_resolved_at: null });
+  const dueContext = refundDueContext(decision);
+  const closedForRefund = transfer?.status === 'expired' || transfer?.status === 'reversed' || dueContext != null;
+  useEffect(() => {
+    let alive = true;
+    // Harness: the same state machine, fed literal rows — nothing leaves the app.
+    if (fixture) { setRefundRead(refundReadState({ rows: fixture.settled ?? [] })); return; }
+    const listingId = transfer?.listing_id ?? null;
+    // V3: the read runs for every loaded order, not only closedForRefund — the summary's
+    // "You paid" row states the buyer's own recorded charge on the open order too. The
+    // closed/dispute blocks read the same result they always did.
+    if (!listingId || !userId) { setRefundRead({ kind: 'idle' }); return; }
+    setRefundRead({ kind: 'loading' });
+    void readSettledPayments(supabase, listingId, userId).then((read) => {
+      if (!alive) return;
+      setRefundRead(refundReadState(read));
+    }).catch(() => {
+      if (alive) setRefundRead({ kind: 'error' });
+    });
+    return () => { alive = false; };
+  }, [fixture, closedForRefund, transfer?.listing_id, transfer?.status, transfer?.dispute_resolution, userId]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [submitting, setSubmitting] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [disputing, setDisputing] = useState(false);
   const [savingDelivery, setSavingDelivery] = useState(false);
+  // One money-moving call at a time (CFT-205): confirm and dispute share the
+  // lock, so neither can start while the other is in flight.
+  const flight = useSingleFlight();
+  const busy = confirming || disputing;
   const [countdown, setCountdown] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Seller's sent-proof: signed URL into the PRIVATE proof-docs bucket. RLS
-  // (migration 034) only lets this transfer's buyer/seller read the object.
   const [proofUrl, setProofUrl] = useState<string | null>(null);
   const [proofViewerOpen, setProofViewerOpen] = useState(false);
+
+  // Provider handoff (CFT-404): where the buyer went, and the question asked
+  // on return — decided from the FRESH status, never from the tap.
+  const [handoff, setHandoff] = useState<HandoffState>(HANDOFF_IDLE);
+  const handoffRef = useRef<HandoffState>(HANDOFF_IDLE);
+  handoffRef.current = handoff;
+  const [arrivalPrompt, setArrivalPrompt] = useState(false);
+  const [confirmHighlight, setConfirmHighlight] = useState(false);
 
   useEffect(() => {
     const path = transfer?.transfer_evidence_path;
     if (!path || transfer?.status !== 'seller_sent') { setProofUrl(null); return; }
+    if (fixture) return;   // harness: no storage read; the row renders without a signed URL
     let active = true;
     supabase.storage.from('proof-docs').createSignedUrl(path, 60 * 60)
       .then(({ data }) => { if (active) setProofUrl(data?.signedUrl ?? null); })
       .catch(() => { if (active) setProofUrl(null); });
     return () => { active = false; };
-  }, [transfer?.transfer_evidence_path, transfer?.status]);
+  }, [transfer?.transfer_evidence_path, transfer?.status, fixture]);
 
-  // ── Fetch ──────────────────────────────────────────────────────────────────
-
-  const fetchTransfer = useCallback(async () => {
-    if (!userId || !id) return;
-    setLoading(true);
-
+  const fetchTransfer = useCallback(async (opts?: { quiet?: boolean }): Promise<TransferData | null> => {
+    // Harness: the fixture replaces this one read and nothing else — no query leaves the app.
+    if (fixture) { setTransfer(fixture.transfer); setError(''); setLoading(false); return fixture.transfer; }
+    if (!userId || !id) return null;
+    // Quiet: re-read behind the content (a return from the provider) instead
+    // of replacing the order with a spinner.
+    if (!opts?.quiet) setLoading(true);
     const { data, error: fetchErr } = await supabase
       .from('transfers')
       .select(
-        'id, status, transfer_method, expires_at, delivery_email, delivery_phone, transfer_evidence_path, ' +
+        'id, listing_id, seller_id, status, transfer_method, expires_at, auto_release_at, payout_released_at, buyer_confirmed_at, dispute_resolution, dispute_resolved_at, ' +
+        'delivery_email, delivery_phone, transfer_evidence_path, ' +
         'seller:profiles!seller_id(display_name), ' +
-        'listing:listings!listing_id(event_name, ticket_platform)',
+        // V3 summary columns: all live `listings` columns (Home selects `*` from the same table).
+        'listing:listings!listing_id(event_name, ticket_platform, event_date, event_time, venue, quantity, ticket_type, cover_image_path)',
       )
       .eq('id', id)
       .eq('buyer_id', userId)
       .single();
 
+    let fresh: TransferData | null = null;
     if (fetchErr || !data) {
-      // Connectivity failure gets the offline screen; a genuine miss
-      // (bad id / not this buyer's transfer) keeps "Transfer not found".
-      setError(fetchErr && isNetworkError(fetchErr) ? '__offline__' : 'Transfer not found');
+      // A quiet re-read that fails keeps the order on screen; only a visible
+      // load reports the failure.
+      // A failed read is never "not found" (owner, 2026-09-19): only a row-less answer supports that.
+      const outcome = transferReadOutcome({
+        isNetwork: !!fetchErr && isNetworkError(fetchErr),
+        code: (fetchErr as { code?: string | null } | null)?.code,
+        hasRow: !!data,
+        failed: !!fetchErr,
+      });
+      if (!opts?.quiet) setError(outcome === 'ok' ? 'not_found' : outcome);
     } else {
       setError('');
-      setTransfer(data as unknown as TransferData);
+      fresh = data as unknown as TransferData;
+      setTransfer(fresh);
     }
     setLoading(false);
-  }, [id, userId]);
+    return fresh;
+  }, [id, userId, fixture]);
 
   useEffect(() => { fetchTransfer(); }, [fetchTransfer]);
 
-  // Record that the buyer opened the transfer screen (buyer-only RPC, sets
-  // transfers.buyer_viewed_at once). This is a payout risk signal: a buyer
-  // who never even viewed the transfer weighs against silent auto-release.
+  // Back from the provider: re-read the order, then decide whether to ask.
+  // Returning from another app never implies receipt or payment.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', async (st) => {
+      if (st !== 'active') return;
+      const d = onForeground(handoffRef.current, Date.now());
+      if (!d.refetch) return;
+      setHandoff(d.next);
+      const fresh = await fetchTransfer({ quiet: true });
+      setArrivalPrompt(!!fresh && returnPrompt(fresh.status));
+    });
+    return () => sub.remove();
+  }, [fetchTransfer]);
+
+  // Record that the buyer opened the transfer (payout risk signal).
   useEffect(() => {
     if (!userId || !id) return;
     supabase.rpc('mark_transfer_viewed', { p_transfer_id: id }).then(({ error: rpcErr }) => {
@@ -131,64 +294,68 @@ export default function TransferReceiveScreen() {
     });
   }, [userId, id]);
 
-  // ── Countdown ──────────────────────────────────────────────────────────────
-
+  // F-XFER-2: the send window is the SELLER's, and it only means anything while the transfer is pending.
+  // This effect had no status condition at all, so a buyer could watch a countdown — and then be told the
+  // window "expired" — on a transfer the seller had already sent. Gated like the send screen's.
   useEffect(() => {
-    if (!transfer?.expires_at) return;
+    // No explicit reset here: the render gate below is what hides a stale value, and a line no test can
+    // justify and no user can observe is worse than no line at all (its mutant survived, so it went).
+    if (!transfer?.expires_at || transfer.status !== 'pending') return;
     setCountdown(formatCountdown(transfer.expires_at));
-    timerRef.current = setInterval(() => {
-      setCountdown(formatCountdown(transfer.expires_at));
-    }, 60_000);
+    timerRef.current = setInterval(() => setCountdown(formatCountdown(transfer.expires_at)), 60_000);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [transfer?.expires_at]);
-
-  // ── Delivery info submit ───────────────────────────────────────────────────
+  }, [transfer?.expires_at, transfer?.status]);
 
   async function handleDeliverySubmit(email: string | null, phone: string | null) {
     if (!id) return;
     setSavingDelivery(true);
-
-    // Defense in depth: DeliveryInfoForm normalizes before calling us, but
-    // re-normalize here so even programmatic callers (tests, future hooks)
-    // can't push a malformed phone into the RPC.
+    // Re-normalize defensively even though DeliveryInfoForm already did.
     const safePhone = phone ? normalizeUSPhone(phone) : null;
-
     const { error: rpcErr } = await supabase.rpc('set_transfer_delivery_info', {
-      p_transfer_id:    id,
+      p_transfer_id: id,
       p_delivery_email: email,
       p_delivery_phone: safePhone,
     });
-
     setSavingDelivery(false);
-
-    if (rpcErr) {
-      Alert.alert('Error', rpcErr.message);
-      return;
-    }
-
-    // Update local state immediately so the gate clears
-    setTransfer(prev =>
-      prev ? { ...prev, delivery_email: email, delivery_phone: safePhone } : prev,
-    );
-
-    // Also re-fetch to ensure server state is fully in sync
+    if (rpcErr) { Alert.alert('Error', rpcErr.message); return; }
+    setTransfer((prev) => (prev ? { ...prev, delivery_email: email, delivery_phone: safePhone } : prev));
     fetchTransfer();
   }
 
-  // ── Confirm received ───────────────────────────────────────────────────────
+  // Owner's decision 2: confirming receipt asks first, and only the dialog's explicit action sends anything. One
+  // dialog at a time: a same-tick double tap must not stack a second dialog whose "confirm" would land after the
+  // first release had already completed. The flag is cleared by either answer; the dialog cannot be dismissed
+  // without one (cancelable: false).
+  const confirmAsking = useRef(false);
 
-  async function handleConfirm() {
-    if (!id) return;
-    setSubmitting(true);
+  function handleConfirm() {
+    if (!id || confirmAsking.current || flight.inFlight) return;
+    confirmAsking.current = true;
+    const answered = () => { confirmAsking.current = false; };
+    Alert.alert(
+      CONFIRM_RECEIPT_DIALOG.title,
+      CONFIRM_RECEIPT_DIALOG.body,
+      [
+        { text: CONFIRM_RECEIPT_DIALOG.cancel, style: 'cancel', onPress: answered },
+        {
+          text: CONFIRM_RECEIPT_DIALOG.confirm,
+          onPress: () => {
+            answered();
+            flight.run(confirmReceipt).catch(() => {
+              setConfirming(false);
+              Alert.alert('Error', 'Something went wrong. Please try again.');
+            });
+          },
+        },
+      ],
+      { cancelable: false },
+    );
+  }
 
+  async function confirmReceipt() {
+    setConfirming(true);
     try {
-      const { data, error: fnError } = await supabase.functions.invoke(
-        'confirm-and-release',
-        { body: { transfer_id: id } },
-      );
-
-      setSubmitting(false);
-
+      const { data, error: fnError } = await supabase.functions.invoke('confirm-and-release', { body: { transfer_id: id } });
       if (fnError) {
         let message = 'Something went wrong. Please try again.';
         try {
@@ -204,356 +371,496 @@ export default function TransferReceiveScreen() {
         Alert.alert('Error', message);
         return;
       }
-
-      setTransfer(prev => prev ? { ...prev, status: 'buyer_confirmed' } : prev);
-      Alert.alert('Confirmed!', 'Transfer complete. Enjoy the event!');
-    } catch (err) {
-      setSubmitting(false);
+      // Authoritative: the edge function recorded the confirmation. Only now the
+      // distinctive success haptic (CFT-202), paired with the state block below.
+      hapticSuccess();
+      // The timestamp travels WITH the status, because the two together are what say the buyer
+      // confirmed: a `buyer_confirmed` row with a NULL timestamp means an operator decided a
+      // dispute. Only its PRESENCE is read — the authority here is the edge function's success,
+      // not this clock.
+      setTransfer((prev) => (prev ? { ...prev, status: 'buyer_confirmed', buyer_confirmed_at: new Date().toISOString() } : prev));
+      Alert.alert('Receipt confirmed', 'You confirmed you received the tickets. Enjoy the event.');
+    } catch {
       Alert.alert('Error', 'Something went wrong. Please try again.');
+    } finally {
+      setConfirming(false);
     }
   }
 
-  // ── Dispute ────────────────────────────────────────────────────────────────
-
-  async function handleDispute() {
+  function handleDispute() {
     Alert.alert(
-      'Report Issue',
-      'Are you sure you want to report a problem with this transfer? This will freeze the transfer and notify support.',
+      'Report issue',
+      // A's finding (2026-09-24): "notify support" was false. The report reaches notify-report, which
+      // pushes only to admins — none had a push token at the 2026-09-22 record — and emails only when
+      // EMAIL_ENABLED is on, and it is off. What DOES happen is the payout freeze (0550 sets
+      // 'disputed') and a p1 'dispute_open' case for the console (ops.detect_disputes, 117:420).
+      "Are you sure you want to report a problem with this transfer? This freezes the seller's payout and opens a case for our team.",
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Report Issue',
+          text: 'Report issue',
           style: 'destructive',
-          onPress: async () => {
-            setSubmitting(true);
-            const { error: rpcErr } = await supabase.rpc('buyer_dispute_transfer', {
-              p_transfer_id: id,
+          onPress: () => {
+            flight.run(async () => {
+              setDisputing(true);
+              try {
+                const { error: rpcErr } = await supabase.rpc('buyer_dispute_transfer', { p_transfer_id: id });
+                if (rpcErr) {
+                  console.warn('[receive] buyer_dispute_transfer error:', rpcErr.message);
+                  // V3 O-3: a network failure is a SUBMITTED action with an UNKNOWN result — the request
+                  // can still land after we give up. Re-read first: a server answer beats any guess.
+                  if (isNetworkError(rpcErr)) {
+                    const fresh = await fetchTransfer({ quiet: true });
+                    if (fresh?.status === 'disputed') return;   // it WAS received; the screen now shows it
+                    Alert.alert(REPORT_PROBLEM_UNCONFIRMED.title, REPORT_PROBLEM_UNCONFIRMED.body);
+                    return;
+                  }
+                  // The server ANSWERED and refused: this one genuinely was not recorded.
+                  Alert.alert("Couldn't submit the report", 'The server rejected it. Please try again in a moment; if the problem persists, contact support.');
+                  return;
+                }
+                setTransfer((prev) => (prev ? { ...prev, status: 'disputed' } : prev));
+                Alert.alert('Reported', 'The transfer has been flagged. Support will review.');
+              } finally {
+                setDisputing(false);
+              }
+            }).catch(() => {
+              setDisputing(false);
+              Alert.alert("Couldn't submit dispute", 'Please try again in a moment. If the problem persists, contact support.');
             });
-            setSubmitting(false);
-
-            if (rpcErr) {
-              Alert.alert(
-                "Couldn't submit dispute",
-                'Please try again in a moment. If the problem persists, contact support.',
-              );
-              console.warn('[receive] buyer_dispute_transfer error:', rpcErr.message);
-              return;
-            }
-            setTransfer(prev => prev ? { ...prev, status: 'disputed' } : prev);
-            Alert.alert('Reported', 'The transfer has been flagged. Support will review.');
           },
         },
       ],
     );
   }
 
-  // ── Derived values ─────────────────────────────────────────────────────────
-
   const platform: TicketPlatform = transfer?.listing?.ticket_platform ?? 'other';
   const transferMethod: TransferMethod = (transfer?.transfer_method as TransferMethod) ?? 'email';
+  const needsDeliveryInfo = transfer != null && buyerNeedsDelivery(transfer);
+  const link = providerLink(platform);
 
-  const needsDeliveryInfo =
-    transfer != null &&
-    (transfer.status === 'pending' || transfer.status === 'seller_sent') &&
-    !transfer.delivery_email &&
-    !transfer.delivery_phone;
+  function openProvider() {
+    if (!link) return;
+    setArrivalPrompt(false);
+    setHandoff(leaveForProvider(Date.now()));
+    // An official entry point only; universal links open the native app when installed.
+    Linking.openURL(link.url).catch(() => setHandoff(HANDOFF_IDLE));
+  }
 
-  // ── Loading state ──────────────────────────────────────────────────────────
+  // RC3 (152): the Block entry. It offers the K1 confirmation and writes one user_blocks row; it
+  // never touches this order — existing orders are exempt on the server, and the screen stays put.
+  const counterpartyId = transfer?.seller_id ?? null;
+  // Under a fixture the entry paints for a signed-out harness viewer; with write:false below the
+  // placeholder id never reaches a server.
+  // `userId` is '' when signed out (never null), so this is `||`, not `??` (C-RC3-2).
+  const viewerId = userId || (fixture ? 'fixture-viewer' : null);
+  function openMoreActions() {
+    if (!counterpartyId || !viewerId) return;
+    const name = transfer?.seller?.display_name?.trim() || 'this seller';
+    showMoreActions([
+      { label: `Block ${name}`, destructive: true, handler: () => confirmBlock({ viewerId, targetId: counterpartyId, targetName: name, write: !fixture }) },
+    ]);
+  }
 
-  if (loading) {
+  function Header() {
     return (
-      <SafeAreaView style={s.safe}>
-        <View style={s.center}>
-          <ActivityIndicator color={colors.primary} size="large" />
-        </View>
-      </SafeAreaView>
+      <View style={[s.header, { paddingTop: topPad + v2.space.sm }]}>
+        <IconButton glyph="back" chip onPress={() => router.back()} accessibilityLabel="Back" />
+        <Text style={[textStyle('screenTitle'), s.headerTitle]} accessibilityRole="header">Your order</Text>
+        {counterpartyId && viewerId
+          ? <IconButton glyph="more" chip onPress={openMoreActions} accessibilityLabel="More actions" />
+          : <View style={s.headerSpacer} />}
+      </View>
     );
   }
 
-  // ── Error state ────────────────────────────────────────────────────────────
+  if (loading) {
+    return <View style={[s.root, s.center]}><Spinner color={palette.brand.red} /></View>;
+  }
 
   if (error || !transfer) {
     return (
-      <SafeAreaView style={s.safe}>
-        <View style={s.topBar}>
-          <Pressable onPress={() => router.back()} style={s.backBtn} hitSlop={8}>
-            <Text style={s.backArrow}>{'\u2190'}</Text>
-          </Pressable>
-          <Text style={s.topTitle}>Receive Transfer</Text>
-          <View style={s.backBtn} />
-        </View>
-        {error === '__offline__' ? (
-          <ScreenState state="offline" onRetry={fetchTransfer} />
+      <View style={s.root}>
+        <Header />
+        {error === 'offline' ? (
+          <ScreenState state="offline" onRetry={() => { void fetchTransfer(); }} />
+        ) : error === 'unavailable' ? (
+          // The read failed and said nothing about the order: the app's neutral error state, never "not found".
+          <ScreenState state="error" onRetry={() => { void fetchTransfer(); }} />
         ) : (
-          <View style={s.center}>
-            <Text style={s.errorText}>{error || 'Transfer not found'}</Text>
-          </View>
+          /* As on the seller's screen: a row-less answer, unreachable by a temporary failure, so
+             a retry would re-ask an answered question. It needed an exit, not a retry. */
+          <EmptyState title="Transfer not found" action={{ label: 'Back', onPress: leave }} />
         )}
-      </SafeAreaView>
+      </View>
     );
   }
 
-  // ── Main render ────────────────────────────────────────────────────────────
+  const meta = transfer.status === 'disputed'
+    ? disputedStateMeta(decision, 'buyer')
+    : transferStatusMeta(transfer.status, 'buyer', { buyerConfirmed: transfer.buyer_confirmed_at != null });
 
   return (
-    <SafeAreaView style={s.safe}>
-      <View style={s.topBar}>
-        <Pressable onPress={() => router.back()} style={s.backBtn} hitSlop={8}>
-          <Text style={s.backArrow}>{'\u2190'}</Text>
-        </Pressable>
-        <Text style={s.topTitle}>Receive Transfer</Text>
-        <View style={s.backBtn} />
-      </View>
+    <View style={s.root}>
+      <Header />
+      <KeyboardAvoidingView style={s.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" showsVerticalScrollIndicator={false}>
+        {/* V3 order board: the screen leads with WHAT WAS BOUGHT — thumb, name, when/where,
+            tickets/method — then the four-step progress track and the recorded charge. Every
+            line is a server fact through orderPresentation's derivations. */}
+        <View style={s.summaryBlock}>
+          {/*
+            The poster, at the row's approved HEIGHT (owner's 4:5 direction, 2026-09-24). FEED_ROW_ART's
+            reference width is now the DERIVED edge (50), so a caller that says nothing gets the poster
+            the feed row draws — but only a caller that names the constrained edge is safe when the
+            reference changes again, and on a summary row that edge is the height. No wrapper: the slot
+            owns the radius (8) and its own clipping, and the 10pt `radius.sm` frame that used to sit
+            here cut a second, larger arc through the artwork's corners.
+          */}
+          <EventMedia
+            asset={{ path: transfer.listing?.cover_image_path ?? null }}
+            slot="FEED_ROW_ART"
+            height={ROW_ART}
+            title={transfer.listing?.event_name ?? undefined}
+            decorative
+          />
+          <View style={s.summaryLines}>
+            <NameText token="nameOrder" maxLines={2} style={s.summaryName}>
+              {transfer.listing?.event_name || 'Untitled'}
+            </NameText>
+            {orderWhenWhereLine(transfer.listing?.event_date, transfer.listing?.event_time, transfer.listing?.venue) ? (
+              <Text style={[textStyle('bodySm'), s.summaryMeta]} numberOfLines={1}>
+                {orderWhenWhereLine(transfer.listing?.event_date, transfer.listing?.event_time, transfer.listing?.venue)}
+              </Text>
+            ) : null}
+            {orderTicketsLine(transfer.listing?.quantity, transfer.listing?.ticket_type, transfer.transfer_method, link?.name ?? null) ? (
+              <Text style={[textStyle('bodySm'), s.summaryMeta]} numberOfLines={1}>
+                {orderTicketsLine(transfer.listing?.quantity, transfer.listing?.ticket_type, transfer.transfer_method, link?.name ?? null)}
+              </Text>
+            ) : null}
+          </View>
+        </View>
 
-      <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+        {(() => {
+          const steps = orderProgress({
+            status: transfer.status,
+            buyerConfirmedAt: transfer.buyer_confirmed_at,
+            payoutReleasedAt: transfer.payout_released_at,
+            autoReleaseAt: transfer.auto_release_at,
+          });
+          if (!steps) return null;
+          const paid = youPaidAmount(refundRead);
+          return (
+            <>
+              <View style={s.progressBlock} accessible accessibilityLabel={orderProgressA11y(steps)}>
+                <Text style={[textStyle('micro'), s.sectionLabel]}>Progress</Text>
+                <View style={s.progressRow}>
+                  {steps.map((step) => (
+                    <View key={step.key} style={s.progressCol}>
+                      <View style={[
+                        s.progressDot,
+                        step.state === 'done' && s.progressDotDone,
+                        step.state === 'current' && s.progressDotCurrent,
+                      ]} />
+                      <Text style={[textStyle('navLabel'), s.progressText, step.state === 'current' ? s.progressLabelCurrent : s.progressLabel]} numberOfLines={2}>
+                        {step.label}
+                      </Text>
+                      {step.sub ? (
+                        <Text style={[textStyle('navLabel'), s.progressText, s.progressDetail]} numberOfLines={2}>{step.sub}</Text>
+                      ) : null}
+                    </View>
+                  ))}
+                </View>
+              </View>
+              {paid ? (
+                <View style={stacked ? s.paidRowStacked : s.paidRow}>
+                  <Text style={[textStyle('body'), s.paidLabel]}>{YOU_PAID_LABEL}</Text>
+                  <Text style={[textStyle('price'), s.paidValue]} numberOfLines={stacked ? 1 : undefined} {...amountFit}>{paid}</Text>
+                </View>
+              ) : null}
+            </>
+          );
+        })()}
 
-        {/* ── Delivery info form (REQUIRED before any other action) ── */}
-        {needsDeliveryInfo && (
+        {/* Delivery info: required before a PENDING transfer can proceed. On one already marked sent it is still
+            asked for, but it never hides the confirm / report controls below (F-XFER-3). */}
+        {needsDeliveryInfo ? (
           <>
-            <View style={s.deliveryGateBanner}>
-              <Text style={s.deliveryGateText}>
+            <View style={s.gate}>
+              <Text style={[textStyle('bodySm'), s.gateText]}>
                 Please provide your delivery info so the seller knows where to send your tickets.
               </Text>
             </View>
-            <DeliveryInfoForm
-              transferMethod={transferMethod}
-              onSubmit={handleDeliverySubmit}
-              loading={savingDelivery}
-            />
+            <DeliveryInfoForm transferMethod={transferMethod} onSubmit={handleDeliverySubmit} loading={savingDelivery} />
           </>
-        )}
+        ) : null}
 
-        {/* ── Platform-specific receiving instructions ────────────── */}
-        {(transfer.status === 'pending' || transfer.status === 'seller_sent') && !needsDeliveryInfo && (
-          <PlatformInstructions
-            platform={platform}
-            role="buyer"
-            buyerEmail={transfer.delivery_email}
-            buyerPhone={transfer.delivery_phone}
-          />
-        )}
+        {/* How to receive, and the way to go and check. Pending waits for delivery details as before; a transfer
+            already marked sent shows them regardless (owner's decision 1). The steps carry no contact placeholder
+            for the buyer, so an absent email/phone is never printed; no destination means no button. */}
+        {transfer.status === 'seller_sent' || (transfer.status === 'pending' && !needsDeliveryInfo) ? (
+          <>
+            <PlatformInstructions platform={platform} role="buyer" buyerEmail={transfer.delivery_email} buyerPhone={transfer.delivery_phone} />
+            {link ? (
+              <View style={s.openProvider}>
+                <Button
+                  label={`Open ${link.name}`}
+                  variant="secondary"
+                  onPress={openProvider}
+                  disabled={busy}
+                  block
+                  accessibilityHint="Opens the ticket provider. Come back here to confirm once you can see the tickets."
+                />
+              </View>
+            ) : null}
+          </>
+        ) : null}
 
-        {/* ── Countdown ───────────────────────────────────────────── */}
-        {countdown && transfer.status !== 'buyer_confirmed' && (
-          <View style={[s.countdownBanner, countdown === 'Expired' && s.countdownExpired]}>
-            <Text style={[s.countdownText, countdown === 'Expired' && s.countdownExpiredText]}>
-              {countdown === 'Expired'
-                ? '\u26A0\uFE0F  Transfer window expired'
-                : `\u23F1  ${countdown}`}
+        {countdown && transfer.status === 'pending' ? (
+          <View style={[s.countdown, countdown === 'Expired' && s.countdownExpired]}>
+            <Text style={[textStyle('bodySm'), s.countdownText, countdown === 'Expired' && s.countdownExpiredText]}>
+              {countdown === 'Expired' ? TRANSFER_EXPIRY_COPY.buyer : countdown}
             </Text>
           </View>
-        )}
+        ) : null}
 
-        {/* ── Transfer details card ───────────────────────────────── */}
-        <View style={s.card}>
-          <Text style={s.label}>Event</Text>
-          <Text style={s.value}>{transfer.listing?.event_name || 'Untitled'}</Text>
-
-          <Text style={s.label}>Seller</Text>
-          <Text style={s.value}>{transfer.seller?.display_name || 'Unknown'}</Text>
-
-          <Text style={s.label}>Transfer Method</Text>
-          <Text style={s.value}>{transfer.transfer_method.replace('_', ' ')}</Text>
-
-          {transfer.delivery_email && (
-            <>
-              <Text style={s.label}>Your Delivery Email</Text>
-              <Text style={s.value}>{transfer.delivery_email}</Text>
-            </>
-          )}
-          {transfer.delivery_phone && (
-            <>
-              <Text style={s.label}>Your Delivery Phone</Text>
-              <Text style={s.value}>{transfer.delivery_phone}</Text>
-            </>
-          )}
+        {/* Details */}
+        <View style={s.section}>
+          <View style={s.detailHead}>
+            <Text style={[textStyle('micro'), s.sectionLabel]}>Transfer</Text>
+            <Badge label={meta.label} tone={meta.tone} />
+          </View>
+          {/* pkg7-order copy: the summary block above carries event and method, so this section
+              holds the seller and WHERE THE TICKETS GO. */}
+          <Row label="Seller" value={transfer.seller?.display_name || 'Unknown'} s={s} />
+          {transfer.delivery_email ? <Row label="Your delivery details" value={transfer.delivery_email} s={s} /> : null}
+          {transfer.delivery_phone ? <Row label={transfer.delivery_email ? ' ' : 'Your delivery details'} value={transfer.delivery_phone} s={s} /> : null}
+          {(transfer.delivery_email || transfer.delivery_phone) ? (
+            <Text style={[textStyle('bodySm'), s.hint]}>where your tickets should be sent</Text>
+          ) : null}
         </View>
 
-        {/* ── Pending state ───────────────────────────────────────── */}
-        {transfer.status === 'pending' && !needsDeliveryInfo && (
-          <View style={s.banner}>
-            <Text style={s.bannerText}>
-              Waiting for the seller to send the transfer
-            </Text>
+        {/* PENDING */}
+        {transfer.status === 'pending' && !needsDeliveryInfo ? (
+          <View style={s.stateBlock}>
+            <Text style={[textStyle('bodySm'), s.stateText]}>{transferStatusCopy('pending', 'buyer').body}</Text>
           </View>
-        )}
+        ) : null}
 
-        {/* ── Seller sent → confirm / dispute ─────────────────────── */}
-        {transfer.status === 'seller_sent' && !needsDeliveryInfo && (
+        {/* SELLER_SENT — the seller's claim, then confirm / dispute. F-XFER-3: NOT gated on delivery info. The
+            server lets a transfer be marked sent without it and that starts the auto-release clock, so a missing
+            phone number must never stand between the buyer and "I haven't received them". */}
+        {transfer.status === 'seller_sent' ? (
           <>
-            {proofUrl && (
-              <View style={s.proofBlock}>
-                <Text style={s.proofLabel}>{"Seller's proof of transfer"}</Text>
-                <Pressable
-                  onPress={() => setProofViewerOpen(true)}
-                  accessibilityRole="imagebutton"
-                  accessibilityLabel="View proof of transfer full screen"
-                >
-                  <Image source={{ uri: proofUrl }} style={s.proofImage} resizeMode="contain" />
-                </Pressable>
-                <Text style={s.proofHint}>Tap to view full screen. Review it before confirming.</Text>
-              </View>
-            )}
+            {/* The seller's claim and the review deadline (A's 2e / B-5) — the shared block, so the
+                sandbox gallery renders exactly this. Confirm / report stay here, below. */}
+            <BuyerSellerSentBlock autoReleaseAt={transfer.auto_release_at} />
 
-            <View style={s.confirmPrompt}>
-              <Text style={s.confirmPromptText}>
-                By confirming, you release payment to the seller. Only confirm if
-                you can see the tickets in your account.
+            {arrivalPrompt ? (
+              <View style={s.arrival} accessibilityLiveRegion="polite">
+                <Text style={[textStyle('title'), s.arrivalTitle]}>{RETURN_PROMPT.title}</Text>
+                <Text style={[textStyle('bodySm'), s.stateText]}>{returnPromptBody(link?.name ?? null)}</Text>
+                <View style={s.arrivalActions}>
+                  {/* Dismisses the question only; confirmation is the control below. */}
+                  <Button label={RETURN_PROMPT.here} variant="secondary" size="sm" onPress={() => { setArrivalPrompt(false); setConfirmHighlight(true); }} disabled={busy} />
+                  <Button label={RETURN_PROMPT.notYet} variant="ghost" size="sm" onPress={() => setArrivalPrompt(false)} disabled={busy} />
+                  <Button label={RETURN_PROMPT.problem} variant="destructive" size="sm" onPress={() => { setArrivalPrompt(false); handleDispute(); }} disabled={busy} />
+                </View>
+              </View>
+            ) : null}
+
+            {proofUrl ? (
+              /* The board's collapsed row: the screenshot is a tap away, not an inline image the
+                 buyer must scroll past. Same viewer, same review-before-confirming intent. */
+              <Tappable
+                style={s.proofRow}
+                onPress={() => setProofViewerOpen(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Seller's screenshot. Attached by the seller. Opens full screen — review it before confirming."
+              >
+                <View style={s.proofRowLines}>
+                  <Text style={[textStyle('title'), s.proofRowTitle]}>{"Seller's screenshot"}</Text>
+                  <Text style={[textStyle('bodySm'), s.hint]}>Attached by the seller · tap to view</Text>
+                </View>
+                <Text style={[textStyle('title'), s.proofRowChevron]}>{'\u203A'}</Text>
+              </Tappable>
+            ) : null}
+
+            <View style={[s.confirmPrompt, confirmHighlight && s.confirmPromptHighlight]}>
+              <Text style={[textStyle('bodySm'), s.confirmPromptText]}>
+                By confirming, you release payment to the seller. Only confirm if you can see the tickets in your account.
               </Text>
             </View>
 
-            <Pressable
-              style={[s.confirmBtn, submitting && s.btnDisabled]}
+            <Button
+              label="I have my tickets"
+              pendingLabel="Confirming receipt…"
               onPress={handleConfirm}
-              disabled={submitting}
-            >
-              {submitting ? (
-                <ActivityIndicator color={colors.text} size="small" />
-              ) : (
-                <Text style={s.btnText}>I Got My Tickets</Text>
-              )}
-            </Pressable>
-
-            <Pressable
-              style={[s.disputeBtn, submitting && s.btnDisabled]}
+              loading={confirming}
+              disabled={busy}
+              size="lg"
+              block
+              style={s.cta}
+            />
+            {/* True: handleConfirm opens the release dialog first; nothing is sent on this tap. */}
+            <Text style={[textStyle('bodySm'), s.ctaCaption]}>you&apos;ll confirm on the next step</Text>
+            <Button
+              label="Report a problem"
+              pendingLabel="Reporting…"
+              variant="secondary"
               onPress={handleDispute}
-              disabled={submitting}
-            >
-              {submitting ? (
-                <ActivityIndicator color={colors.error} size="small" />
-              ) : (
-                <Text style={s.disputeBtnText}>{"I Haven't Received Them"}</Text>
-              )}
-            </Pressable>
+              loading={disputing}
+              disabled={busy}
+              block
+              style={s.disputeCta}
+            />
           </>
-        )}
+        ) : null}
 
-        {/* ── Confirmed state ─────────────────────────────────────── */}
-        {transfer.status === 'buyer_confirmed' && (
-          <View style={s.banner}>
-            <Text style={[s.bannerText, { color: colors.success }]}>
-              Transfer complete!
-            </Text>
-          </View>
-        )}
+        {/* CONFIRMED — the buyer's own statement of possession */}
+        {/* EXPIRED / REVERSED — the buyer's cells (A's table 2a/2c). The ORDER fact from the status;
+            the REFUND fact only from the payment row; nothing about the seller's payout event. */}
+        {transfer.status === 'expired' ? <BuyerClosedBlock status="expired" refund={refundRead} /> : null}
+        {transfer.status === 'reversed' ? <BuyerClosedBlock status="reversed" refund={refundRead} /> : null}
 
-        {/* ── Disputed state ──────────────────────────────────────── */}
-        {transfer.status === 'disputed' && (
-          <View style={s.banner}>
-            <Text style={[s.bannerText, { color: colors.warning }]}>
-              Issue reported — our team typically reviews within 24 hours.{'\n'}
-              Your payment stays on hold until this is resolved.
-            </Text>
-          </View>
-        )}
+        {/* Tone follows the same fact as the badge: an operator's dispute decision is not a success for
+            the buyer who reported non-receipt, so it must not be painted as one beside a neutral badge. */}
+        {transfer.status === 'buyer_confirmed' ? (
+          <StateBlock
+            title={transferStatusCopy('buyer_confirmed', 'buyer', { buyerConfirmed: transfer.buyer_confirmed_at != null }).title}
+            tone={transfer.buyer_confirmed_at != null ? 'success' : 'neutral'}
+          >
+            <Text style={[textStyle('bodySm'), s.stateText]}>{transferStatusCopy('buyer_confirmed', 'buyer', { buyerConfirmed: transfer.buyer_confirmed_at != null }).body}</Text>
+          </StateBlock>
+        ) : null}
 
-        <View style={{ height: 48 }} />
+        {/* AUTO_RELEASED — what happened to the money, not to the tickets */}
+        {transfer.status === 'auto_released' ? (
+          // The money sentence waits for `payout_released_at` (A's review): the status is only the release decision.
+          <StateBlock title={buyerAutoReleasedCopy(transfer.payout_released_at).title} tone={transfer.payout_released_at ? 'success' : 'neutral'}>
+            <Text style={[textStyle('bodySm'), s.stateText]}>{buyerAutoReleasedCopy(transfer.payout_released_at).body}</Text>
+          </StateBlock>
+        ) : null}
+
+        {/* DISPUTED — open keeps the warning and the under-review copy; a DECIDED dispute is a
+            neutral fact. The decision sentence carries no money claim; when the ruling supports an
+            obligation (buyer win / partial), the refund line below it comes from the four-state
+            settled read — checking, unreadable, due (needs the capture), or the recorded fact. */}
+        {transfer.status === 'disputed' ? (
+          <StateBlock title={disputedStateCopy(decision, 'buyer').title} tone={decision.kind === 'decided' ? 'neutral' : 'warning'}>
+            <Text style={[textStyle('bodySm'), s.stateText]}>{disputedStateCopy(decision, 'buyer').body}</Text>
+            {dueContext != null ? (
+              <Text style={[textStyle('bodySm'), s.stateText]}>{refundStateLine(refundRead, dueContext)}</Text>
+            ) : null}
+          </StateBlock>
+        ) : null}
+
+        <View style={{ height: v2.space.xxl }} />
       </ScrollView>
+      </KeyboardAvoidingView>
 
-      <ProofImageViewer
-        uri={proofViewerOpen ? proofUrl : null}
-        onClose={() => setProofViewerOpen(false)}
-      />
-    </SafeAreaView>
+      <ProofImageViewer uri={proofViewerOpen ? proofUrl : null} onClose={() => setProofViewerOpen(false)} />
+    </View>
   );
 }
 
-// ─── Styles ──────────────────────────────────────────────────────────────────
+function Row({ label, value, s }: { label: string; value: string; s: TransferStyles }) {
+  return (
+    <View style={s.row}>
+      <Text style={[textStyle('bodySm'), s.rowLabel]}>{label}</Text>
+      <Text style={[textStyle('body'), s.rowValue]} numberOfLines={1}>{value}</Text>
+    </View>
+  );
+}
 
-const s = StyleSheet.create({
-  safe:    { flex: 1, backgroundColor: colors.bg },
-  center:  { flex: 1, justifyContent: 'center', alignItems: 'center' },
+type TransferStyles = ReturnType<typeof makeStyles>;
 
-  topBar:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-               paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
-               borderBottomWidth: 1, borderBottomColor: colors.border },
-  backBtn:   { width: 44, height: 44, alignItems: 'flex-start', justifyContent: 'center' },
-  backArrow: { color: colors.text, fontSize: fontSize.xl, fontWeight: '600' },
-  topTitle:  { color: colors.text, fontSize: fontSize.md, fontWeight: '700' },
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  root: { flex: 1, backgroundColor: p.surface.canvas },
+  flex: { flex: 1 },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  errorText: { color: p.status.error },
 
-  content: { padding: spacing.md },
-  card:    { backgroundColor: colors.bgCard, borderRadius: radius.md, padding: spacing.md,
-             marginBottom: spacing.lg },
-
-  label: { color: colors.textMuted, fontSize: fontSize.xs, fontWeight: '600', marginTop: spacing.sm },
-  value: { color: colors.text, fontSize: fontSize.md, fontWeight: '500', marginTop: spacing.xs },
-
-  banner:     { backgroundColor: colors.bgCard, borderRadius: radius.md, padding: spacing.lg,
-                alignItems: 'center' },
-  bannerText: { color: colors.textMuted, fontSize: fontSize.sm, fontWeight: '600',
-                textAlign: 'center', lineHeight: 22 },
-
-  proofBlock: {
-    marginBottom: spacing.md,
+  header: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: v2.space.md, paddingBottom: v2.space.sm,
+    borderBottomWidth: 1, borderBottomColor: p.border.default,
   },
-  proofLabel: {
-    color: colors.text,
-    fontSize: fontSize.sm,
-    fontWeight: '600',
-    marginBottom: spacing.xs,
-  },
-  proofImage: {
-    width: '100%',
-    height: 220,
-    borderRadius: radius.md,
-    backgroundColor: colors.bgCard,
-  },
-  proofHint: {
-    color: colors.textMuted,
-    fontSize: fontSize.xs,
-    marginTop: spacing.xs,
-  },
+  headerTitle: { color: p.text.primary },
 
-  confirmPrompt: {
-    backgroundColor: 'rgba(251,191,36,0.10)',
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.warning,
-    padding: spacing.sm,
-    marginBottom: spacing.md,
+  // ── V3 order summary / progress / paid (the board's lead) ──
+  summaryBlock: { flexDirection: 'row', gap: v2.space.md, alignItems: 'center', marginBottom: v2.space.lg },
+  // `summaryThumb` is gone with the wrapper it styled — the slot owns the poster's radius and clip.
+  summaryLines: { flex: 1, gap: 2 },
+  summaryName: { color: p.text.primary },
+  summaryMeta: { color: p.text.secondary },
+  progressBlock: { marginBottom: v2.space.lg },
+  progressRow: { flexDirection: 'row', gap: v2.space.sm, marginTop: v2.space.sm },
+  progressCol: { flex: 1, alignItems: 'center', gap: 4 },
+  progressDot: { width: 12, height: 12, borderRadius: v2.radius.pill, borderWidth: 2, borderColor: p.border.control },
+  progressDotDone: { backgroundColor: p.text.primary, borderColor: p.text.primary },
+  progressDotCurrent: { borderColor: p.status.warning },
+  progressText: { textAlign: 'center' },
+  progressLabel: { color: p.text.secondary },
+  progressLabelCurrent: { color: p.status.warning },
+  progressDetail: { color: p.text.muted },
+  paidRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: v2.space.lg },
+  /* Stacked above IDENTITY_STACK_SCALE (B-D7): one column, the amount on its own full-width line. */
+  paidRowStacked: { flexDirection: 'column', alignItems: 'flex-start', gap: 2, marginBottom: v2.space.lg },
+  paidLabel: { color: p.text.secondary },
+  paidValue: { color: p.text.primary, fontVariant: ['tabular-nums'] },
+  proofRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    borderWidth: 1, borderColor: p.border.default, borderRadius: v2.radius.md,
+    paddingHorizontal: v2.space.lg, paddingVertical: v2.space.md, marginBottom: v2.space.lg,
   },
-  confirmPromptText: {
-    color: colors.warning,
-    fontSize: fontSize.xs,
-    lineHeight: 18,
-    textAlign: 'center',
-  },
+  proofRowLines: { flex: 1, gap: 2 },
+  proofRowTitle: { color: p.text.primary },
+  proofRowChevron: { color: p.text.muted, fontSize: 24, lineHeight: 26 },
+  ctaCaption: { color: p.text.muted, textAlign: 'center', marginTop: v2.space.xs, marginBottom: v2.space.sm },
+  headerSpacer: { width: 44 },
 
-  confirmBtn:  { backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: 14,
-                 alignItems: 'center', marginBottom: spacing.sm },
-  disputeBtn:  { backgroundColor: 'transparent', borderRadius: radius.md, borderWidth: 1,
-                 borderColor: colors.border, paddingVertical: 14, alignItems: 'center',
-                 marginBottom: spacing.lg },
-  btnDisabled: { opacity: 0.6 },
-  btnText:        { color: colors.text, fontSize: fontSize.md, fontWeight: '700' },
-  disputeBtnText: { color: colors.error, fontSize: fontSize.md, fontWeight: '600' },
+  content: { paddingHorizontal: v2.space.lg, paddingTop: v2.space.lg },
 
-  errorText: { color: colors.error, fontSize: fontSize.md },
+  section: {
+    borderWidth: 1, borderColor: p.border.default, backgroundColor: p.surface.surface,
+    padding: v2.space.md, marginBottom: v2.space.md,
+  },
+  sectionLabel: { color: p.text.muted, marginBottom: v2.space.sm },
+  detailHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: v2.space.sm },
 
-  // Delivery info gate
-  deliveryGateBanner: {
-    backgroundColor: 'rgba(251,191,36,0.12)',
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.warning,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-  },
-  deliveryGateText: {
-    color: colors.warning,
-    fontSize: fontSize.sm,
-    fontWeight: '600',
-    textAlign: 'center',
-    lineHeight: 20,
-  },
+  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: v2.space.md, paddingVertical: v2.space.xs },
+  rowLabel: { color: p.text.muted },
+  rowValue: { color: p.text.primary, flexShrink: 1, textAlign: 'right' },
 
-  // Countdown
-  countdownBanner: {
-    backgroundColor: 'rgba(251,191,36,0.12)', borderRadius: radius.md,
-    padding: spacing.sm, alignItems: 'center', marginBottom: spacing.md,
-    borderWidth: 1, borderColor: colors.warning,
+  gate: { borderWidth: 1, borderColor: p.status.warning, padding: v2.space.md, marginBottom: v2.space.md },
+  gateText: { color: p.status.warning },
+
+  countdown: { borderWidth: 1, borderColor: p.status.warning, padding: v2.space.sm, alignItems: 'center', marginBottom: v2.space.md },
+  countdownExpired: { borderColor: p.status.error },
+  countdownText: { color: p.status.warning, fontVariant: ['tabular-nums'] },
+  countdownExpiredText: { color: p.status.error },
+
+  proofBlock: { marginBottom: v2.space.md },
+  proofImage: { width: '100%', height: 220, backgroundColor: p.onArt.letterbox, marginTop: v2.space.xs },
+  hint: { color: p.text.muted, marginTop: v2.space.xs },
+
+  confirmPrompt: { borderWidth: 1, borderColor: p.status.warning, padding: v2.space.sm, marginBottom: v2.space.md },
+  confirmPromptHighlight: { borderWidth: 2 },
+  claimTitle: { color: p.text.primary },
+  openProvider: { marginBottom: v2.space.md },
+  arrival: { borderWidth: 1, borderColor: p.brand.red, backgroundColor: p.brand.redSoft, padding: v2.space.md, marginBottom: v2.space.md, gap: v2.space.xs },
+  arrivalTitle: { color: p.text.primary },
+  arrivalActions: { flexDirection: 'row', flexWrap: 'wrap', gap: v2.space.sm, marginTop: v2.space.sm },
+  confirmPromptText: { color: p.status.warning },
+  cta: { marginTop: v2.space.xs },
+  disputeCta: { marginTop: v2.space.sm },
+
+  stateBlock: {
+    borderWidth: 1, borderColor: p.border.default, backgroundColor: p.surface.surface,
+    padding: v2.space.lg, marginBottom: v2.space.md, gap: v2.space.xs,
   },
-  countdownExpired: { backgroundColor: 'rgba(255,77,109,0.1)', borderColor: colors.error },
-  countdownText:    { color: colors.warning, fontSize: fontSize.sm, fontWeight: '700' },
-  countdownExpiredText: { color: colors.error },
+  stateText: { color: p.text.secondary },
 });
+}

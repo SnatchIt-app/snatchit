@@ -1,7 +1,8 @@
 -- ============================================================================
 -- 060_payments_money.sql — payments are server-managed evidence: clients can
 -- only read their own; a listing can only ever be paid once (003); one
--- payment maps to one transfer (003). Known gaps F-2/F-3 pinned as TODO.
+-- payment maps to one transfer (003). F-2/F-3 closed by 20260906120000
+-- (unique stripe_transfer_id; payments transition/money guard).
 -- ============================================================================
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap;
@@ -54,21 +55,19 @@ SELECT throws_ok(
      VALUES (tap.listing_a(), tap.payment_d(), tap.seller(), tap.buyer(), 'email', now() + interval '1 day') $$,
   '23505', NULL, 'duplicate transfer for the same listing rejected (transfers_listing_id_key)');
 
--- ── Known gaps, pinned so their fixes flip tests green ──────────────────────
--- F-2: transfers.stripe_transfer_id has NO unique index (self-documented in
--- 056a: mark_transfer_reversed had to use "> 0"). Until an index migration
--- ships, the same Stripe transfer id can land on two rows.
-SELECT todo('F-2: add unique index on transfers.stripe_transfer_id', 1);
+-- ── F-2 / F-3 — formerly deferred (masked) markers; real assertions since 20260906120000 ─
+-- F-2: transfers.stripe_transfer_id was not unique (056a: mark_transfer_reversed
+-- had to use "> 0"). transfers_stripe_transfer_id_uniq (partial, non-NULL)
+-- closes it; 122_payout_attempts.sql proves the 23505.
 SELECT ok(
   EXISTS (SELECT 1 FROM pg_indexes
            WHERE schemaname = 'public' AND tablename = 'transfers'
              AND indexdef ILIKE '%UNIQUE%' AND indexdef ILIKE '%stripe_transfer_id%'),
   'transfers.stripe_transfer_id should be unique');
 
--- F-3: payments has NO column guard trigger — any service-path writer can
--- silently rewrite amounts. listings and transfers both got guards; the
--- money-evidence table did not.
-SELECT todo('F-3: add a payments amount/status guard trigger', 1);
+-- F-3: payments had NO column guard trigger — any service-path writer could
+-- silently rewrite amounts. guard_payment_transitions closes it; the full
+-- transition matrix lives in 123_payment_monotonic.sql.
 SELECT throws_ok(
   $$ UPDATE public.payments SET amount = 1, total = 1 WHERE id = tap.payment_a() $$,
   'P0001', NULL, 'direct service-path rewrite of payment amounts should be blocked');

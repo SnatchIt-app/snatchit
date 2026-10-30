@@ -97,6 +97,15 @@
 -- and INSERT triggers vary across storage-api versions, and cron.job_run_details
 -- would require actually waiting for a scheduled tick.
 -- ============================================================================
+-- ENVIRONMENT NOTE (2026-09-06, converged release candidate): pg_cron records
+-- the database the schedule() call ran in — current_database() — and production's
+-- is named 'postgres' (the ground-truth read above). The Supabase CLI stack CI
+-- replays into also names it 'postgres', so a literal matched there; a local
+-- harness database (e.g. snatchit_rc_rehearsal) does not. Assertions 8 and 9
+-- therefore compare against current_database(): the INVARIANT — the job targets
+-- the same database that holds public.sweep_auth_password_changes() — is what
+-- production exhibits and is asserted unchanged; only the literal name is no
+-- longer hard-coded. Nothing else in the two assertions moved.
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap;
 
@@ -134,6 +143,7 @@ SELECT set_eq(
     $e$auction-media owner update|UPDATE|{authenticated}|((bucket_id = 'auction-media'::text) AND ((storage.foldername(name))[1] = (auth.uid())::text))|((bucket_id = 'auction-media'::text) AND ((storage.foldername(name))[1] = (auth.uid())::text))$e$,
     $e$avatars owner insert|INSERT|{authenticated}|<null>|((bucket_id = 'avatars'::text) AND ((storage.foldername(name))[1] = (auth.uid())::text))$e$,
     $e$avatars owner update|UPDATE|{authenticated}|((bucket_id = 'avatars'::text) AND ((storage.foldername(name))[1] = (auth.uid())::text))|((bucket_id = 'avatars'::text) AND ((storage.foldername(name))[1] = (auth.uid())::text))$e$,
+    $e$proof-docs operator read|SELECT|{authenticated}|((bucket_id = 'proof-docs'::text) AND ops.evidence_operator_may_read() AND ops.evidence_path_is_referenced(name))|<null>$e$,
     $e$proof-docs owner delete unreferenced|DELETE|{authenticated}|((bucket_id = 'proof-docs'::text) AND ((storage.foldername(name))[1] = (auth.uid())::text) AND (NOT (EXISTS ( SELECT 1 FROM listings l WHERE (l.proof_of_ownership_path = objects.name)))) AND (NOT (EXISTS ( SELECT 1 FROM transfers t WHERE (t.transfer_evidence_path = objects.name)))))|<null>$e$,
     $e$proof-docs owner insert|INSERT|{authenticated}|<null>|((bucket_id = 'proof-docs'::text) AND ((storage.foldername(name))[1] = (auth.uid())::text))$e$,
     $e$proof-docs owner read|SELECT|{authenticated}|((bucket_id = 'proof-docs'::text) AND ((storage.foldername(name))[1] = (auth.uid())::text))|<null>$e$,
@@ -141,7 +151,7 @@ SELECT set_eq(
     $e$proof-docs transfer party read|SELECT|{authenticated}|((bucket_id = 'proof-docs'::text) AND (EXISTS ( SELECT 1 FROM transfers t WHERE ((t.transfer_evidence_path = objects.name) AND ((t.buyer_id = auth.uid()) OR (t.seller_id = auth.uid()))))))|<null>$e$,
     $e$public read public buckets|SELECT|{public}|(bucket_id = ANY (ARRAY['auction-media'::text, 'avatars'::text]))|<null>$e$
   ],
-  'SEC-4/2: the storage.objects policy set equals production''s eleven on (policyname, cmd, roles, qual, with_check)');
+  'SEC-4/2: the storage.objects policy set equals production''s eleven plus 118''s operator-read policy on (policyname, cmd, roles, qual, with_check)');
 
 -- 3. STORAGE POLICY PARITY, encoded as production emitted it. Same eleven, but
 --    the predicate compared as an md5 digest that PRODUCTION computed, with the
@@ -163,6 +173,7 @@ SELECT set_eq(
     'auction-media owner update|UPDATE|{authenticated}|e579e58929fc012796dc191976698473',
     'avatars owner insert|INSERT|{authenticated}|7706af14caabc6390422d5bd84e67bca',
     'avatars owner update|UPDATE|{authenticated}|261757452f26e7c3442d8ca877b73f50',
+    'proof-docs operator read|SELECT|{authenticated}|fdbe99248fbb1206c7dca76995fa3611',   -- 118 (post-118 set is twelve)
     'proof-docs owner delete unreferenced|DELETE|{authenticated}|f88d8b9c5b71a63e2329ebe8ab933ac3',
     'proof-docs owner insert|INSERT|{authenticated}|a8c761d440e8b2525e1de46204f524ac',
     'proof-docs owner read|SELECT|{authenticated}|46136ba30756916ff30ae06ae924053b',
@@ -170,7 +181,7 @@ SELECT set_eq(
     'proof-docs transfer party read|SELECT|{authenticated}|f76ee6cba447c285d21e81f1cb65f484',
     'public read public buckets|SELECT|{public}|bda9d9476954e11c9ae8d9b119156e88'
   ],
-  'SEC-4/3 (parity): the replayed storage.objects policy set matches the PRODUCTION fixture (name, cmd, roles, md5 of USING|WITH CHECK)');
+  'SEC-4/3 (parity): the replayed storage.objects policy set matches the PRODUCTION fixture + 118''s operator-read policy (name, cmd, roles, md5 of USING|WITH CHECK)');
 
 -- 4. THE DELETE GUARD. Kept, and kept separate from the set check, because it
 --    is the assertion that states the reachable harm: RLS policies OR together
@@ -240,7 +251,7 @@ SELECT is(
             ' ;; ' ORDER BY j.jobid)
      FROM cron.job j
     WHERE j.jobname = 'sweep-auth-password-changes'),
-  'schedule=*/5 * * * *|database=postgres|username=postgres|active=true|command=select public.sweep_auth_password_changes();|len=44|md5=a8688b5b2add782b9a988d1f3850cd07',
+  'schedule=*/5 * * * *|database=' || current_database() || '|username=postgres|active=true|command=select public.sweep_auth_password_changes();|len=44|md5=a8688b5b2add782b9a988d1f3850cd07',
   'D-5/8 (parity): schedule, database, username, active and the exact command bytes match production jobid 10');
 
 -- 9. NO DUPLICATE, NO DRIFT — and NOT VACUOUS. The assertion this replaces was
@@ -259,7 +270,7 @@ SELECT is(
   (SELECT format('canonical=%s total=%s',
             count(*) FILTER (
               WHERE schedule   = '*/5 * * * *'
-                AND "database" = 'postgres'
+                AND "database" = current_database()
                 AND username   = 'postgres'
                 AND command    = 'select public.sweep_auth_password_changes();'
                 AND active),

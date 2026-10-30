@@ -1,0 +1,121 @@
+/**
+ * src/components/account/SettingsRow.tsx — the one navigation row for account
+ * surfaces.
+ *
+ * A title, an optional compact value or description, and a chevron, over a bottom
+ * hairline. No emoji, no icon tile, no rounded card — the row IS the control. One
+ * treatment for every row so a Settings screen reads as a list, not a collage.
+ *
+ * `tone="destructive"` recolours only the title (a different red from the brand),
+ * for a Sign out row that must read as destructive without a red block.
+ */
+
+import { useMemo } from 'react';
+import { Animated, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+
+import { AMOUNT_MIN_FONT_SCALE, textStyle } from '@/src/theme/typography';
+import { identityStacks } from '@/src/lib/design/featureMetrics';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
+import * as v2 from '@/src/theme/v2';
+import { usePressScale } from '@/src/components/ui';
+
+export interface SettingsRowProps {
+  label: string;
+  /** A compact value or one-line description shown under the label. */
+  description?: string;
+  /** A trailing value (e.g. a current selection) shown before the chevron. */
+  value?: string;
+  onPress?: () => void;
+  tone?: 'default' | 'destructive';
+  /** Hide the trailing chevron (e.g. a terminal action rather than navigation). */
+  showChevron?: boolean;
+  disabled?: boolean;
+  testID?: string;
+}
+
+export function SettingsRow({
+  label,
+  description,
+  value,
+  onPress,
+  tone = 'default',
+  showChevron = true,
+  disabled = false,
+  testID,
+}: SettingsRowProps) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
+  const press = usePressScale(!disabled && !!onPress);
+  /*
+   * S-1: the label IS the navigation. Clamped to one line it was cut to "Edit prof…",
+   * "Notificat…", "Phone v…", "Payout s…" at the largest accessibility size — and two of those
+   * cannot be told apart, so the row stops saying where it goes.
+   *
+   * Wrapping alone was not enough, and the frame said so: "Edit profile" broke on its space, but
+   * "Notifications" became "Notificatio / ns" and "Phone verification" ended "verificatio / n".
+   * Two lines plus shrink-to-fit fixed the multi-word labels and NOT the single word, because
+   * shrink stops as soon as the text fits the lines it is allowed and "Notificatio / ns" already
+   * fitted two.
+   *
+   * So the line budget follows the label (S-1b): a label with no space in it gets ONE line and
+   * must therefore shrink to fit it, and a label with a space keeps two lines at full size and
+   * breaks on the space. Only the labels that cannot break pay anything, and only as much as
+   * they need. Below the threshold nothing moves.
+   */
+  const { fontScale } = useWindowDimensions();
+  const stacked = identityStacks(fontScale);
+  const canBreak = /\s/.test(label);
+  const titleColor = tone === 'destructive' ? palette.status.error : palette.text.primary;
+
+  return (
+    <Animated.View style={press.style}>
+      <Pressable
+        onPress={disabled ? undefined : onPress}
+        onPressIn={press.onPressIn}
+        onPressOut={press.onPressOut}
+        disabled={disabled || !onPress}
+        style={styles.row}
+        accessibilityRole="button"
+        accessibilityLabel={value ? `${label}, ${value}` : label}
+        accessibilityState={{ disabled }}
+        testID={testID}
+      >
+        <View style={styles.textCol}>
+          <Text
+            style={[textStyle('title'), { color: titleColor }]}
+            numberOfLines={stacked && canBreak ? 2 : 1}
+            {...(stacked ? { adjustsFontSizeToFit: true, minimumFontScale: AMOUNT_MIN_FONT_SCALE } : null)}
+          >
+            {label}
+          </Text>
+          {description ? (
+            <Text style={[textStyle('bodySm'), styles.description]} numberOfLines={2}>{description}</Text>
+          ) : null}
+        </View>
+        {value ? (
+          <Text style={[textStyle('bodySm'), styles.value]} numberOfLines={1}>{value}</Text>
+        ) : null}
+        {showChevron ? <Text style={styles.chevron}>{'›'}</Text> : null}
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  row: {
+    minHeight: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: v2.space.md,
+    paddingVertical: v2.space.md,
+    borderBottomWidth: 1,
+    borderBottomColor: p.border.default,
+  },
+  textCol: { flex: 1, minWidth: 0 },
+  description: { color: p.text.muted, marginTop: 2 },
+  value: { color: p.text.muted, flexShrink: 1, textAlign: 'right' },
+  chevron: { color: p.text.faint, fontSize: 22 },
+  });
+}

@@ -13,6 +13,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildPayoutIdempotencyKey,
+  classifyPayoutPostFailure,
   classifyPayoutStripeError,
   isCrossModeStripeError,
   maxTransferableCents,
@@ -30,29 +31,51 @@ const ELIGIBLE_BASE = {
   chargeRefunded:   false,
 };
 
-describe('idempotency key — deterministic, audit-linked, destination-scoped', () => {
-  it('same logical payout → byte-identical key (safe retries, races, duplicate cron runs)', () => {
-    const a = buildPayoutIdempotencyKey('tr-1', 'acct_A');
-    const b = buildPayoutIdempotencyKey('tr-1', 'acct_A');
+describe('idempotency key — deterministic, audit-linked, attempt-scoped', () => {
+  it('same attempt → byte-identical key (safe retries, races, duplicate cron runs)', () => {
+    const a = buildPayoutIdempotencyKey('tr-1', 1);
+    const b = buildPayoutIdempotencyKey('tr-1', 1);
     expect(a).toBe(b);
-    expect(a).toBe('payout_tr-1_acct_A_src');
+    expect(a).toBe('payout_tr-1_a1');
   });
 
-  it('re-onboarded seller (new destination) → new key, no stale 24h replay', () => {
-    expect(buildPayoutIdempotencyKey('tr-1', 'acct_A'))
-      .not.toBe(buildPayoutIdempotencyKey('tr-1', 'acct_B'));
+  it('a new attempt (only after the previous is terminal) → new key, never a stale replay', () => {
+    expect(buildPayoutIdempotencyKey('tr-1', 1)).not.toBe(buildPayoutIdempotencyKey('tr-1', 2));
   });
 
   it('different logical payouts never share a key', () => {
-    expect(buildPayoutIdempotencyKey('tr-1', 'acct_A'))
-      .not.toBe(buildPayoutIdempotencyKey('tr-2', 'acct_A'));
+    expect(buildPayoutIdempotencyKey('tr-1', 1)).not.toBe(buildPayoutIdempotencyKey('tr-2', 1));
   });
 
   it('key space is disjoint from every earlier incident generation', () => {
-    const key = buildPayoutIdempotencyKey('tr-1', 'acct_A');
-    expect(key).not.toBe('payout_tr-1');            // pre-incident bare key
-    expect(key).not.toBe('payout_tr-1_acct_A');     // destination-salted gen
-    expect(key).not.toBe('payout_tr-1_acct_A_ready'); // pre-flight gen
+    const key = buildPayoutIdempotencyKey('tr-1', 1);
+    expect(key).not.toBe('payout_tr-1');                 // pre-incident bare key
+    expect(key).not.toBe('payout_tr-1_acct_A');          // destination-salted gen
+    expect(key).not.toBe('payout_tr-1_acct_A_ready');    // pre-flight gen
+    expect(key).not.toBe('payout_tr-1_acct_A_src');      // source_transaction gen (pre-attempt ledger)
+  });
+
+  it('refuses a non-positive / non-integer attempt number (a key must map to one ledger row)', () => {
+    expect(() => buildPayoutIdempotencyKey('tr-1', 0)).toThrow();
+    expect(() => buildPayoutIdempotencyKey('tr-1', 1.5)).toThrow();
+  });
+});
+
+describe('POST /transfers failure → attempt outcome', () => {
+  it('network (no status), 5xx, 409 in-flight, 429 and idempotency_error → unknown (a transfer MAY exist; reconcile first)', () => {
+    expect(classifyPayoutPostFailure(null, null)).toBe('unknown');
+    expect(classifyPayoutPostFailure(500, { message: 'boom' })).toBe('unknown');
+    expect(classifyPayoutPostFailure(503, null)).toBe('unknown');
+    expect(classifyPayoutPostFailure(409, { message: 'in flight' })).toBe('unknown');
+    expect(classifyPayoutPostFailure(429, { message: 'rate limited' })).toBe('unknown');
+    expect(classifyPayoutPostFailure(400, { type: 'idempotency_error', message: 'Keys for idempotent requests...' })).toBe('unknown');
+  });
+
+  it('definite 4xx → failed_not_created (the attempt closes; a fresh attempt may open later)', () => {
+    expect(classifyPayoutPostFailure(400, { type: 'invalid_request_error', message: 'No such destination' })).toBe('failed_not_created');
+    expect(classifyPayoutPostFailure(402, { type: 'invalid_request_error', message: 'Insufficient funds in Stripe account.' })).toBe('failed_not_created');
+    expect(classifyPayoutPostFailure(403, null)).toBe('failed_not_created');
+    expect(classifyPayoutPostFailure(404, null)).toBe('failed_not_created');
   });
 });
 
