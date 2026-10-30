@@ -101,6 +101,9 @@ SELECT has_schema('venue_api', 'A1: schema venue_api exists');
 -- venue_api.session_capacity, a security_invoker/security_barrier view over the set-returning definer
 -- venue.list_session_capacity() (identity-free shared-pool numbers); A2 9 -> 10, F1 + one row, F5 + five columns,
 -- F6 + exp_session_capacity. A3 stays 0.
+-- 2026-10-30 (registry 195, D; owner of this file is F, the branch carrying the object carries the pin): venue_api.venues
+-- appends address, capacity_hint, timezone LAST (authenticated already holds column SELECT on all three in catalog.venue);
+-- A2 stays 10 (no new view), F1 unchanged (no new grant), F5 76 -> 79, F6 exp_venues + the three columns. 263 pins 195.
 SELECT is((SELECT count(*) FROM pg_views WHERE schemaname = 'venue_api'), 10::bigint, 'A2: exactly ten views (159''s eight + 163''s session_admissions + 166''s session_capacity)');
 SELECT is((SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue_api'), 0::bigint, 'A3: no functions in venue_api (no definer surface)');
 SELECT is((SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'venue_api' AND c.relkind = 'v'
@@ -320,6 +323,7 @@ SELECT set_eq(
       WHERE n.nspname = 'venue_api' AND a.attnum > 0 AND NOT a.attisdropped $$,
   $$ VALUES ('venues.venue_id'), ('venues.org_id'), ('venues.name'), ('venues.neighborhood'), ('venues.approval_status'),
             ('venues.created_at'), ('venues.updated_at'),
+            ('venues.address'), ('venues.capacity_hint'), ('venues.timezone'),  -- 195 appends address, capacity_hint, timezone LAST
             ('events.event_id'), ('events.venue_id'), ('events.org_id'), ('events.title'), ('events.status'),
             ('events.created_at'), ('events.updated_at'), ('events.description'),
             ('events.age_policy'), ('events.timezone'),  -- 162 (S2) appends age_policy, timezone AFTER 159's description
@@ -346,7 +350,8 @@ SELECT set_eq(
             ('session_capacity.session_id'), ('session_capacity.sales_capacity'), ('session_capacity.allocated'),
             ('session_capacity.remaining_to_allocate'), ('session_capacity.capacity_hint') $$,  -- 166
   -- 2026-10-26 (stack 164 -> 166 on #170 13d46b22, measured): 71 (159 rev. 2026-10-26 adds events.description) + 166's five = 76.
-  'F5: the views project exactly these 76 columns (55 of 159 + events.description of 159 rev. 2026-10-26 + ticket_types.display_rank of 160 + 162''s nine: events.age_policy/timezone, event_sessions.timezone/*_local x3, ticket_types.sale_starts_at/sale_ends_at/on_sale_now + 163''s five: session_admissions.session_id/admitted/duplicate/invalid/last_admitted_at + 166''s five: session_capacity.session_id/sales_capacity/allocated/remaining_to_allocate/capacity_hint; a widened view fails here before it reaches the API)');
+  -- 2026-10-30 (registry 195, D): + venues.address / capacity_hint / timezone appended LAST = 79.
+  'F5: the views project exactly these 79 columns (55 of 159 + events.description of 159 rev. 2026-10-26 + ticket_types.display_rank of 160 + 162''s nine: events.age_policy/timezone, event_sessions.timezone/*_local x3, ticket_types.sale_starts_at/sale_ends_at/on_sale_now + 163''s five: session_admissions.session_id/admitted/duplicate/invalid/last_admitted_at + 166''s five: session_capacity.session_id/sales_capacity/allocated/remaining_to_allocate/capacity_hint; a widened view fails here before it reaches the API)');
 
 -- F6 pins each view's DEFINITION, not only its column names (F5). The expected
 -- definitions are the eight SELECTs of migration 20261021120000, copied
@@ -356,7 +361,8 @@ SELECT set_eq(
 -- A view that maps a base column to another name (s.ends_at AS starts_at), drops a filter
 -- (identity_id = auth.uid()), adds WHERE false or reads another table fails here.
 CREATE TEMP VIEW exp_venues AS
-  SELECT v.venue_id, v.org_id, v.name, v.neighborhood, v.approval_status, v.created_at, v.updated_at
+  SELECT v.venue_id, v.org_id, v.name, v.neighborhood, v.approval_status, v.created_at, v.updated_at,
+         v.address, v.capacity_hint, v.timezone   -- 195: the Settings page's three columns appended LAST
     FROM catalog.venue v;
 CREATE TEMP VIEW exp_events AS
   SELECT e.event_id, e.venue_id, e.org_id, e.title, e.status, e.created_at, e.updated_at,
