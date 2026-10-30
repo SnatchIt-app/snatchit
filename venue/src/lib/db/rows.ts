@@ -86,6 +86,13 @@ export function mapBatches(rows: BatchRow[]): InventoryBatch[] {
 
 /** `name` is display-only (the events eyebrow); entry is decided by venue_id/org_id alone. */
 export type VenueScopeRow = { venue_id: string; org_id: string; name?: string | null };
+/**
+ * The venue's own settings, read for the settings surface. ONLY the columns `venue_api.venues` exposes
+ * today (20261021120000_venue_api_read_views.sql:105-108): venue_id, org_id, name, neighborhood,
+ * approval_status, created_at, updated_at. `address`, `capacity_hint` and `timezone` are NOT in the view —
+ * naming one in a select fails the whole read (PostgREST 42703), so they wait for registry 195.
+ */
+export type VenueSettingsRow = { venue_id: string; name: string | null; neighborhood: string | null };
 export type StaffRoleRow = { venue_id: string; role: string };
 export type OrgRoleRow = { org_id: string; role: string };
 

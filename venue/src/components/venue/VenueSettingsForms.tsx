@@ -52,16 +52,32 @@ export function VenueDetailsForm({ ids, commandKey, venue }: { ids: CommandIds; 
   );
 }
 
-export function VenueTimezoneForm({ ids, commandKey, timeZone }: { ids: CommandIds; commandKey: string; timeZone: string }) {
-  const known = (COMMON_ZONES as readonly string[]).includes(timeZone);
+/**
+ * `stored` is false when the venue's OWN zone could not be read — today that is every database-mode call,
+ * because `venue_api.venues` does not expose `timezone` until registry 195.
+ *
+ * In that case the control must NOT preselect anything. The value on offer would be the PLATFORM DEFAULT,
+ * and preselecting it invites an operator to "confirm" a zone the venue never chose, overwriting the
+ * stored one with America/New_York. A venue in Phoenix or Honolulu would have every door time silently
+ * wrong by hours. So: no preselection, an explicit choice required, and the reason said on the screen.
+ * Fail closed.
+ */
+export function VenueTimezoneForm({ ids, commandKey, timeZone, stored }: { ids: CommandIds; commandKey: string; timeZone: string; stored: boolean }) {
+  const known = stored && (COMMON_ZONES as readonly string[]).includes(timeZone);
+  const placeholder: readonly (readonly [string, string])[] = known ? [] : [["", stored && timeZone ? `${timeZone} (keep)` : "Choose a time zone"]];
   return (
     <CommandForm action={setVenueTimezoneForm} ids={ids} commandKey={commandKey} submitLabel="Set the time zone" busyLabel="Setting…">
       <Select
         label="Time zone"
         name="timezone"
         defaultValue={known ? timeZone : ""}
-        options={[...(known ? [] : [["", timeZone ? `${timeZone} (keep)` : "Choose one"] as const]), ...COMMON_ZONES.map((z) => [z, z.replace(/_/g, " ")] as const)]}
-        hint="Every time you enter for this venue's nights is read in this zone. Changing it does not move times already saved."
+        required={!stored}
+        options={[...placeholder, ...COMMON_ZONES.map((z) => [z, z.replace(/_/g, " ")] as const)]}
+        hint={
+          stored
+            ? "Every time you enter for this venue's nights is read in this zone. Changing it does not move times already saved."
+            : "This venue's stored time zone isn't readable yet, so nothing is preselected — choose one explicitly. Saving without choosing would write the platform default over whatever is stored."
+        }
       />
       <Field label="Reason" name="reason_code" required placeholder="venue_moved" maxLength={80} />
     </CommandForm>
