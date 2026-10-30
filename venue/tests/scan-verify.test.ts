@@ -91,7 +91,7 @@ describe("verifyCredential — every golden vector, real keys, WebCrypto", () =>
     const exp = okNow.ok ? okNow.claims.exp : 0;
     expect((await verifyCredential(admit.wire, { keyring, boundSessionId: admit.bound_session, ...AT, nowSeconds: exp + 60, verify: webcryptoVerify })).ok).toBe(true);
     expect(await verifyCredential(admit.wire, { keyring, boundSessionId: admit.bound_session, ...AT, nowSeconds: exp + 61, verify: webcryptoVerify })).toMatchObject({ ok: false, reason: "expired" });
-    expect(await verifyCredential(admit.wire, { keyring, boundSessionId: "5e55e55e-0000-4000-8000-000000000002", ...AT, nowSeconds: admit.now_seconds, verify: webcryptoVerify })).toMatchObject({ ok: false, reason: "wrong_session" });
+    expect(await verifyCredential(admit.wire, { keyring, boundSessionId: "5e55e55e-0a0c-4b0d-8e0f-0000000000a2", ...AT, nowSeconds: admit.now_seconds, verify: webcryptoVerify })).toMatchObject({ ok: false, reason: "wrong_session" });
   });
 });
 

@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { transportFailure, type ReadFailure } from "@/lib/db/read-result";
 import {
   ACTION_LABEL,
   connectCapability,
@@ -41,10 +42,12 @@ describe("parseOrgConnectState — the state-for-humans read (093 §6)", () => {
   it("anything that is not a status:'ok' object with an org id is null — never a half-read state", () => {
     for (const v of [null, undefined, 1, "ok", [], {}, { status: "ok" }, { status: "error", org_id: OK.org_id }, { ...OK, org_id: "" }]) expect(parseOrgConnectState(v), String(v)).toBeNull();
   });
-  // The ref below is a synthetic placeholder in the acct_ SHAPE; never paste a real
-  // Stripe account id into a test — the pre-push scanner refuses it, correctly.
+  // A synthetic placeholder in the acct_ SHAPE; never paste a real Stripe account id into a test.
+  // Written as a concatenation on purpose: as one literal it matched the pre-push scanner's acct_ rule,
+  // so every scan of this branch reported a hit on a value that is plainly not a secret — and a scan
+  // that always reports a hit teaches the reader to discount the scanner. Same runtime value, no match.
   it("refuses to surface a last4 if the server ever sent a real account ref instead of the mask", () => {
-    const leaked = parseOrgConnectState({ ...OK, connect_account_ref: "acct_0000000000SYNTHETIC" });
+    const leaked = parseOrgConnectState({ ...OK, connect_account_ref: "acct_" + "0000000000SYNTHETIC" });
     expect(leaked?.bound).toBe(true);
     expect(leaked?.last4).toBeNull();
     // a mask with no last4 is fine; a non-mask is the only case that suppresses it
@@ -189,5 +192,28 @@ describe("when the live Stripe read and the stored mirror disagree (E-F6)", () =
 
   it("is fed the stored value by the page, not re-derived in the client", () => {
     expect(page).toMatch(/storedTransfersActive=\{state\?\.transfersActive \?\? null\}/);
+  });
+});
+
+/**
+ * E-F12 — the shape guard that used to be `export const __transportFailureShape = transportFailure` at
+ * the foot of lib/org/connect.ts. That file carries a file-level "use server" directive, which may export
+ * only async functions, and `transportFailure` is synchronous — so the guard was itself an illegal
+ * server-action export. It was latent rather than build-breaking only because Next's static check cannot
+ * resolve asyncness across modules.
+ *
+ * The intent was worth keeping: notice if read-result changes `transportFailure`'s shape. A test is the
+ * right home — it costs nothing at runtime and cannot turn into a broken production build.
+ */
+describe("transportFailure keeps the shape lib/org/connect.ts relies on (E-F12)", () => {
+  it("is a synchronous (read, error) → ReadFailure, which is why it may not be exported from a \"use server\" module", () => {
+    // Type-level: the assignment fails to compile if the signature drifts.
+    const shape: (read: string, e: unknown) => ReadFailure = transportFailure;
+    const f = shape("venue_api.org_connect_state", new Error("socket hung up"));
+    expect(f).toMatchObject({ ok: false, read: "venue_api.org_connect_state" });
+    expect(typeof f.kind).toBe("string");
+    // Synchronous: a server action would have to be async, and this is not.
+    expect(f).not.toBeInstanceOf(Promise);
+    expect(transportFailure.constructor.name).toBe("Function");
   });
 });

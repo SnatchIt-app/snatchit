@@ -227,6 +227,13 @@ export async function startOrgOnboarding(orgId: string, commandKey: string): Pro
   return result;
 }
 
-/** Unused re-export guard: keeps `transportFailure`'s shape honest if read-result changes. */
+/**
+ * E-F12: the shape guard that used to live here was `export const __transportFailureShape =
+ * transportFailure`, and `transportFailure` is SYNCHRONOUS (read-result.ts:30). A file-level
+ * "use server" module may export only async functions, so that was an illegal server-action export —
+ * latent rather than build-breaking only because Next's static check cannot resolve asyncness across
+ * modules, which is exactly how it survived review. The guard now lives in
+ * tests/org-connect-contract.test.ts, where a shape assertion costs nothing at runtime and cannot
+ * become a broken production build later.
+ */
 export type { ReadResult };
-export const __transportFailureShape = transportFailure;
