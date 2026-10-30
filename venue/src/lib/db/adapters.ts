@@ -92,7 +92,7 @@ async function readResaleInputs(c: Client, eventIds: string[], venueId: string):
 export async function dbListEvents(venueId: string): Promise<ReadResult<Event[]>> {
   const cl = await client("venue_api.events");
   if (!cl.ok) return cl;
-  const events = await select<EventRow[]>("venue_api.events", cl.c.from("events").select("event_id,venue_id,org_id,title,status").eq("venue_id", venueId));
+  const events = await select<EventRow[]>("venue_api.events", cl.c.from("events").select("event_id,venue_id,org_id,title,status,timezone").eq("venue_id", venueId));
   if (!events.ok) return events;
   const ids = events.data.map((e) => e.event_id);
   if (ids.length === 0) return { ok: true, data: [] };

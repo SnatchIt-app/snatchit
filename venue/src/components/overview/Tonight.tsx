@@ -149,10 +149,10 @@ export function Tonight({
                     <>
                       <span aria-hidden="true" className="hidden h-4 w-px bg-[rgba(35,30,26,0.35)] sm:block" />
                       <span className="text-muted">
-                        {venueDate(sess.startsAt, timeZone)}
+                        {venueDate(sess.startsAt, ev?.timeZone ?? timeZone)}
                         {" · "}
-                        {venueTime(sess.startsAt, timeZone, { date: false, zone: false })}
-                        {sess.endsAt ? ` – ${venueTime(sess.endsAt, timeZone, { date: false, zone: false })}` : ""}
+                        {venueTime(sess.startsAt, ev?.timeZone ?? timeZone, { date: false, zone: false })}
+                        {sess.endsAt ? ` – ${venueTime(sess.endsAt, ev?.timeZone ?? timeZone, { date: false, zone: false })}` : ""}
                         {stageView.stage === "before" ? ` · ${relative(sess.startsAt, now)}` : ""}
                       </span>
                     </>
@@ -252,7 +252,7 @@ export function Tonight({
                       <EventArt title={e.title} variant="thumb" className="h-16 w-[5.25rem] shrink-0 overflow-hidden rounded-[6px]" />
                       <span className="min-w-0 flex-1">
                         <span className="serif block truncate text-[1.0625rem] leading-tight">{e.title}</span>
-                        <span className="mt-0.5 block text-[0.8125rem] text-muted">{s ? `${venueTime(s.startsAt, timeZone, { date: true, zone: false })}` : "No date yet"}</span>
+                        <span className="mt-0.5 block text-[0.8125rem] text-muted">{s ? `${venueTime(s.startsAt, e.timeZone ?? timeZone, { date: true, zone: false })}` : "No date yet"}</span>
                         <span className={`badge mt-1.5 ${STATUS_TONE[e.status]}`}>{STATUS_LABEL[e.status]}</span>
                       </span>
                       <Icon name="chevron" size={16} className="text-dim transition-transform group-hover:translate-x-0.5 group-hover:text-ink" />

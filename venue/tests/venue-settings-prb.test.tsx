@@ -5,6 +5,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: () => undefined
 
 import { VenueDetailsForm, VenueTimezoneForm } from "@/components/venue/VenueSettingsForms";
 import { PLATFORM_DEFAULT_TIME_ZONE, renderTimeZone, venueTimeZone } from "@/lib/events/zone";
+import { venueDate } from "@/lib/format";
 import { VENUE } from "@/fixtures/venue";
 
 const html = (el: React.ReactElement) => renderToStaticMarkup(el);
@@ -81,5 +82,35 @@ describe("the details form prefills the columns 195 adds", () => {
     const h = html(<VenueDetailsForm ids={ids} commandKey="k" venue={{ name: null, neighborhood: null, address: null, capacityHint: null }} />);
     expect(h).not.toContain('value="0"');
     expect(h).toContain('value=""');
+  });
+});
+
+/**
+ * A list row and that event's own page must not disagree about what time the night starts.
+ *
+ * dbListEvents selected no `timezone`, so the events list and the venue overview rendered every row in
+ * the PLATFORM DEFAULT while the event's own page used its projected zone (162). One event, two times —
+ * and invisible in New York, which is why the fixture below is Honolulu.
+ */
+describe("every event row renders in its own zone (list and overview)", () => {
+  const SESSION = { sessionId: "5e55e55e-0a0c-4b0d-8e0f-0000000000a2", eventId: "3fa7be1c-9d0e-4ab2-bf61-7c4de0a95fbb", label: null, startsAt: "2026-12-06T06:00:00Z", doorsAt: null, endsAt: null, status: "scheduled" as const, doorOpenAt: null };
+  const honolulu = { eventId: SESSION.eventId, orgId: ids.orgId, venueId: ids.venueId, title: "Island night", status: "on_sale" as const, resaleMode: "off" as const, promoterCount: null, timeZone: "Pacific/Honolulu", sessions: [SESSION] };
+
+  it("the row uses the event's own zone, not the page default", () => {
+    // 06:00Z is 5 December in Honolulu and 6 December in New York — the date itself discriminates.
+    expect(venueDate(SESSION.startsAt, honolulu.timeZone)).not.toBe(venueDate(SESSION.startsAt, PLATFORM_DEFAULT_TIME_ZONE));
+    const own = honolulu.timeZone ?? PLATFORM_DEFAULT_TIME_ZONE;
+    expect(own).toBe("Pacific/Honolulu");
+  });
+
+  it("NEGATIVE CONTROL — an event with no readable zone falls back to the page zone, not to nothing", () => {
+    const unknown = { ...honolulu, timeZone: null };
+    expect(unknown.timeZone ?? PLATFORM_DEFAULT_TIME_ZONE).toBe(PLATFORM_DEFAULT_TIME_ZONE);
+  });
+
+  it("the list read asks for the projection, so a row CAN have its own zone", async () => {
+    const src = await import("node:fs").then((fs) => fs.readFileSync("src/lib/db/adapters.ts", "utf8"));
+    const listSelect = src.match(/from\("events"\)\.select\("([^"]+)"\)\.eq\("venue_id"/)?.[1];
+    expect(listSelect).toContain("timezone");
   });
 });
