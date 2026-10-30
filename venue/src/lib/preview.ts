@@ -21,7 +21,7 @@ export const PREVIEW_STATES = ["live", "loading", "empty", "error", "denied", "n
  * every other surface the control did nothing when you picked it, which makes
  * the demo look broken rather than the state look absent.
  */
-export type Surface = "overview" | "events" | "setup" | "inventory" | "attendees" | "door";
+export type Surface = "overview" | "events" | "setup" | "inventory" | "attendees" | "door" | "settings";
 
 const FILTERED_SURFACES: readonly Surface[] = ["events", "attendees"];
 
@@ -101,7 +101,7 @@ export const DEMO_DATA_SUBLABEL = "Invented venue and events. Nothing here sells
  */
 export const DEMO_ACTION_LABEL: Record<string, string> = {
   "catalog.create_event": "created a draft event",
-  "catalog.set_event_status": "moved this event to its next status",
+  "catalog.publish_event": "moved this event to its next status",
   "catalog.create_event_session": "added a session",
   "catalog.set_resale_policy": "changed the resale rules for this event",
   "venue.create_ticket_type": "added a ticket type",

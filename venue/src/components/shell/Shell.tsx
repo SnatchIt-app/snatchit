@@ -4,14 +4,14 @@ import { ORG, VENUE } from "@/fixtures/venue";
 import { DEMO_DATA_LABEL, DEMO_DATA_SUBLABEL, demoActionLabel, statesFor, withPreview, type PreviewContext, type Surface } from "@/lib/preview";
 import { sourceInfo } from "@/lib/source";
 import { frameAttention } from "@/lib/attention";
-import { PREVIEW_PRINCIPALS, PRINCIPAL_LABEL } from "@/lib/roles";
+import { PREVIEW_PRINCIPALS, PRINCIPAL_LABEL, canEditEvents } from "@/lib/roles";
 import { canManualLookup, canReadDoor, canReadEvents, canReadTicketTypes, rosterClasses } from "@/lib/roles";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { PopoverDismiss } from "@/components/ui/PopoverDismiss";
 import { EventArt } from "@/components/ui/EventArt";
 
 export type NavEvent = { eventId: string; title: string } | null;
-type Active = "overview" | "events" | "setup" | "inventory" | "attendees" | "door";
+type Active = "overview" | "events" | "setup" | "inventory" | "attendees" | "door" | "settings";
 
 /**
  * The venue workspace — the approved concept's frame (2026-10-09).
@@ -55,6 +55,7 @@ export function Shell({
   const venueItems: NavItem[] = [
     { key: "overview", label: "Today", icon: "today", href: base ? withPreview(base, ctx) : "", show: !!base && canReadEvents(ctx.role) },
     { key: "events", label: "All events", icon: "calendar", href: base ? withPreview(`${base}/events`, ctx) : "", show: !!base && canReadEvents(ctx.role) },
+    { key: "settings", label: "Venue settings", icon: "settings", href: base ? withPreview(`${base}/settings`, ctx) : "", show: !!base && canEditEvents(ctx.role) },
   ];
   const eventItems: NavItem[] = [
     { key: "door", label: "Check-in", icon: "scan", href: evBase ? withPreview(`${evBase}/door`, ctx) : "", show: !!evBase && canReadDoor(ctx.role) },
@@ -68,7 +69,7 @@ export function Shell({
   const who = dbMode ? (ctx.verifiedRole ? PRINCIPAL_LABEL[ctx.role] : null) : PRINCIPAL_LABEL[ctx.role];
   const place = dbMode ? null : VENUE.name;
   const initials = dbMode ? (signedInAs ?? "?").slice(0, 1).toUpperCase() : "SM";
-  const SECTION: Record<Active, string> = { overview: "Today", events: "Events", setup: "Event setup", inventory: "Tickets", attendees: "Guest list", door: "Check-in" };
+  const SECTION: Record<Active, string> = { overview: "Today", events: "Events", setup: "Event setup", inventory: "Tickets", attendees: "Guest list", door: "Check-in", settings: "Venue settings" };
   const crumbs = [place, active === "overview" || active === "events" ? null : navEvent?.title, SECTION[active]].filter(Boolean) as string[];
 
   const roleLabel = who ?? "No verified role";
