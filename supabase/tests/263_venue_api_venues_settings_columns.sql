@@ -80,8 +80,9 @@ SELECT set_eq(
       WHERE att.attrelid = 'venue_api.venues'::regclass AND att.attnum > 0 AND att.attacl IS NOT NULL $$,
   $$ VALUES ('authenticated:SELECT') $$,
   'A3: the ACL is still exactly SELECT to authenticated (no write, no column grant, no anon/service_role/PUBLIC)');
-SELECT is(obj_description('venue_api.venues'::regclass, 'pg_class'), 'catalog.venue, granted columns only; caller''s RLS applies.',
-  'A4: the comment is unchanged');
+SELECT is(obj_description('venue_api.venues'::regclass, 'pg_class') || '|' || (SELECT relowner::regrole::text FROM pg_class WHERE oid = 'venue_api.venues'::regclass),
+  'catalog.venue, granted columns only; caller''s RLS applies.|postgres',
+  'A4: the comment is unchanged and the view is still owned by postgres (159''s applied owner)');
 SELECT is(tap._viewmd5_263('venue_api.venues'), '383f313b3c15e6291e6fab9aa6e456ca',
   'A5: the definition hashes to 195''s md5 under search_path = '''' (the pre-flight / rollback anchor)');
 SELECT is((SELECT count(*)::int FROM (VALUES ('address'), ('capacity_hint'), ('timezone')) n(col)

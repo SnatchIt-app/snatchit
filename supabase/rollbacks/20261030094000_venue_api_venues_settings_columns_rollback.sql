@@ -6,7 +6,9 @@
 -- Guards: the pre-flight accepts 195's view (definition md5 383f313b…, ten columns) or 159's
 -- (27cc812f…, seven columns — an idempotent re-run) and refuses if any object depends on the view
 -- (a DROP would fail or need CASCADE; this file never cascades). The post-check asserts 159's
--- md5, the seven columns, the options, the ACL and the comment.
+-- md5, the seven columns, the options, the ACL, the comment and the OWNER (postgres, 159's applied
+-- owner): DROP + CREATE makes the executing role the owner and the ACL check excludes the owner,
+-- so a rollback run by any other role refuses instead of silently changing ownership.
 -- WARNING, stated plainly: rolling back removes address / capacity_hint / timezone from the view,
 -- so the venue dashboard's Settings page loses its read path again. Redeploy the dashboard build
 -- that does not read them BEFORE running this, or prefer a forward fix.
@@ -48,7 +50,7 @@ REVOKE ALL ON venue_api.venues FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT ON venue_api.venues TO authenticated;
 
 DO $pc$
-DECLARE v_sp text := current_setting('search_path'); v_md5 text; v_cols text; v_opts text; v_acl text; v_cmt text;
+DECLARE v_sp text := current_setting('search_path'); v_md5 text; v_cols text; v_opts text; v_acl text; v_cmt text; v_owner text;
 BEGIN
   PERFORM set_config('search_path', '', true);
   v_md5 := md5(pg_get_viewdef('venue_api.venues'::regclass));
@@ -60,15 +62,17 @@ BEGIN
             FROM (SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE a.grantee::regrole::text END || ':' || a.privilege_type AS entry
                     FROM aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
                    WHERE a.grantee <> c.relowner) e),
-         obj_description(c.oid, 'pg_class')
-    INTO v_opts, v_acl, v_cmt
+         obj_description(c.oid, 'pg_class'),
+         c.relowner::regrole::text
+    INTO v_opts, v_acl, v_cmt, v_owner
     FROM pg_class c WHERE c.oid = 'venue_api.venues'::regclass;
   IF v_md5 <> '27cc812fb0b82be5162ca61e7ee0d0a6'
      OR v_cols <> 'venue_id,org_id,name,neighborhood,approval_status,created_at,updated_at'
      OR v_opts <> 'security_barrier=true,security_invoker=true'
      OR v_acl IS DISTINCT FROM 'authenticated:SELECT'
-     OR v_cmt IS DISTINCT FROM 'catalog.venue, granted columns only; caller''s RLS applies.' THEN
-    RAISE EXCEPTION 'ROLLBACK_195_POSTCHECK_FAILED: md5 %, columns %, options %, acl %, comment %', v_md5, v_cols, v_opts, v_acl, v_cmt;
+     OR v_cmt IS DISTINCT FROM 'catalog.venue, granted columns only; caller''s RLS applies.'
+     OR v_owner IS DISTINCT FROM 'postgres' THEN
+    RAISE EXCEPTION 'ROLLBACK_195_POSTCHECK_FAILED: md5 %, columns %, options %, acl %, comment %, owner % (must be postgres)', v_md5, v_cols, v_opts, v_acl, v_cmt, v_owner;
   END IF;
 END $pc$;
 

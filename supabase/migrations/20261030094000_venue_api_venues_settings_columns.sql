@@ -27,7 +27,7 @@
 -- Discipline: PRE-FLIGHT accepts 159's view (seven columns, definition md5 27cc812f…) or 195's
 -- own (ten columns, re-apply); the definition md5 is read under search_path = '' (pinned: a view's
 -- deparse depends on the path). POST-FLIGHT asserts the ten columns in order, both options, the
--- ACL, the comment and 195's definition md5. The rollback restores 159's seven-column view
+-- ACL, the owner (postgres, 159's applied owner), the comment and 195's definition md5. The rollback restores 159's seven-column view
 -- (DROP + CREATE: a view cannot drop columns in place), re-granting and re-commenting it, and
 -- refuses if anything depends on the view.
 -- ============================================================================
@@ -61,7 +61,7 @@ CREATE OR REPLACE VIEW venue_api.venues
 
 -- ── POST-FLIGHT ──────────────────────────────────────────────────────────────
 DO $pc$
-DECLARE v_sp text := current_setting('search_path'); v_md5 text; v_cols text; v_opts text; v_acl text; v_cmt text;
+DECLARE v_sp text := current_setting('search_path'); v_md5 text; v_cols text; v_opts text; v_acl text; v_cmt text; v_owner text;
 BEGIN
   PERFORM set_config('search_path', '', true);
   v_md5 := md5(pg_get_viewdef('venue_api.venues'::regclass));
@@ -73,8 +73,9 @@ BEGIN
             FROM (SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE a.grantee::regrole::text END || ':' || a.privilege_type AS entry
                     FROM aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
                    WHERE a.grantee <> c.relowner) e),
-         obj_description(c.oid, 'pg_class')
-    INTO v_opts, v_acl, v_cmt
+         obj_description(c.oid, 'pg_class'),
+         c.relowner::regrole::text
+    INTO v_opts, v_acl, v_cmt, v_owner
     FROM pg_class c WHERE c.oid = 'venue_api.venues'::regclass;
   IF v_cols <> 'venue_id:uuid,org_id:uuid,name:text,neighborhood:text,approval_status:text,created_at:timestamp with time zone,updated_at:timestamp with time zone,address:text,capacity_hint:integer,timezone:text' THEN
     RAISE EXCEPTION 'POSTFLIGHT_195_FAILED: venue_api.venues columns are %', v_cols;
@@ -84,6 +85,9 @@ BEGIN
   END IF;
   IF v_acl IS DISTINCT FROM 'authenticated:SELECT' THEN
     RAISE EXCEPTION 'POSTFLIGHT_195_FAILED: venue_api.venues ACL is % (must be SELECT to authenticated only)', v_acl;
+  END IF;
+  IF v_owner IS DISTINCT FROM 'postgres' THEN
+    RAISE EXCEPTION 'POSTFLIGHT_195_FAILED: venue_api.venues is owned by % (159''s owner is postgres; the ACL check excludes the owner)', v_owner;
   END IF;
   IF v_cmt IS DISTINCT FROM 'catalog.venue, granted columns only; caller''s RLS applies.' THEN
     RAISE EXCEPTION 'POSTFLIGHT_195_FAILED: venue_api.venues comment changed (%)', v_cmt;
