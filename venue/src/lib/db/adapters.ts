@@ -3,7 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient, SupabaseConfigError } from "@/lib/supabase/server";
 import { mapReadError, transportFailure, type ReadFailure, type ReadResult } from "@/lib/db/read-result";
-import { mapBatches, mapEvents, mapGrants, mapTicketTypes, type BatchRow, type EventRow, type OrgRoleRow, type PolicyRow, type VenueScopeRow, type SessionRow, type StaffRoleRow, type TicketTypeRow, type VenueApprovalRow } from "@/lib/db/rows";
+import { mapBatches, mapEvents, mapGrants, mapTicketTypes, type BatchRow, type EventRow, type OrgRoleRow, type PolicyRow, type VenueScopeRow, type VenueSettingsRow, type SessionRow, type StaffRoleRow, type TicketTypeRow, type VenueApprovalRow } from "@/lib/db/rows";
 import type { GrantSet } from "@/lib/roles";
 import type { Event, InventoryBatch, TicketType } from "@/lib/types";
 
@@ -48,6 +48,19 @@ export async function dbVenueScope(venueId: string): Promise<ReadResult<VenueSco
   const cl = await client("venue_api.venues");
   if (!cl.ok) return cl;
   const rows = await select<VenueScopeRow[]>("venue_api.venues", cl.c.from("venues").select("venue_id,org_id,name").eq("venue_id", venueId).limit(1));
+  if (!rows.ok) return rows;
+  return { ok: true, data: rows.data[0] ?? null };
+}
+
+/**
+ * The venue's own settings row for the settings surface, read as the caller. Selects ONLY the columns
+ * `venue_api.venues` exposes; `address`, `capacity_hint` and `timezone` are not in the view and would fail
+ * the whole read (42703), so the settings page shows what is readable and says what is not.
+ */
+export async function dbVenueSettings(venueId: string): Promise<ReadResult<VenueSettingsRow | null>> {
+  const cl = await client("venue_api.venues");
+  if (!cl.ok) return cl;
+  const rows = await select<VenueSettingsRow[]>("venue_api.venues", cl.c.from("venues").select("venue_id,name,neighborhood").eq("venue_id", venueId).limit(1));
   if (!rows.ok) return rows;
   return { ok: true, data: rows.data[0] ?? null };
 }

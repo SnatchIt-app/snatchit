@@ -1,10 +1,12 @@
 import { VenueDetailsForm, VenueTimezoneForm } from "@/components/venue/VenueSettingsForms";
 import { Shell } from "@/components/shell/Shell";
 import { EntryGate } from "@/components/ui/EntryGate";
-import { NotWiredState } from "@/components/ui/DataSourceError";
 import { Page } from "@/components/ui/Page";
 import { DeniedState } from "@/components/ui/State";
 import { commandsGateOpen } from "@/lib/db/command-gate";
+import { dbVenueSettings } from "@/lib/db/adapters";
+import { DataSourceError } from "@/components/ui/DataSourceError";
+import type { ReadFailure } from "@/lib/db/read-result";
 import { mintCommandKey } from "@/lib/db/event-commands";
 import { DATA_SOURCE } from "@/lib/env";
 import { venueTimeZone, zoneNote } from "@/lib/events/zone";
@@ -34,6 +36,18 @@ export default async function VenueSettingsPage({ params, searchParams }: { para
   const ids = { orgId: p.scope.orgId, venueId: p.scope.venueId };
   const keys = gateOpen && mayEdit && entryOpen ? { details: await mintCommandKey(), zone: await mintCommandKey() } : null;
 
+  // The venue's own row. Writes being off is deliberate; NOT READING was the gap — the surface said it was
+  // "not wired to the database" while the read side was simply never written. Only the columns the view
+  // exposes: address, capacity_hint and timezone wait for registry 195.
+  let venue: { name: string | null; neighborhood: string | null } | null = null;
+  let venueFailure: ReadFailure | null = null;
+  if (ctx.source === "database" && entryOpen && mayEdit) {
+    const r = await dbVenueSettings(p.scope.venueId);
+    if (r.ok) venue = r.data ? { name: r.data.name, neighborhood: r.data.neighborhood } : null;
+    else venueFailure = r;
+  }
+  const show = (v: string | null) => (v && v.trim() ? v : "Not set");
+
   return (
     <Shell ctx={ctx} event={null} active="events" signedInAs={p.signedInAs} title="Venue settings">
       <Page eyebrow="Venue" title="Venue settings" lead="What this venue is called, where it is, and the time zone every night is read in.">
@@ -43,8 +57,23 @@ export default async function VenueSettingsPage({ params, searchParams }: { para
           <DeniedState surface="Venue settings" roleLabel={PRINCIPAL_LABEL[ctx.role]} alternative={{ label: "Back to events", href: withPreview(`${basePath}/events`, ctx) }} />
         ) : ctx.source !== "database" ? (
           <p className="panel px-5 py-4 text-sm text-muted">Demo — sample data. Editing a venue writes to the real record, so it is not simulated here.</p>
+        ) : venueFailure ? (
+          <DataSourceError failure={venueFailure} loginHref={`/login?next=${encodeURIComponent(withPreview(self, ctx))}`} retryHref={withPreview(self, ctx)} />
         ) : !keys ? (
-          <NotWiredState surface="Venue settings" />
+          /* Writes are off on this project ON PURPOSE. That is not the same as unwired, and NotWiredState
+             would say something untrue: the values below are read from the database right now. */
+          <div className="space-y-6">
+            <p className="text-xs text-dim">{zoneNote(zone)}</p>
+            <section className="panel px-5 py-5" aria-labelledby="venue-details-read">
+              <h2 id="venue-details-read" className="text-base font-semibold text-ink">Details</h2>
+              <p className="mt-1 text-sm text-dim">Editing venue settings is turned off for this dashboard. These are the stored values, read from the database.</p>
+              <dl className="mt-4 space-y-3 text-sm">
+                <div><dt className="eyebrow block text-dim">Name</dt><dd className="mt-0.5">{show(venue?.name ?? null)}</dd></div>
+                <div><dt className="eyebrow block text-dim">Neighbourhood</dt><dd className="mt-0.5">{show(venue?.neighborhood ?? null)}</dd></div>
+              </dl>
+              <p className="mt-4 text-xs text-dim">Address, capacity and this venue&apos;s stored time zone aren&apos;t readable on this dashboard yet, so they are not shown rather than guessed.</p>
+            </section>
+          </div>
         ) : (
           <div className="space-y-6">
             <p className="text-xs text-dim">{zoneNote(zone)}</p>
@@ -54,14 +83,14 @@ export default async function VenueSettingsPage({ params, searchParams }: { para
                 The venue&apos;s name, area and address. Capacity here is a planning number; what each night may actually sell is set per night on the event.
               </p>
               <div className="mt-4">
-                <VenueDetailsForm ids={ids} commandKey={keys.details} venue={{ name: p.venueName ?? null }} />
+                <VenueDetailsForm ids={ids} commandKey={keys.details} venue={{ name: venue?.name ?? p.venueName ?? null, neighborhood: venue?.neighborhood ?? null }} />
               </div>
             </section>
             <section className="panel px-5 py-5" aria-labelledby="venue-zone">
               <h2 id="venue-zone" className="text-base font-semibold text-ink">Time zone</h2>
               <p className="mt-1 text-sm text-dim">Every time you enter for this venue is read in this zone. Changing it does not move times already saved.</p>
               <div className="mt-4">
-                <VenueTimezoneForm ids={ids} commandKey={keys.zone} timeZone={zone.zone} />
+                <VenueTimezoneForm ids={ids} commandKey={keys.zone} timeZone={zone.zone} stored={zone.source === "venue"} />
               </div>
             </section>
           </div>

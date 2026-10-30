@@ -5,7 +5,7 @@ import "server-only";
 import { cookies } from "next/headers";
 
 import { probeSession } from "@/lib/auth/session";
-import { mapReadError, transportFailure, type ReadResult } from "@/lib/db/read-result";
+import { mapReadError, type ReadResult } from "@/lib/db/read-result";
 import { DATA_SOURCE, SUPABASE_ANON_KEY, SUPABASE_URL } from "@/lib/env";
 import { isUuid } from "@/lib/page";
 import { connectCapability, failureFromEdge, onboardingBody, parseConnectSnapshot, parseOrgConnectState, type ConnectCapability, type ConnectFailure, type ConnectSnapshot, type OrgConnectState } from "@/lib/org/connect-contract";
