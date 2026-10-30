@@ -744,6 +744,11 @@ jobs:
           # wrapper until S2's E-33 receipt); no other census moves; the ACLs (the wrapper and its target) are pinned by
           # pgTAP 261 and 228's sweep. Read from a local PG17 replay of the gate tip ba96e859 + 192 with the service_role
           # function default revoked: 35|133|37|49 (EVIDENCE-192).
+          # 2026-10-30 registry 193 (D, pre-Stage-8 hardening; DARK, applied nowhere): NO change to any of the four
+          # counters. 193 is body-only `create or replace` of venue.release_inventory_hold and venue.grant_staff_role
+          # (gate first; same signatures, SECURITY DEFINER, search_path, ACL — pinned by pgTAP 262 A1 and 193's own
+          # post-flight). No object, no grant, nothing in `public`; no census moves. Read from a local PG17 replay of
+          # main c4f48885 + 193 with the service_role function default revoked: 35|133|37|49 before and after.
           EXPECT_TABLES: 35
           # 2026-09-15 migration 130 (L1 concurrency, B): functions 94 -> 96 —
           # +2 public.claim_checkout_supersede, public.release_checkout_supersede
