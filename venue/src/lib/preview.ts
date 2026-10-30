@@ -43,6 +43,14 @@ export type PreviewContext = {
   writesEnabled?: boolean;
   /** Database mode: true only once `role` was derived from the caller's verified grants at this scope (lib/page.ts). */
   verifiedRole?: boolean;
+  /**
+   * Database mode: whether the caller's GRANTS admit scanning (E-F11). A single derived principal cannot
+   * express this — `derivePrincipal` returns the widest label, so an org_owner who also holds
+   * venue_manager derives "org_owner", and `canScan` is false for it while `canScanGrants` is true. The
+   * scan page gates on the grants; the nav must ask the same question or the page it admits is reachable
+   * only by typing the URL. Undefined in fixtures mode, where the preview role is the only answer there is.
+   */
+  mayScan?: boolean;
   /** Database mode: the route's own org/venue, so navigation never points at the sample fixture ids. */
   scope?: { orgId: string; venueId: string };
 };

@@ -59,7 +59,7 @@ export function Shell({
   ];
   const eventItems: NavItem[] = [
     { key: "door", label: "Check-in", icon: "scan", href: evBase ? withPreview(`${evBase}/door`, ctx) : "", show: !!evBase && canReadDoor(ctx.role) },
-    { key: "scan", label: "Scanner", icon: "scan", href: evBase ? withPreview(`${evBase}/scan`, ctx) : "", show: !!evBase && canScan(ctx.role) },
+    { key: "scan", label: "Scanner", icon: "scan", href: evBase ? withPreview(`${evBase}/scan`, ctx) : "", show: !!evBase && (ctx.mayScan ?? canScan(ctx.role)) },
     { key: "attendees", label: "Guest list", icon: "users", href: evBase ? withPreview(`${evBase}/attendees`, ctx) : "", show: !!evBase && (rosterClasses(ctx.role) !== null || canManualLookup(ctx.role)) },
     { key: "inventory", label: "Tickets", icon: "ticket", href: evBase ? withPreview(`${evBase}/inventory`, ctx) : "", show: !!evBase && canReadTicketTypes(ctx.role) },
     { key: "setup", label: "Event setup", icon: "settings", href: evBase ? withPreview(evBase, ctx) : "", show: !!evBase && canReadEvents(ctx.role) },
