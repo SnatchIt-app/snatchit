@@ -4,8 +4,11 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: () => undefined, push: () => undefined, replace: () => undefined }) }));
 
 import { VenueDetailsForm, VenueTimezoneForm } from "@/components/venue/VenueSettingsForms";
+import { EventsTable } from "@/components/events/EventsTable";
+import { Tonight } from "@/components/overview/Tonight";
+import type { Event } from "@/lib/types";
+import type { PreviewContext } from "@/lib/preview";
 import { PLATFORM_DEFAULT_TIME_ZONE, renderTimeZone, venueTimeZone } from "@/lib/events/zone";
-import { venueDate } from "@/lib/format";
 import { VENUE } from "@/fixtures/venue";
 
 const html = (el: React.ReactElement) => renderToStaticMarkup(el);
@@ -93,24 +96,52 @@ describe("the details form prefills the columns 195 adds", () => {
  * and invisible in New York, which is why the fixture below is Honolulu.
  */
 describe("every event row renders in its own zone (list and overview)", () => {
+  // 2026-12-06T06:00:00Z is "Sat, Dec 5" in Honolulu and "Sun, Dec 6" in New York. The DATE is the
+  // discriminator, so a wrong zone cannot hide behind a similar-looking time.
   const SESSION = { sessionId: "5e55e55e-0a0c-4b0d-8e0f-0000000000a2", eventId: "3fa7be1c-9d0e-4ab2-bf61-7c4de0a95fbb", label: null, startsAt: "2026-12-06T06:00:00Z", doorsAt: null, endsAt: null, status: "scheduled" as const, doorOpenAt: null };
-  const honolulu = { eventId: SESSION.eventId, orgId: ids.orgId, venueId: ids.venueId, title: "Island night", status: "on_sale" as const, resaleMode: "off" as const, promoterCount: null, timeZone: "Pacific/Honolulu", sessions: [SESSION] };
+  const honolulu: Event = { eventId: SESSION.eventId, orgId: ids.orgId, venueId: ids.venueId, title: "Island night", status: "on_sale", resaleMode: "off", promoterCount: null, timeZone: "Pacific/Honolulu", sessions: [SESSION] };
+  const db: PreviewContext = { role: "org_owner", state: "live", source: "database", countersAvailable: false, writesEnabled: false, verifiedRole: true, scope: { orgId: ids.orgId, venueId: ids.venueId } };
+  const NOW = new Date("2026-11-01T00:00:00Z");
+  const base = `/o/${ids.orgId}/v/${ids.venueId}`;
 
-  it("the row uses the event's own zone, not the page default", () => {
-    // 06:00Z is 5 December in Honolulu and 6 December in New York — the date itself discriminates.
-    expect(venueDate(SESSION.startsAt, honolulu.timeZone)).not.toBe(venueDate(SESSION.startsAt, PLATFORM_DEFAULT_TIME_ZONE));
-    const own = honolulu.timeZone ?? PLATFORM_DEFAULT_TIME_ZONE;
-    expect(own).toBe("Pacific/Honolulu");
+  const table = (e: Event) =>
+    html(<EventsTable events={[e]} batches={[]} types={[]} holds={[]} ctx={db} basePath={base} timeZone={PLATFORM_DEFAULT_TIME_ZONE} now={NOW} filter={{}} />);
+  const overview = (e: Event) =>
+    html(
+      <Tonight
+        signals={[]} clear={[]} door={null}
+        stageView={{ stage: "before", event: e, session: e.sessions[0] }}
+        events={[e]} available={0} ctx={db} basePath={base}
+        timeZone={PLATFORM_DEFAULT_TIME_ZONE} now={NOW}
+      />,
+    );
+
+  it("the events LIST renders the row in the event's own zone", () => {
+    const h = table(honolulu);
+    expect(h).toContain("Sat, Dec 5"); // Honolulu
+    expect(h).not.toContain("Sun, Dec 6"); // the page zone, which it used to use for every row
   });
 
-  it("NEGATIVE CONTROL — an event with no readable zone falls back to the page zone, not to nothing", () => {
-    const unknown = { ...honolulu, timeZone: null };
-    expect(unknown.timeZone ?? PLATFORM_DEFAULT_TIME_ZONE).toBe(PLATFORM_DEFAULT_TIME_ZONE);
+  it("NEGATIVE CONTROL — an event with no readable zone falls back to the page zone", () => {
+    const h = table({ ...honolulu, timeZone: null });
+    expect(h).toContain("Sun, Dec 6");
+    expect(h).not.toContain("Sat, Dec 5");
   });
 
-  it("the list read asks for the projection, so a row CAN have its own zone", async () => {
+  it("the venue OVERVIEW renders the in-scope event in its own zone", () => {
+    const h = overview(honolulu);
+    expect(h).toContain("Sat, Dec 5"); // Honolulu
+    expect(h).not.toContain("Sun, Dec 6"); // the page zone
+  });
+
+  it("NEGATIVE CONTROL — the overview falls back to the page zone when the event has none", () => {
+    const h = overview({ ...honolulu, timeZone: null });
+    expect(h).toContain("Sun, Dec 6");
+    expect(h).not.toContain("Sat, Dec 5");
+  });
+
+  it("the list READ asks for the projection, so a row can have its own zone at all", async () => {
     const src = await import("node:fs").then((fs) => fs.readFileSync("src/lib/db/adapters.ts", "utf8"));
-    const listSelect = src.match(/from\("events"\)\.select\("([^"]+)"\)\.eq\("venue_id"/)?.[1];
-    expect(listSelect).toContain("timezone");
+    expect(src.match(/from\("events"\)\.select\("([^"]+)"\)\.eq\("venue_id"/)?.[1]).toContain("timezone");
   });
 });
