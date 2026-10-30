@@ -53,14 +53,16 @@ export async function dbVenueScope(venueId: string): Promise<ReadResult<VenueSco
 }
 
 /**
- * The venue's own settings row for the settings surface, read as the caller. Selects ONLY the columns
- * `venue_api.venues` exposes; `address`, `capacity_hint` and `timezone` are not in the view and would fail
- * the whole read (42703), so the settings page shows what is readable and says what is not.
+ * The venue's own settings row, read as the caller. Includes registry 195's three appended columns.
+ *
+ * Deliberately a SEPARATE read from `dbVenueScope`, which the entry policy runs on every page: if 195 is
+ * not applied, this read fails and the settings surface says so, while every other page keeps working.
+ * Putting these columns in the entry path would turn one broken surface into a broken dashboard.
  */
 export async function dbVenueSettings(venueId: string): Promise<ReadResult<VenueSettingsRow | null>> {
   const cl = await client("venue_api.venues");
   if (!cl.ok) return cl;
-  const rows = await select<VenueSettingsRow[]>("venue_api.venues", cl.c.from("venues").select("venue_id,name,neighborhood").eq("venue_id", venueId).limit(1));
+  const rows = await select<VenueSettingsRow[]>("venue_api.venues", cl.c.from("venues").select("venue_id,name,neighborhood,address,capacity_hint,timezone").eq("venue_id", venueId).limit(1));
   if (!rows.ok) return rows;
   return { ok: true, data: rows.data[0] ?? null };
 }
@@ -105,7 +107,7 @@ export async function dbListEvents(venueId: string): Promise<ReadResult<Event[]>
 export async function dbGetEvent(eventId: string): Promise<ReadResult<Event | null>> {
   const cl = await client("venue_api.events");
   if (!cl.ok) return cl;
-  const events = await select<EventRow[]>("venue_api.events", cl.c.from("events").select("event_id,venue_id,org_id,title,status").eq("event_id", eventId).limit(1));
+  const events = await select<EventRow[]>("venue_api.events", cl.c.from("events").select("event_id,venue_id,org_id,title,status,timezone").eq("event_id", eventId).limit(1));
   if (!events.ok) return events;
   if (events.data.length === 0) return { ok: true, data: null };
   const sessions = await select<SessionRow[]>("venue_api.event_sessions", cl.c.from("event_sessions").select("session_id,event_id,session_label,starts_at,ends_at,doors_at,door_open_at,status").eq("event_id", eventId));

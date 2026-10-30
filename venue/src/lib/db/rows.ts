@@ -6,7 +6,8 @@
 import type { Event, EventSession, EventStatus, InventoryBatch, ReleaseKind, ResaleDisplay, ResaleMode, SessionStatus, TicketKind, TicketType, Visibility } from "@/lib/types";
 import { isOrgRole, isVenueRole, type GrantSet } from "@/lib/roles";
 
-export type EventRow = { event_id: string; venue_id: string; org_id: string; title: string; status: string };
+/** `timezone` is 162's projection of catalog.venue.timezone onto the event (20261026100000:1248-1254). */
+export type EventRow = { event_id: string; venue_id: string; org_id: string; title: string; status: string; timezone?: string | null };
 export type SessionRow = { session_id: string; event_id: string; session_label: string | null; starts_at: string; ends_at: string | null; doors_at: string | null; door_open_at: string | null; status: string };
 export type PolicyRow = { policy_id: string; scope_kind: string; venue_id: string | null; event_id: string | null; mode: string; version: number };
 export type TicketTypeRow = { ticket_type_id: string; event_id: string; kind: string; name: string; price_minor: number; currency: string; visibility: string };
@@ -53,6 +54,7 @@ export function mapEvents(events: EventRow[], sessions: SessionRow[], policies: 
       status: pick(EVENT_STATUS, e.status, "draft"),
       resaleMode,
       promoterCount: null, // venue.promoter is not readable in this slice
+      timeZone: e.timezone ?? null,
       sessions: mine,
     };
   });
@@ -87,12 +89,14 @@ export function mapBatches(rows: BatchRow[]): InventoryBatch[] {
 /** `name` is display-only (the events eyebrow); entry is decided by venue_id/org_id alone. */
 export type VenueScopeRow = { venue_id: string; org_id: string; name?: string | null };
 /**
- * The venue's own settings, read for the settings surface. ONLY the columns `venue_api.venues` exposes
- * today (20261021120000_venue_api_read_views.sql:105-108): venue_id, org_id, name, neighborhood,
- * approval_status, created_at, updated_at. `address`, `capacity_hint` and `timezone` are NOT in the view —
- * naming one in a select fails the whole read (PostgREST 42703), so they wait for registry 195.
+ * The venue's own settings, read for the settings surface.
+ *
+ * `address`, `capacity_hint` and `timezone` arrive with **registry 195**
+ * (20261030094000_venue_api_venues_settings_columns.sql:56-60), appended after 159's seven columns.
+ * Until that migration is APPLIED on a project, naming one of them fails the whole read (PostgREST
+ * 42703) — which is why this read is confined to the settings surface and kept out of the entry path.
  */
-export type VenueSettingsRow = { venue_id: string; name: string | null; neighborhood: string | null };
+export type VenueSettingsRow = { venue_id: string; name: string | null; neighborhood: string | null; address: string | null; capacity_hint: number | null; timezone: string | null };
 export type StaffRoleRow = { venue_id: string; role: string };
 export type OrgRoleRow = { org_id: string; role: string };
 

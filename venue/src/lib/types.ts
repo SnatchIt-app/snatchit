@@ -55,6 +55,8 @@ export type Event = {
   resaleMode: ResaleDisplay;
   /** null when the promoter table is not readable in the current data source. */
   promoterCount: number | null;
+  /** 162's projection of the venue's own time zone onto the event; null when not readable. */
+  timeZone?: string | null;
   sessions: EventSession[];
 };
 

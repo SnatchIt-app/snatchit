@@ -64,13 +64,18 @@ export function VenueDetailsForm({ ids, commandKey, venue }: { ids: CommandIds; 
  */
 export function VenueTimezoneForm({ ids, commandKey, timeZone, stored }: { ids: CommandIds; commandKey: string; timeZone: string; stored: boolean }) {
   const known = stored && (COMMON_ZONES as readonly string[]).includes(timeZone);
-  const placeholder: readonly (readonly [string, string])[] = known ? [] : [["", stored && timeZone ? `${timeZone} (keep)` : "Choose a time zone"]];
+  // A stored zone outside COMMON_ZONES gets its OWN option carrying its OWN value. It used to be
+  // ["", "<zone> (keep)"] — selected by default, and submitting it sent an EMPTY timezone while the label
+  // promised to preserve the zone. Unreachable until the venue row became readable, which is exactly why
+  // it is fixed in the change that makes it reachable.
+  const keepStored = stored && !!timeZone && !known;
+  const placeholder: readonly (readonly [string, string])[] = known ? [] : keepStored ? [[timeZone, `${timeZone} (keep)`]] : [["", "Choose a time zone"]];
   return (
     <CommandForm action={setVenueTimezoneForm} ids={ids} commandKey={commandKey} submitLabel="Set the time zone" busyLabel="Setting…">
       <Select
         label="Time zone"
         name="timezone"
-        defaultValue={known ? timeZone : ""}
+        defaultValue={known || keepStored ? timeZone : ""}
         required={!stored}
         options={[...placeholder, ...COMMON_ZONES.map((z) => [z, z.replace(/_/g, " ")] as const)]}
         hint={

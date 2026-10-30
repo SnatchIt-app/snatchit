@@ -1,4 +1,5 @@
 import { ORG, PREVIEW_NOW, VENUE } from "@/fixtures/venue";
+import { renderTimeZone } from "@/lib/events/zone";
 import { getEvent } from "@/lib/data";
 import { DATA_SOURCE } from "@/lib/env";
 import { readPreviewContext, type PreviewContext, type SearchParams } from "@/lib/preview";
@@ -121,6 +122,16 @@ export async function readPage(paramsP: Promise<PageParams>, spP: Promise<Search
     venueName,
     first,
     now: ctx.source === "database" ? new Date() : PREVIEW_NOW,
-    timeZone: VENUE.timeZone,
+    /**
+     * The zone every surface converts times with.
+     *
+     * It used to be `VENUE.timeZone` unconditionally — the SAMPLE venue's zone, driving eight
+     * database-mode render sites. That was invisible only because the fixture's zone and the platform
+     * default are both America/New_York; a Phoenix venue would have had every time wrong by hours.
+     *
+     * Database mode now uses the event's own projected zone (162), and the platform default when no
+     * event is in scope. The fixture constant is reachable in FIXTURES mode only.
+     */
+    timeZone: renderTimeZone(ctx.source === "database" ? "database" : "fixtures", event?.timeZone, VENUE.timeZone),
   };
 }
