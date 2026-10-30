@@ -1,0 +1,273 @@
+"use server";
+
+import "server-only";
+
+import { COMMAND_COPY, commandTransportFailure, invalidInput, mapCommandError, NO_RECEIPT_COPY, NOT_ENABLED_COPY, type CommandRefused, type CommandResult, type CommandUnavailable } from "@/lib/db/command-errors";
+import { DATA_SOURCE } from "@/lib/env";
+import { isUuid } from "@/lib/page";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { RELEASE_KINDS } from "@/lib/inventory";
+import type { ReleaseKind, TicketKind, Visibility } from "@/lib/types";
+
+/**
+ * Server actions for slice S1 (tiers + inventory), DARK.
+ *
+ * Every action answers `unavailable` unless BOTH hold:
+ *   - the app is in database mode (lib/env.ts DATA_SOURCE, from NEXT_PUBLIC_VENUE_DATA_SOURCE), and
+ *   - the server-only VENUE_COMMANDS_ENABLED is exactly "true" (never NEXT_PUBLIC_; unset by default).
+ * Nothing sets it today, so in every environment every action is unavailable and the client is never built.
+ * F flips preview.ts writesEnabled only after the owner exposes venue_cmd; this gate is the second lock.
+ *
+ * Transport: createSupabaseServerClient() (anon key + the caller's session cookie; no privileged client
+ * exists in this app) .schema("venue_cmd").rpc(name, args). venue_cmd.* are SECURITY INVOKER wrappers
+ * (provisional migration 161) with the same arguments as the venue.* definer bodies, which hold the
+ * authority check, the preconditions and the audit row. The dashboard adds nothing and bypasses nothing.
+ *
+ * Inputs are validated here before any call so a malformed form never reaches the database, but the
+ * server re-checks everything; a refusal from it is mapped by command-errors.ts and never read as success.
+ *
+ * RPC contract coded against (names and parameter names are the server's, verbatim):
+ *   create_ticket_type(p_event_id uuid, p_kind text, p_name text, p_price_minor integer, p_visibility text, p_command_key text) → jsonb   (081:175)
+ *   set_ticket_type_price(p_ticket_type_id uuid, p_price_minor integer, p_reason_code text, p_command_key text) → jsonb                 (081:246)
+ *   set_ticket_type_sale_window(p_ticket_type_id uuid, p_sale_starts_at timestamptz, p_sale_ends_at timestamptz,
+ *                               p_reason_code text, p_command_key text) → jsonb                                                     (162:1308)
+ *       starts inclusive, ends exclusive, NULL = open, NULL/NULL clears. Reason required; terminal events refused;
+ *       the same values again are a noop without an audit row.
+ *   create_inventory_batch(p_ticket_type_id uuid, p_session_id uuid, p_release_kind text,
+ *                          p_capacity integer, p_shard_count integer, p_command_key text) → jsonb                                   (081:320, wrapper 192)
+ *       release_kind one of public_sale|promoter_hold|comp|door|presale; capacity > 0; and p_shard_count MUST be 0 or
+ *       null — the body raises `sharding_deferred` for anything greater, because the MVP ships the unsharded
+ *       counter (schema §3.3 is MVP-optional). So this surface offers no shard control and always sends 0.
+ *   set_ticket_type_visibility(p_ticket_type_id uuid, p_visibility text, p_reason_code text, p_command_key text) → jsonb                (160, provisional)
+ *   set_ticket_type_rank(p_ticket_type_id uuid, p_display_rank smallint, p_command_key text) → jsonb                                   (160, provisional)
+ *   set_batch_capacity(p_batch_id uuid, p_new_capacity integer, p_reason_code text, p_command_key text) → jsonb                         (081:408)
+ */
+const SCHEMA = "venue_cmd";
+
+/** The jsonb a definer body returns: `status` is "ok", or "noop_replay" / "noop" when the value or command key was already applied. */
+export type CommandReceipt = { status: string } & Record<string, unknown>;
+
+export type CreateTicketTypeInput = { eventId: string; kind: TicketKind; name: string; priceMinor: number; visibility: Visibility; commandKey: string };
+export type SetTicketTypePriceInput = { ticketTypeId: string; priceMinor: number; reasonCode: string; commandKey: string };
+export type SetTicketTypeVisibilityInput = { ticketTypeId: string; visibility: Visibility; reasonCode: string; commandKey: string };
+export type SetTicketTypeRankInput = { ticketTypeId: string; displayRank: number; commandKey: string };
+export type SetBatchCapacityInput = { batchId: string; newCapacity: number; reasonCode: string; commandKey: string };
+/** 162: starts inclusive, ends exclusive; null is "open"; both null clears the window. */
+export type SetTicketTypeSaleWindowInput = { ticketTypeId: string; saleStartsAt: string | null; saleEndsAt: string | null; reasonCode: string; commandKey: string };
+/** No shardCount: the body refuses any value > 0 (`sharding_deferred`), so the only valid input is the one we send. */
+export type CreateInventoryBatchInput = { ticketTypeId: string; sessionId: string; releaseKind: ReleaseKind; capacity: number; commandKey: string };
+
+/**
+ * One key per form render, minted by the caller and RE-SENT UNCHANGED on every retry of that form. The
+ * server treats a replayed key as a no-op (081 p_command_key), which is what makes "try again" after a lost
+ * answer safe. Async because a "use server" file may only export async functions.
+ */
+export async function mintCommandKey(): Promise<string> {
+  return crypto.randomUUID();
+}
+
+export async function createTicketTypeAction(input: CreateTicketTypeInput): Promise<CommandResult<CommandReceipt>> {
+  const dark = gate();
+  if (dark) return dark;
+  const i = (input ?? {}) as Partial<CreateTicketTypeInput>;
+  const bad = firstProblem(
+    needUuid(i.eventId, "eventId"),
+    needOneOf(i.kind, KINDS, "kind", "Choose admission or table."),
+    needText(i.name, "name", "Give the tier a name."),
+    needCents(i.priceMinor, "priceMinor"),
+    needOneOf(i.visibility, VISIBILITIES, "visibility", "Choose hidden, public or door only."),
+    needKey(i.commandKey),
+  );
+  if (bad) return bad;
+  const v = i as CreateTicketTypeInput;
+  return send("create_ticket_type", { p_event_id: v.eventId, p_kind: v.kind, p_name: v.name.trim(), p_price_minor: v.priceMinor, p_visibility: v.visibility, p_command_key: v.commandKey });
+}
+
+export async function setTicketTypePriceAction(input: SetTicketTypePriceInput): Promise<CommandResult<CommandReceipt>> {
+  const dark = gate();
+  if (dark) return dark;
+  const i = (input ?? {}) as Partial<SetTicketTypePriceInput>;
+  const bad = firstProblem(needUuid(i.ticketTypeId, "ticketTypeId"), needCents(i.priceMinor, "priceMinor"), needReason(i.reasonCode), needKey(i.commandKey));
+  if (bad) return bad;
+  const v = i as SetTicketTypePriceInput;
+  return send("set_ticket_type_price", { p_ticket_type_id: v.ticketTypeId, p_price_minor: v.priceMinor, p_reason_code: v.reasonCode, p_command_key: v.commandKey });
+}
+
+export async function setTicketTypeVisibilityAction(input: SetTicketTypeVisibilityInput): Promise<CommandResult<CommandReceipt>> {
+  const dark = gate();
+  if (dark) return dark;
+  const i = (input ?? {}) as Partial<SetTicketTypeVisibilityInput>;
+  const bad = firstProblem(needUuid(i.ticketTypeId, "ticketTypeId"), needOneOf(i.visibility, VISIBILITIES, "visibility", "Choose hidden, public or door only."), needReason(i.reasonCode), needKey(i.commandKey));
+  if (bad) return bad;
+  const v = i as SetTicketTypeVisibilityInput;
+  return send("set_ticket_type_visibility", { p_ticket_type_id: v.ticketTypeId, p_visibility: v.visibility, p_reason_code: v.reasonCode, p_command_key: v.commandKey });
+}
+
+export async function setTicketTypeRankAction(input: SetTicketTypeRankInput): Promise<CommandResult<CommandReceipt>> {
+  const dark = gate();
+  if (dark) return dark;
+  const i = (input ?? {}) as Partial<SetTicketTypeRankInput>;
+  const bad = firstProblem(needUuid(i.ticketTypeId, "ticketTypeId"), needInt(i.displayRank, "displayRank", 0, 999, "Display order is a whole number from 0 to 999."), needKey(i.commandKey));
+  if (bad) return bad;
+  const v = i as SetTicketTypeRankInput;
+  return send("set_ticket_type_rank", { p_ticket_type_id: v.ticketTypeId, p_display_rank: v.displayRank, p_command_key: v.commandKey });
+}
+
+export async function setBatchCapacityAction(input: SetBatchCapacityInput): Promise<CommandResult<CommandReceipt>> {
+  const dark = gate();
+  if (dark) return dark;
+  const i = (input ?? {}) as Partial<SetBatchCapacityInput>;
+  const bad = firstProblem(needUuid(i.batchId, "batchId"), needInt(i.newCapacity, "newCapacity", 1, INT4_MAX, "Capacity is a whole number of tickets, at least 1."), needReason(i.reasonCode), needKey(i.commandKey));
+  if (bad) return bad;
+  const v = i as SetBatchCapacityInput;
+  return send("set_batch_capacity", { p_batch_id: v.batchId, p_new_capacity: v.newCapacity, p_reason_code: v.reasonCode, p_command_key: v.commandKey });
+}
+
+/**
+ * 162's tier sale window. Both ends null clears it; one end null leaves that side open.
+ *
+ * Timestamps must carry an explicit offset or `Z`. A naive literal ("2026-11-01T20:00:00") is read as UTC by
+ * the server, which silently shifts an organizer's intended local time — D's warning on the client contract.
+ * Refusing it here is the only place that can tell the difference, because by the time it is a timestamptz
+ * the information is gone.
+ */
+export async function setTicketTypeSaleWindowAction(input: SetTicketTypeSaleWindowInput): Promise<CommandResult<CommandReceipt>> {
+  const dark = gate();
+  if (dark) return dark;
+  const i = (input ?? {}) as Partial<SetTicketTypeSaleWindowInput>;
+  const bad = firstProblem(
+    needUuid(i.ticketTypeId, "ticketTypeId"),
+    needOffsetTimestampOrNull(i.saleStartsAt, "saleStartsAt"),
+    needOffsetTimestampOrNull(i.saleEndsAt, "saleEndsAt"),
+    needWindowOrder(i.saleStartsAt ?? null, i.saleEndsAt ?? null),
+    needReason(i.reasonCode),
+    needKey(i.commandKey),
+  );
+  if (bad) return bad;
+  const v = i as SetTicketTypeSaleWindowInput;
+  return send("set_ticket_type_sale_window", {
+    p_ticket_type_id: v.ticketTypeId,
+    p_sale_starts_at: v.saleStartsAt,
+    p_sale_ends_at: v.saleEndsAt,
+    p_reason_code: v.reasonCode,
+    p_command_key: v.commandKey,
+  });
+}
+
+/**
+ * The first inventory release for a tier on a session (081:320 through the 192 invoker wrapper).
+ *
+ * `p_shard_count` is always 0: the body raises `sharding_deferred` for anything greater, so a shard control
+ * would be a form field with exactly one legal value. Capacity is checked here only to give a better message
+ * than a round trip; the server re-checks it, and its refusal is what counts.
+ */
+export async function createInventoryBatchAction(input: CreateInventoryBatchInput): Promise<CommandResult<CommandReceipt>> {
+  const dark = gate();
+  if (dark) return dark;
+  const i = (input ?? {}) as Partial<CreateInventoryBatchInput>;
+  const bad = firstProblem(
+    needUuid(i.ticketTypeId, "ticketTypeId"),
+    needUuid(i.sessionId, "sessionId"),
+    needOneOf(i.releaseKind, RELEASE_KINDS, "releaseKind", "Choose a release kind."),
+    needInt(i.capacity, "capacity", 1, INT4_MAX, "Capacity is a whole number of tickets, at least 1."),
+    needKey(i.commandKey),
+  );
+  if (bad) return bad;
+  const v = i as CreateInventoryBatchInput;
+  return send("create_inventory_batch", {
+    p_ticket_type_id: v.ticketTypeId,
+    p_session_id: v.sessionId,
+    p_release_kind: v.releaseKind,
+    p_capacity: v.capacity,
+    p_shard_count: 0,
+    p_command_key: v.commandKey,
+  });
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// Module-private: the gate, the validators, the transport. (A "use server" file may only export async
+// functions, so none of this is exported; tests reach it through the actions.)
+// ---------------------------------------------------------------------------------------------------------
+
+function gate(): CommandUnavailable | null {
+  if (DATA_SOURCE !== "database") return { kind: "unavailable", reason: "fixtures_mode", message: NOT_ENABLED_COPY };
+  if (process.env.VENUE_COMMANDS_ENABLED !== "true") return { kind: "unavailable", reason: "gate_unset", message: NOT_ENABLED_COPY };
+  return null;
+}
+
+const KINDS: readonly TicketKind[] = ["admission", "table"];
+const VISIBILITIES: readonly Visibility[] = ["hidden", "public", "door_only"];
+/** PostgreSQL integer: the server would raise numeric_value_out_of_range past this; refuse it here instead. */
+const INT4_MAX = 2_147_483_647;
+
+function firstProblem(...checks: Array<CommandRefused | null>): CommandRefused | null {
+  return checks.find((c) => c !== null) ?? null;
+}
+/** The id rule is lib/page.ts isUuid — the same one the route uses — so an id the route accepts, the action accepts. */
+function needUuid(v: unknown, field: string): CommandRefused | null {
+  return typeof v === "string" && isUuid(v) ? null : invalidInput(field, "Missing or malformed id.");
+}
+function needText(v: unknown, field: string, copy: string): CommandRefused | null {
+  return typeof v === "string" && v.trim().length > 0 ? null : invalidInput(field, copy);
+}
+function needInt(v: unknown, field: string, min: number, max: number, copy: string): CommandRefused | null {
+  return typeof v === "number" && Number.isInteger(v) && v >= min && v <= max ? null : invalidInput(field, copy);
+}
+/** Integer minor units (USD cents, spec §0.3), at least 1: the server's `price_minor > 0` check, said before the call. */
+function needCents(v: unknown, field: string): CommandRefused | null {
+  return needInt(v, field, 1, INT4_MAX, "Enter a whole number of cents, at least 1.");
+}
+function needOneOf<T extends string>(v: unknown, allowed: readonly T[], field: string, copy: string): CommandRefused | null {
+  return typeof v === "string" && (allowed as readonly string[]).includes(v) ? null : invalidInput(field, copy);
+}
+/** An ISO timestamp that states its offset, or null. A naive literal is refused: the server would read it as UTC. */
+function needOffsetTimestampOrNull(v: unknown, field: string): CommandRefused | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/.test(v) || Number.isNaN(Date.parse(v))) {
+    return invalidInput(field, "Give the date and time with its time zone offset (for example 2026-11-01T20:00:00-04:00).");
+  }
+  return null;
+}
+
+/** Starts is inclusive and ends is exclusive, so equal ends would be an empty window. */
+function needWindowOrder(startsAt: string | null, endsAt: string | null): CommandRefused | null {
+  if (!startsAt || !endsAt) return null;
+  if (Date.parse(startsAt) < Date.parse(endsAt)) return null;
+  return invalidInput("saleEndsAt", "The sale must end after it starts.");
+}
+
+function needReason(v: unknown): CommandRefused | null {
+  return needText(v, "reasonCode", COMMAND_COPY.reason_required);
+}
+function needKey(v: unknown): CommandRefused | null {
+  return needText(v, "commandKey", COMMAND_COPY.command_key_required);
+}
+
+type PgError = { code?: string | null; message?: string | null; details?: string | null; hint?: string | null };
+type RpcResponse = { data: unknown; error: PgError | null; status?: number };
+/** The two calls this module makes on the client, structurally — the generated schema types do not cover venue_cmd. */
+type CmdClient = { rpc(fn: string, args: Record<string, unknown>): PromiseLike<RpcResponse> };
+
+function isReceipt(d: unknown): d is CommandReceipt {
+  return typeof d === "object" && d !== null && !Array.isArray(d) && typeof (d as { status?: unknown }).status === "string";
+}
+
+async function send(fn: string, args: Record<string, unknown>): Promise<CommandResult<CommandReceipt>> {
+  let c: CmdClient;
+  try {
+    c = (await createSupabaseServerClient()).schema(SCHEMA) as unknown as CmdClient;
+  } catch (e) {
+    // SupabaseConfigError (no URL / key, or a privileged key in the public slot) or no request scope: not a refusal, not an outcome.
+    return { kind: "unavailable", reason: "config", message: NOT_ENABLED_COPY, detail: e instanceof Error ? e.message : String(e) };
+  }
+  let res: RpcResponse;
+  try {
+    res = await c.rpc(fn, args);
+  } catch (e) {
+    return commandTransportFailure(e);
+  }
+  // An error wins over any data beside it; a missing receipt is not a success either.
+  if (res.error) return mapCommandError(res.error, res.status);
+  if (!isReceipt(res.data)) return { kind: "refused", code: "unknown", message: NO_RECEIPT_COPY, detail: "no receipt in the response" };
+  return { kind: "ok", result: res.data };
+}

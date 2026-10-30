@@ -6,7 +6,7 @@ import { probeSession, type SessionProbe } from "@/lib/auth/session";
 import { dbGetEvent, dbMyGrants, dbVenueScope } from "@/lib/db/adapters";
 import type { ReadFailure } from "@/lib/db/read-result";
 import type { VenueScopeRow } from "@/lib/db/rows";
-import { derivePrincipal, type GrantSet } from "@/lib/roles";
+import { canScanGrants, derivePrincipal, type GrantSet } from "@/lib/roles";
 import type { Event } from "@/lib/types";
 
 export type PageParams = { org: string; venue: string; event?: string };
@@ -94,7 +94,7 @@ export async function readPage(paramsP: Promise<PageParams>, spP: Promise<Search
         if (!principal) entry = { kind: "denied" };
         else {
           entry = { kind: "ok", grants: g.data };
-          ctx = { ...ctx, role: principal, verifiedRole: true };
+          ctx = { ...ctx, role: principal, verifiedRole: true, mayScan: canScanGrants(g.data) };
           venueName = venue.data?.name?.trim() || null;
           if (params.event && isUuid(params.event)) {
             const r = await dbGetEvent(params.event);
