@@ -44,14 +44,15 @@ SELECT bag_eq(
   'A2: the five table names are exactly the frozen set (EXTRA=0, MISSING=0)');
 
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-            WHERE n.nspname = 'catalog'), 17,
+            WHERE n.nspname = 'catalog'), 20,
+  -- 2026-10-26 (registry 162, S2): 17 -> 20 (+set_venue_timezone, set_event_age_policy, set_session_sales_capacity). Named in A4 below.
   -- 2026-08-31 (package 081): 10 -> 11. catalog.publish_event is 081's (SEAM-1:
   -- it reads venue.ticket_type + inventory_batch), named in A4 below.
   -- 2026-09-01 (package 086): 11 -> 15. engage_door_freeze (door_open_at sole
   -- writer), set_session_door_schedule, sweep_implicit_door_freezes and the
   -- tg_door_open_at_is_ledger_head trigger fn. Named in A4 below.
   -- 2026-09-02 (package 088): 15 -> 16. catalog.cancel_event (FR-2b; SEAM-1 at 088).
-  'A3: catalog holds EXACTLY seventeen functions — no helper the closed world does not carry');
+  'A3: catalog holds EXACTLY twenty functions (seventeen post-109 + 162''s three setters) — no helper the closed world does not carry');
 
 SELECT bag_eq(
   $$SELECT p.proname::text FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -60,8 +61,10 @@ SELECT bag_eq(
            ('create_event_session'),('update_event'),('set_platform_config'),
            ('set_resale_policy'),('effective_freeze_at'),('update_event_session'),('publish_event'),
            ('engage_door_freeze'),('set_session_door_schedule'),('sweep_implicit_door_freezes'),
-           ('tg_door_open_at_is_ledger_head'),('cancel_event'),('tg_session_terminal_force_close')$$,
-  'A4: the seventeen catalog function names are exactly the frozen set (publish_event by 081; four door fns by 086; cancel_event by 088; tg_session_terminal_force_close by 109)');
+           ('tg_door_open_at_is_ledger_head'),('cancel_event'),('tg_session_terminal_force_close'),
+           -- 2026-10-26 (registry 162, S2): the three event-policy setters
+           ('set_venue_timezone'),('set_event_age_policy'),('set_session_sales_capacity')$$,
+  'A4: the twenty catalog function names are exactly the frozen set (publish_event by 081; four door fns by 086; cancel_event by 088; tg_session_terminal_force_close by 109; set_venue_timezone / set_event_age_policy / set_session_sales_capacity by 162)');
 
 SELECT has_function('kernel'::name, 'money_role_grant_matured'::name, ARRAY['uuid']::name[],
   'A5: kernel.money_role_grant_matured is authored HERE (SEAM-1 max(077,078)=078)');
@@ -521,10 +524,12 @@ SELECT bag_eq(
   $$VALUES ('create_venue'),('approve_venue'),('update_venue'),('create_event'),
            ('create_event_session'),('update_event'),('set_platform_config'),
            ('set_resale_policy'),('effective_freeze_at'),('update_event_session'),('publish_event'),
-           ('set_session_door_schedule'),('cancel_event')$$,
+           ('set_session_door_schedule'),('cancel_event'),
+           -- 2026-10-26 (registry 162, S2): the three event-policy setters hold EXECUTE for authenticated only (anon/PUBLIC revoked; measured)
+           ('set_venue_timezone'),('set_event_age_policy'),('set_session_sales_capacity')$$,
   -- engage_door_freeze/sweep_implicit_door_freezes/tg_* are NOT authenticated
   -- (definer-internal / service_role / trigger). Only the schedule editor is.
-  'F3: the authenticated EXECUTE closure is exactly the thirteen caller-authorized catalog RPCs (publish_event by 081; set_session_door_schedule by 086; cancel_event by 088)');
+  'F3: the authenticated EXECUTE closure is exactly the sixteen caller-authorized catalog RPCs (publish_event by 081; set_session_door_schedule by 086; cancel_event by 088; 162''s three setters)');
 
 -- A migration is not a config change (plan §4); RPC §20.2.1 forbids every
 -- service_role path on set_platform_config explicitly.

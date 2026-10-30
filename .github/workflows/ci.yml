@@ -461,6 +461,10 @@ jobs:
     name: Migrations apply cleanly (fresh DB)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # packages: read lets this job authenticate its ghcr.io image pulls (see "Authenticate image pulls").
+    permissions:
+      contents: read
+      packages: read
     # SINGLE SOURCE OF TRUTH for the CLI pin. Both the installer input and the
     # drift assertion below read this one value — never repeat the literal.
     env:
@@ -557,20 +561,50 @@ jobs:
           fi
           echo "--- DOCKER-USER chain ---"; sudo iptables -S DOCKER-USER
 
+      # 2026-10-27 (A): on 2026-10-27 every image pull of this job hit ghcr.io's ANONYMOUS rate limit
+      # (`toomanyrequests` on all 8 supabase images; #172 three times, #186 once), so the stack never booted
+      # and the pgTAP gate correctly reported "no TAP output". Authenticated pulls use the job token's own
+      # budget. Non-fatal: if the login fails the pulls stay anonymous, exactly as before.
+      - name: Authenticate image pulls (ghcr.io)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin >/dev/null 2>&1; then
+            echo "OK: image pulls from ghcr.io are authenticated"
+          else
+            echo "::warning::ghcr.io login failed; image pulls stay anonymous"
+          fi
+
+      # Retry policy: a registry rate limit (seen in the start log) is retried with backoff, up to 4 attempts;
+      # any other failure keeps the original single retry, so a genuine migration error still fails the step.
       - name: Apply migration chain on fresh DB
         run: |
           set -euo pipefail
           start() {
             supabase start \
-              -x studio,inbucket,imgproxy,edge-runtime,logflare,vector
+              -x studio,inbucket,imgproxy,edge-runtime,logflare,vector 2>&1 | tee /tmp/supabase-start.log
+            return "${PIPESTATUS[0]}"
           }
-          if ! start; then
-            echo "::warning::supabase start failed on the first attempt; cleaning up and retrying once"
+          cleanup() {
             supabase stop --no-backup >/dev/null 2>&1 || true
             docker ps -aq --filter "name=supabase_" | xargs -r docker rm -f >/dev/null 2>&1 || true
-            sleep 5
-            start
-          fi
+          }
+          rate_limited() { grep -qiE 'toomanyrequests|429 Too Many Requests' /tmp/supabase-start.log; }
+          attempt=1
+          until start; do
+            if rate_limited && [ "$attempt" -lt 4 ]; then
+              wait=$((attempt * 45))
+              echo "::warning::image registry rate limit on attempt ${attempt}; cleaning up and retrying in ${wait}s"
+            elif [ "$attempt" -lt 2 ]; then
+              wait=5
+              echo "::warning::supabase start failed on the first attempt; cleaning up and retrying once"
+            else
+              exit 1
+            fi
+            cleanup
+            sleep "$wait"
+            attempt=$((attempt + 1))
+          done
 
       - name: Show applied migrations
         if: always()
@@ -653,7 +687,64 @@ jobs:
           # +1 public.checkout_group_claim (RLS on, no policies, service_role only).
           # 2026-09-25 migration 150 (refund lifecycle): tables 32 -> 34 — +2 public.payment_refund_state,
           # public.payment_refund_state_log (RLS on, no policies, service_role only).
-          EXPECT_TABLES: 34
+          # 2026-10-15 migration 154 (listing public visibility): tables 34 -> 35 — +1 public.listing_visibility
+          # (RLS on, no policies, service_role SELECT/INSERT/DELETE only). Read from an actual local replay of
+          # the gate tip + 154-156 (Homebrew PG 17, scripts/local/replay.sh): 34|116|37|43 -> 35|123|37|47
+          # (re-read 2026-10-15 after the review fixes: +is_public, +set_listing_ends_at_from_duration and its trigger).
+          # Re-read 2026-10-15 for 156's ADDENDUM 3 (old-build purchase safeguard): 35|123|37|47 -> 35|126|37|49.
+          # 2026-10-22 registry 160 + 161 (D, S1 venue tiers/inventory; DARK, applied nowhere): NO change to any of
+          # the four counters. 160 creates venue.set_ticket_type_visibility / set_ticket_type_rank /
+          # get_inventory_counters, replaces four venue.* bodies in place (E-76) and re-creates
+          # venue_api.ticket_types with display_rank; 161 creates schema venue_cmd with six SECURITY INVOKER
+          # wrappers. Nothing lands in `public`, and this counter reads `public` only. The venue census moves
+          # 87 -> 90 (pgTAP 144 A15 / 145 A4 / 148 B5 / 180 A5) and the five-schema routine census 305 -> 308
+          # (148 B2 / 157 A46 / 180 A6); the venue_api / venue / venue_cmd ACLs are pinned by pgTAP 226/227/228.
+          # Read from a local PG17 replay of bfc5cf97 + 159 + 160 + 161 (a154c_green clone): still 35|126|37|49.
+          # 2026-10-26 registry 162 (D, S2 event policy / shared capacity / tier windows; DARK, applied nowhere): NO change
+          # to any of the four counters. 162 adds columns on catalog.venue / catalog.event / catalog.event_session /
+          # venue.ticket_type, creates catalog.set_venue_timezone / set_event_age_policy / set_session_sales_capacity and
+          # venue.set_ticket_type_sale_window / ticket_type_on_sale, replaces six venue.* bodies in place (R3 org arm +
+          # the shared-room guard), re-creates three venue_api views and adds five venue_cmd wrappers. Nothing lands in
+          # `public`, and this counter reads `public` only. The venue census moves 90 -> 92 (pgTAP 144 A15 / 145 A4 /
+          # 148 B5 / 179 A8 / 180 A5 / 227 A12), catalog 17 -> 20 (154 A10), the five-schema routine census 308 -> 313
+          # (148 B2 / 156 A20 / 157 A46 / 179 A9 / 180 A6), venue_cmd 6 -> 11 (228); ACLs are pinned by pgTAP 229.
+          # Read from a local PG17 replay of bfc5cf97 + 159 + 176 + 160 + 161 + 162 (a154c_green clone): still 35|126|37|49.
+          # 2026-10-26 registry 163 (D, scanner staff-session wrappers + identity-free session scan counters;
+          # DARK, applied nowhere): NO change to any of the four counters. 163 creates
+          # venue.get_session_scan_counters / list_session_scan_counters / record_scan_staff / filter_staff_scan_meta
+          # (zero-grant helper), the view venue_api.session_admissions and three venue_cmd wrappers
+          # (get_session_scan_counters, record_scan, validate_ticket_online). Nothing lands in `public`, and this
+          # counter reads `public` only. The venue census moves 90 -> 94 (pgTAP 144 A15 / 145 A4 / 148 B5 / 180 A5 /
+          # 227 A12), the five-schema routine census 308 -> 312 (148 B2 / 157 A46 / 180 A6), venue_api views 8 -> 9 (226 A2/F1/F5/F6) and venue_cmd
+          # 6 -> 9 (228); the new ACLs are pinned by pgTAP 230 (and 228/226 sweeps). Read from a local PG17 replay
+          # of ce1c9737 + 159 + 176 + 160 + 161 + 163 (a154c_green clone): still 35|126|37|49.
+          # 2026-10-27 registry 164 (D, the dashboard's route to the catalog event verbs; DARK, applied nowhere):
+          # NO change to any of the four counters. 164 creates seven venue_cmd SECURITY INVOKER sql wrappers
+          # (create_event, update_event, create_event_session, update_event_session, publish_event, cancel_event,
+          # update_venue) over the catalog.* definer bodies, which keep their 078/079/081/088 grants (no new grant,
+          # no revoke, no body change). Nothing lands in `public`, and this counter reads `public` only. The venue_cmd
+          # census moves 14 -> 21 (pgTAP 228 A2/A3/A5-A7/A14-A20/A23, 229 A26, 230 D13); no other census moves; the
+          # ACLs (wrappers and the seven targets) are pinned by pgTAP 231 and 228's sweep. Read from a local PG17
+          # replay of a154c_green + 159 + 176 + 160 + 161 + 162 + 163 + 182 + 164: 35|130|37|49.
+          # 2026-10-26 registry 166 (D, identity-free staff read of the session sales pool; DARK, applied nowhere): NO
+          # change to any of the four counters. 166 creates venue.get_session_capacity / list_session_capacity, the view
+          # venue_api.session_capacity and one venue_cmd wrapper (get_session_capacity). Nothing lands in `public`, and
+          # this counter reads `public` only. The venue census moves 96 -> 98 (pgTAP 144 A15 / 145 A4 / 148 B5 / 179 A8 /
+          # 180 A5 / 227 A12 / 229 A23 / 230 A19), the five-schema routine census 317 -> 319 (148 B2 / 156 A20 / 157 A46 /
+          # 179 A9 / 180 A6 / 229 A25), venue_api views 9 -> 10 (226 A2/F1/F5/F6, 230 A21), venue_cmd 14 -> 15 (21 -> 22 with 164 beneath; 228, 229 A26,
+          # 230 D13) and 140 PFA-1 names the two venue reads; the new ACLs are pinned by pgTAP 233. Read from a local PG17
+          # replay of a154c_green + 159 + 176 + 160 + 161 + 162 + 163 + 182 + 166: still 35|130|37|49.
+          # 2026-10-26 (stack 164 -> 166 on #170 13d46b22, measured): 164 beneath 166 changes no counter either; re-read from a154c_green +
+          # 159 + 176 + 160 + 161 + 162 + 163 + 182 + 164 + 166 with the service_role function default revoked: 35|130|37|49.
+          # 2026-10-29 registry 192 (D, the dashboard's route to venue.create_inventory_batch; DARK, applied nowhere):
+          # NO change to any of the four counters. 192 creates ONE venue_cmd SECURITY INVOKER sql wrapper
+          # (create_inventory_batch) over the 081/162 definer body, which keeps its 081 grant (no new grant, no revoke,
+          # no body change). Nothing lands in `public`, and this counter reads `public` only. The venue_cmd census
+          # moves 22 -> 23 (pgTAP 228 A2/A3/A5-A7/A14-A20/A23, 229 A26, 230 D13; 228 A4 flips: 161 had withheld the
+          # wrapper until S2's E-33 receipt); no other census moves; the ACLs (the wrapper and its target) are pinned by
+          # pgTAP 261 and 228's sweep. Read from a local PG17 replay of the gate tip ba96e859 + 192 with the service_role
+          # function default revoked: 35|133|37|49 (EVIDENCE-192).
+          EXPECT_TABLES: 35
           # 2026-09-15 migration 130 (L1 concurrency, B): functions 94 -> 96 —
           # +2 public.claim_checkout_supersede, public.release_checkout_supersede
           # (on top of 129's revoke_push_token). Two nullable columns on payments;
@@ -670,13 +761,44 @@ jobs:
           # 2026-10-13 migration 152 (marketplace safety): functions 111 -> 116 — +5 public.assert_marketplace_parties,
           # public.guard_bid_parties, public.guard_listing_reservation_parties, public.listing_prohibited_term,
           # public.guard_listing_content (all no-client-execute).
-          EXPECT_FUNCS: 116
+          # 2026-10-15 migrations 154 + 155 + 156: functions 116 -> 123 — 154: +4 public.listing_is_public,
+          # public.listing_private_party (both anon-execute: the predicates of the anon-reachable listings/bids
+          # SELECT policies), public.is_public(listings) (anon-execute: the PostgREST computed field),
+          # public.guard_hidden_listing_not_live (no-client-execute); 155: +1
+          # public.set_listing_ends_at_from_duration (no-client-execute); 156: +2
+          # public.guard_listing_proof_waiver (no-client-execute), public.current_user_is_admin
+          # (authenticated-execute). 154 redefines get_profile_trust_stats in place (net 0).
+          # 2026-10-15 156 ADDENDUM 3 (old-build purchase safeguard): functions 123 -> 126 — +3
+          # public.client_shows_proof_disclosure, public.guard_bid_requires_disclosure,
+          # public.guard_reservation_requires_disclosure (all no-client-execute). Read from an actual local replay.
+          # 2026-10-26 registry 182 (D, primary buyer reads — A's C1/C5; DARK, applied nowhere): functions 126 -> 130 —
+          # +4 public.list_primary_sessions_on_sale, public.get_primary_session (anon-execute: the logged-out discovery
+          # surface; SECURITY DEFINER bodies restating the anon-visible rules), public.get_my_ticket_atoms,
+          # public.get_my_primary_orders (authenticated-execute: owner-scoped on auth.uid()). Tables / policies /
+          # triggers unchanged. Manifest rows in assert_public_table_grant_decisions.sql; expected_grants.txt
+          # unchanged (no table grant moves); pgTAP tests/162 P2 moved 126 -> 130 in the same package; rollback
+          # md5-asserted. Read from a local PG17 replay of a154c_green + 159 + 176 + 160 + 161 + 162 + 182: 35|130|37|49.
+          # 2026-10-26 registry 167 (D, buyer holds and order list; DARK, applied nowhere): functions 130 -> 133 —
+          # +3 public.reserve_primary_tier, public.release_primary_hold, public.list_my_primary_orders (all
+          # authenticated-execute: SECURITY DEFINER wrappers bound to auth.uid() over venue.reserve_primary_inventory,
+          # venue.release_inventory_hold and 182's get_my_primary_orders). Tables / policies / triggers unchanged.
+          # Manifest rows added; expected_grants.txt unchanged (no table grant moves); pgTAP tests/162 P2 and 252 A17
+          # moved 130 -> 133 in the same package; rollback md5-asserted. Read from a local PG17 replay of
+          # a154c_green + 159 + 176 + 160 + 161 + 162 + 182 + 167: 35|133|37|49.
+          EXPECT_FUNCS: 133
+          # 2026-10-15 migration 154: policies 37 -> 37 — listings_select_all -> listings_select_visible and
+          # bids_select_all -> bids_select_visible, 1-for-1; listing_visibility carries no policy.
           EXPECT_POLICIES: 37
           # 2026-09-25 migration 150: triggers 38 -> 40 — +trg_payment_refund_state_log_append_only,
           # +trg_guard_payment_refund_state_columns (on payments).
           # 2026-10-13 migration 152: triggers 40 -> 43 — +before_bid_guard_parties (bids),
           # +trg_guard_listing_reservation_parties, +trg_guard_listing_content (listings).
-          EXPECT_TRIGGERS: 43
+          # 2026-10-15 migrations 154 + 155 + 156: triggers 43 -> 47 — 154: +trg_hidden_listing_not_live (listings),
+          # +trg_listing_visibility_not_live (listing_visibility); 155: +trg_listing_ends_at_from_duration
+          # (listings); 156: +trg_guard_listing_proof_waiver (listings).
+          # 2026-10-15 156 ADDENDUM 3: triggers 47 -> 49 — +trg_reservation_requires_disclosure (listings),
+          # +trg_bid_requires_disclosure (bids). Read from an actual local replay.
+          EXPECT_TRIGGERS: 49
 
       # Privilege-parity diagnostic. Production's table grants come from Supabase's
       # DEFAULT PRIVILEGES, not from the migration chain (migration 063 says so
@@ -1638,6 +1760,13 @@ jobs:
       #                native issuance stays dark, so its errors must be VISIBLE
       #                but must not gate this release. It joins `deployed` in the
       #                same PR that first deploys any of it.
+      # 2026-10-27 (webhook native restore): stripe-webhook's native arms are
+      # wired back into the deployed `stripe-webhook` entrypoint, which ships
+      # them (first deploy: the sandbox, S7). Its decision modules native.ts and
+      # native-dispute.ts therefore move to BLOCKING: checked transitively by the
+      # entrypoint step below and listed explicitly here so a module-level type
+      # error is named on its own. The four native EDGES below stay advisory
+      # until the PR that first deploys each of them.
       - name: deno check — shared pure modules (blocking)
         run: |
           deno check \
@@ -1649,7 +1778,9 @@ jobs:
             supabase/functions/door-manifest/pure.ts \
             supabase/functions/door-session/pure.ts \
             supabase/functions/ops-refund-execute/classify.ts \
-            supabase/functions/ops-refund-execute/handler.ts
+            supabase/functions/ops-refund-execute/handler.ts \
+            supabase/functions/stripe-webhook/native.ts \
+            supabase/functions/stripe-webhook/native-dispute.ts
 
       - name: deno check — deployed + production-aligned entrypoints (blocking)
         run: |
