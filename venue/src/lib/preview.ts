@@ -21,7 +21,7 @@ export const PREVIEW_STATES = ["live", "loading", "empty", "error", "denied", "n
  * every other surface the control did nothing when you picked it, which makes
  * the demo look broken rather than the state look absent.
  */
-export type Surface = "overview" | "events" | "setup" | "inventory" | "attendees" | "door" | "settings";
+export type Surface = "overview" | "events" | "setup" | "inventory" | "attendees" | "door" | "scan" | "settings";
 
 const FILTERED_SURFACES: readonly Surface[] = ["events", "attendees"];
 

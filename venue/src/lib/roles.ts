@@ -98,6 +98,32 @@ export function inventoryView(p: Principal): "counters" | "remaining_only" | "no
 export function showCounters(p: Principal, ctx: { countersAvailable?: boolean }): boolean {
   return inventoryView(p) === "counters" && ctx.countersAvailable !== false;
 }
+/**
+ * Who may run the online scanner. Exactly the roles `venue.record_scan` admits
+ * (`kernel.has_venue_role(venue, ['venue_scanner','venue_manager'])`, 108):
+ * an org owner or admin without a venue role is refused by the server, so the
+ * screen does not pretend otherwise. Enforced again server-side on every scan.
+ */
+export function canScan(p: Principal): boolean {
+  return p === "venue_scanner" || p === "venue_manager";
+}
+
+/**
+ * Who may scan, decided from the GRANTS rather than the single derived
+ * principal — the only honest form of this question in database mode.
+ *
+ * `derivePrincipal` collapses a grant set to one label by precedence, and
+ * `org_owner` outranks `venue_manager`. That is right almost everywhere,
+ * because an owner can do what a manager can. Scanning is the exception: the
+ * server's gate is `kernel.has_venue_role(venue, ['venue_scanner','venue_manager'])`,
+ * which org roles do NOT satisfy — and equally, an owner who HOLDS a venue
+ * role is admitted by the server. Asking the principal would therefore refuse
+ * the one account a sandbox run is likely to use (the org owner, also granted
+ * venue_manager so they can work the door) while the server would admit it.
+ */
+export function canScanGrants(g: GrantSet): boolean {
+  return g.venueRoles.some((r) => r === "venue_manager" || r === "venue_scanner");
+}
 /** Row 16: create batch / capacity change. */
 export function canChangeCapacity(p: Principal): boolean {
   return FULL_OPERATORS.includes(p);
