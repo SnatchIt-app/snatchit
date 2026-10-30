@@ -15,7 +15,9 @@
 --              changed.
 --   Section L  legitimate release paths unchanged: the holder releases (ok, counters, movement),
 --              re-release and an own released hold are noop_replay, venue staff release a holder's
---              hold, the sweep under a service_role JWT and under the '' persona (tap.logout).
+--              hold, the sweep under a service_role JWT. N8 (in L's flow): claims = '' with no sub
+--              (tap.logout's persona, produced by no production path) is refused like any other
+--              non-service NULL uid.
 --   Section G  NEGATIVE CONTROLS, grant_staff_role: an unaffiliated caller and a manager of another
 --              venue get the SAME 42501 for an existing, a nonexistent and an ERASED target, for an
 --              unknown venue and for a self-grant; nothing written. Legitimate paths unchanged: the
@@ -34,14 +36,15 @@
 -- h1 active 1, h2 active 2, h3 released 1, h4 active 1, h5 active 2 EXPIRED; held = 6.
 --
 -- RED, measured on main c4f48885 WITHOUT 193 (a154c_green + main's migrations; CI emulation):
--- 35 emitted, nothing aborts — 21 ok + 14 not ok: A2 (predecessor md5s); N2 (P0002 not_found:
+-- 35 emitted, nothing aborts — 20 ok + 15 not ok: A2 (predecessor md5s); N2 (P0002 not_found:
 -- hold), N3 (noop_replay with the status), N4 (three different answers), N6 (an authenticated JWT
--- with no sub passes the 081 NULL-uid branch and RELEASES h4), N7 (h4 released); GN2 (P0002
--- identity), GN3 (identity_erased), GN4, GN5 (P0002 venue), GN6 (self_grant), GN7 (identity_erased
--- before the gate); GL5 (P0001 identity_erased), GL6. S1, every L and GL1-4/7-9 pass on RED too:
--- the sweep and the legitimate paths are unchanged.
+-- with no sub passes the 081 NULL-uid branch and RELEASES h4), N7 (h4 released), N8 (claims ''
+-- with no sub passes it too); GN2 (P0002 identity), GN3 (identity_erased), GN4, GN5 (P0002 venue),
+-- GN6 (self_grant), GN7 (identity_erased before the gate); GL5 (P0001 identity_erased), GL6.
+-- S1, every L and GL1-4/7-9 pass on RED too: the sweep and the legitimate paths are unchanged.
 -- Gate-removal mutants (193 with one block undone; 35 emitted each, never aborts):
---   release gate removed -> A2 N1-N7 (+ L1 L2 L5, consequential); NULL-uid restriction removed -> A2 N6 N7;
+--   release gate removed -> A2 N1-N8 (+ L1 L2 L5, consequential); NULL-uid restriction removed -> A2 N6 N7 N8;
+--   '' accepted again (the pre-narrowing gate) -> A2 N8;
 --   grant gate removed -> A2 GN1-GN8 (+ GL1 GL8 GL9, consequential); identity collapse undone -> A2 GL5 GL6.
 -- ============================================================================
 BEGIN;
@@ -125,7 +128,7 @@ SELECT set_eq(
   'A1: both stay SECURITY DEFINER with search_path = '''' and EXECUTE exactly owner + authenticated (no grant changed)');
 SELECT is((SELECT string_agg(p.proname || '=' || md5(pg_get_functiondef(p.oid)), ' ' ORDER BY p.proname)
              FROM pg_proc p WHERE p.oid IN ('venue.release_inventory_hold(uuid,text)'::regprocedure, 'venue.grant_staff_role(uuid,uuid,text,text)'::regprocedure)),
-  'grant_staff_role=3923ba5f9aba4512872693a0588bf353 release_inventory_hold=32d667a5453460b116a646049d1ce066',
+  'grant_staff_role=3923ba5f9aba4512872693a0588bf353 release_inventory_hold=b981bef80b10455a0c45a6e908c91aec',
   'A2: both bodies are 193''s (the pre-flight / post-flight / rollback anchor)');
 
 -- ── Section N — release_inventory_hold negative controls ────────────────────
@@ -204,16 +207,17 @@ SELECT is((SELECT (tap._fetch262('l6')::jsonb ->> 'swept', tap._fetch262('l6')::
                    (SELECT status FROM venue.inventory_hold WHERE hold_id = '26200000-0000-4000-8000-0000000000f6'))::text),
   '(1,0,expired)',
   'L6: under a service_role JWT the sweep expires the hold (swept 1, errors 0)');
--- the '' persona (tap.logout: the migrations' trusted service path; 145 E2 runs here)
+-- claims = '' with no subject (the tap.logout persona): NOT the cron context (cron's claims are NULL,
+-- S1) and not a service_role JWT, so the NULL-uid branch refuses — no production path produces ''
 INSERT INTO venue.inventory_hold (hold_id, batch_id, identity_id, quantity, status, expires_at, command_idempotency_key) VALUES
-  ('26200000-0000-4000-8000-0000000000f7', '26200000-0000-4000-8000-00000000c001', '26200000-0000-4000-8000-000000000101', 1, 'active', now() - interval '1 minute', 'ck-262-h7');
+  ('26200000-0000-4000-8000-0000000000f7', '26200000-0000-4000-8000-00000000c001', '26200000-0000-4000-8000-000000000101', 1, 'active', now() + interval '1 hour', 'ck-262-h7');
 UPDATE venue.inventory_batch SET held = held + 1 WHERE batch_id = '26200000-0000-4000-8000-00000000c001';
-SELECT tap._store262('l7_claims', current_setting('request.jwt.claims', true));
-SELECT tap._store262('l7', tap._val262($q$SELECT venue.sweep_expired_inventory_holds()::text$q$));
-SELECT is((SELECT (tap._fetch262('l7_claims'), tap._fetch262('l7')::jsonb ->> 'swept', tap._fetch262('l7')::jsonb ->> 'errors',
+SELECT tap._store262('n8_claims', current_setting('request.jwt.claims', true));
+SELECT tap._store262('n8', tap._val262($q$SELECT venue.release_inventory_hold('26200000-0000-4000-8000-0000000000f7', 'n-262-8')::text$q$));
+SELECT is((SELECT (tap._fetch262('n8_claims'), tap._fetch262('n8')::jsonb ->> 'error',
                    (SELECT status FROM venue.inventory_hold WHERE hold_id = '26200000-0000-4000-8000-0000000000f7'))::text),
-  '("",1,0,expired)',
-  'L7: with claims = '''' (no JWT, the tap.logout persona: 145 E2''s context) the sweep expires the hold (swept 1, errors 0)');
+  '("","42501|insufficient_privilege: not the holder or venue staff",active)',
+  'N8: claims = '''' with no sub (not NULL, not service_role) -> the same 42501, and the hold stays active');
 SELECT is((SELECT b.held = (SELECT coalesce(sum(h.quantity), 0) FROM venue.inventory_hold h WHERE h.batch_id = b.batch_id AND h.status = 'active')
              FROM venue.inventory_batch b WHERE b.batch_id = '26200000-0000-4000-8000-00000000c001'), true,
   'L8: counters consistent: held equals the sum of the still-active holds after every release and sweep');

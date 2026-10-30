@@ -317,21 +317,31 @@ UPDATE venue.inventory_batch SET held = 5 WHERE batch_id = tap._fetch145('batch'
 
 SELECT is(tap._rem(tap._fetch145('batch')::uuid), 45,
   'E1: T-RPC-INV-04 — with the expired hold UNSWEPT, remaining is provably reduced (50-5)');
+-- 2026-10-30 (registry 193, D): the engine's NULL-uid branch now admits only the trusted service path
+-- (public.request_is_service_role(): a service_role JWT, or NULL claims — the pg_cron session, pinned by
+-- 262 S1). A placeholder GUC never reads NULL again once this session has set it (RESET reads ''), and
+-- tap.logout() leaves '', so the sweeps below run under tap.login_service() — the service_role arm.
+SELECT tap.login_service();
 SELECT is((venue.sweep_expired_inventory_holds() ->> 'swept')::int, 1,
   'E2: the sweep releases exactly the ONE expired hold');
+SELECT tap.logout();
 SELECT is((SELECT status FROM venue.inventory_hold WHERE hold_id = '00000000-0000-0000-0000-0000000a0001'), 'expired',
   'E3: the expired hold flips active -> expired');
 SELECT is(tap._rem(tap._fetch145('batch')::uuid), 48,
   'E4: T-RPC-INV-04 — held is RETURNED (50-2=48): the sweep is LOAD-BEARING, not cosmetic');
 SELECT is((SELECT status FROM venue.inventory_hold WHERE hold_id = '00000000-0000-0000-0000-0000000a0002'), 'active',
   'E5: the unexpired hold is untouched');
+SELECT tap.login_service();
 SELECT is((venue.sweep_expired_inventory_holds() ->> 'swept')::int, 0,
   'E6: T-RPC-INV-06 — a re-run over the same window releases nothing further');
+SELECT tap.logout();
 -- a hold that CONVERTED is not re-released (§20.3.3 skip-converted; -05 shape)
 UPDATE venue.inventory_hold SET status='converted', expires_at = now() - interval '1 minute'
  WHERE hold_id = '00000000-0000-0000-0000-0000000a0002';
+SELECT tap.login_service();
 SELECT is((venue.sweep_expired_inventory_holds() ->> 'swept')::int, 0,
   'E7: T-RPC-INV-05 — a converted hold is SKIPPED, not released (releasing it would return sold capacity)');
+SELECT tap.logout();
 SELECT is(tap._held(tap._fetch145('batch')::uuid), 2,
   'E8: …the counter is unchanged by that pass');
 

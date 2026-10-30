@@ -20,13 +20,12 @@
 --
 -- THE CHANGE (each in a marked "193" block; everything else is the predecessor text):
 --   1. release_inventory_hold: the GATE runs first, before the hold's existence, status or lock.
---      * a NULL uid passes only for a service_role JWT (public.request_is_service_role()) or a
---        session carrying NO JWT at all — request.jwt.claims NULL or '' (the convention the
---        migrations and 000_helpers' tap.logout use for the trusted service path): the pg_cron
---        tick that runs venue.sweep_expired_inventory_holds (081 PART 13). PostgREST always sets
---        the claims from the verified JWT, so through the API a NULL uid passes only as
---        service_role; an `authenticated` JWT without `sub` now refuses 42501. (The helper alone
---        reads '' as "some JWT" and would refuse the '' persona — 145 E2's sweep runs there.)
+--      * a NULL uid passes only when public.request_is_service_role(): a service_role JWT, or a
+--        session whose request.jwt.claims is NULL — the pg_cron tick that runs
+--        venue.sweep_expired_inventory_holds (081 PART 13); a cron session never sets the
+--        claims. PostgREST always sets them from the verified JWT, so through the API a NULL uid
+--        passes only as service_role; an `authenticated` JWT without `sub` refuses 42501, and so
+--        does a session whose claims are '' (a value no production path produces).
 --      * a uid caller must be the holder or venue staff (venue_manager / venue_scanner, unchanged).
 --        An unknown hold, someone else's active hold and someone else's released/expired hold all
 --        answer the SAME refusal: 42501 'insufficient_privilege: not the holder or venue staff'.
@@ -62,7 +61,7 @@ do $pf$
 declare r record; v_md5 text;
 begin
   for r in select * from (values
-    ('venue.release_inventory_hold(uuid,text)',      '56f5f27a875f47039244879b6973b94a', '32d667a5453460b116a646049d1ce066'),
+    ('venue.release_inventory_hold(uuid,text)',      '56f5f27a875f47039244879b6973b94a', 'b981bef80b10455a0c45a6e908c91aec'),
     ('venue.grant_staff_role(uuid,uuid,text,text)',   'c6b6b7c1c4cf43dd81e406afa609f4fb', '3923ba5f9aba4512872693a0588bf353')
   ) as t(fn, md5_pred, md5_own) loop
     v_md5 := md5(pg_get_functiondef(r.fn::regprocedure));
@@ -95,13 +94,11 @@ begin
   end if;
 
   -- ── 193 GATE — authority before the hold's existence, status or lock is consulted.
-  -- A NULL uid passes only for a service_role JWT or a session with no JWT at all
-  -- (NULL or '' claims: the scheduler's sweep). A caller with a uid must be the holder
-  -- or venue staff; an unknown hold refuses exactly like a foreign one.
+  -- A NULL uid passes only for a service_role JWT or a session whose claims are NULL
+  -- (the pg_cron sweep): public.request_is_service_role(). A caller with a uid must be
+  -- the holder or venue staff; an unknown hold refuses exactly like a foreign one.
   if v_uid is null then
-    if not (public.request_is_service_role()
-            or (nullif(current_setting('request.jwt.claims', true), '') is null
-                and nullif(current_setting('request.jwt.claim.role', true), '') is null)) then
+    if not public.request_is_service_role() then
       raise exception 'insufficient_privilege: not the holder or venue staff'
         using errcode = '42501';
     end if;
@@ -272,7 +269,7 @@ do $pc$
 declare r record; v_md5 text; v_acl text; v_ok boolean;
 begin
   for r in select * from (values
-    ('venue.release_inventory_hold(uuid,text)',    '32d667a5453460b116a646049d1ce066'),
+    ('venue.release_inventory_hold(uuid,text)',    'b981bef80b10455a0c45a6e908c91aec'),
     ('venue.grant_staff_role(uuid,uuid,text,text)', '3923ba5f9aba4512872693a0588bf353')
   ) as t(fn, md5_own) loop
     select md5(pg_get_functiondef(p.oid)),

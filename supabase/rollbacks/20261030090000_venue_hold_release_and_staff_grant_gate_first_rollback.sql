@@ -15,7 +15,7 @@ do $pf$
 declare r record; v_md5 text;
 begin
   for r in select * from (values
-    ('venue.release_inventory_hold(uuid,text)',      '32d667a5453460b116a646049d1ce066', '56f5f27a875f47039244879b6973b94a'),
+    ('venue.release_inventory_hold(uuid,text)',      'b981bef80b10455a0c45a6e908c91aec', '56f5f27a875f47039244879b6973b94a'),
     ('venue.grant_staff_role(uuid,uuid,text,text)',   '3923ba5f9aba4512872693a0588bf353', 'c6b6b7c1c4cf43dd81e406afa609f4fb')
   ) as t(fn, md5_193, md5_pred) loop
     v_md5 := md5(pg_get_functiondef(r.fn::regprocedure));
