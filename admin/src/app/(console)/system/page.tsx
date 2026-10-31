@@ -38,6 +38,8 @@ import { AuditTable } from "@/components/system/AuditTable";
 import { SummaryView } from "@/components/system/SummaryView";
 import { AlertList } from "@/components/system/AlertList";
 import { AlertDeliveryChannel, type SettingsRead } from "@/components/system/AlertChannel";
+import { MoneySettingsPanel } from "@/components/system/MoneySettingsPanel";
+import { toMoneyConfigList } from "@/lib/money-config";
 import { ReportFreshness } from "@/components/shell/Freshness";
 
 export const metadata: Metadata = { title: "System" };
@@ -74,10 +76,11 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
   if (stateF) actionFilters.state = stateF;
   if (typeF) actionFilters.action_type = typeF;
 
-  const [healthRes, approvalsRes, settingsRes, auditRes, actionsRes, summaryRes] = await Promise.all([
+  const [healthRes, approvalsRes, settingsRes, moneyRes, auditRes, actionsRes, summaryRes] = await Promise.all([
     callOps<unknown>("job_health"),
     callOps<unknown>("list_approvals", { p_state: "pending" }),
     isAdmin ? callOps<unknown>("settings") : Promise.resolve(null),
+    isAdmin ? callOps<unknown>("list_config_approvals", { p_state: "all" }) : Promise.resolve(null),
     callOps<unknown>("audit_log", { p_cursor: first(sp.audit_cursor) ?? null, p_limit: 25 }),
     callOps<unknown>("list_actions", { p_filters: actionFilters, p_cursor: first(sp.actions_cursor) ?? null, p_limit: limitOf(sp, 25) }),
     callOps<unknown>("latest_summary"),
@@ -88,6 +91,8 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
   const settings: Setting[] = settingsRes && settingsRes.ok ? toSettings(settingsRes.data) : [];
   // The Delivery channel block reads the same settings result; it makes no call of its own.
   const settingsRead: SettingsRead = !isAdmin ? { status: "not_admin" } : settingsRes && settingsRes.ok ? { status: "ok", settings } : { status: "failed" };
+  const money = moneyRes && moneyRes.ok ? toMoneyConfigList(moneyRes.data) : null;
+  const moneyPending = money ? money.items.filter((r) => r.state === "pending").length : 0;
   const auditPage = auditRes.ok ? toListPage(auditRes.data) : null;
   const audit: AuditRow[] = auditPage ? auditPage.items.map(toAuditRow).filter((a): a is AuditRow => a !== null) : [];
   const actionsPage = actionsRes.ok ? toListPage(actionsRes.data) : null;
@@ -123,7 +128,10 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
           ["#webhooks", "Webhooks"],
           ["#notify", "Notifications"],
           ["#alerts", "Alerts"],
+          // v2 keeps its own form of this label: a FAILED approvals read shows "—" rather than 0,
+          // which production's `approvals.length` could not distinguish. The money link is production's.
           ["#approvals", `Approvals (${approvalsRes.ok ? approvals.length : "—"})`],
+          ["#money", money ? `Money settings (${moneyPending})` : "Money settings"],
           ["#settings", "Settings"],
           ["#actions", "Actions"],
           ["#audit", "Audit log"],
@@ -215,6 +223,21 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
             </div>
           )}
           <p className="mt-3 text-[0.6875rem] text-dim">Approval is bound to the exact action terms; if anything about the request changes it is voided. You cannot approve your own request. Approvals expire after the configured TTL.</p>
+        </Panel>
+
+        {/* 196's Money settings panel, carried from production (dddc8e92) with NO behaviour change:
+            the same ops reads, the same guards, the same copy. Only its position moved, into the v2
+            /system layout above the console switches. */}
+        <Panel eyebrow={money ? `${moneyPending} pending` : "platform_config"} title="Money settings (second founder)">
+          <div id="money" />
+          {!isAdmin ? (
+            <Alert state="info" title="Money settings are visible to platform_admin only." compact />
+          ) : moneyRes && !moneyRes.ok ? (
+            <OpsFailureAlert failure={moneyRes} fn="list_config_approvals" retryHref="/system#money" />
+          ) : money ? (
+            <MoneySettingsPanel list={money} meId={me.id} />
+          ) : null}
+          <p className="mt-3 text-[11px] text-dim">Money keys (refund, payout, fee, authn, …) change through the kernel&apos;s dual-control flow: you cannot approve your own request, approving needs a fresh aal2 session, and requests expire after 72 hours.</p>
         </Panel>
 
         <Panel eyebrow="Console switches" title="Settings">
