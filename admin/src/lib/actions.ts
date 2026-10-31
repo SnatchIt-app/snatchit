@@ -1,11 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { callOps } from "@/lib/ops";
+import { callKernelApproval, callOps } from "@/lib/ops";
 import { isIdempotencyKey, IDEMPOTENCY_FIELD } from "@/lib/idempotency";
 import { isRecord, parseApprovalDecision, toActionOutcome, type ActionOutcome, type ActionType, type ApprovalDecision } from "@/lib/types";
 import { coerceParam, parseParamField } from "@/lib/form-params";
 import type { OpsFailure } from "@/lib/ops-errors";
+import { buildConfigRequestArgs, buildDecisionArgs } from "@/lib/money-config";
 
 export type ExecuteActionInput = {
   idempotencyKey: string;
@@ -151,6 +152,67 @@ export async function submitActionForm(_prev: ActionFormState, formData: FormDat
     revalidatePath(revalidate);
   }
   return state;
+}
+
+// ---------------------------------------------------------------------------
+// Money settings (registry 196): request a money-key change; decide one
+// ---------------------------------------------------------------------------
+
+export type MoneyFormState = {
+  submitted?: boolean;
+  /** The server's status: parked | ok | noop_replay (request); approved | denied | noop_replay (decision). */
+  status?: string;
+  requestId?: string;
+  appliedVersion?: number;
+  failure?: OpsFailure;
+  invalid?: string;
+};
+
+/** unique (requested_by, command key): the same form posted twice. */
+const DUPLICATE_SUBMIT = "This form was already submitted — reload to see the request in the list.";
+
+function moneyReply(data: unknown): Pick<MoneyFormState, "status" | "requestId" | "appliedVersion"> | null {
+  if (!isRecord(data) || typeof data.status !== "string") return null;
+  return {
+    status: data.status,
+    requestId: typeof data.request_id === "string" ? data.request_id : undefined,
+    appliedVersion: typeof data.applied_version === "number" ? data.applied_version : typeof data.version === "number" ? data.version : undefined,
+  };
+}
+
+export async function submitMoneyConfigRequest(_prev: MoneyFormState, formData: FormData): Promise<MoneyFormState> {
+  const built = buildConfigRequestArgs({
+    key: formData.get("key"),
+    value: formData.get("value"),
+    reason: formData.get("reason"),
+    commandKey: formData.get(IDEMPOTENCY_FIELD),
+  });
+  if (!built.ok) return { submitted: true, invalid: built.invalid };
+  const res = await callOps<unknown>("request_platform_config", built.args);
+  if (!res.ok) {
+    if (res.kind === "error" && res.code === "23505") return { submitted: true, invalid: DUPLICATE_SUBMIT };
+    return { submitted: true, failure: res };
+  }
+  const reply = moneyReply(res.data);
+  if (!reply) return { submitted: true, failure: { ok: false, kind: "error", message: "Unrecognised response from request_platform_config" } };
+  revalidatePath("/system");
+  return { submitted: true, ...reply };
+}
+
+export async function submitMoneyConfigDecision(_prev: MoneyFormState, formData: FormData): Promise<MoneyFormState> {
+  const built = buildDecisionArgs({
+    requestId: formData.get("request_id"),
+    decision: formData.get("decision"),
+    reason: formData.get("reason"),
+    commandKey: formData.get(IDEMPOTENCY_FIELD),
+  });
+  if (!built.ok) return { submitted: true, invalid: built.invalid };
+  const res = await callKernelApproval<unknown>(built.args);
+  if (!res.ok) return { submitted: true, failure: res };
+  const reply = moneyReply(res.data);
+  if (!reply) return { submitted: true, failure: { ok: false, kind: "error", message: "Unrecognised response from approve_refund_request" } };
+  revalidatePath("/system");
+  return { submitted: true, ...reply };
 }
 
 // ---------------------------------------------------------------------------
