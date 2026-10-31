@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { pendingTotpFactors, verifiedTotpFactor } from "@/lib/auth/totp-factors";
 import { Alert } from "@/components/ui/Alert";
 
 type Phase =
@@ -37,15 +38,19 @@ export function MfaFlow({ next }: { next: string }) {
         const supabase = getSupabaseBrowserClient();
         const { data: factors, error: listErr } = await supabase.auth.mfa.listFactors();
         if (listErr) throw listErr;
-        const totp: { id: string; status?: string }[] = factors?.totp ?? [];
-        const verified = totp.find((f) => f.status === "verified");
+        const verified = verifiedTotpFactor(factors);
         if (verified) {
           setPhase({ kind: "verify", factorId: verified.id });
           return;
         }
         // Unverified factors from an abandoned enrolment cannot be completed
-        // (their secret was only shown once), so remove them before enrolling.
-        for (const f of totp.filter((x) => x.status !== "verified")) {
+        // (their secret was only shown once), so remove them before enrolling:
+        // GoTrue counts them against its per-user factor cap, so enough of them
+        // make enroll() fail and the operator only sees "Could not start MFA."
+        // Best-effort on purpose — unenroll() reports failure in its result
+        // rather than throwing, and a clean-up that cannot run must not block an
+        // enrolment that would still succeed.
+        for (const f of pendingTotpFactors(factors)) {
           await supabase.auth.mfa.unenroll({ factorId: f.id });
         }
         const suffix = Math.random().toString(36).slice(2, 6);
