@@ -8,7 +8,7 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Alert, OpsFailureAlert } from "@/components/ui/Alert";
 import { str, type ActionOutcome } from "@/lib/types";
 import { RELIST_STALE_MESSAGE, relistOutcomeDetail, type RelistOutcomeDetail } from "@/lib/relist";
-import { shortId } from "@/lib/format";
+import { formatEt, shortId } from "@/lib/format";
 
 /**
  * While a submission is pending the button stays focusable (aria-disabled, not
@@ -161,6 +161,11 @@ function FormResult({ state, actionType }: { state: ActionFormState; actionType:
 }
 
 /** Raw server values, never reformatted (a timestamp keeps its offset and microseconds). */
+/** The server's raw instant first (it is the evidence), then the same instant in Eastern Time. */
+function withEt(raw: string | null): string | null {
+  return raw === null ? null : `${raw} (${formatEt(raw, true)})`;
+}
+
 function FieldList({ caption, rows }: { caption: string; rows: { key: string; value: string | null }[] }) {
   return (
     <div className="mt-1">
@@ -191,8 +196,8 @@ function RelistOutcome({ outcome, detail }: { outcome: ActionOutcome; detail: Re
   }
   const relisted = detail.relisted
     ? [
-        { key: "new_ends_at", value: str(detail.relisted.new_ends_at) },
-        { key: "previous_ends_at", value: str(detail.relisted.previous_ends_at) },
+        { key: "new_ends_at", value: withEt(str(detail.relisted.new_ends_at)) },
+        { key: "previous_ends_at", value: withEt(str(detail.relisted.previous_ends_at)) },
       ]
     : null;
   return (

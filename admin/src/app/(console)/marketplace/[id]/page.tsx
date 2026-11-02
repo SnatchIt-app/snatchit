@@ -197,10 +197,10 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
                   </p>
                   <div>
                     <label htmlFor="relist-ends" className="eyebrow block text-dim">
-                      New end (UTC) <span aria-hidden="true">*</span>
+                      New end (Eastern Time) <span aria-hidden="true">*</span>
                     </label>
-                    <input id="relist-ends" type="datetime-local" name="param.new_ends_at:utc" required className="field mt-1" />
-                    <p className="text-[0.6875rem] text-dim">Enter the new auction end as a UTC wall-clock time; it is sent with a Z (UTC) suffix and stored as timestamptz.</p>
+                    <input id="relist-ends" type="datetime-local" name="param.new_ends_at:et" required className="field mt-1" />
+                    <p className="text-[0.6875rem] text-dim">Enter the new auction end in Eastern Time. The console sends it with the EST or EDT offset for that date.</p>
                   </div>
                 </ConfirmForm>
               ) : relist ? (

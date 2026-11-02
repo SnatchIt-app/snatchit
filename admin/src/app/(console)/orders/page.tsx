@@ -5,7 +5,7 @@ import { callOps } from "@/lib/ops";
 import { requireOperator } from "@/lib/auth/session";
 import { toListPage, toOrderRows, type OrderRow } from "@/lib/types";
 import { cursorOf, first, limitOf, list, type SearchParams } from "@/lib/search-params";
-import { FUNDS_STATE_LABELS, PAYMENT_STATUS_LABELS, TRANSFER_STATUS_LABELS, isPast, labelFor, transferStateLabel } from "@/lib/format";
+import { FUNDS_STATE_LABELS, PAYMENT_STATUS_LABELS, TRANSFER_STATUS_LABELS, etDayEnd, etDayStart, isPast, labelFor, transferStateLabel } from "@/lib/format";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { OpsFailureAlert } from "@/components/ui/Alert";
 import { OrderTable } from "@/components/orders/OrderTable";
@@ -65,8 +65,10 @@ function toFilters(p: Params): Record<string, unknown> {
   if (p.transfer_status) f.transfer_status = p.transfer_status.split(",");
   if (p.payout_state) f.payout_state = p.payout_state;
   if (p.has_open_case) f.has_open_case = p.has_open_case === "true";
-  if (p.from) f.from = `${p.from}T00:00:00Z`;
-  if (p.to) f.to = `${p.to}T23:59:59.999Z`;
+  // Eastern calendar days (owner decision, 2026-11-02). The console sets these limits itself, so they are
+  // instants with no dependence on the server's day basis.
+  if (p.from) f.from = etDayStart(p.from)?.toISOString();
+  if (p.to) f.to = etDayEnd(p.to)?.toISOString();
   return f;
 }
 
@@ -374,8 +376,8 @@ function chipList(applied: Params): { key: FilterKey; label: string }[] {
   if (applied.transfer_status) out.push({ key: "transfer_status", label: `Ticket transfer: ${names(applied.transfer_status, TRANSFER_STATUS_LABELS)}` });
   if (applied.payout_state) out.push({ key: "payout_state", label: `Seller funds: ${PAYOUT_STATE_LABELS[applied.payout_state]}` });
   if (applied.has_open_case) out.push({ key: "has_open_case", label: OPEN_CASE_LABELS[applied.has_open_case] });
-  if (applied.from) out.push({ key: "from", label: `From ${applied.from} (UTC)` });
-  if (applied.to) out.push({ key: "to", label: `To ${applied.to} (UTC)` });
+  if (applied.from) out.push({ key: "from", label: `From ${applied.from} (ET)` });
+  if (applied.to) out.push({ key: "to", label: `To ${applied.to} (ET)` });
   return out;
 }
 
@@ -428,11 +430,11 @@ function DimensionChip({ title, name, kind, options, applied, q }: { title: stri
               : (
                   <div className="grid gap-2 px-1.5 pb-1">
                     <label htmlFor="f-from" className="grid gap-1 text-[0.8125rem] text-muted">
-                      From (UTC)
+                      From (Eastern Time)
                       <input id="f-from" type="date" name="from" defaultValue={applied.from ?? ""} className="field" />
                     </label>
                     <label htmlFor="f-to" className="grid gap-1 text-[0.8125rem] text-muted">
-                      To (UTC)
+                      To (Eastern Time)
                       <input id="f-to" type="date" name="to" defaultValue={applied.to ?? ""} className="field" />
                     </label>
                   </div>

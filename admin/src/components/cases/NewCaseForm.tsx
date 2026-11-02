@@ -62,9 +62,9 @@ export function NewCaseForm({
         </div>
         <div>
           <label htmlFor={`case-due-${subjectId ?? "none"}`} className="eyebrow block text-dim">
-            Due (UTC)
+            Due (Eastern Time)
           </label>
-          <input id={`case-due-${subjectId ?? "none"}`} type="datetime-local" name="param.due_at" className="field mt-1" />
+          <input id={`case-due-${subjectId ?? "none"}`} type="datetime-local" name="param.due_at:et" className="field mt-1" />
         </div>
       </div>
     </ConfirmForm>
