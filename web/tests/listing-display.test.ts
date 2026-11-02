@@ -80,7 +80,7 @@ describe("row text helpers", () => {
   it("formats the event day without a year or timezone shift", () => {
     expect(fmtEventDay("2026-10-24")).toBe("Sat, Oct 24");
     expect(fmtEventDay("garbage")).toBe("garbage");
-    expect(eventWhen({ event_date: "2026-10-24", event_time: "19:30:00" })).toBe("Sat, Oct 24 · 7:30 PM");
+    expect(eventWhen({ event_date: "2026-10-24", event_time: "19:30:00" })).toBe("Sat, Oct 24 · 7:30 PM EDT");
   });
   it("names the ticket count and type", () => {
     expect(quantityLine({ quantity: 2, ticket_type: "GA" })).toBe("2 × GA");

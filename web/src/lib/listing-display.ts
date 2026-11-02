@@ -43,9 +43,34 @@ export function fmtEventDay(isoDate: string): string {
   return `${DAYS[new Date(y, m - 1, d).getDay()]}, ${MONTHS[m - 1]} ${d}`;
 }
 
-/** "Sat, Oct 24 · 9:30 PM" */
+/**
+ * "Sat, Oct 24 · 9:30 PM EDT". The seller enters the event's date and time as a wall clock, and the sell form
+ * says it is Eastern Time. So the label is the EST/EDT that applies at that wall clock. The stored values are
+ * never converted or rewritten (A, 2026-11-02; the app does the same).
+ */
 export function eventWhen(l: Pick<ListingLike, "event_date" | "event_time">): string {
-  return `${fmtEventDay(l.event_date)} · ${fmtEventTime(l.event_time)}`;
+  const zone = marketWallClockZone(l.event_date, l.event_time);
+  return `${fmtEventDay(l.event_date)} · ${fmtEventTime(l.event_time)}${zone ? ` ${zone}` : ""}`;
+}
+
+/**
+ * The EST/EDT label for an Eastern wall clock (date "YYYY-MM-DD", time "HH:MM[:SS]"). A time that happens twice
+ * (the fall-back hour) or does not exist (the spring-forward hour) gets "ET": it is not known which one the seller
+ * meant. An unreadable date or time gets no label.
+ */
+export function marketWallClockZone(date: string, time: string): string | null {
+  const dm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date ?? "");
+  const tm = /^(\d{2}):(\d{2})/.exec(time ?? "");
+  if (!dm || !tm) return null;
+  const [y, mo, d, h, mi] = [dm[1], dm[2], dm[3], tm[1], tm[2]].map(Number);
+  if (h > 23 || mi > 59) return null;
+  const asUtc = Date.UTC(y, mo - 1, d, h, mi);
+  // Eastern is UTC−4 (EDT) or UTC−5 (EST): keep each candidate instant whose Eastern wall clock reads back as entered.
+  const zones = [4, 5]
+    .map((hours) => marketParts(new Date(asUtc + hours * 3_600_000)))
+    .filter((p) => p.y === y && p.m === mo && p.d === d && p.h === h && p.min === mi)
+    .map((p) => p.tz);
+  return zones.length === 1 ? zones[0] : "ET";
 }
 
 /** "2 × GA" · "1 × VIP" · "6 × Table" */

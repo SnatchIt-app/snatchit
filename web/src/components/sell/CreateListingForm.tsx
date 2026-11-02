@@ -227,7 +227,7 @@ export function CreateListingForm({
           <Field label="Event date" htmlFor="eventDate">
             <Input id="eventDate" type="date" min={minDate} value={eventDate} onChange={(e) => setEventDate(e.target.value)} required />
           </Field>
-          <Field label="Event time" htmlFor="eventTime">
+          <Field label="Event time (Eastern Time)" htmlFor="eventTime">
             <Input id="eventTime" type="time" value={eventTime} onChange={(e) => setEventTime(e.target.value)} required />
           </Field>
         </div>

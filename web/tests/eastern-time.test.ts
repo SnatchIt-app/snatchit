@@ -20,7 +20,8 @@ afterAll(() => {
 async function load(tz: string) {
   process.env.TZ = tz;
   vi.resetModules();
-  return import("@/lib/listing-display");
+  const [display, wording] = await Promise.all([import("@/lib/listing-display"), import("@/lib/transfer-wording")]);
+  return { ...display, fmtMoment: wording.fmtMoment };
 }
 
 const live = (ends_at: string) => ({ id: "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d", status: "active", auction_status: "active", ends_at }) as never;
@@ -61,6 +62,25 @@ for (const tz of ["UTC", "America/Los_Angeles"]) {
       expect(m.marketShortDate("2026-11-02T05:00:00Z")).toBe("Nov 2");
     });
 
+    it("a seller-entered event time is labelled with the EST/EDT of that wall clock, never converted", () => {
+      expect(m.eventWhen({ event_date: "2026-11-01", event_time: "20:00:00" })).toBe("Sun, Nov 1 · 8:00 PM EST");
+      expect(m.eventWhen({ event_date: "2026-10-31", event_time: "20:00:00" })).toBe("Sat, Oct 31 · 8:00 PM EDT");
+      expect(m.eventWhen({ event_date: "2026-03-08", event_time: "20:00:00" })).toBe("Sun, Mar 8 · 8:00 PM EDT");
+      expect(m.eventWhen({ event_date: "2026-03-07", event_time: "20:00:00" })).toBe("Sat, Mar 7 · 8:00 PM EST");
+      // 1:30 AM happens twice on Nov 1, and 2:30 AM does not exist on Mar 8: the label says ET, not a guess
+      expect(m.eventWhen({ event_date: "2026-11-01", event_time: "01:30:00" })).toBe("Sun, Nov 1 · 1:30 AM ET");
+      expect(m.eventWhen({ event_date: "2026-03-08", event_time: "02:30:00" })).toBe("Sun, Mar 8 · 2:30 AM ET");
+      // an unreadable time gets no zone claim
+      expect(m.marketWallClockZone("2026-11-01", "")).toBeNull();
+    });
+
+    it("payout times carry EST/EDT on both sides of each change", () => {
+      expect(m.fmtMoment("2026-11-02T04:59:59Z")).toBe("Nov 1, 11:59 PM EST");
+      expect(m.fmtMoment("2026-11-02T05:00:00Z")).toBe("Nov 2, 12:00 AM EST");
+      expect(m.fmtMoment("2026-11-01T03:59:59Z")).toBe("Oct 31, 11:59 PM EDT");
+      expect(m.fmtMoment("2026-11-01T04:00:00Z")).toBe("Nov 1, 12:00 AM EDT");
+    });
+
     it("the auction clock prints its EST/EDT label", () => {
       const now = (iso: string) => new Date(new Date(iso).getTime() - 3 * 24 * 3_600_000);
       expect(m.clockState(live("2026-11-02T04:59:00Z"), now("2026-11-02T04:59:00Z")).text).toBe("Ends Sun, 11:59 PM EST");
@@ -69,6 +89,12 @@ for (const tz of ["UTC", "America/Los_Angeles"]) {
     });
   });
 }
+
+describe("the sell form says event times are Eastern", () => {
+  it("labels the time field Eastern Time", () => {
+    expect(readFileSync(resolve(__dirname, "../src/components/sell/CreateListingForm.tsx"), "utf8")).toContain('label="Event time (Eastern Time)"');
+  });
+});
 
 describe("no page or component formats a date in the runtime zone", () => {
   const files: string[] = [];
