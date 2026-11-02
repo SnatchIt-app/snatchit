@@ -122,17 +122,20 @@ export default function PrimaryCheckoutNative() {
     router.replace(`/ticket/${sessionId}`);
   }, [sessionId]);
 
-  /** The review, then the sheet for THIS quote; Pay arms only once the sheet is ready. */
-  const prepareSheet = useCallback(async (run: number, quote: PrimaryQuote, paymentFailed: boolean) => {
-    if (!sessionId || !ticketTypeId || !attemptId) return;
-    setState({ kind: 'review', quote, sheetReady: false, paying: false, paymentFailed });
+  /**
+   * Configure the one process-wide PaymentSheet for THIS quote (D5: another screen — a covered checkout, the
+   * resale checkout — may have configured it since). `stillMine` is asked last, so a retired caller never
+   * initialises it. True once the sheet is ready.
+   */
+  const initSheetFor = useCallback(async (quote: PrimaryQuote, stillMine: () => boolean): Promise<boolean> => {
+    if (!sessionId || !ticketTypeId || !attemptId) return false;
     // Apple Pay as in the resale checkout: iOS only; a probe that throws is "unsupported", and the sheet
     // still offers cards. The Apple Pay lines carry the same all-in total as the review.
     let applePay = false;
     if (Platform.OS === 'ios') {
       try { applePay = await isPlatformPaySupported(); } catch { applePay = false; }
     }
-    if (!live(run)) return;
+    if (!stillMine()) return false;
     const { error } = await initPaymentSheet({
       paymentIntentClientSecret: quote.clientSecret,
       merchantDisplayName: 'Snatch It',
@@ -143,10 +146,17 @@ export default function PrimaryCheckoutNative() {
       ...(userEmail ? { defaultBillingDetails: { email: userEmail } } : {}),
       ...(applePay ? { applePay: { merchantCountryCode: 'US', cartItems: applePayCartItems(quote).map((i): PlatformPay.CartSummaryItem => ({ ...i, paymentType: PlatformPay.PaymentType.Immediate })) } } : {}),
     });
+    return !error;
+  }, [sessionId, ticketTypeId, quantity, attemptId, initPaymentSheet, userEmail]);
+
+  /** The review, then the sheet for THIS quote; Pay arms only once the sheet is ready. */
+  const prepareSheet = useCallback(async (run: number, quote: PrimaryQuote, paymentFailed: boolean) => {
+    setState({ kind: 'review', quote, sheetReady: false, paying: false, paymentFailed });
+    const ready = await initSheetFor(quote, () => live(run));
     if (!live(run)) return;
-    if (error) { setState({ kind: 'quote_refused', reason: 'unavailable' }); return; }
+    if (!ready) { setState({ kind: 'quote_refused', reason: 'unavailable' }); return; }
     setState({ kind: 'review', quote, sheetReady: true, paying: false, paymentFailed });
-  }, [sessionId, ticketTypeId, quantity, attemptId, initPaymentSheet, userEmail, live]);
+  }, [initSheetFor, live]);
 
   /** Quote (optionally against a total the buyer was shown), resume if already paid, else prepare the sheet. */
   const quoteAndPrepare = useCallback(async (shownTotalMinor: number | null) => {
@@ -241,13 +251,17 @@ export default function PrimaryCheckoutNative() {
     payingRef.current = true;
     const quote = state.quote;
     setState({ kind: 'review', quote, sheetReady: true, paying: true, paymentFailed: false });
+    const ready = await initSheetFor(quote, () => aliveRef.current);
+    if (!aliveRef.current) { payingRef.current = false; return; }
+    // The sheet could not be configured: nothing was presented and no money moved — quote again, same key.
+    if (!ready) { payingRef.current = false; await quoteAndPrepare(quote.totalMinor); return; }
     const { error } = await presentPaymentSheet();
     payingRef.current = false;
     if (!aliveRef.current) return;
     const outcome = sheetOutcome(error);
     if (outcome === 'completed') { submitted(); return; }
     await checkAfterSheet(quote, outcome);
-  }, [state, sessionId, presentPaymentSheet, submitted, checkAfterSheet]);
+  }, [state, sessionId, initSheetFor, presentPaymentSheet, submitted, checkAfterSheet, quoteAndPrepare]);
 
   return (
     <PrimaryCheckoutView

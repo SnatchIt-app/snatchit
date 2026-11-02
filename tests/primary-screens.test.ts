@@ -188,8 +188,20 @@ describe('primary checkout screen — a payments surface (A reviews)', () => {
     expect(native).toContain('if (submittedRef.current || !aliveRef.current) return;');
     expect(native).not.toContain('if (run !== runRef.current) return;');
     expect((native.match(/if \(!live\(run\)\) return;/g) ?? []).length).toBeGreaterThanOrEqual(5);
-    // every sheet initialisation and every navigation to the ticket page sits behind those guards
-    expect(native).toMatch(/if \(!live\(run\)\) return;\s*const \{ error \} = await initPaymentSheet\(/);
+    // the one sheet initialisation is reached only by a caller that is still current
+    expect((native.match(/await initPaymentSheet\(/g) ?? []).length).toBe(1);
+    expect(native).toMatch(/if \(!stillMine\(\)\) return false;\s*const \{ error \} = await initPaymentSheet\(/);
+    expect(native).toContain('const ready = await initSheetFor(quote, () => live(run));');
+  });
+
+  it('K14: Pay presents only this screen’s quote — the shared sheet is configured for it immediately before presenting (c35, D5)', () => {
+    expect(native).toMatch(/const ready = await initSheetFor\(quote, \(\) => aliveRef\.current\);[\s\S]{0,400}const \{ error \} = await presentPaymentSheet\(\);/);
+    expect(native).toMatch(/if \(!ready\) \{ payingRef\.current = false; await quoteAndPrepare\(quote\.totalMinor\); return; \}/);
+    // and the event page cannot open two checkouts from one Continue (the latch resets when it is back in focus)
+    const event = src('app/event/[session].tsx');
+    expect(event).toContain('if (!selectedTierId || continuingRef.current) return;');
+    expect(event).toMatch(/continuingRef\.current = true;\s*router\.push\(\{ pathname: '\/primary-checkout\/\[session\]'/);
+    expect(event).toMatch(/useFocusEffect\(useCallback\(\(\) => \{ continuingRef\.current = false; void read\(\); \}, \[read\]\)\);/);
   });
 
   it('K12: a sheet that did not complete goes to the server check under the same key — never straight back to Pay (c35, D1)', () => {
