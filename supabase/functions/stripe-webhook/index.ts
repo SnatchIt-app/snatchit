@@ -1371,18 +1371,35 @@ serve(async (req: Request) => {
       let paymentId:  string | null = null;
       let transferId: string | null = null;
       if (dispute.payment_intent) {
-        const { data: payment } = await supabase
+        // webhook-ingress-1: a lookup ERROR is not "no row". Swallowing it left
+        // paymentId/transferId NULL, skipped the freeze below and ACKed, so the
+        // transfer stayed payable during the dispute and the lost-dispute arm
+        // (dispute.closed, `ourDispute.payment_id` / `.transfer_id` guards) had
+        // nothing to record or flag. payments.stripe_payment_intent_id and
+        // transfers.payment_id are both UNIQUE (000_baseline_schema.sql:988,
+        // 003_payment_integrity.sql:70), so maybeSingle never sees duplicates and
+        // only an error can hide a present row. Retry before any freeze or upsert, exactly as the dispute.closed
+        // reconcile path does; a genuinely absent row keeps today's behaviour.
+        const { data: payment, error: payLookupErr } = await supabase
           .from('payments')
           .select('id')
           .eq('stripe_payment_intent_id', dispute.payment_intent)
           .maybeSingle();
+        if (payLookupErr) {
+          console.error('Webhook: dispute.created payment lookup failed:', { dispute_id: dispute.id, error: payLookupErr });
+          return await finish(false, { dispute_id: dispute.id }, `dispute created payment lookup: ${payLookupErr.message}`);
+        }
         paymentId = payment?.id ?? null;
         if (paymentId) {
-          const { data: transfer } = await supabase
+          const { data: transfer, error: trLookupErr } = await supabase
             .from('transfers')
             .select('id, status, payout_released_at')
             .eq('payment_id', paymentId)
             .maybeSingle();
+          if (trLookupErr) {
+            console.error('Webhook: dispute.created transfer lookup failed:', { dispute_id: dispute.id, payment_id: paymentId, error: trLookupErr });
+            return await finish(false, { dispute_id: dispute.id }, `dispute created transfer lookup: ${trLookupErr.message}`);
+          }
           transferId = transfer?.id ?? null;
 
           // 2. Freeze the transfer so auto-release / confirm-and-release
@@ -1628,6 +1645,15 @@ serve(async (req: Request) => {
         await markProcessed();
       } else {
         let refunds = charge.refunds?.data;
+        // refunds-6: a list embedded in the event is a SNAPSHOT from when the
+        // event was emitted, not Stripe's current state. A late or redelivered
+        // charge.refunded carrying 'pending' would otherwise overwrite the
+        // 'succeeded' that refund.updated already recorded (record_refund_state
+        // refuses only exits from failed/canceled, 20260925000000:186, and
+        // other statuses are not ordered), and no later event repairs a final
+        // refund. Every embedded refund is therefore re-read, as the refund.*
+        // branch below does. A list from the live charge fetch is current.
+        const embeddedSnapshot = Array.isArray(refunds);
         if (!refunds) {
           const probe = await stripeFetchRaw(`/charges/${charge.id}?expand[]=refunds`);
           if (!probe.ok) {
@@ -1639,12 +1665,13 @@ serve(async (req: Request) => {
         }
         // 150: each refund is written with ITS OWN status — a failed or canceled
         // refund in this list is never recorded as money returned. A listed
-        // refund without a status is re-read from Stripe first.
+        // refund without a status, or from the event's embedded snapshot
+        // (refunds-6, above), is re-read from Stripe first.
         const results: unknown[] = [];
         for (const listed of refunds as StripeRefund[]) {
           if (!listed?.id) continue;
           let r: StripeRefund = listed;
-          if (!r.status || !REFUND_STATUSES.has(r.status) || typeof r.amount !== 'number') {
+          if (embeddedSnapshot || !r.status || !REFUND_STATUSES.has(r.status) || typeof r.amount !== 'number') {
             const got = await fetchRefund(listed.id);
             if (!got.ok) {
               console.error('Webhook: charge.refunded — refund fetch failed:', { refund_id: listed.id, error: got.error });
@@ -1953,14 +1980,22 @@ serve(async (req: Request) => {
       }
 
       if (profileErr) {
-        // Log + ACK; Stripe will not retry account.updated and we don't
-        // want to surface 5xx for transient DB errors on a non-critical
-        // sync path.
+        // webhook-ingress-2: NOT done — answer non-2xx so Stripe redelivers.
+        // This used to release the lease and still answer 200, on the premise
+        // that "Stripe will not retry account.updated". Stripe retries any
+        // non-2xx (finish(), above), and this write is not a side path: it is
+        // the only writer that turns stripe_onboarding_complete back to false
+        // (create-connect-account only ever sets it true), which the listing
+        // INSERT guard (038_listing_requires_verified_phone.sql:42) and payout policy
+        // (_shared/payout-policy.ts:260) read. The organization arm above
+        // retries the identical error for the same reason. The UPDATE is
+        // idempotent, so redelivery is safe.
         console.error('Webhook: account.updated profile update failed', {
           account_id: accountId,
           error:      profileErr.message,
         });
-        await markProcessed({ error: `account.updated profile update: ${profileErr.message}` });
+        return await finish(false, { stage: 'account_updated_profile', account_id: accountId },
+          `account.updated profile update: ${profileErr.message}`);
       } else {
         console.log('Webhook: account.updated synced', {
           account_id:           accountId,
@@ -2021,11 +2056,21 @@ serve(async (req: Request) => {
       }
 
       const deauthStatus = (deauthData as { status?: string } | null)?.status ?? 'ok';
+      // connect-3: noop_replay alone does not mean "not applied". The RPC also
+      // answers it from the heartbeat arm when the flag is ALREADY false
+      // (093:3570-3576), and for a redelivery of a deauth that was applied
+      // (same event.created, 093:3559-3564). The returned
+      // connect_transfers_active is the only operand that says whether the org
+      // is still payable, so 'not_applied' is kept for true — or for a payload
+      // that does not say, which an operator must still check.
+      const deauthStillActive = (deauthData as { connect_transfers_active?: unknown } | null)?.connect_transfers_active;
       return await finishDecision(
         {
           ack: true,
           alert: true,
-          reason: deauthStatus === 'noop_replay' ? 'org_deauthorized_not_applied' : 'org_deauthorized',
+          reason: deauthStatus === 'noop_replay' && deauthStillActive !== false
+            ? 'org_deauthorized_not_applied'
+            : 'org_deauthorized',
         },
         {
           stage: 'account_deauthorized',
