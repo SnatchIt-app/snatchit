@@ -175,6 +175,12 @@ INSERT INTO kernel.signing_key (key_id, scope, public_key, kms_handle_ref, algor
 SELECT (repeat('0', 30) || 'b0')::uuid, 'global', tap._pem271(),
        'arn:aws:kms:us-east-1:' || repeat('0', 12) || ':key/1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b', 'ES256', 'active', now()
  WHERE NOT EXISTS (SELECT 1 FROM kernel.signing_key k WHERE k.scope = 'global' AND k.status = 'active');
+-- the sales switch on, as a new version written as postgres (as 258 does). Registry 198 makes checkout refuse
+-- feature_disabled unless the newest version is true; before 198 checkout does not read it, so this is a no-op there.
+-- Without it every K/R/X case below reads feature_disabled on a chain that carries 198.
+INSERT INTO catalog.platform_config (key, version, value, visibility)
+SELECT 'feature.native_issuance_enabled', coalesce(max(version), 0) + 1, 'true'::jsonb, 'public'
+  FROM catalog.platform_config WHERE key = 'feature.native_issuance_enabled';
 SELECT is((SELECT ARRAY[(SELECT count(*) FROM kernel.signing_key k WHERE k.scope = 'global' AND k.status = 'active' AND k.not_before <= now())::integer,
                         (SELECT (c.value = 'null'::jsonb)::integer FROM catalog.platform_config c WHERE c.key = 'fee.buyer_service_bps' ORDER BY c.version DESC LIMIT 1),
                         (SELECT count(*) FROM catalog.event e WHERE e.org_id = 'a271fee0-e0b0-4c00-a0d0-0000000c0a01' AND e.status IN ('on_sale', 'announced'))::integer,
