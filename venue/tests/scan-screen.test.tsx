@@ -65,7 +65,8 @@ describe("the scanner screen's first paint", () => {
     ],
     defaultSessionId: "5e55e55e-0000-4000-8000-000000000001",
     staff: { label: "door@example.test", role: "Scanner" },
-    timeZone: null,
+    // a venue outside New York: the scanner must show ITS zone, not the platform's and not the phone's
+    timeZone: "America/Chicago",
     loginHref: "/login?next=%2Fx",
   };
   it("setup first: a labelled session choice, a labelled phone label, one primary button, no demo label, and the human ID check named", () => {
@@ -77,11 +78,15 @@ describe("the scanner screen's first paint", () => {
     expect(h).toContain("name=\"device_label\"");
     expect(h).toContain("Start scanning");
     expect(h).toContain("the 21+ ID check stays with you");
-    expect(h).toContain("phone&#x27;s time zone");
+    expect(h).toContain("Times are in America/Chicago, whatever time zone this phone is set to.");
+    expect(h).toContain("Doors · Sun, Nov 29, 9:00 PM CST · live"); // 2026-11-30T03:00Z in Chicago
+    expect(h).not.toContain("phone&#x27;s time zone");
     expect(h).toContain("door@example.test");
   });
-  it("with the venue's zone known, times say so; with no sessions the button is disabled", () => {
-    expect(html(createElement(ScannerClient, { ...props, timeZone: "America/New_York" }))).toContain("Times in America/New_York.");
+  it("the hint names the zone the times are in; with no sessions the button is disabled", () => {
+    const ny = html(createElement(ScannerClient, { ...props, timeZone: "America/New_York" }));
+    expect(ny).toContain("Times are in America/New_York");
+    expect(ny).toContain("Doors · Sun, Nov 29, 10:00 PM EST · live");
     const none = html(createElement(ScannerClient, { ...props, sessions: [], defaultSessionId: null }));
     expect(none).toContain("No sessions on this event");
     expect(none).toMatch(/<button[^>]*disabled[^>]*>\s*Start scanning/);

@@ -1,5 +1,6 @@
 import type { DataSource } from "@/lib/env";
 import { VENUE } from "@/fixtures/venue";
+import { PLATFORM_TIME_ZONE } from "@/lib/format";
 
 /**
  * Which time zone the dashboard reads an operator's wall clock in, and whether
@@ -17,7 +18,7 @@ import { VENUE } from "@/fixtures/venue";
  * four or five hours out — which is also why a form must never PRESELECT this
  * default as if it were the stored value.
  */
-export const PLATFORM_DEFAULT_TIME_ZONE = "America/New_York";
+export const PLATFORM_DEFAULT_TIME_ZONE = PLATFORM_TIME_ZONE;
 
 export type ZoneInfo = { zone: string; source: "venue" | "default" | "sample" };
 

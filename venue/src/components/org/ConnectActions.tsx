@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { refreshOrgConnect, startOrgOnboarding, type ConnectActionResult } from "@/lib/org/connect";
+import { platformTime } from "@/lib/format";
 import { ACTION_LABEL, FAILURE_COPY, type ConnectAction, type ConnectSnapshot } from "@/lib/org/connect-contract";
 
 /**
@@ -115,7 +116,7 @@ function SnapshotNote({ snapshot, storedTransfersActive }: { snapshot: ConnectSn
         <li>Details submitted: {snapshot.detailsSubmitted === null ? "unknown" : snapshot.detailsSubmitted ? "yes" : "no"}</li>
         {snapshot.disabledReason ? <li>Stripe is holding this account: {snapshot.disabledReason.replace(/_/g, " ")}</li> : null}
         {snapshot.requirementsDue.length > 0 ? <li>Stripe still needs: {snapshot.requirementsDue.join(", ")}</li> : null}
-        {snapshot.requirementsDeadline ? <li>Deadline: {snapshot.requirementsDeadline}</li> : null}
+        {snapshot.requirementsDeadline ? <li>Deadline: {platformTime(snapshot.requirementsDeadline)}</li> : null}
       </ul>
       <p className="mt-1 text-xs text-dim">Read from Stripe just now. This says nothing about money having moved.</p>
       {storedBehind ? (

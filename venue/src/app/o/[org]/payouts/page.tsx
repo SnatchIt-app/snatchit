@@ -6,6 +6,7 @@ import { DATA_SOURCE } from "@/lib/env";
 import { isUuid } from "@/lib/page";
 import { ACTION_LABEL, FAILURE_COPY, nextConnectAction } from "@/lib/org/connect-contract";
 import { readOrgConnect } from "@/lib/org/connect";
+import { platformTime } from "@/lib/format";
 
 export const metadata = { title: "Payouts" };
 export const dynamic = "force-dynamic";
@@ -101,7 +102,7 @@ export default async function PayoutsPage({ params, searchParams }: { params: Pr
             </Row>
             <Row label="Can receive transfers">{state.transfersActive === null ? "Not checked yet" : state.transfersActive ? "Yes" : "Not yet"}</Row>
             <Row label="Organization">{state.orgStatus ?? "unknown"}</Row>
-            <Row label="State last synced from Stripe">{state.syncedAt ?? "Never"}</Row>
+            <Row label="State last synced from Stripe">{state.syncedAt ? platformTime(state.syncedAt) : "Never"}</Row>
           </dl>
         )}
 

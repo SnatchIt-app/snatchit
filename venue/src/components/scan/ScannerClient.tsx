@@ -7,6 +7,7 @@ import { DEMO_DATA_LABEL } from "@/lib/preview";
 import { readSessionScanCounters, scanAction, type SessionScanCounters } from "@/lib/scan/actions";
 import { initialScanState, scanReducer, type CameraState, type ScanState } from "@/lib/scan/machine";
 import { OUTCOME_TITLE, OUTCOME_TONE, outcomeDetail, type BlockedWhy, type ScanOutcome, type Tone } from "@/lib/scan/outcome";
+import { venueTime } from "@/lib/format";
 
 /**
  * The online phone-web scanner (CONTRACTS.md C7 / P8): the staff member's
@@ -70,11 +71,12 @@ function storeLabel(label: string) {
   }
 }
 
-function fmtWhen(iso: string, timeZone: string | null): string {
+/** A session or scan time in the venue's zone, with EST/EDT. Never the phone's zone: a door phone can be set to anything. */
+function fmtWhen(iso: string, timeZone: string): string {
   try {
-    return new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", ...(timeZone ? { timeZone } : {}) }).format(new Date(iso));
+    return venueTime(iso, timeZone);
   } catch {
-    return iso;
+    return "time not available";
   }
 }
 
@@ -102,8 +104,8 @@ export function ScannerClient({
   sessions: ScannerSession[];
   defaultSessionId: string | null;
   staff: { label: string | null; role: string };
-  /** The venue's zone where the dashboard knows it; null = show the phone's zone and say so. */
-  timeZone: string | null;
+  /** The event's venue zone (migration 162), or the platform zone, America/New_York, when none is stored (page.ts renderTimeZone). */
+  timeZone: string;
   loginHref: string;
 }) {
   const [state, dispatch] = useReducer(scanReducer, defaultSessionId ?? "", initialScanState);
@@ -340,7 +342,7 @@ export function ScannerClient({
                 </option>
               ))}
             </select>
-            <span className="mt-1 block text-xs text-dim">{timeZone ? `Times in ${timeZone}.` : "Times in your phone's time zone (the venue's zone arrives with the venue timezone setting)."}</span>
+            <span className="mt-1 block text-xs text-dim">Times are in {timeZone}, whatever time zone this phone is set to.</span>
           </label>
           <label className="block text-sm">
             <span className="eyebrow block text-dim">This phone&apos;s label</span>
@@ -369,7 +371,6 @@ export function ScannerClient({
             <p className="truncate font-semibold text-ink">{eventTitle}</p>
             <p className="truncate text-dim">
               {session ? `${session.label ?? "Session"} · ${fmtWhen(session.startsAt, timeZone)}` : "No session"}
-              {timeZone ? "" : " (phone’s zone)"}
             </p>
             <p className="truncate text-dim">
               {deviceLabel || "Unlabelled phone"} · {staff.label ?? "unknown"} · {staff.role}
@@ -457,7 +458,7 @@ export function ScannerClient({
   );
 }
 
-function ResultCard({ o, timeZone, onDismiss, onRetry, online }: { o: ScanOutcome; timeZone: string | null; onDismiss: () => void; onRetry: () => void; online: boolean }) {
+function ResultCard({ o, timeZone, onDismiss, onRetry, online }: { o: ScanOutcome; timeZone: string; onDismiss: () => void; onRetry: () => void; online: boolean }) {
   const retry = o.kind === "cannot_verify" && o.retrySameKey;
   return (
     <div>
