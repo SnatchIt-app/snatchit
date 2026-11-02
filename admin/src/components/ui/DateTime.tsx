@@ -1,14 +1,14 @@
-import { formatRelative, formatUtc, parseDate } from "@/lib/format";
+import { formatEt, formatRelative, parseDate } from "@/lib/format";
 
-/** Absolute UTC timestamp with a relative hint. */
+/** Absolute Eastern Time (EST/EDT) with a relative hint. The UTC instant stays in dateTime and the hover. */
 export function DateTime({ value, withSeconds = false, relative = true }: { value: unknown; withSeconds?: boolean; relative?: boolean }) {
   const d = parseDate(value);
   if (!d) return <span className="text-dim">—</span>;
   return (
-    // The UTC stamp and its relative hint each stay unbroken, but the line may break between them: in narrow
+    // The Eastern stamp and its relative hint each stay unbroken, but the line may break between them: in narrow
     // grid cells (key/value panels at tablet width) a single nowrap run pushed the whole page wider than the viewport.
     <time dateTime={d.toISOString()} title={d.toISOString()} className="tabular-nums">
-      <span className="whitespace-nowrap">{formatUtc(d, withSeconds)}</span>
+      <span className="whitespace-nowrap">{formatEt(d, withSeconds)}</span>
       {relative ? (
         <>
           {" "}
@@ -19,12 +19,12 @@ export function DateTime({ value, withSeconds = false, relative = true }: { valu
   );
 }
 
-/** Relative first, UTC on hover/title (for dense tables). */
+/** Relative first, Eastern Time on hover/title (for dense tables). */
 export function TimeAgo({ value }: { value: unknown }) {
   const d = parseDate(value);
   if (!d) return <span className="text-dim">—</span>;
   return (
-    <time dateTime={d.toISOString()} title={formatUtc(d, true)} className="whitespace-nowrap">
+    <time dateTime={d.toISOString()} title={formatEt(d, true)} className="whitespace-nowrap">
       {formatRelative(d)}
     </time>
   );

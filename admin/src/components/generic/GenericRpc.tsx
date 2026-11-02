@@ -7,7 +7,7 @@ import { Money } from "@/components/ui/Money";
 import { DateTime } from "@/components/ui/DateTime";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { ReportFreshness } from "@/components/shell/Freshness";
-import { humanize } from "@/lib/format";
+import { humanize, isCalendarDate, parseDate } from "@/lib/format";
 import { callOps } from "@/lib/ops";
 import { isRecord, str, type JsonRecord } from "@/lib/types";
 import { subjectHref } from "@/lib/routes";
@@ -15,8 +15,13 @@ import { LISTING_DOLLAR_KEYS, listingDollarsToCents } from "@/lib/listing-money"
 import Link from "next/link";
 
 const MONEY_KEYS = /(_cents|amount|total|fee|volume|price|refunded|captured)$/i;
-const TIME_KEYS = /(_at|_by_date|date|computed_at|timestamp)$/i;
+const TIME_KEYS = /(_at|_until|_by|_by_date|date|computed_at|timestamp)$/i;
 const STATUS_KEYS = /(status|state|priority|kind|type|role|decision)$/i;
+
+/** A string under a time-like key that reads as an instant (date-only values are calendar dates, not instants). */
+export function isTimeValue(key: string, v: unknown): boolean {
+  return typeof v === "string" && TIME_KEYS.test(key) && /\d{4}-\d{2}-\d{2}/.test(v) && !isCalendarDate(v) && parseDate(v) !== null;
+}
 
 /** Route a (kind,id) pair to its detail page, when one exists (alias of subjectHref). */
 export function hrefFor(kind: string | null | undefined, id: string | null | undefined): string | null {
@@ -43,9 +48,9 @@ export function renderValue(key: string, v: unknown, depth = 0): ReactNode {
     return <span className="tabular-nums">{v.toLocaleString("en-US")}</span>;
   }
   if (typeof v === "string") {
-    if (TIME_KEYS.test(key) && !Number.isNaN(new Date(v).getTime()) && /\d{4}-\d{2}-\d{2}/.test(v)) {
-      return <DateTime value={v} />;
-    }
+    // A calendar date (event_date, summary_date) is not an instant: shown as written, never shifted into a zone.
+    if (isCalendarDate(v)) return <span className="tabular-nums">{v}</span>;
+    if (isTimeValue(key, v)) return <DateTime value={v} />;
     if (STATUS_KEYS.test(key) && v.length <= 32) return <StatusBadge status={v} />;
     if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)) {
       const kind = key.replace(/_id$/, "");

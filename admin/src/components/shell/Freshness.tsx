@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { formatRelative, formatUtc, parseDate } from "@/lib/format";
+import { formatEt, formatRelative, parseDate } from "@/lib/format";
 
 type FreshnessValue = { at: string | null; label: string | null; relative: string | null; stale: boolean };
 const EMPTY: FreshnessValue = { at: null, label: null, relative: null, stale: false };
@@ -46,7 +46,7 @@ export function FreshnessSlot() {
   const v = ctx?.value ?? EMPTY;
   if (!v.at) return <span className="text-[0.6875rem] text-dim">Live data</span>;
   return (
-    <span className={`text-[0.6875rem] ${v.stale ? "text-warning" : "text-dim"}`} title={formatUtc(v.at, true)}>
+    <span className={`text-[0.6875rem] ${v.stale ? "text-warning" : "text-dim"}`} title={formatEt(v.at, true)}>
       {v.stale ? "Stale · " : ""}
       {v.label ?? "As of"} <time dateTime={v.at}>{v.relative}</time>
     </span>

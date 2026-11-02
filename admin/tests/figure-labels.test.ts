@@ -18,8 +18,8 @@ vi.mock("server-only", () => ({}));
 vi.mock("next/navigation", () => ({ usePathname: () => "/money", useRouter: () => ({ push: () => {}, replace: () => {}, refresh: () => {} }), useParams: () => ({}) }));
 vi.mock("@/lib/analytics", () => ({ readPeriod: mocks.readPeriod, readSeries: mocks.readSeries }));
 
-import { asOfLabel, CURRENCY, isPartialPeriod, PARTIAL_LABEL, rangeLabel, readFailedLabel, tileState, TIMEZONE } from "@/lib/figure-meta";
-import { formatMoney, formatUtc } from "@/lib/format";
+import { asOfLabel, CURRENCY, isPartialPeriod, PARTIAL_LABEL, rangeLabel, readFailedLabel, REPORT_DAY_BASIS, tileState } from "@/lib/figure-meta";
+import { formatEt, formatMoney } from "@/lib/format";
 import { FigureMeta } from "@/components/charts/FigureMeta";
 import { HiddenTestRowsNotice } from "@/components/ui/HiddenTestRowsNotice";
 import { KpiTile } from "@/components/charts/KpiTile";
@@ -42,8 +42,10 @@ describe("figure-meta — the labels state what the formatters do", () => {
   it("currency and timezone are the ones the money and time formatters print", () => {
     expect(CURRENCY).toBe("USD");
     expect(formatMoney(100)).toMatch(new RegExp(`${CURRENCY}$`));
-    expect(TIMEZONE).toBe("UTC");
-    expect(formatUtc("2026-10-22T10:54:59Z")).toMatch(new RegExp(`${TIMEZONE}$`));
+    // times are Eastern with the label that applies; the report DAY stays the server's UTC day until registry 200
+    expect(formatEt("2026-10-22T10:54:59Z")).toMatch(/ EDT$/);
+    expect(formatEt("2026-11-22T10:54:59Z")).toMatch(/ EST$/);
+    expect(REPORT_DAY_BASIS).toBe("UTC");
   });
 
   it("rangeLabel names both inclusive UTC calendar days, with the year once unless it changes", () => {
@@ -54,14 +56,14 @@ describe("figure-meta — the labels state what the formatters do", () => {
     expect(rangeLabel("2026-13-01", "x")).toBe("2026-13-01 – x");
   });
 
-  it("asOfLabel states the server's computed_at with seconds and the UTC basis; a missing one is 'not stated', never the read time dressed up as freshness", () => {
-    expect(asOfLabel(COMPUTED, READ_AT)).toBe("as of 2026-10-22 10:54:59 UTC");
+  it("asOfLabel states the server's computed_at with seconds in Eastern Time (EST/EDT); a missing one is 'not stated', never the read time dressed up as freshness", () => {
+    expect(asOfLabel(COMPUTED, READ_AT)).toBe("as of 2026-10-22 06:54:59 EDT");
     for (const missing of [null, undefined, "", "not a date"]) {
       const text = asOfLabel(missing, READ_AT);
-      expect(text, String(missing)).toBe("as of: not stated by the server (read 2026-10-22 10:55:01 UTC)");
+      expect(text, String(missing)).toBe("as of: not stated by the server (read 2026-10-22 06:55:01 EDT)");
       expect(text.startsWith("as of 2026")).toBe(false);
     }
-    expect(readFailedLabel(READ_AT)).toBe("read at 2026-10-22 10:55:01 UTC failed — nothing is shown");
+    expect(readFailedLabel(READ_AT)).toBe("read at 2026-10-22 06:55:01 EDT failed — nothing is shown");
   });
 
   it("isPartialPeriod: a range ending today (UTC) or later is still accumulating; one ending yesterday is complete", () => {
@@ -94,7 +96,7 @@ describe("FigureMeta — one line with range, timezone, currency, freshness and 
     expect(html).toContain("Sep 23 – Oct 21, 2026");
     expect(html).toContain("UTC calendar days");
     expect(html).toContain("USD");
-    expect(html).toContain("as of 2026-10-22 10:54:59 UTC");
+    expect(html).toContain("as of 2026-10-22 06:54:59 EDT");
     expect(html).not.toContain(PARTIAL_LABEL);
     expect(html).toContain('data-figure-meta=""');
   });
@@ -104,18 +106,19 @@ describe("FigureMeta — one line with range, timezone, currency, freshness and 
     expect(html).toContain(PARTIAL_LABEL);
   });
 
-  it("point-in-time surfaces say so instead of a range, and still carry the timezone and freshness", () => {
+  it("point-in-time surfaces say so instead of a range, and still carry the zone (in the as-of time) and freshness", () => {
     const html = h(createElement(FigureMeta, { pointInTime: true, computedAt: null, readAt: READ_AT }));
     expect(html).toContain("Point in time (now), not a period");
-    expect(html).toContain("UTC");
-    expect(html).toContain("as of: not stated by the server (read 2026-10-22 10:55:01 UTC)");
+    // the zone travels with the time itself (EST/EDT); a point in time has no report day, so no day basis
+    expect(html).toContain("as of: not stated by the server (read 2026-10-22 06:55:01 EDT)");
+    expect(html).not.toContain("calendar days");
     expect(html).not.toContain("USD");
     expect(html).not.toContain(PARTIAL_LABEL);
   });
 
   it("a failed read says so and claims no freshness and no partial mark", () => {
     const html = h(createElement(FigureMeta, { range: { from: "2026-09-23", to: TODAY }, currency: "USD", readAt: READ_AT, failed: true }));
-    expect(html).toContain("read at 2026-10-22 10:55:01 UTC failed — nothing is shown");
+    expect(html).toContain("read at 2026-10-22 06:55:01 EDT failed — nothing is shown");
     expect(html).not.toContain("as of ");
     expect(html).not.toContain(PARTIAL_LABEL);
   });
@@ -272,7 +275,7 @@ describe("MoneyKpis — labels on the KPI surface", () => {
     expect(html).toContain("Sep 23 – Oct 21, 2026");
     expect(html).toContain("UTC calendar days");
     expect(html).toContain("USD");
-    expect(html).toContain("as of 2026-10-22 10:54:59 UTC");
+    expect(html).toContain("as of 2026-10-22 06:54:59 EDT");
     expect(html).not.toContain(PARTIAL_LABEL);
     expect(html).toContain("Point in time (now), not a period");
     // every money tile is in the ok state (the bank tile is "Not tracked", a stated fact, and stays ok)
@@ -327,7 +330,7 @@ describe("MoneyKpis — labels on the KPI surface", () => {
   it("compact (Today): same labels, four tiles, error state has four error tiles and the failed label", async () => {
     const ok = await kpis(overview(FROM, TO_PAST, FULL), overview("2026-08-25", "2026-09-22", FULL), { compact: true });
     expect(tiles(ok)).toEqual(["ok", "ok", "ok", "ok"]);
-    expect(ok).toContain("as of 2026-10-22 10:54:59 UTC");
+    expect(ok).toContain("as of 2026-10-22 06:54:59 EDT");
     expect(ok).toContain("USD");
     const err = await kpis(FAIL, FAIL, { compact: true });
     expect(tiles(err)).toEqual(["error", "error", "error", "error"]);
@@ -352,7 +355,7 @@ describe("MoneyCharts — labels and states on every chart", () => {
     const html = h(await MoneyCharts({ from: "2026-10-15", to: TO_PAST }));
     expect(cards(html)).toEqual(["ok", "ok", "ok", "ok"]);
     expect(html.match(/Oct 15 – Oct 21, 2026/g)?.length).toBeGreaterThanOrEqual(4);
-    expect(html.match(/as of 2026-10-22 10:54:59 UTC/g)?.length).toBeGreaterThanOrEqual(4);
+    expect(html.match(/as of 2026-10-22 06:54:59 EDT/g)?.length).toBeGreaterThanOrEqual(4);
     expect(html.match(/UTC calendar days/g)?.length).toBeGreaterThanOrEqual(4);
     expect(html).not.toContain(PARTIAL_LABEL);
   });
@@ -409,8 +412,8 @@ describe("Today's attention counts and the System metric row are labelled point 
   it("AttentionSummary with computed_at", () => {
     const html = h(createElement(AttentionSummary, { metrics: [{ key: "open_cases", label: "Open cases", value: 2 }], definitions: {}, computedAt: COMPUTED }));
     expect(html).toContain("Point in time (now), not a period");
-    expect(html).toContain("as of 2026-10-22 10:54:59 UTC");
-    expect(html).toContain("UTC");
+    expect(html).toContain("as of 2026-10-22 06:54:59 EDT");
+    expect(html).not.toContain(" UTC");
   });
   it("AttentionSummary without computed_at says so (and the existing callers that pass none still render)", () => {
     const html = h(createElement(AttentionSummary, { metrics: [{ key: "open_cases", label: "Open cases", value: 0 }], definitions: {} }));

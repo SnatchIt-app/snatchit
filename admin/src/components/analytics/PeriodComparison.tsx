@@ -1,5 +1,5 @@
 import { compareWindows, formatUsdExact, type Comparison, type MoneyFigures } from "@/lib/analytics-core";
-import { CURRENCY, TIMEZONE } from "@/lib/figure-meta";
+import { CURRENCY, REPORT_DAY_BASIS } from "@/lib/figure-meta";
 
 type Unit = "usd_cents" | "count";
 
@@ -43,7 +43,7 @@ export function PeriodComparison({
   return (
     <div className="overflow-x-auto">
       <table className="data-table text-[0.8125rem]">
-        <caption className="sr-only">{`Period comparison: ${currentLabel} (current) against ${previousLabel} (previous). ${CURRENCY} amounts and counts over ${TIMEZONE} calendar days.`}</caption>
+        <caption className="sr-only">{`Period comparison: ${currentLabel} (current) against ${previousLabel} (previous). ${CURRENCY} amounts and counts over ${REPORT_DAY_BASIS} calendar days.`}</caption>
         <thead>
           <tr>
             <th scope="col">Measure</th>

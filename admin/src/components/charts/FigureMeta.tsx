@@ -1,10 +1,11 @@
 import type { ReactNode } from "react";
-import { asOfLabel, CURRENCY, isPartialPeriod, PARTIAL_LABEL, POINT_IN_TIME_LABEL, rangeLabel, readFailedLabel, TIMEZONE } from "@/lib/figure-meta";
+import { asOfLabel, CURRENCY, isPartialPeriod, PARTIAL_LABEL, POINT_IN_TIME_LABEL, rangeLabel, readFailedLabel, REPORT_DAY_BASIS } from "@/lib/figure-meta";
 
 /**
- * The one line every figure surface carries: the period (or "point in time"),
- * the timezone, the currency where money is shown, the freshness of this read
- * and the partial mark when the period includes today. `readAt` is the time
+ * The one line every figure surface carries: the period (or "point in time")
+ * and the calendar day it is counted in, the currency where money is shown, the
+ * freshness of this read (its time carries EST/EDT) and the partial mark when the
+ * period includes today. `readAt` is the time
  * the server component rendered the request — per request, never cached —
  * and is the only clock the partial mark is derived from.
  *
@@ -21,7 +22,7 @@ export function FigureMeta({
   notice,
   className = "",
 }: {
-  /** Inclusive UTC calendar days the figures cover. */
+  /** Inclusive calendar days the figures cover, in REPORT_DAY_BASIS (the server's day). */
   range?: { from: string; to: string };
   /** The figures have no date predicate (counts "now"). */
   pointInTime?: boolean;
@@ -37,9 +38,9 @@ export function FigureMeta({
   className?: string;
 }) {
   const parts: string[] = [];
-  if (pointInTime) parts.push(POINT_IN_TIME_LABEL, TIMEZONE);
-  else if (range) parts.push(rangeLabel(range.from, range.to), `${TIMEZONE} calendar days`);
-  else parts.push(TIMEZONE);
+  // The as-of time below prints its own EST/EDT, so only a period needs a day basis.
+  if (pointInTime) parts.push(POINT_IN_TIME_LABEL);
+  else if (range) parts.push(rangeLabel(range.from, range.to), `${REPORT_DAY_BASIS} calendar days`);
   if (currency) parts.push(currency);
   parts.push(failed ? readFailedLabel(readAt) : asOfLabel(computedAt, readAt));
   if (!failed && !pointInTime && range && isPartialPeriod(range.to, readAt)) parts.push(PARTIAL_LABEL);
