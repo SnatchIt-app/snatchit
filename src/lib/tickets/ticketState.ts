@@ -14,6 +14,7 @@ import type {
   OwnershipStatus,
   TicketsError,
 } from './types';
+import { whenLine } from './ticketWhen';
 
 // ─── Ownership status (from kernel.tickets.state) ───────────────────────────
 
@@ -95,20 +96,18 @@ export function ticketTypeLine(group: Pick<MyTicketGroup, 'quantity' | 'ticket_t
 // ─── Time / date ────────────────────────────────────────────────────────────
 
 /**
- * Absolute instant -> a short local date+time label, e.g. "Sat, Oct 4 - 10:00 PM".
- * Defensive: an unparseable value returns ''. Uses the device locale/timezone via
- * toLocale*; the classification itself is never recomputed here (the server's
- * time_class is authoritative).
+ * Absolute instant -> the card's date+time label, e.g. "Fri, Nov 6 - 10:00 PM EST".
+ * get_my_tickets rows carry no venue zone (MyTicketGroup), so the instant is shown on
+ * New York's clock in fixed en-US spelling, labelled EST / EDT (owner, 2026-11-02:
+ * Snatch It operates in Eastern Time) — never the device zone or locale, so a buyer's
+ * phone cannot move it. Spelled by whenLine's New York fallback, the same line the
+ * ticket detail shows. Defensive: an unparseable value returns ''. The classification
+ * itself is never recomputed here (the server's time_class is authoritative).
  */
 export function eventDateLabel(iso: string | null | undefined): string {
   if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const date = d.toLocaleDateString(undefined, {
-    weekday: 'short', month: 'short', day: 'numeric',
-  });
-  const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-  return `${date} - ${time}`;
+  const w = whenLine(iso, null);
+  return w ? `${w.date} - ${w.times}` : '';
 }
 
 // ─── Sectioning & grouping (order-preserving) ───────────────────────────────
