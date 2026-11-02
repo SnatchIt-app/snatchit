@@ -114,7 +114,7 @@ const tick = () => new Promise((r) => setImmediate(r));
 function routeFor(href: string): { name: string; params?: Record<string, unknown> } {
   if (href === '/(tabs)/home') return { name: '(tabs)', params: { screen: 'home' } };
   if (href === '/(auth)/login') return { name: '(auth)' };
-  // D6: the session screens, with a link's query carried as route params the way expo-router carries it.
+  // c35-D6: the session screens, with a link's query carried as route params the way expo-router carries it.
   const session = /^\/(primary-checkout|ticket)\/([^/?#]+)(?:\?(.*))?$/.exec(href);
   if (session) return { name: `${session[1]}/[session]`, params: { ...Object.fromEntries(new URLSearchParams(session[3] ?? '')), session: session[2] } };
   const screen = returnToStackRoute(href);
@@ -267,7 +267,7 @@ describe('RAS-5 — recovery and sign up, through the real root', () => {
   });
 });
 
-describe('D6 — a cold payment return, through the real root', () => {
+describe('c35-D6 — a cold payment return, through the real root', () => {
   const S = '5e55e55e-c0de-4abc-8def-00000000beef';
   const CHECKOUT = `/primary-checkout/${S}`;
   const TICKET = `/ticket/${S}`;

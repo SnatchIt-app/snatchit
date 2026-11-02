@@ -1,5 +1,5 @@
 /**
- * D6 (iOS) — a cold payment return lands on the ticket page, not Home.
+ * c35-D6 (iOS) — a cold payment return lands on the ticket page, not Home.
  *
  * The primary checkout's 3-D Secure / bank-app return URL is snatchit://primary-checkout/<session>?tt&qty&attempt
  * (checkoutRoute.ts). When iOS killed the app while the buyer was in the bank app, the relaunch opens
@@ -12,7 +12,7 @@
  * confirmation" or the tickets). The checkout itself is never kept (it reserves on mount, and a link is untrusted),
  * and nothing after a '?' or '#' is ever read: Stripe may append payment_intent, its client secret or
  * redirect_status, and none of them may decide where the buyer goes. Pure function + source pins; the real root
- * layout runs the same sequence in return-to-root-layout.test.ts (LP1-LP5). Not device evidence.
+ * layout runs the same sequence in return-to-root-layout.test.ts (LP1–LP4). Not device evidence.
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -35,9 +35,12 @@ const decide = (over: Partial<Parameters<typeof rootRouteDecision>[0]> = {}) =>
 describe('rootRouteDecision — a cold payment return', () => {
   it('PRT1: the first signed-in route on a primary checkout goes to that session’s ticket page', () => {
     expect(decide({ pathname: CHECKOUT })).toEqual({ navigate: true, to: TICKET });
-    // a first route for a phase the layout has not routed yet is the same boundary (N7c remount, an account change)
-    expect(decide({ lastRoutedPhase: OUT, pathname: CHECKOUT })).toEqual({ navigate: true, to: TICKET });
-    expect(decide({ phase: USER_B, lastRoutedPhase: USER_A, pathname: CHECKOUT })).toEqual({ navigate: true, to: TICKET });
+    // the id is lowercased, as the server spells the id the ticket page compares against
+    expect(decide({ pathname: `/primary-checkout/${S.toUpperCase()}` })).toEqual({ navigate: true, to: TICKET });
+    // only the very first route is a relaunch: a sign-in or an account change on screen goes Home as before
+    // (review of bda5c639 — the brief's "later phase changes stay exactly as today")
+    expect(decide({ lastRoutedPhase: OUT, pathname: CHECKOUT })).toEqual(HOME);
+    expect(decide({ phase: USER_B, lastRoutedPhase: USER_A, pathname: CHECKOUT })).toEqual(HOME);
   });
 
   it('PRT2: nothing after a ? or # is read — whatever the payment provider appended, the same bare ticket page', () => {
@@ -96,8 +99,9 @@ describe('paymentReturnTicket', () => {
   it('PRT8: the ticket page is built from the validated session id only, and nothing else is a target', () => {
     expect(paymentReturnTicket(CHECKOUT)).toBe(TICKET);
     expect(paymentReturnTicket(`${CHECKOUT}?redirect_status=failed`)).toBe(TICKET);
-    // the session id is as case-blind as the two routes' own uuid checks; the route name is not
-    expect(paymentReturnTicket(`/primary-checkout/${S.toUpperCase()}`)).toBe(`/ticket/${S.toUpperCase()}`);
+    // the session id is as case-blind as the two routes' own uuid checks (the route name is not), and it is
+    // lowercased: the ticket page compares it with === against the server's lowercase id (review of bda5c639)
+    expect(paymentReturnTicket(`/primary-checkout/${S.toUpperCase()}`)).toBe(TICKET);
     for (const raw of [null, undefined, 42, {}, [CHECKOUT], LISTING, TICKET, '/primary-checkout/x']) {
       expect(paymentReturnTicket(raw)).toBeNull();
     }
