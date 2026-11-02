@@ -97,7 +97,8 @@ function MoneyKeysOverview({ keys }: { keys: MoneyConfigList["money_keys"] }) {
   );
 }
 
-function MoneyRequestCard({ request: r }: { request: MoneyConfigRequest }) {  const expired = r.is_expired === true;
+function MoneyRequestCard({ request: r }: { request: MoneyConfigRequest }) {
+  const expired = r.is_expired === true;
   return (
     <div className="border border-line-neutral p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
