@@ -389,6 +389,17 @@ describe('finalize_primary_order error classification (085:1881-2082)', () => {
     }
   });
 
+  it('201: the cancelled-event / cancelled-session refusals ride the same refund_required arm (D, registry 201)', () => {
+    // D's exact 201 texts start with the literal `refund_required:` and contain
+    // `cancel`. No arm ahead of refund_required may match `cancel`, so both must
+    // classify as refund_required: ACK + alert + review row, a human refunds.
+    for (const kind of ['event_cancelled', 'session_cancelled']) {
+      const message = `refund_required: ${kind} — order ${ORDER} was paid after its ${kind.split('_')[0]} was cancelled; the charge must be refunded`;
+      expect(classifyFinalizeError({ message, code: 'P0001' }))
+        .toEqual({ ack: true, alert: true, reason: 'finalize_refund_required' });
+    }
+  });
+
   it('every RETRY cause still outranks refund_required — never ACK what a redelivery could fix', () => {
     for (const s of RETRY_ARM_SUBSTRINGS) {
       expect(classifyFinalizeError({ message: `refund_required: hold_lapsed — ${s}`, code: 'P0001' }).ack).toBe(false);
