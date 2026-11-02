@@ -32,8 +32,12 @@
  *      check, then the per-status action — requires_* → cancel with
  *      Idempotency-Key pi_lapse_cancel_{pi}; processing → skip; succeeded →
  *      nothing, alert once (below); canceled while pending → cancel_pending_
- *      order with buildCancelCommandKey(order, pi); none → A-4's default,
- *      leave it.
+ *      order with buildCancelCommandKey(order, pi) — only when no sibling is
+ *      processing, succeeded or requires_capture; none → A-4's default,
+ *      leave it. requires_capture (an anomaly: this rail is automatic-
+ *      capture) is cancelled with the same key to release the buyer's
+ *      authorization unless a sibling is succeeded or processing, then
+ *      alerted (D's C2).
  *      THREE DEVIATIONS from "steps 2-3 exactly", A's and sent to D for
  *      ratification, each with its reason in that function's header:
  *        D1 candidate statuses widened from pending|failed to pending|
@@ -259,8 +263,13 @@ serve(async (req: Request) => {
         await alertPaidOnce(pub, orderId, outcome.piIds);
       } else if (outcome.kind === 'anomaly') {
         // A state this rail never produces (a PI naming another session, a
-        // status no automatic-capture PI reaches). Nothing was touched.
-        await captureException(FN, new Error(`lapsed order anomaly: ${outcome.detail}`), { order_id: orderId });
+        // status no automatic-capture PI reaches). Nothing was touched, except
+        // a requires_capture PI's cancel (C2): `authorization` says whether
+        // the buyer's hold was released or may still be held.
+        await captureException(FN, new Error(`lapsed order anomaly: ${outcome.detail}`), {
+          order_id: orderId, pi_id: outcome.piId,
+          ...(outcome.authorization ? { authorization: outcome.authorization } : {}),
+        });
       } else if (outcome.kind === 'error') {
         errors.push({ order_id: orderId, detail: outcome.detail });
       }

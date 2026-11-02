@@ -44,6 +44,7 @@ const CHARGE = 2800;
 
 const HOLD_INVALID = { error: 'Your ticket hold expired or no longer covers this order. Please start again.', code: 'hold_invalid' };
 const ALREADY_PAID = { error: 'Payment already completed for this order.', code: 'already_paid' };
+const REPLAY_STATE_UNAVAILABLE = { error: 'This order cannot be resumed. Please contact support.', code: 'replay_state_unavailable' };
 
 interface PayRow {
   id: string; buyer_id: string; mode: string; amount: number; buyer_fee: number; seller_fee: number; total: number;
@@ -243,12 +244,26 @@ async function world(opts: WorldOpts = {}) {
 
 type W = Awaited<ReturnType<typeof world>>;
 
-/** A fresh checkout, then the same key replayed with the order in `patch` state. */
-async function replayWith(w: W, key: string, patch: Partial<OrderState>, piStatus?: string) {
+/**
+ * A fresh checkout, then the same key replayed with the order in `patch` state.
+ * `siblingStatus` adds a second PI for the SAME order (the salted re-mint
+ * primary-checkout §11 can produce) with its own payments row, newest.
+ */
+async function replayWith(w: W, key: string, patch: Partial<OrderState>, piStatus?: string, siblingStatus?: string) {
   const first = await w.run(key);
   expect(first.res.status).toBe(200);
   Object.assign(w.order(key), patch);
   if (piStatus) w.pis.get(first.body.paymentIntentId as string)!.status = piStatus;
+  if (siblingStatus) {
+    const base = w.rows.find((r) => r.stripe_payment_intent_id === first.body.paymentIntentId)!;
+    const firstPi = w.pis.get(first.body.paymentIntentId as string)!;
+    const id = `pi_test_native198_sibling_${w.pis.size + 1}`;
+    w.pis.set(id, { ...firstPi, id, client_secret: `${id}_secret_x`, status: siblingStatus, metadata: { ...firstPi.metadata } });
+    w.rows.push({
+      ...base, id: `pay_${w.rows.length + 1}`, stripe_payment_intent_id: id,
+      status: siblingStatus === 'succeeded' ? 'succeeded' : 'pending', created_at: '2026-10-02T00:00:00.000Z',
+    });
+  }
   const callsBefore = w.stripe.calls.length;
   const replay = await w.run(key);
   return { first, replay, stripeAfter: w.stripe.calls.slice(callsBefore) };
@@ -293,12 +308,19 @@ describe('A-2 — the replay rule on order_status / holds_live (§4.2 A-2, §4.1
     expect(w.cancels()).toEqual([]);
   });
 
-  it.each(['refunded', 'partially_refunded'])('order_status=%s (paid, then refunded) → already_paid too, never a client_secret', async (status) => {
+  // D's ratification C1: venue."order".status is CHECK-constrained to exactly
+  // pending / paid / partially_refunded / refunded / cancelled. The two refund
+  // states are a paid order later refunded: already_paid, and NEVER the
+  // terminal replay_state_unavailable an out-of-set value gets.
+  it.each(['refunded', 'partially_refunded'])('order_status=%s (paid, then refunded) → already_paid too, never a client_secret, never replay_state_unavailable', async (status) => {
     const w = await world();
     const { replay, stripeAfter } = await replayWith(w, `cmd-r-${status}`, { status, holdsLive: false });
     expect(replay.res.status).toBe(409);
     expect(replay.body).toEqual(ALREADY_PAID);
+    expect(replay.res.headers.get('Retry-After')).toBeNull();
     expect(stripeAfter).toEqual([]);
+    expect(w.edge.sentry).toEqual([]);
+    expect(w.cancels()).toEqual([]);
   });
 
   it('order_status=cancelled → 409 hold_invalid ("start again"), before any Stripe call', async () => {
@@ -393,27 +415,79 @@ describe('A-2 — the replay rule on order_status / holds_live (§4.2 A-2, §4.1
     expect(w.cancels()).toEqual([]);
   });
 
-  // A's refinement (sent to D): an ANOMALY is permanent — a requires_capture PI
-  // never leaves that state on its own — so a 503 would send the client back
-  // on the SAME key forever. It is hold_invalid ("start again") plus an alert
-  // naming the order and the PI, and nothing is touched at Stripe or in SQL.
-  it('pending + lapsed, PI in a state this rail never produces (requires_capture) → 409 hold_invalid + an alert naming order and PI (not a blocker); nothing touched; a second replay answers the same, never 503', async () => {
+  // A's refinement R5 (ratified by D): an ANOMALY is permanent — a
+  // requires_capture PI never leaves that state on its own — so a 503 would
+  // send the client back on the SAME key forever. It is hold_invalid ("start
+  // again") plus an alert naming the order and the PI.
+  // D's ratification C2 (A's suggestion A): a requires_capture PI is an
+  // AUTHORIZATION held on the buyer's card. It is cancelled FIRST, under the
+  // lapse key, to release it — unless a sibling PI is succeeded or processing
+  // (D3). The webhook's payment_intent.canceled branch then writes 'cancelled'
+  // (O11), never the edge.
+  it('pending + lapsed, PI requires_capture (this rail never produces it) → the PI is CANCELLED with pi_lapse_cancel_{pi} to release the authorization, then 409 hold_invalid + an alert naming order and PI (not a blocker); a second replay answers the same, never 503', async () => {
     const w = await world();
     const { first, replay } = await replayWith(w, 'cmd-r-lapsed-anomaly', { holdsLive: false }, 'requires_capture');
     const piId = first.body.paymentIntentId as string;
     expect(replay.res.status).toBe(409);
     expect(replay.body).toEqual(HOLD_INVALID);
     expect(replay.res.headers.get('Retry-After')).toBeNull();
-    expect(w.piCancels()).toEqual([]);
+    expect(w.piCancels().map((c) => [c.path, c.idempotencyKey, c.body])).toEqual([
+      [`/payment_intents/${piId}/cancel`, `pi_lapse_cancel_${piId}`, { cancellation_reason: 'abandoned' }],
+    ]);
+    expect(w.pis.get(piId)!.status).toBe('canceled');
     expect(w.cancels()).toEqual([]);
-    expect(w.pis.get(piId)!.status).toBe('requires_capture');
     expect(w.blockerAlerts()).toEqual([]);
     const anomalyAlerts = w.edge.sentry.filter((s) => String((s.error as Error).message).includes('anomaly'));
-    expect(anomalyAlerts.map((s) => s.ctx)).toEqual([{ order_id: first.body.order_id, pi_id: piId, activation_blocker: false }]);
+    expect(anomalyAlerts.map((s) => s.ctx)).toEqual([
+      { order_id: first.body.order_id, pi_id: piId, activation_blocker: false, authorization: 'released' },
+    ]);
 
     const again = await w.run('cmd-r-lapsed-anomaly');
     expect(again.res.status).toBe(409);
     expect(again.body).toEqual(HOLD_INVALID);
+    expect(again.res.headers.get('Retry-After')).toBeNull();
+  });
+
+  it('pending + lapsed, PI requires_capture whose cancel Stripe REFUSES → still 409 hold_invalid (never 503) + the alert, which says the authorization may still be held', async () => {
+    const w = await world({ piCancelRefused: true });
+    const { first, replay } = await replayWith(w, 'cmd-r-anomaly-cancel-refused', { holdsLive: false }, 'requires_capture');
+    const piId = first.body.paymentIntentId as string;
+    expect(replay.res.status).toBe(409);
+    expect(replay.body).toEqual(HOLD_INVALID);
+    expect(replay.res.headers.get('Retry-After')).toBeNull();
+    expect(w.piCancels().map((c) => c.idempotencyKey)).toEqual([`pi_lapse_cancel_${piId}`]);
+    expect(w.pis.get(piId)!.status).toBe('requires_capture');
+    expect(w.cancels()).toEqual([]);
+    const anomalyAlerts = w.edge.sentry.filter((s) => String((s.error as Error).message).includes('anomaly'));
+    expect(anomalyAlerts.map((s) => s.ctx)).toEqual([
+      { order_id: first.body.order_id, pi_id: piId, activation_blocker: false, authorization: 'may_still_be_held' },
+    ]);
+    expect(String((anomalyAlerts[0].error as Error).message)).toContain('authorization may still be held');
+  });
+
+  it('pending + lapsed, PI requires_capture with a PROCESSING sibling → NOT cancelled (D3: its canceled event would cancel the order the sibling\'s money is landing on); 409 hold_invalid + the alert says the authorization may still be held', async () => {
+    const w = await world();
+    const { first, replay } = await replayWith(w, 'cmd-r-anomaly-processing-sib', { holdsLive: false }, 'requires_capture', 'processing');
+    const piId = first.body.paymentIntentId as string;
+    expect(replay.res.status).toBe(409);
+    expect(replay.body).toEqual(HOLD_INVALID);
+    expect(w.piCancels()).toEqual([]);
+    expect(w.pis.get(piId)!.status).toBe('requires_capture');
+    expect(w.cancels()).toEqual([]);
+    const anomalyAlerts = w.edge.sentry.filter((s) => String((s.error as Error).message).includes('anomaly'));
+    expect(anomalyAlerts.map((s) => s.ctx)).toEqual([
+      { order_id: first.body.order_id, pi_id: piId, activation_blocker: false, authorization: 'may_still_be_held' },
+    ]);
+    expect(String((anomalyAlerts[0].error as Error).message)).toContain('authorization may still be held');
+  });
+
+  it('pending + lapsed, PI requires_capture with a SUCCEEDED sibling → already_paid (a paid order speaks first) and NOTHING is cancelled (D3)', async () => {
+    const w = await world();
+    const { replay } = await replayWith(w, 'cmd-r-anomaly-succeeded-sib', { holdsLive: false }, 'requires_capture', 'succeeded');
+    expect(replay.res.status).toBe(409);
+    expect(replay.body).toEqual(ALREADY_PAID);
+    expect(w.piCancels()).toEqual([]);
+    expect(w.cancels()).toEqual([]);
   });
 
   it('a replay WITHOUT an order_status key (the pre-198 shape: 198 rolled back under this edge) → the existing recoverReplayQuote path: the SAME PI back, no alert', async () => {
@@ -432,18 +506,30 @@ describe('A-2 — the replay rule on order_status / holds_live (§4.2 A-2, §4.1
     expect(w.piMints()).toHaveLength(1);
   });
 
+  // D's ratification C1: a PRESENT order_status outside the CHECK set's five is
+  // a state no retry can change, so the answer is TERMINAL — 409, no
+  // Retry-After — and no client loops on the same key. The activation-blocker
+  // alert is kept. (A MISSING key is the pre-198 shape: R1, the test above.)
   it.each([
     ['an unrecognised value', 'refund_review'],
     ['NULL', null],
-  ])('a replay whose order_status is PRESENT but %s fails CLOSED: 503 replay_state_unavailable + activation blocker, no client_secret, no Stripe call', async (_label, status) => {
+    ['not a string', 7],
+  ])('a replay whose order_status is PRESENT but %s is TERMINAL: 409 replay_state_unavailable, no Retry-After, activation blocker, no client_secret, no Stripe call; a same-key retry answers the same', async (_label, status) => {
     const w = await world();
-    const { replay, stripeAfter } = await replayWith(w, `cmd-r-unknown-${String(status)}`, { status: status as string });
-    expect(replay.res.status).toBe(503);
-    expect(replay.body).toEqual({ error: 'Ticket sales are not available yet for this event.', code: 'replay_state_unavailable' });
-    expect(replay.res.headers.get('Retry-After')).toBe('300');
+    const key = `cmd-r-unknown-${String(status)}`;
+    const { replay, stripeAfter } = await replayWith(w, key, { status: status as unknown as string });
+    expect(replay.res.status).toBe(409);
+    expect(replay.body).toEqual(REPLAY_STATE_UNAVAILABLE);
+    expect(replay.body.clientSecret).toBeUndefined();
+    expect(replay.res.headers.get('Retry-After')).toBeNull();
     expect(w.blockerAlerts()).toHaveLength(1);
     expect(stripeAfter).toEqual([]);
     expect(w.cancels()).toEqual([]);
+
+    const again = await w.run(key);
+    expect(again.res.status).toBe(409);
+    expect(again.body).toEqual(REPLAY_STATE_UNAVAILABLE);
+    expect(again.res.headers.get('Retry-After')).toBeNull();
   });
 });
 

@@ -51,6 +51,8 @@ interface WorldOpts {
   sweepError?: { message: string; code?: string };
   /** GET on these PI ids answers this status */
   probeFails?: Record<string, number>;
+  /** POST /payment_intents/{id}/cancel on these PI ids answers this status */
+  cancelFails?: Record<string, number>;
 }
 
 function matches(row: Record<string, unknown>, f: [string, ...unknown[]]): boolean {
@@ -128,6 +130,8 @@ async function world(opts: WorldOpts = {}) {
     if (cancelM) {
       const pi = pis.get(cancelM[1]);
       if (!pi) return { ok: false, status: 404, data: { error: { code: 'resource_missing' } } };
+      const refused = opts.cancelFails?.[pi.id];
+      if (refused) return { ok: false, status: refused, data: { error: { code: 'payment_intent_unexpected_state' } } };
       pi.status = 'canceled';
       return { ok: true, data: { ...pi } };
     }
@@ -299,6 +303,84 @@ describe('A-6 steps 2-3 — per lapsed order, act on the PaymentIntent\'s status
     expect(w.orderCancels().map((c) => c.params)).toEqual([
       { p_order_id: orderUuid(1), p_reason_code: 'payment_failed', p_command_key: buildCancelCommandKey(orderUuid(1), pi) },
     ]);
+  });
+
+  // D's ratification, A-6 precedence (D2/D3): cancel_pending_order runs ONLY
+  // when no sibling PI of the order is processing, succeeded or
+  // requires_capture. The order-level precedence already guarantees it — paid,
+  // anomaly and in_flight all return before the cancel_pending_order step —
+  // and these pin it.
+  it.each([
+    ['processing', 'in_flight'],
+    ['succeeded', 'paid'],
+    ['requires_capture', 'anomaly'],
+  ])('a canceled PI with a %s sibling → cancel_pending_order is NOT called (order-level precedence); outcome %s', async (sibling, outcome) => {
+    const w = await world({ report: [lapsed(1)] });
+    w.addPi(1, 'canceled', { rowStatus: 'failed' });
+    w.addPi(1, sibling);
+    const r = await w.run();
+    expect(r.res.status).toBe(200);
+    expect(w.orderCancels()).toEqual([]);
+    expect(r.body.results).toEqual([{ order_id: orderUuid(1), outcome }]);
+  });
+
+  // D's ratification C2 (A's suggestion A): requires_capture is an anomaly for
+  // this automatic-capture rail, AND an authorization held on the buyer's card.
+  // It is cancelled under the lapse key to release it, unless a sibling is
+  // succeeded or processing (D3); the outcome stays `anomaly`, alerted.
+  it('requires_capture → cancelled with pi_lapse_cancel_{pi} (releases the authorization); outcome anomaly, alerted naming order and PI; no order write (the webhook writes cancelled, O11)', async () => {
+    const w = await world({ report: [lapsed(1)] });
+    const pi = w.addPi(1, 'requires_capture');
+    const r = await w.run();
+    expect(r.res.status).toBe(200);
+    expect(w.piCancels().map((c) => [c.path, c.idempotencyKey, c.body])).toEqual([
+      [`/payment_intents/${pi}/cancel`, `pi_lapse_cancel_${pi}`, { cancellation_reason: 'abandoned' }],
+    ]);
+    expect(w.pis.get(pi)!.status).toBe('canceled');
+    expect(w.orderCancels()).toEqual([]);
+    expect(r.body.results).toEqual([{ order_id: orderUuid(1), outcome: 'anomaly' }]);
+    expect(w.alerts('anomaly').map((s) => s.ctx)).toEqual([{ order_id: orderUuid(1), pi_id: pi, authorization: 'released' }]);
+  });
+
+  it('requires_capture whose cancel Stripe refuses → anomaly, and the alert says the authorization may still be held; the batch continues', async () => {
+    const w = await world({ report: [lapsed(1), lapsed(2, { total_minor: FACE + 500 })], cancelFails: { pi_test_lapse_1: 400 } });
+    expect(w.addPi(1, 'requires_capture')).toBe('pi_test_lapse_1');
+    const good = w.addPi(2, 'requires_payment_method', { face: FACE + 500 });
+    const r = await w.run();
+    expect(r.res.status).toBe(200);
+    expect(w.piCancels().map((c) => c.path)).toEqual(['/payment_intents/pi_test_lapse_1/cancel', `/payment_intents/${good}/cancel`]);
+    expect(w.pis.get('pi_test_lapse_1')!.status).toBe('requires_capture');
+    expect(r.body.results).toEqual([
+      { order_id: orderUuid(1), outcome: 'anomaly' },
+      { order_id: orderUuid(2), outcome: 'cancel_requested' },
+    ]);
+    const [alert] = w.alerts('anomaly');
+    expect(alert.ctx).toEqual({ order_id: orderUuid(1), pi_id: 'pi_test_lapse_1', authorization: 'may_still_be_held' });
+    expect(String((alert.error as Error).message)).toContain('authorization may still be held');
+  });
+
+  it('requires_capture with a PROCESSING sibling → NOT cancelled (D3); anomaly, and the alert says the authorization may still be held', async () => {
+    const w = await world({ report: [lapsed(1)] });
+    const pi = w.addPi(1, 'requires_capture');
+    w.addPi(1, 'processing');
+    const r = await w.run();
+    expect(w.piCancels()).toEqual([]);
+    expect(w.orderCancels()).toEqual([]);
+    expect(r.body.results).toEqual([{ order_id: orderUuid(1), outcome: 'anomaly' }]);
+    const [alert] = w.alerts('anomaly');
+    expect(alert.ctx).toEqual({ order_id: orderUuid(1), pi_id: pi, authorization: 'may_still_be_held' });
+    expect(String((alert.error as Error).message)).toContain('authorization may still be held');
+  });
+
+  it('requires_capture with a SUCCEEDED sibling → NOT cancelled (D3); paid, lapsed_order_paid alerted', async () => {
+    const w = await world({ report: [lapsed(1)] });
+    w.addPi(1, 'requires_capture');
+    w.addPi(1, 'succeeded');
+    const r = await w.run();
+    expect(w.piCancels()).toEqual([]);
+    expect(w.orderCancels()).toEqual([]);
+    expect(r.body.results).toEqual([{ order_id: orderUuid(1), outcome: 'paid' }]);
+    expect(w.alerts('lapsed_order_paid')).toHaveLength(1);
   });
 
   it('no PaymentIntent found → A-4\'s default: the order is left alone', async () => {

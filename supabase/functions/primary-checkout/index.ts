@@ -985,21 +985,26 @@ serve(async (req: Request) => {
     //                                   the order's live PI (the A-6 canceller)
     //   otherwise                     → the existing recoverReplayQuote path
     //
-    // REFINEMENTS — A's (release integration), sent to D for ratification as an
-    // amendment to DESIGN-198-FINAL §4.2 A-2. Until D ratifies, this block is
-    // the reading A ships; each refinement is pinned in
+    // REFINEMENTS — A's (release integration), RATIFIED by D (the SQL owner)
+    // as an amendment to DESIGN-198-FINAL §4.2 A-2, with D's changes C1 (R2)
+    // and C2 (R5 anomaly). Each is pinned in
     // tests/primary-checkout-198-arms.test.ts.
     //
     //   R1. NO `order_status` KEY (the pre-198 replay shape) is the literal
     //       "otherwise": recoverReplayQuote, exactly the pre-198 behaviour. A
     //       198 rollback with this edge still deployed therefore keeps
     //       double-tap recovery working instead of 503-ing every replay.
-    //   R2. `order_status` PRESENT but not a known value (including NULL):
-    //       198 is deployed and answered something this edge cannot read, so
-    //       liveness is unknowable: 503 replay_state_unavailable + activation-
-    //       blocker alert. No client_secret leaves on an unproven order.
+    //   R2. `order_status` PRESENT but not one of the five values
+    //       venue."order".status is CHECK-constrained to (pending, paid,
+    //       partially_refunded, refunded, cancelled) — including NULL: 198 is
+    //       deployed and answered something this edge cannot read, so
+    //       liveness is unknowable. D's C1: TERMINAL 409
+    //       replay_state_unavailable, no Retry-After — the same key can never
+    //       read differently, so a retryable 503 only taught clients to loop on
+    //       it — plus the activation-blocker alert. No client_secret leaves on
+    //       an unproven order.
     //   R3. `refunded` / `partially_refunded` are a paid order later refunded:
-    //       already_paid, never a client_secret.
+    //       already_paid, never a client_secret (C1: pinned, never R2).
     //   R4. "holds_live is not true" is literal: false, NULL (no bound hold)
     //       and a missing key all refuse.
     //   R5. A lapsed pending order's answer follows what the best-effort cancel
@@ -1017,7 +1022,12 @@ serve(async (req: Request) => {
     //           the canceller cannot classify as transient → 409 hold_invalid
     //           plus an alert (activation_blocker false) naming the order and
     //           the PI. Never a 503: the state will not change, so a same-key
-    //           retry would answer 503 forever. Nothing is touched.
+    //           retry would answer 503 forever. D's C2: a requires_capture PI
+    //           is first CANCELLED (pi_lapse_cancel_{pi}) to release the
+    //           buyer's authorization, unless a sibling PI is succeeded or
+    //           processing (D3); a refused cancel still answers 409, and the
+    //           alert says the authorization may still be held. Nothing else
+    //           is touched (order-pis.ts, precedence step 3).
     //         • otherwise (`cancel_requested` / `order_cancelled` / `no_pi`)
     //           → 409 hold_invalid after the best-effort cancel: the design's
     //           literal rule.
@@ -1035,7 +1045,8 @@ serve(async (req: Request) => {
         return json({ ...HOLD_INVALID_BODY }, 409, H);
       }
       if (replayStatus !== 'pending') {
-        // R2: present, but not a value this edge knows.
+        // R2 (C1): present, but not one of the CHECK set's five. TERMINAL —
+        // 409, no Retry-After — so no client loops on the same key.
         logStage('replay-state-unavailable', { order_id: orderId, order_status: replayStatus ?? null });
         await captureException(
           'primary-checkout',
@@ -1043,9 +1054,9 @@ serve(async (req: Request) => {
           { order_id: orderId, activation_blocker: true },
         );
         return json(
-          { error: 'Ticket sales are not available yet for this event.', code: 'replay_state_unavailable' },
-          503,
-          { ...H, 'Retry-After': '300' },
+          { error: 'This order cannot be resumed. Please contact support.', code: 'replay_state_unavailable' },
+          409,
+          H,
         );
       }
       if (order.holds_live !== true) {
@@ -1076,10 +1087,16 @@ serve(async (req: Request) => {
         }
         if (lapse.kind === 'anomaly') {
           // R5 anomaly: permanent, so never a 503 — alert, then "start again".
+          // C2: a requires_capture PI's cancel was already attempted; the alert
+          // carries whether its authorization was released or may still be
+          // held (also in `detail`), and the answer is 409 either way.
           await captureException(
             'primary-checkout',
             new Error(`lapsed replay anomaly: ${lapse.detail}`),
-            { order_id: orderId, pi_id: lapse.piId, activation_blocker: false },
+            {
+              order_id: orderId, pi_id: lapse.piId, activation_blocker: false,
+              ...(lapse.authorization ? { authorization: lapse.authorization } : {}),
+            },
           );
           return json({ ...HOLD_INVALID_BODY }, 409, H);
         }

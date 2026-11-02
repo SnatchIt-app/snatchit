@@ -233,11 +233,14 @@ export type LapseOutcome =
   /** no PI confirms this order. A-4's rule: leave it (see `no_pi` below). */
   | { kind: 'no_pi' }
   /**
-   * a state this rail never produces. Nothing is touched. `piId` names the PI
-   * that showed it, so an alert can name both the order and the PI. Permanent:
-   * a caller must not answer it with a retry-the-same-key 503 (A-2 R5).
+   * a state this rail never produces. `piId` names the PI that showed it, so an
+   * alert can name both the order and the PI. Permanent: a caller must not
+   * answer it with a retry-the-same-key 503 (A-2 R5). Nothing is touched,
+   * EXCEPT a requires_capture PI's authorization (C2, below): `authorization`
+   * is present exactly when such a PI was found, and says whether its cancel
+   * released the hold on the buyer's card or the hold may still be there.
    */
-  | { kind: 'anomaly'; piId: string; detail: string }
+  | { kind: 'anomaly'; piId: string; detail: string; authorization?: 'released' | 'may_still_be_held' }
   /** could not look, or a Stripe/DB write failed. Nothing more is attempted; the next run retries. */
   | { kind: 'error'; detail: string };
 
@@ -247,6 +250,26 @@ const CANCELLABLE = new Set(['requires_payment_method', 'requires_confirmation',
 /** §4.2 A-6 step 3: "Idempotency-Key `pi_lapse_cancel_{pi}`". */
 export function lapseCancelIdempotencyKey(piId: string): string {
   return `pi_lapse_cancel_${piId}`;
+}
+
+/**
+ * THE one lapse cancel: POST /payment_intents/{id}/cancel,
+ * cancellation_reason=abandoned, Idempotency-Key pi_lapse_cancel_{id}. Used for
+ * the live PIs of step 5 and the requires_capture PIs of C2, so both present
+ * one body under one key. `null` = Stripe accepted it; otherwise why not.
+ */
+async function postLapseCancel(stripeFetchRaw: StripeRawFetch, piId: string): Promise<string | null> {
+  let res: Awaited<ReturnType<StripeRawFetch>>;
+  try {
+    res = await stripeFetchRaw(`/payment_intents/${piId}/cancel`, {
+      method:         'POST',
+      body:           { cancellation_reason: 'abandoned' },
+      idempotencyKey: lapseCancelIdempotencyKey(piId),
+    });
+  } catch (err) {
+    return `stripe cancel ${piId} threw: ${err instanceof Error ? err.message : String(err)}`;
+  }
+  return res.ok ? null : `stripe cancel ${piId} answered ${res.status}`;
 }
 
 /** §4.2 A-3: "p_command_key:'edge_abort:'+order_id". */
@@ -289,7 +312,15 @@ export function edgeAbortCommandKey(orderId: string): string {
  *      won would land on a cancelled order (§10 risk 13). "succeeded: do
  *      nothing. finalize has already decided."
  *   3. any status this rail never produces (e.g. requires_capture — every PI
- *      here is automatic-capture) → `anomaly`, nothing touched.
+ *      here is automatic-capture) → `anomaly`. Nothing is touched, with ONE
+ *      exception (C2, D's ratification of A's suggestion A): a requires_capture
+ *      PI is an AUTHORIZATION held on the buyer's card, so it is cancelled
+ *      first — the same body and pi_lapse_cancel_{pi} key as step 5 — to
+ *      release it, UNLESS a sibling PI is processing (D3; a succeeded sibling
+ *      already returned at 2). Its `payment_intent.canceled` then cancels the
+ *      order through the webhook (O11), as step 5's do. The outcome is still
+ *      `anomaly` whatever the cancel did; `authorization` says whether the hold
+ *      was released or may still be held (a refused or thrown cancel, or D3).
  *   4. any `processing` → `in_flight`: "skip and retry on the next run". Its
  *      siblings are left alone for the same reason as 2.
  *   5. any requires_payment_method / requires_confirmation / requires_action →
@@ -300,7 +331,11 @@ export function edgeAbortCommandKey(orderId: string): string {
  *      next run sees the PI's new status.
  *   6. every PI `canceled` while the order is still pending → cancel_pending_
  *      order('payment_failed', buildCancelCommandKey(order, pi)) with the
- *      newest PI — the key the webhook would have used for it.
+ *      newest PI — the key the webhook would have used for it. Reached ONLY
+ *      when no PI of the order is succeeded, processing or requires_capture
+ *      (D's ratification, A-6 precedence): 2, 3 and 4 have each returned
+ *      first, so every PI left here is `canceled` (pinned in
+ *      tests/primary-lapse-canceller.test.ts).
  *   7. none → `no_pi`. A-4's DEFAULT, not its option: the order is left as it
  *      is. Absence of a PI here is absence of EVIDENCE (the candidate read is a
  *      capped filter, and the authoritative Stripe search A-4's option needs
@@ -328,26 +363,47 @@ export async function cancelLapsedOrderPaymentIntents(
   const paid = pis.filter(isPaid);
   if (paid.length > 0) return { kind: 'paid', piIds: paid.map((c) => c.piId) };
 
-  const unknown = pis.find((c) => c.status !== 'processing' && c.status !== 'canceled' && !CANCELLABLE.has(c.status));
-  if (unknown) return { kind: 'anomaly', piId: unknown.piId, detail: `pi ${unknown.piId} has status ${unknown.status}` };
-
   const inFlight = pis.filter((c) => c.status === 'processing');
+
+  const unknown = pis.filter((c) => c.status !== 'processing' && c.status !== 'canceled' && !CANCELLABLE.has(c.status));
+  if (unknown.length > 0) {
+    // C2: a requires_capture PI holds an authorization; name it first.
+    const held = unknown.filter((c) => c.status === 'requires_capture');
+    const named = held[0] ?? unknown[0];
+    const detail = `pi ${named.piId} has status ${named.status}`;
+    if (held.length === 0) return { kind: 'anomaly', piId: named.piId, detail };
+    if (inFlight.length > 0) {
+      // D3: this cancel's payment_intent.canceled would cancel the order the
+      // processing sibling's money may yet land on.
+      return {
+        kind: 'anomaly', piId: named.piId, authorization: 'may_still_be_held',
+        detail: `${detail}; authorization may still be held: not cancelled, sibling ${inFlight.map((c) => c.piId).join(', ')} is processing (D3)`,
+      };
+    }
+    const refused: string[] = [];
+    for (const c of held) {
+      const why = await postLapseCancel(deps.stripeFetchRaw, c.piId);
+      if (why !== null) refused.push(why);
+    }
+    if (refused.length > 0) {
+      return {
+        kind: 'anomaly', piId: named.piId, authorization: 'may_still_be_held',
+        detail: `${detail}; authorization may still be held: ${refused.join('; ')}`,
+      };
+    }
+    return {
+      kind: 'anomaly', piId: named.piId, authorization: 'released',
+      detail: `${detail}; authorization released: cancel requested for ${held.map((c) => c.piId).join(', ')}`,
+    };
+  }
+
   if (inFlight.length > 0) return { kind: 'in_flight', piIds: inFlight.map((c) => c.piId) };
 
   const live = pis.filter((c) => CANCELLABLE.has(c.status));
   if (live.length > 0) {
     for (const c of live) {
-      let res: Awaited<ReturnType<StripeRawFetch>>;
-      try {
-        res = await deps.stripeFetchRaw(`/payment_intents/${c.piId}/cancel`, {
-          method:         'POST',
-          body:           { cancellation_reason: 'abandoned' },
-          idempotencyKey: lapseCancelIdempotencyKey(c.piId),
-        });
-      } catch (err) {
-        return { kind: 'error', detail: `stripe cancel ${c.piId} threw: ${err instanceof Error ? err.message : String(err)}` };
-      }
-      if (!res.ok) return { kind: 'error', detail: `stripe cancel ${c.piId} answered ${res.status}` };
+      const why = await postLapseCancel(deps.stripeFetchRaw, c.piId);
+      if (why !== null) return { kind: 'error', detail: why };
     }
     return { kind: 'cancel_requested', piIds: live.map((c) => c.piId) };
   }
