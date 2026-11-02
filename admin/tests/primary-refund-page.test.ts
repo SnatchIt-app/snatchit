@@ -109,3 +109,45 @@ describe("the surface says plainly that it moves no money", () => {
     expect(form).not.toContain("two-founder");
   });
 });
+
+/**
+ * Who is OFFERED the refund action. ops.record_primary_refund asserts
+ * assert_role(['platform_admin', 'platform_support']) (20261027033000:124). platform_risk passes
+ * requireOperator — which admits any operator role at aal2 — and so could open /money/ticket-orders and
+ * see a "type REFUND" form the server always refuses. Every entry point now asks the same allow-list.
+ */
+describe("the refund action is offered exactly to the roles the server accepts", () => {
+  const OPEN = "7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
+  const recon = {
+    ...payload,
+    count: 1,
+    attention_count: 1,
+    rows: [{ payment_id: "9c8b7a6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d", order_id: OPEN, payment_status: "succeeded", payment_total_minor: 4000, order_status: "paid", order_total_minor: 4000, tickets_issued: 2 }],
+    attention: [{ code: "kernel_refund_without_stripe", severity: "warning", order_id: OPEN, message: "check" }],
+  };
+  const render = async (role: string, refund: string | null) => {
+    mocks.requireOperator.mockReset().mockResolvedValue({ id: "f0e1d2c3-4b5a-4968-8d7e-1a2b3c4d5e6f", role });
+    mocks.callOps.mockReset().mockResolvedValue({ ok: true, data: recon });
+    const { default: Page } = await import("@/app/(console)/money/ticket-orders/page");
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    return renderToStaticMarkup(await Page({ searchParams: Promise.resolve(refund ? { refund } : {}) }));
+  };
+  const links = (h: string) => (h.match(/>\s*Record a refund\s*</g) ?? []).length;
+
+  for (const role of ["platform_admin", "platform_support"]) {
+    it(`${role} is offered the row and attention links and, once opened, the form`, async () => {
+      expect(links(await render(role, null))).toBe(2);
+      const opened = await render(role, OPEN);
+      expect(opened).toContain('name="confirm"');
+      expect(opened).not.toContain("needs platform_admin or platform_support");
+    });
+  }
+
+  it("NEGATIVE CONTROL — platform_risk is offered neither link nor form", async () => {
+    expect(links(await render("platform_risk", null))).toBe(0);
+    const opened = await render("platform_risk", OPEN);
+    expect(opened).not.toContain('name="confirm"');
+    // a typed or shared ?refund= link explains itself rather than vanishing
+    expect(opened).toContain("needs platform_admin or platform_support");
+  });
+});

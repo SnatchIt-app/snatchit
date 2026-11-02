@@ -6,6 +6,7 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { DateTime } from "@/components/ui/DateTime";
 import { PrimaryRefundForm } from "@/components/money/PrimaryRefundForm";
 import { requireOperator } from "@/lib/auth/session";
+import { canRecordPrimaryRefund } from "@/lib/permissions";
 import { formatMoney } from "@/lib/format";
 import { newRefundKey, readPrimaryReconciliation } from "@/lib/primary-refund-actions";
 import { doorWouldStillAdmit, refundSidesAgree, type PrimaryRow } from "@/lib/primary-money";
@@ -28,7 +29,10 @@ export const metadata = { title: "Ticket orders" };
  * other side back here. Nothing on this page moves money.
  */
 export default async function TicketOrdersPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  await requireOperator();
+  const me = await requireOperator();
+  // Who may record a refund is the server's allow-list, mirrored (permissions.ts). Every entry point
+  // below asks it, so a role the server refuses is never offered the action.
+  const mayRecordRefund = canRecordPrimaryRefund(me.role);
   const sp = await searchParams;
   const one = (k: string) => (typeof sp[k] === "string" ? (sp[k] as string) : null);
   const res = await readPrimaryReconciliation(one("from"), one("to"));
@@ -44,7 +48,7 @@ export default async function TicketOrdersPage({ searchParams }: { searchParams:
   }
 
   const r = res.data;
-  const refundKey = open ? await newRefundKey() : null;
+  const refundKey = open && mayRecordRefund ? await newRefundKey() : null;
   const openRow = open ? r.rows.find((x) => x.orderId === open) ?? null : null;
 
   const columns: Column<PrimaryRow>[] = [
@@ -90,7 +94,7 @@ export default async function TicketOrdersPage({ searchParams }: { searchParams:
       key: "act",
       header: "",
       render: (x) =>
-        x.orderId ? (
+        x.orderId && mayRecordRefund ? (
           <a href={`/money/ticket-orders?refund=${encodeURIComponent(x.orderId)}`} className="link text-[0.8125rem]">
             Record a refund
           </a>
@@ -129,7 +133,7 @@ export default async function TicketOrdersPage({ searchParams }: { searchParams:
                 <StatusBadge status={a.severity ?? "warning"} />
                 <span className="font-medium">{a.code.replace(/_/g, " ")}</span>
                 <span className="min-w-0 flex-1 text-muted">{a.message ?? "—"}</span>
-                {a.orderId ? (
+                {a.orderId && mayRecordRefund ? (
                   <a href={`/money/ticket-orders?refund=${encodeURIComponent(a.orderId)}`} className="link shrink-0 text-[0.8125rem]">
                     Record a refund
                   </a>
@@ -147,6 +151,11 @@ export default async function TicketOrdersPage({ searchParams }: { searchParams:
           ) : (
             <p className="text-sm text-muted">That order is not in the period shown. Widen the dates, or open it from its own row.</p>
           )}
+        </Panel>
+      ) : open && !mayRecordRefund ? (
+        // Reached by a typed or shared ?refund= link. Say why there is no form, rather than vanish.
+        <Panel eyebrow={`Order ${open.slice(0, 8)}`} title="Record a manual refund">
+          <p className="text-sm text-muted">Recording a refund needs platform_admin or platform_support. Your role can read this page but cannot record a refund, and the server would refuse it.</p>
         </Panel>
       ) : null}
 
