@@ -61,6 +61,8 @@ class StripeWithMemory {
   onPost: (() => void) | null = null;
   /** When set, every POST /refunds is answered with this Stripe error and creates nothing. */
   postError: { status: number; error: Record<string, string> } | null = null;
+  /** When set, every GET /refunds?payment_intent=… (the reconcile list) is answered with this Stripe error. */
+  listError: { status: number; error: Record<string, string> } | null = null;
 
   /** Stripe's 24h idempotency retention has elapsed: every key is a fresh key again. */
   forgetKeys() { this.byKey.clear(); }
@@ -95,6 +97,7 @@ class StripeWithMemory {
     }
     const list = /^\/refunds\?payment_intent=([^&]+)&limit=100$/.exec(c.path);
     if (c.method === 'GET' && list) {
+      if (this.listError) return { ok: false, status: this.listError.status, data: { error: this.listError.error } };
       const pi = decodeURIComponent(list[1]);
       return { ok: true, data: { object: 'list', data: this.refunds.filter((r) => r.payment_intent === pi), has_more: false } };
     }
@@ -500,5 +503,50 @@ describe('P: a terminal Stripe create error on action:execute pages exactly as b
     expect(r.body.code).toBe('rate_limited');
     expect(r.body.retryable).toBe(true);
     expect(h.edge.sentry.filter((s) => s.tag === 'refund-execute:stripe')).toHaveLength(0);
+  });
+});
+
+describe('L: a Stripe error on the reconcile LIST pages exactly as a create error does (execute now lists first)', { timeout: LOAD_BUDGET_MS }, () => {
+  // 3d488382 sent action:execute through reconcile, so the first Stripe call on
+  // execute is now GET /refunds?payment_intent=…, not the POST. Before this, a
+  // key-mode or binding fault (401 bad key, 403 restricted key, 400 "No such
+  // payment_intent") paged refund-execute:stripe from the create leg; on the
+  // list leg it answered 503 retryable with no page, so the row retried forever
+  // in silence. The list's non-2xx now goes through the same classifier.
+  const LIST_CASES: Array<[number, Record<string, string>, string]> = [
+    [401, { type: 'invalid_request_error', message: 'synthetic: invalid API key' }, 'invalid_request'],
+    [403, { type: 'invalid_request_error', message: 'synthetic: restricted key lacks refunds read' }, 'invalid_request'],
+    [400, { type: 'invalid_request_error', code: 'resource_missing', message: 'synthetic: no such payment_intent' }, 'resource_missing'],
+  ];
+
+  it.each(LIST_CASES)('L1 list HTTP %s on action:execute → pages refund-execute:stripe, non-retryable, and never POSTs', async (status, error, cls) => {
+    const h = await harness();
+    h.stripe.listError = { status, error };
+    const r = await h.execute();
+    expect(r.status).toBe(409);
+    expect(r.body.code).toBe(cls);
+    expect(r.body.retryable).toBe(false);
+    expect(h.edge.sentry.filter((s) => s.tag === 'refund-execute:stripe')).toHaveLength(1);
+    expect(h.calls().filter((c) => c.startsWith('POST'))).toHaveLength(0);
+  });
+
+  it('L2 the sweep in reconcile mode pages the same list fault (parity with execute)', async () => {
+    const h = await harness({
+      claim: [{ refund_id: REFUND, created_at: '2026-10-01T00:00:00Z', status: 'pending', execution_mode: 'reconcile', attempt: 2, command_key: `refund.execute:${REFUND}` }],
+    });
+    h.stripe.listError = { status: 401, error: { type: 'invalid_request_error', message: 'synthetic: invalid API key' } };
+    await h.sweep();
+    expect(h.edge.sentry.filter((s) => s.tag === 'refund-execute:stripe')).toHaveLength(1);
+    expect(h.calls().filter((c) => c.startsWith('POST'))).toHaveLength(0);
+  });
+
+  it('L3 control: a retryable list fault (503) stays retryable and does not page', async () => {
+    const h = await harness();
+    h.stripe.listError = { status: 503, error: { type: 'api_error', message: 'synthetic: upstream' } };
+    const r = await h.execute();
+    expect(r.status).toBe(503);
+    expect(r.body.retryable).toBe(true);
+    expect(h.edge.sentry.filter((s) => s.tag === 'refund-execute:stripe')).toHaveLength(0);
+    expect(h.calls().filter((c) => c.startsWith('POST'))).toHaveLength(0);
   });
 });

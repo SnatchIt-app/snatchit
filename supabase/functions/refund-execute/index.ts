@@ -328,14 +328,19 @@ async function applyStateSync(
         // — so a double refund would land here as a quiet no-op (refunds-1).
         // Re-read the row: converged only if the recorded ref IS ours.
         const reread = await loadContext(service, refundId);
-        const recordedRef = reread.ok ? reread.ctx.stripe_refund_ref : null;
+        const recordedRef = reread.ok ? (reread.ctx.stripe_refund_ref ?? null) : null;
         if (recordedRef === null) {
           // The re-read failed (or names no ref), so it proves NEITHER a
           // converged race NOR a second refund. Calling it a double refund on
           // a transient DB blip pages a false money alarm and parks the row
-          // non-retryable. Unknown: page that the check could not be made, and
-          // let the next attempt re-run it. The true conflict (a recorded ref
-          // that differs) is the branch below, unchanged.
+          // non-retryable. Unknown: page that the check could not be made. No
+          // automatic retry re-runs this comparison: refund_state_backwards means
+          // the row already moved past our step, so the next execute or sweep
+          // reads a submitted/terminal row and never reaches here again. The page
+          // (which carries stripe_refund_ref) is the only signal, and a human
+          // must compare that ref with the row's recorded ref. `?? null` above
+          // also treats an omitted key as unknown (093 always returns it today).
+          // The true conflict (a recorded ref that differs) is the branch below.
           const why = reread.ok ? 'row names no recorded ref' : `re-read failed: ${reread.code}: ${reread.detail}`;
           await captureException('refund-execute:state-sync', new Error(`refund_state_backwards for ${step.stripe_refund_ref}; the re-read could not verify the recorded ref (${why})`), {
             refund_id: refundId,
@@ -418,13 +423,14 @@ async function stripeCreateFailure(
   refundId: string,
   ctx: RefundExecutionContext,
   res: { status: number; data: unknown },
+  leg: 'create' | 'list' = 'create',
 ): Promise<ExecuteOutcome> {
   const verdict = classifyStripeRefundError({
     status: res.status,
     error: (res.data as { error?: { type?: string; code?: string; message?: string } })?.error,
   });
   const stripeErr = (res.data as { error?: { code?: string; message?: string } })?.error;
-  console.error('[refund-execute] Stripe refund create failed:', {
+  console.error(`[refund-execute] Stripe refund ${leg} failed:`, {
     refund_id: refundId,
     status: res.status,
     class: verdict.class,
@@ -510,7 +516,13 @@ async function reconcileOne(
     return { refund_id: refundId, outcome: 'stripe_error', code: 'network', detail: String(err), retryable: true, http: 502 };
   }
   if (!list.ok) {
-    return { refund_id: refundId, outcome: 'stripe_error', code: 'api_error', detail: `HTTP ${list.status}`, retryable: true, http: 503 };
+    // Classified and paged exactly like a create error. Since action:execute
+    // reconciles first, this list is now execute's FIRST Stripe call: a 401 bad
+    // key, a 403 restricted key or a 400 "No such payment_intent" (a key-mode or
+    // binding fault) used to page from the create leg and here answered 503
+    // retryable with no page, retrying forever in silence (refund-execute
+    // review of 3d488382, probe LIST). 5xx / 429 stay retryable and unpaged.
+    return await stripeCreateFailure(refundId, ctx, list, 'list');
   }
 
   const body = list.data as { data?: Array<{ id?: string; status?: string; failure_reason?: string; metadata?: Record<string, string> }>; has_more?: boolean };
