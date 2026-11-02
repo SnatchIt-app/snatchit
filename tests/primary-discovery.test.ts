@@ -92,6 +92,12 @@ describe('parsePrimarySession / readPrimarySessionDetail', () => {
     expect(await readPrimarySessionDetail(async () => ({ data: [], error: null }), SESSION, false)).toEqual({ kind: 'not_available' });
   });
 
+  it('D2d: a completed event or session is marked ended; an on-sale one is not', () => {
+    expect(parsePrimarySession(sessionRow())?.ended).toBe(false);
+    expect(parsePrimarySession(sessionRow({ event: { ...sessionRow().event, status: 'completed' } }))?.ended).toBe(true);
+    expect(parsePrimarySession(sessionRow({ session: { ...sessionRow().session, status: 'completed' } }))?.ended).toBe(true);
+  });
+
   it('D2b: an unranked tier (display_rank NULL — D 160: 0–999 or NULL = unranked) is kept; ranked tiers first, unranked in the server order', () => {
     const s = parsePrimarySession(sessionRow({ ticket_types: [
       tier({ display_rank: null, name: 'GA' }), tier({ display_rank: null, name: 'Last one' }), tier({ display_rank: 3, name: 'VIP' }),
@@ -135,8 +141,9 @@ describe('tierLine — what the server said, nothing more', () => {
     expect(tierLine(tier(), nowMs)).toEqual({ name: 'GA', price: '$22.00', status: 'On sale', available: true });
   });
 
-  it('T2: remaining 0 is "Sold out" even if the window is open; no counts are shown', () => {
-    expect(tierLine(tier({ remaining: 0 }), nowMs)).toMatchObject({ status: 'Sold out', available: false });
+  it('T2: remaining 0 is "Unavailable right now" even if the window is open — the count includes held stock, so it never claims "Sold out" (E-29; D trace CHK-9); no counts are shown', () => {
+    expect(tierLine(tier({ remaining: 0 }), nowMs)).toMatchObject({ status: 'Unavailable right now', available: false });
+    expect(JSON.stringify(tierLine(tier({ remaining: 0 }), nowMs))).not.toMatch(/sold out/i);
     expect(tierLine(tier({ remaining: 3 }), nowMs).status).not.toMatch(/\d/);
   });
 
@@ -144,6 +151,31 @@ describe('tierLine — what the server said, nothing more', () => {
     expect(tierLine(tier({ on_sale_now: false, sale_starts_at: '2026-11-20T15:00:00Z' }), nowMs)).toMatchObject({ status: 'Not on sale yet', available: false });
     expect(tierLine(tier({ on_sale_now: false, sale_ends_at: '2026-11-01T00:00:00Z' }), nowMs)).toMatchObject({ status: 'Sales ended', available: false });
     expect(tierLine(tier({ on_sale_now: false }), nowMs)).toMatchObject({ status: 'Not on sale', available: false });
+  });
+
+  it('T7: a tier not on sale yet says when it opens, in the venue zone with its EST/EDT label, whatever zone the phone is in (D trace SW-8)', () => {
+    const t = tier({ on_sale_now: false, sale_starts_at: '2026-11-20T15:00:00Z' });   // Fri 20 Nov 10:00 EST = 07:00 LA = 15:00 UTC
+    const tz = process.env.TZ;
+    try {
+      for (const zone of ['UTC', 'America/Los_Angeles', 'America/New_York']) {
+        process.env.TZ = zone;
+        expect(tierLine(t, nowMs, { timezone: 'America/New_York' }).opens, zone).toBe('On sale Fri, Nov 20 · 10:00 AM EST');
+        // no venue zone known: Eastern, never the device
+        expect(tierLine(t, nowMs, { timezone: null }).opens, zone).toBe('On sale Fri, Nov 20 · 10:00 AM EST');
+      }
+      process.env.TZ = 'America/Los_Angeles';
+      expect(new Date('2026-11-20T15:00:00Z').getHours()).toBe(7);   // witness: the device zone disagrees
+    } finally {
+      if (tz === undefined) delete process.env.TZ; else process.env.TZ = tz;
+    }
+    // only a future opening is announced; an open or ended tier has no `opens`
+    expect(tierLine(tier(), nowMs, { timezone: 'America/New_York' }).opens).toBeUndefined();
+    expect(tierLine(tier({ on_sale_now: false, sale_ends_at: '2026-11-01T00:00:00Z' }), nowMs, { timezone: 'America/New_York' }).opens).toBeUndefined();
+  });
+
+  it('T8: a completed event reads "Sales ended" on every tier and nothing can be chosen, whatever the window says (D trace SW-8)', () => {
+    expect(tierLine(tier(), nowMs, { ended: true })).toMatchObject({ status: 'Sales ended', available: false });
+    expect(tierLine(tier({ on_sale_now: false }), nowMs, { ended: true })).toMatchObject({ status: 'Sales ended', available: false });
   });
 
   it('T4: the device clock never puts a tier on sale — on_sale_now false wins even inside its window', () => {

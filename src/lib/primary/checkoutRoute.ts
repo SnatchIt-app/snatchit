@@ -134,7 +134,8 @@ export const reservePrimaryTier: HoldReserver = async (req) => {
 };
 
 export const HOLD_COPY: Record<HoldRefusal, string> = {
-  sold_out: 'There aren’t enough tickets left for that quantity.',
+  // 167's oversell count includes other buyers' holds (no held/sold split, E-29): never "left" or "sold out".
+  sold_out: 'There aren’t enough tickets available for that quantity right now. Some may be held by other buyers — try again in a few minutes.',
   not_on_sale: 'These tickets aren’t on sale right now.',
   hold_limit: 'You can’t hold more tickets right now. If you have a hold open, finish that purchase or wait for it to end.',
   sales_unavailable: PRIMARY_CHECKOUT_COPY.refusal.sales_unavailable,

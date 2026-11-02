@@ -25,6 +25,8 @@ import { supabase } from '@/src/lib/supabase';
 import { isNetworkError } from '@/src/lib/ui/loadState';
 
 import { sessionFactsFromRow, type RpcReader, type RpcResult, type SessionFacts } from '@/src/lib/tickets/entitlementReads';
+import { whenLine } from '@/src/lib/tickets/ticketWhen';
+import { EASTERN_ZONE } from '@/src/lib/time/eastern';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -111,6 +113,8 @@ export interface PrimarySessionDetail {
   description: string | null;
   neighborhood: string | null;
   tiers: PrimaryTier[];
+  /** The event or the session is completed (182 keeps a completed event readable): nothing is on sale. */
+  ended: boolean;
 }
 
 export function parsePrimarySession(row: unknown): PrimarySessionDetail | null {
@@ -123,7 +127,8 @@ export function parsePrimarySession(row: unknown): PrimarySessionDetail | null {
   const sessionId = s(session.session_id);
   if (!sessionId) return null;
   const tiers = orderTiers((Array.isArray(r.ticket_types) ? r.ticket_types : []).filter(isTier));
-  return { sessionId, facts, description: s(event.description), neighborhood: s(venue.neighborhood), tiers };
+  const ended = s(event.status) === 'completed' || s(session.status) === 'completed';
+  return { sessionId, facts, description: s(event.description), neighborhood: s(venue.neighborhood), tiers, ended };
 }
 
 export type SessionDetailLoad =
@@ -180,25 +185,35 @@ export interface TierLine {
   name: string;
   /** The ALL-IN price, or null when the server gave none — face value is never shown here. */
   price: string | null;
-  status: 'On sale' | 'Sold out' | 'Not on sale yet' | 'Sales ended' | 'Not on sale';
+  status: 'On sale' | 'Unavailable right now' | 'Not on sale yet' | 'Sales ended' | 'Not on sale';
   available: boolean;
+  /** When a tier not yet on sale opens — "On sale Fri, Nov 20 · 10:00 AM EST" — in the venue zone (SW-8). */
+  opens?: string;
 }
 
 /**
  * `nowMs` only words a closed window ("yet" vs "ended"); it never opens one — `on_sale_now` decides.
  * Without a server all-in price the tier cannot be bought and shows no price (A's all-in rule).
+ * `remaining` is capacity − held − sold (182, E-29: no held/sold split), so 0 is "Unavailable right now",
+ * never "Sold out" — a hold may lapse (D trace CHK-9). A tier not yet on sale says when it opens, in the venue's
+ * zone, or Eastern when the zone is unknown — never the device's (owner ET rule; D trace SW-8). A completed event
+ * sells nothing, whatever a tier's window says.
  */
-export function tierLine(t: PrimaryTier, nowMs: number): TierLine {
+export function tierLine(t: PrimaryTier, nowMs: number, ctx: { timezone?: string | null; ended?: boolean } = {}): TierLine {
   const price = typeof t.all_in_price_minor === 'number' ? usd(t.all_in_price_minor, t.currency) : null;
   const shown = price === '—' ? null : price;
   const base = { name: t.name, price: shown };
+  if (ctx.ended) return { ...base, status: 'Sales ended', available: false };
   if (t.on_sale_now) {
     if (shown === null) return { ...base, status: 'Not on sale yet', available: false };
-    return t.remaining > 0 ? { ...base, status: 'On sale', available: true } : { ...base, status: 'Sold out', available: false };
+    return t.remaining > 0 ? { ...base, status: 'On sale', available: true } : { ...base, status: 'Unavailable right now', available: false };
   }
   const starts = t.sale_starts_at ? Date.parse(t.sale_starts_at) : NaN;
   const ends = t.sale_ends_at ? Date.parse(t.sale_ends_at) : NaN;
-  if (Number.isFinite(starts) && starts > nowMs) return { ...base, status: 'Not on sale yet', available: false };
+  if (Number.isFinite(starts) && starts > nowMs) {
+    const w = whenLine(t.sale_starts_at as string, null, ctx.timezone ?? EASTERN_ZONE);
+    return { ...base, status: 'Not on sale yet', available: false, ...(w ? { opens: `On sale ${w.date} · ${w.times}` } : {}) };
+  }
   if (Number.isFinite(ends) && ends <= nowMs) return { ...base, status: 'Sales ended', available: false };
   return { ...base, status: 'Not on sale', available: false };
 }

@@ -81,11 +81,11 @@ export function PrimarySessionView(props: PrimarySessionViewProps) {
 
 function SessionBody({ load, props, s }: { load: Extract<SessionDetailLoad, { kind: 'ready' }>; props: PrimarySessionViewProps; s: Styles }) {
   const { nowMs } = props;
-  const { facts, description, neighborhood, tiers } = load.detail;
+  const { facts, description, neighborhood, tiers, ended } = load.detail;
   const when = whenFromLocal({ startsAtLocal: facts.startsAtLocal, doorsAtLocal: facts.doorsAtLocal, timezone: facts.timezone, startsAt: facts.startsAt });
   const restriction = entryRestrictionLine(facts.ageRestriction);
   const venueLine = [facts.venueName, neighborhood].filter(Boolean).join(' · ');
-  const lines = tiers.map((t) => ({ id: t.ticket_type_id, line: tierLine(t, nowMs) }));
+  const lines = tiers.map((t) => ({ id: t.ticket_type_id, line: tierLine(t, nowMs, { timezone: facts.timezone, ended }) }));
   return (
     <>
       <View style={s.event} accessible accessibilityRole="header">
@@ -114,11 +114,12 @@ function SessionBody({ load, props, s }: { load: Extract<SessionDetailLoad, { ki
               onPress={() => props.onSelectTier(id)}
               accessibilityRole="radio"
               accessibilityState={{ checked: selected, disabled: !line.available }}
-              accessibilityLabel={`${line.name}, ${line.price ? `${line.price} ${DISCOVERY_COPY.perTicket}, including all fees` : 'no price yet'}, ${line.status}`}
+              accessibilityLabel={`${line.name}, ${line.price ? `${line.price} ${DISCOVERY_COPY.perTicket}, including all fees` : 'no price yet'}, ${line.status}${line.opens ? `, ${line.opens}` : ''}`}
             >
               <View style={s.tierText}>
                 <Text style={[textStyle('title'), s.tierName]}>{line.name}</Text>
                 {line.price ? <Text style={[textStyle('body'), s.tierPrice]}>{`${line.price} ${DISCOVERY_COPY.perTicket}`}</Text> : null}
+                {line.opens ? <Text style={[textStyle('bodySm'), s.tierPrice]}>{line.opens}</Text> : null}
               </View>
               <Badge label={line.status} tone={line.available ? 'success' : 'neutral'} />
             </Pressable>

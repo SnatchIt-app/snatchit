@@ -46,7 +46,8 @@ describe('views — server facts only', () => {
   const listRoute = src('app/events.tsx');
 
   it('V1: tier status comes from tierLine; times from whenFromLocal; age from entryRestrictionLine', () => {
-    expect(event).toContain('tierLine(t, nowMs)');
+    expect(event).toContain('tierLine(t, nowMs, { timezone: facts.timezone, ended })');
+    expect(event).toMatch(/line\.opens \? <Text[^>]*>\{line\.opens\}<\/Text> : null/);   // SW-8: when a tier opens
     expect(event).toContain('whenFromLocal({');
     expect(event).toContain('entryRestrictionLine(facts.ageRestriction)');
     expect(event).toContain('DISCOVERY_COPY.priceNote');
