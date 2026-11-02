@@ -141,8 +141,26 @@ describe('a lost hold is reported for what the client knows', () => {
   });
 
   it('formats the actual deadline, and degrades to null rather than throwing', () => {
-    expect(fmtHoldUntil(Date.UTC(2026, 8, 14, 21, 14), 'en-US')).toMatch(/\d{1,2}:14/);
-    expect(fmtHoldUntil(Number.NaN, 'en-US')).toBeNull();
+    expect(fmtHoldUntil(Date.UTC(2026, 8, 14, 21, 14))).toMatch(/\d{1,2}:14/);
+    expect(fmtHoldUntil(Number.NaN)).toBeNull();
+  });
+
+  it('HU-ET: the deadline is New York time, labelled EST/EDT, whatever zone the phone is in (owner, 2026-11-02)', () => {
+    const tz = process.env.TZ;
+    try {
+      const at = Date.parse('2026-11-03T02:14:00Z');   // Mon 2 Nov 21:14 EST = 18:14 in LA = 02:14 UTC
+      for (const zone of ['UTC', 'America/Los_Angeles', 'America/New_York']) {
+        process.env.TZ = zone;
+        expect(fmtHoldUntil(at), zone).toBe('9:14 PM EST');
+        expect(fmtHoldUntil(Date.parse('2026-11-01T05:30:00Z')), zone).toBe('1:30 AM EDT');   // the repeated hour, first pass
+        expect(fmtHoldUntil(Date.parse('2026-11-01T06:30:00Z')), zone).toBe('1:30 AM EST');   // and second
+      }
+      // witness: the device zone really disagrees here, so a device-zone formatter could not pass
+      process.env.TZ = 'America/Los_Angeles';
+      expect(new Date(Date.parse('2026-11-03T02:14:00Z')).getHours()).toBe(18);
+    } finally {
+      if (tz === undefined) delete process.env.TZ; else process.env.TZ = tz;
+    }
   });
 });
 
