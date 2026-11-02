@@ -20,7 +20,9 @@
 --   F   fixture (one assertion)
 --   A   posture: SECURITY DEFINER, volatility, language, search_path='', owner, one overload, return type, the
 --       EXECUTE posture of both functions (unchanged); 202's md5s; 202's COMMENT on get_primary_session.
---   C   the value matrix, newest version = 1000 (number), "1000" (string), null, 10.5, 10001, -1, 0, 10000, true.
+--   C   the value matrix, newest version = 1000 (number), "1000" (string), null, 10.5, 10001, -1, 0, 10000, true,
+--       and c10 = JSON null written directly over a valid 1000 (an explicit unset counts: no reader skips it to
+--       price or publish on the version below, as checkout refuses on it).
 --       K checkout's outcome in that state (the reference); R the read agrees with checkout (computed: checkout's
 --       buyer_fee_minor / charge_total_minor when it quotes, both NULL when it refuses on the rate); P publish's
 --       outcome (exact text); X1 publish accepts exactly when checkout quotes, over the whole matrix (computed).
@@ -39,11 +41,12 @@
 -- Expected on main WITHOUT 202 (RED, predicted before the run; the file runs to the end): not ok (18) — A5 A6 A7;
 -- R2 (the read prices "1000"); P2 P4 P5 P6 (publish accepts "1000", 10.5, 10001, -1) P9 (raw 22P02 on true); X1;
 -- L5 L9 (raw 22P02 on the seq-scan plan) L10 L11 L12; S1 S2 S3. Passing on RED by design: the checkout reference
--- K1-K9, the controls F1 A1-A4 L1-L4 Z1, and the cases where the old readers already agree (R1 R3-R9, P1 P3 P7
--- P8, L6-L8, O1); the runner's mutants each fail at least one of them (D/s17-202/run_202.log).
+-- K1-K10, the controls F1 A1-A4 L1-L4 Z1, and the cases where the old readers already agree (R1 R3-R10, P1 P3 P7
+-- P8 P10, L6-L8, O1); the runner's mutants each fail at least one of them (D/s17-202/run_202.log; R10 / P10 against
+-- a read / publish that skips a JSON-null version: D/s17-202/fix-r1/run_202f.log).
 -- ============================================================================
 BEGIN;
-SELECT plan(53);
+SELECT plan(56);
 
 CREATE TABLE tap.memo_271 (k text PRIMARY KEY, v text);
 CREATE FUNCTION tap._store271(k text, v text) RETURNS text LANGUAGE sql SECURITY DEFINER AS
@@ -212,6 +215,14 @@ SELECT is(md5(obj_description(to_regprocedure('public.get_primary_session(uuid)'
 -- ── Section C — the value matrix (one state per newest value; default plan settings) ───────────────────
 SELECT tap._rate271('1000'::jsonb);
 SELECT tap._run271('c1');
+-- c10: JSON null written DIRECTLY over c1's valid 1000, before any older non-number exists (so on a tree without 202
+-- the old cast-in-an-ordered-LIMIT publish read has nothing to raise on here; plan traps are Section L's subject).
+-- The two newest versions are kept for K10, which proves the state.
+SELECT tap._rate271('null'::jsonb);
+SELECT tap._store271('h_c10', (SELECT jsonb_agg(x.value ORDER BY x.version DESC)
+                                 FROM (SELECT c.value, c.version FROM catalog.platform_config c
+                                        WHERE c.key = 'fee.buyer_service_bps' ORDER BY c.version DESC LIMIT 2) x)::text);
+SELECT tap._run271('c10');
 SELECT tap._rate271('"1000"'::jsonb);
 SELECT tap._run271('c2');
 SELECT tap._rate271('null'::jsonb);
@@ -238,6 +249,8 @@ SELECT is(tap._k271('c6'), 'P0001 service_fee_out_of_range', 'K6: newest -1 (neg
 SELECT is(tap._k271('c7'), 'ok 1005 0 1005',                 'K7: newest 0 — checkout ACCEPTS a zero rate (0..10000) and quotes face value');
 SELECT is(tap._k271('c8'), 'ok 1005 1005 2010',              'K8: newest 10000 (the upper bound) — checkout quotes 1005 + 1005');
 SELECT is(tap._k271('c9'), 'P0001 service_fee_unset',        'K9: newest true (JSON boolean) — checkout refuses service_fee_unset');
+SELECT is(tap._k271('c10') || ' | ' || tap._fetch271('h_c10')::text, 'P0001 service_fee_unset | [null, 1000]',
+  'K10: newest JSON null written directly over a valid 1000 (the two newest versions) — checkout refuses service_fee_unset on the explicit unset');
 
 SELECT is(tap._r271('c1'), tap._want271('c1'), 'R1: newest 1000 — the read''s (buyer_fee_minor, all_in_price_minor) = checkout''s (buyer_fee_minor, charge_total_minor)');
 SELECT is(tap._r271('c2'), tap._want271('c2'), 'R2: newest "1000" (a JSON string) — the read prices nothing (both NULL), as checkout refuses');
@@ -248,6 +261,7 @@ SELECT is(tap._r271('c6'), tap._want271('c6'), 'R6: newest -1 — both NULL, as 
 SELECT is(tap._r271('c7'), tap._want271('c7'), 'R7: newest 0 — the read prices a zero fee (0, 1005), as checkout quotes');
 SELECT is(tap._r271('c8'), tap._want271('c8'), 'R8: newest 10000 — the read = checkout''s quote (1005, 2010)');
 SELECT is(tap._r271('c9'), tap._want271('c9'), 'R9: newest true — both NULL, as checkout refuses');
+SELECT is(tap._r271('c10'), tap._want271('c10'), 'R10: newest null directly over a valid 1000 — both NULL, as checkout refuses (the read does not price the 1000 below the unset)');
 
 SELECT is(tap._p271('c1'), 'ok on_sale', 'P1: newest 1000 — publish goes on_sale');
 SELECT is(tap._p271('c2'), 'P0001 precondition_failed: fee_policy_unset — fee.buyer_service_bps is a JSON string, not a number; this event cannot go on sale until the owner sets an integer',
@@ -264,15 +278,17 @@ SELECT is(tap._p271('c7'), 'ok on_sale', 'P7: newest 0 — publish goes on_sale,
 SELECT is(tap._p271('c8'), 'ok on_sale', 'P8: newest 10000 — publish goes on_sale');
 SELECT is(tap._p271('c9'), 'P0001 precondition_failed: fee_policy_unset — fee.buyer_service_bps is a JSON boolean, not a number; this event cannot go on sale until the owner sets an integer',
   'P9: newest true — publish refuses fee_policy_unset cleanly (no raw 22P02)');
+SELECT is(tap._p271('c10'), 'P0001 precondition_failed: fee_policy_unset — fee.buyer_service_bps has no value; this event cannot go on sale until the owner sets it',
+  'P10: newest null directly over a valid 1000 — publish refuses fee_policy_unset with the unchanged text (it does not go on sale on the 1000 below the unset)');
 SELECT is((SELECT coalesce(string_agg(c.k, ' ' ORDER BY c.k), '')
-             FROM (SELECT 'c' || g AS k FROM generate_series(1, 9) g) c
+             FROM (SELECT 'c' || g AS k FROM generate_series(1, 10) g) c
             WHERE (tap._p271(c.k) = 'ok on_sale') IS DISTINCT FROM (tap._k271(c.k) LIKE 'ok %')
                OR (tap._p271(c.k) <> 'ok on_sale' AND tap._p271(c.k) NOT LIKE 'P0001 precondition_failed: fee_policy_unset — %')
                OR (tap._k271(c.k) NOT LIKE 'ok %' AND tap._k271(c.k) NOT IN ('P0001 service_fee_unset', 'P0001 service_fee_out_of_range'))), '',
   'X1: over the whole matrix publish goes on_sale exactly when checkout quotes, and refuses with fee_policy_unset exactly when checkout refuses on the rate (lists the disagreeing cases)');
 
--- ── Section L — plan independence. History so far: null (seed), 1000, "1000", null, 10.5, 10001, -1, 0, 10000,
---    true; now "ten percent" and a valid newest 1000 on top (L5-L8), then "1000" on top of that (L9-L12) ──
+-- ── Section L — plan independence. History so far: null (seed), 1000, null, "1000", null, 10.5, 10001, -1, 0,
+--    10000, true; now "ten percent" and a valid newest 1000 on top (L5-L8), then "1000" on top of that (L9-L12) ──
 SELECT tap._rate271('"ten percent"'::jsonb);
 SELECT tap._rate271('1000'::jsonb);
 SELECT tap._seqplan271();
