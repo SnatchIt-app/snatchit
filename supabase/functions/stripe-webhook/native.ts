@@ -387,11 +387,17 @@ function isPrivilegeCode(code: string, message: string): boolean {
   return code === '42501' || message.includes('insufficient_privilege') || message.includes('permission denied');
 }
 
+/** 198 A-5: the reason for a charge finalize refused with `refund_required`. */
+export const FINALIZE_REFUND_REQUIRED = 'finalize_refund_required';
+
 /**
  * `venue.finalize_primary_order` (085:1881-2082).
  *
  * TERMINAL (ack) — the event can never succeed, no matter how many times it is
  * delivered, because the refusal is about facts the event itself carries:
+ *   refund_required       — 198 (DESIGN-198-FINAL §3.2 BLOCK K3): the order's bound
+ *                           hold lapsed before payment and the batch has no
+ *                           headroom; the charge must be refunded by hand
  *   payment_unverified:*  — wrong buyer, insufficient cover, or an existing refund
  *   buyer identity is erased — OR-17 tombstone; the acquisition is refused forever
  *   only a pending order finalizes — the order is already cancelled/refunded
@@ -403,6 +409,8 @@ function isPrivilegeCode(code: string, message: string): boolean {
  * RETRYABLE (non-2xx) — the refusal is about OUR world and a redelivery lands
  * after someone fixes it:
  *   no_active_signing_key — provision a key and the very next delivery mints
+ *   feature_disabled      — the mint's dark-flag gate (093:4936); turning the flag
+ *                           back on lets the next delivery mint (198 §5 scenario 3)
  *   42501                 — PFA-15/PFA-21 grant gap; grant it and the retry works
  *   transient PG classes  — the reason retries exist
  *   anything unrecognised — fail toward not losing the money event
@@ -419,6 +427,23 @@ export function classifyFinalizeError(err: PgErrorLike | null | undefined): Deci
   }
   if (message.includes('no_active_signing_key')) {
     return { ack: false, alert: true, reason: 'finalize_no_signing_key' };
+  }
+  // 198 A-5 (DESIGN-198-FINAL §4.1, §4.2 A-5, O2). Last RETRY arm, above every
+  // ACK arm: an ACK here would leave a paid order pending and unminted, with no
+  // redelivery to mint it once the flag is back on (§5 scenario 3).
+  if (message.includes('feature_disabled')) {
+    return { ack: false, alert: true, reason: 'finalize_feature_disabled' };
+  }
+  // 198 A-5 (§3.2 BLOCK K3, §4.2 A-5). The raise rolled the whole call back (no
+  // atoms, no payment_native, order still pending — §3.2 "Why refund_required
+  // is a raise"), and no redelivery creates capacity, so ACK + alert; the review
+  // row names order, payment and PI (nativeReviewRef) for the manual refund
+  // (owner, 2026-10-21; §5 scenario 5). §4.2 puts it before oversell_rejected;
+  // it sits before EVERY ACK arm so a row that must say "refund this charge" is
+  // never filed under a reason that does not. Below the RETRY arms: a fixable
+  // cause still wins over an ACK.
+  if (message.includes('refund_required')) {
+    return { ack: true, alert: true, reason: FINALIZE_REFUND_REQUIRED };
   }
   if (message.includes('payment_unverified')) {
     return { ack: true, alert: true, reason: 'finalize_payment_unverified' };
@@ -442,6 +467,36 @@ export function classifyFinalizeError(err: PgErrorLike | null | undefined): Deci
     return { ack: true, alert: true, reason: 'finalize_invalid_input' };
   }
   return { ack: false, alert: true, reason: 'finalize_unclassified' };
+}
+
+/** First non-empty of these is a native review row's identifier (index.ts recordNativeReview). */
+const NATIVE_REVIEW_REF_KEYS = ['order_id', 'pi_id', 'dispute_id', 'stripe_transfer_ref', 'account_id', 'payment_id'] as const;
+
+/**
+ * The identifier at the end of a native review row's `error_message`
+ * (`${reason}:${event.type}:${event.id}:${ref}`, index.ts recordNativeReview).
+ *
+ * Default: the first non-empty of NATIVE_REVIEW_REF_KEYS — moved here verbatim
+ * from index.ts so it is unit-testable; stripe-webhook-native-routing.test.ts
+ * pins the messages it produces.
+ *
+ * 198 A-5 (DESIGN-198-FINAL §4.2): `finalize_refund_required` is a charge a human
+ * must refund by hand, so its row names order, payments row and PaymentIntent,
+ * labelled and comma-separated — no `:` inside, so the message's first four
+ * colon-delimited fields keep their positions. A missing one is written `none`,
+ * never dropped: the row must still be written, or finishDecision refuses the
+ * ACK. The payments id rides in this TEXT, never the `payment_id` column
+ * (index.ts:485-488, review round 2 MAJOR-1).
+ */
+export function nativeReviewRef(reason: string, body: Record<string, unknown>): string {
+  const pick = (key: string): string | null => {
+    const value = body[key];
+    return typeof value === 'string' && value.length > 0 ? value : null;
+  };
+  if (reason === FINALIZE_REFUND_REQUIRED) {
+    return ['order_id', 'payment_id', 'pi_id'].map((key) => `${key}=${pick(key) ?? 'none'}`).join(',');
+  }
+  return NATIVE_REVIEW_REF_KEYS.map(pick).find((value): value is string => value !== null) ?? 'none';
 }
 
 /**
