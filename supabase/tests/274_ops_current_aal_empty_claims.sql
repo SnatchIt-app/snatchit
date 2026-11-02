@@ -10,7 +10,8 @@
 --   whoami          ops.whoami()                       as authenticated platform_admin
 --   evidence_admin  ops.evidence_operator_may_read()   as authenticated platform_admin
 --   evidence_fan    ops.evidence_operator_may_read()   as authenticated non-operator
--- These are every live caller of ops.current_aal (A4 keeps that list exact). The persona is identified through the
+-- These are every live caller of ops.current_aal (A4 keeps that list exact; A5 pins the body md5 of each caller and of
+-- ops.assert_role(text[]) at main's text, since 205 changes none of them). The persona is identified through the
 -- legacy request.jwt.claim.sub GUC, which auth.uid() reads first: the only way auth.uid() is non-null while the
 -- claims are absent, '' or malformed. The ABSENT state is captured first: once a session sets the claims GUC it never
 -- reads NULL again (G1 proves each state was the intended one).
@@ -18,7 +19,7 @@
 -- all its assertions instead of aborting.
 -- ============================================================================
 BEGIN;
-SELECT plan(35);
+SELECT plan(36);
 
 CREATE FUNCTION tap._try274(p_sql text) RETURNS jsonb LANGUAGE plpgsql AS
 $m$ DECLARE r text; BEGIN EXECUTE p_sql INTO r; RETURN jsonb_build_object('value', r);
@@ -128,6 +129,15 @@ SELECT is(
       AND p.pronamespace <> 'tap'::regnamespace),
   'ops.assert_reader() ops.evidence_operator_may_read() ops.whoami()',
   'A4: outside the test harness, the live callers of ops.current_aal() are exactly assert_reader, evidence_operator_may_read and whoami — each probed below');
+-- md5(pg_get_functiondef(...)) measured on a local PG17 replay of main 7496fee3 (d197_base), before and after 205;
+-- a missing signature reads '<missing>' instead of dropping out of the list
+SELECT is(
+  (SELECT string_agg(s.sig || '=' || coalesce(md5(pg_get_functiondef(to_regprocedure(s.sig))), '<missing>'), ' ' ORDER BY s.n)
+     FROM unnest(array['ops.assert_reader()', 'ops.assert_role(text[])', 'ops.whoami()', 'ops.evidence_operator_may_read()'])
+          WITH ORDINALITY AS s(sig, n)),
+  'ops.assert_reader()=24c003a983cb577b6ad178fc595c17c5 ops.assert_role(text[])=0b3bf7d903322c5ec83964a3a6c00907 '
+  || 'ops.whoami()=e3de6980a9b8c5c172627acbb256d2bb ops.evidence_operator_may_read()=76a71c68d1934d532f6ef4bfc906c53a',
+  'A5: assert_reader, assert_role, whoami and evidence_operator_may_read keep main''s bodies (205 changes ops.current_aal() only)');
 
 -- ── G — each capture ran in the intended claims state
 SELECT is(
