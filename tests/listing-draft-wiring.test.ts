@@ -531,3 +531,109 @@ describe('W7 · the wiring, as source', () => {
     expect(body).toContain('coverUpload.restore(d.coverUri)');
   });
 });
+
+describe('W11 · the form’s times are Eastern (owner 2026-11-02; A: the form says so, defaults to America/New_York, stores New York wall clock)', () => {
+  // The REAL screen, mounted once per phone zone at the same instant; what it shows and what it inserts must not
+  // move. The pickers draw a Date's device-local wall clock and the form stores what they show, so every value
+  // is read as the carrier's local parts. EVENING is Mon 2 Nov 21:14 EST = Mon 18:14 in Los Angeles = Tue 02:14 UTC.
+  const ZONES = ['UTC', 'America/Los_Angeles', 'America/New_York'] as const;
+  const EVENING = new Date('2026-11-03T02:14:00Z');
+  const tz = process.env.TZ;
+  afterEach(() => { if (tz === undefined) delete process.env.TZ; else process.env.TZ = tz; });
+  const local = (d: Date) => [d.getFullYear(), d.getMonth() + 1, d.getDate(), d.getHours(), d.getMinutes()];
+
+  /** A fresh harness in `zone` at `at`, then `fn`; returns what `fn` saw in each zone, which must all agree. */
+  async function everyZone<T>(at: Date, fn: () => Promise<T>): Promise<T> {
+    const answers: T[] = [];
+    for (const zone of ZONES) {
+      process.env.TZ = zone;
+      vi.resetModules();
+      vi.setSystemTime(at);
+      h.mem.clear(); h.ops.length = 0; h.pushes.length = 0; h.alerts.length = 0; h.alertCalls.length = 0; h.inserts.length = 0;
+      h.insertResult = { data: { id: 'L1' }, error: null };
+      for (const u of Object.values(h.uploads)) { u.localUri = null; u.restored.length = 0; u.resets = 0; }
+      answers.push(await fn());
+    }
+    for (const a of answers) expect(a).toEqual(answers[0]);
+    return answers[0];
+  }
+  async function publishRestored(host: HookHost, step: () => Promise<void>) {
+    h.uploads.proofs.localUri = PROOF;
+    (checkbox(host).props.onPress as () => void)();
+    (publishButton(host).props.onPress as () => void)();
+    await step();
+    return { event_date: h.inserts[0]?.event_date, event_time: h.inserts[0]?.event_time };
+  }
+
+  it('W11a: a new form — the date row, the time row and its zone, the Eastern note, the earliest pickable day — is New York’s', async () => {
+    const shown = await everyZone(EVENING, async () => {
+      const { host } = await mountScreen();
+      const picker = find(host, (el) => el.type === 'DateTimePicker')!;
+      const out = {
+        date: byLabel(host, 'Date')!.props.value,
+        time: byLabel(host, 'Time')!.props.value,
+        note: find(host, (el) => el.type === 'Text' && el.props.children === 'Times are Eastern Time (EST/EDT).') !== undefined,
+        pickerValue: local(picker.props.value as Date),
+        minimumDate: local(picker.props.minimumDate as Date),
+      };
+      host.unmount();
+      return out;
+    });
+    expect(shown).toEqual({ date: 'Mon, Nov 2', time: '10:00 PM EST', note: true, pickerValue: [2026, 11, 2, 0, 0], minimumDate: [2026, 11, 2, 0, 0] });
+    // Witnesses: at EVENING a UTC phone is on Tue 3 Nov at 02:14, a Los Angeles one at 18:14.
+    process.env.TZ = 'UTC';
+    expect([EVENING.getDate(), EVENING.getHours()]).toEqual([3, 2]);
+    process.env.TZ = 'America/Los_Angeles';
+    expect([EVENING.getDate(), EVENING.getHours()]).toEqual([2, 18]);
+  }, 120_000);
+
+  it('W11b: an unpicked draft date comes back as New York’s today and is stored as that day; the clock is stored as shown', async () => {
+    const out = await everyZone(EVENING, async () => {
+      h.mem.set(KEY, serializeListingDraft(stored({ dateChosen: false, eventTime: new Date(2026, 9, 21, 22, 30) }), NOW));
+      const { host, step } = await mountScreen();
+      (banner(host)!.props.onContinue as () => void)();
+      await step();
+      const rows = { date: byLabel(host, 'Date')!.props.value, time: byLabel(host, 'Time')!.props.value };
+      const row = await publishRestored(host, step);
+      host.unmount();
+      return { rows, ...row };
+    });
+    expect(out).toEqual({ rows: { date: 'Mon, Nov 2', time: '10:30 PM EST' }, event_date: '2026-11-02', event_time: '22:30:00' });
+  }, 120_000);
+
+  it('W11c: a picked date is stored as the day the row shows — even when the picker hands back an evening carrier', async () => {
+    const out = await everyZone(EVENING, async () => {
+      h.mem.set(KEY, serializeListingDraft(stored({ eventDate: new Date(2026, 10, 20) }), NOW));
+      const { host, step } = await mountScreen();
+      (banner(host)!.props.onContinue as () => void)();
+      await step();
+      const picker = find(host, (el) => el.type === 'DateTimePicker')!;
+      (picker.props.onChange as (e: unknown, d?: Date) => void)({ type: 'set' }, new Date(2026, 10, 2, 21, 14));
+      await step();
+      const date = byLabel(host, 'Date')!.props.value;
+      const row = await publishRestored(host, step);
+      host.unmount();
+      return { date, ...row };
+    });
+    expect(out).toEqual({ date: 'Mon, Nov 2', event_date: '2026-11-02', event_time: '22:00:00' });
+    // Witness: toISOString's day for that carrier on a Los Angeles or New York phone is the 3rd.
+    process.env.TZ = 'America/Los_Angeles';
+    expect(new Date(2026, 10, 2, 21, 14).toISOString().slice(0, 10)).toBe('2026-11-03');
+  }, 120_000);
+
+  it('W11d: a draft picked for New York’s today is offered until New York’s midnight, and removed after it — not at the phone’s', async () => {
+    const at = (instant: string) => everyZone(new Date(instant), async () => {
+      h.mem.set(KEY, serializeListingDraft(stored({ eventDate: new Date(2026, 10, 1) }), NOW));
+      const { host } = await mountScreen();
+      const out = { offered: banner(host) !== undefined, kept: h.mem.has(KEY) };
+      host.unmount();
+      return out;
+    });
+    expect(await at('2026-11-02T04:59:59Z')).toEqual({ offered: true, kept: true });     // 23:59:59 EST, 1 Nov
+    expect(await at('2026-11-02T05:00:00Z')).toEqual({ offered: false, kept: false });   // 00:00 EST, 2 Nov
+    process.env.TZ = 'UTC';
+    expect(new Date('2026-11-02T04:59:59Z').getDate()).toBe(2);                         // witness: a UTC phone is already on the 2nd
+    process.env.TZ = 'America/Los_Angeles';
+    expect(new Date('2026-11-02T05:00:00Z').getDate()).toBe(1);                         // a Los Angeles phone is still on the 1st
+  }, 120_000);
+});
