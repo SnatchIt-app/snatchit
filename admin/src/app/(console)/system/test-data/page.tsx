@@ -1,5 +1,5 @@
 import { PageHeader } from "@/components/ui/PageHeader";
-import { OpsFailureAlert } from "@/components/ui/Alert";
+import { Alert, OpsFailureAlert } from "@/components/ui/Alert";
 import { DataTable } from "@/components/ui/DataTable";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { RESTRICTED_VIEW_TITLE, TestRecordBadge } from "@/components/ui/HiddenTestRowsNotice";
@@ -35,6 +35,43 @@ export default async function TestDataPage() {
   const reportRows = reports.ok ? (toListPage(reports.data).items.map(toReport).filter((r): r is Report => r !== null) as Report[]) : [];
   const classified = [...caseRows, ...orderRows, ...listingRows, ...reportRows].some((r) => r.is_test === true || r.is_test === false);
   const sp = {};
+
+  /**
+   * DC-2 fail-closed. Production's readers are `(p_filters, p_cursor, p_limit)` only — registry 180,
+   * which adds `p_include_test`, is NOT applied there. PostgREST answers PGRST202 for the four-argument
+   * call, which `mapOpsError` marks `unavailable`.
+   *
+   * ANY of the four refusing closes the whole page, not just its own section. A partial view would be
+   * read as "the rest of the rows ARE classified", which is the one claim this page must never make when
+   * it cannot stand behind it. So: no tables, no badges, no classification sentence — a named state that
+   * says which migration is missing.
+   */
+  const needsRegistry180 = [cases, orders, listings, reports].some((r) => !r.ok && r.kind === "error" && r.unavailable === true);
+  if (needsRegistry180) {
+    return (
+      <>
+        <PageHeader
+          eyebrow="System"
+          title={RESTRICTED_VIEW_TITLE}
+          description="This view asks the readers to include test records. This server's readers do not accept that request, so nothing is listed here."
+          meta="Needs registry 180."
+        />
+        <Alert state="info" title="Needs registry 180 — the readers on this server cannot include test records.">
+          <p>
+            The console asked <code className="font-mono">ops.list_cases</code>,{" "}
+            <code className="font-mono">list_orders</code>, <code className="font-mono">list_listings</code> and{" "}
+            <code className="font-mono">list_reports</code> for test records. On this server those functions take{" "}
+            <code className="font-mono">(p_filters, p_cursor, p_limit)</code> only, so the request was refused.
+          </p>
+          <p className="mt-2">
+            <strong>No rows are shown and nothing has been classified.</strong> This is not an outage and no data is
+            missing elsewhere: every other screen calls the same readers with the default, which never returns a test
+            record. Applying registry 180 enables this view.
+          </p>
+        </Alert>
+      </>
+    );
+  }
   return (
     <>
       <PageHeader

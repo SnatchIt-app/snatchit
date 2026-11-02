@@ -122,6 +122,53 @@ describe("DC1-R3: the restricted view is the only caller of p_include_test", () 
     expect((html.match(/Test record<\/span>/g) ?? []).length).toBe(3); // three test rows badged; the real listing says Real
     expect(html).toContain("Real");
   });
+  /**
+   * DC-2 fail-closed. Production's readers are (p_filters, p_cursor, p_limit) only — registry 180 is not
+   * applied there — so the four-argument call answers PGRST202, which mapOpsError marks `unavailable`.
+   *
+   * The page must name the missing migration, show no rows, and make NO claim about classification. The
+   * danger is not an error page; it is a page that looks like an answer.
+   */
+  const UNAVAILABLE = { ok: false, kind: "error", unavailable: true, code: "PGRST202", message: "RPC ops.list_cases not available yet" };
+
+  it("a reader that refuses p_include_test closes the page with a NAMED registry 180 state", async () => {
+    mocks.requireOperator.mockResolvedValue({ id: "f0e1d2c3-4b5a-4968-8d7e-1a2b3c4d5e6f", role: "platform_admin" });
+    mocks.callOps.mockImplementation(async () => UNAVAILABLE);
+    const html = h(await TestDataPage());
+    expect(html).toContain("Needs registry 180");
+    expect(html).toContain("No rows are shown and nothing has been classified");
+    // not an error page, and no claim either way about classification
+    expect(html).not.toContain("does not classify rows yet");
+    expect(html).not.toContain("The server classifies rows");
+    expect(html).not.toContain("Not classified");
+    expect(html).not.toContain("Test record</span>");
+  });
+
+  it("ONE reader refusing is enough to close the whole page, so no section implies the others are classified", async () => {
+    mocks.requireOperator.mockResolvedValue({ id: "f0e1d2c3-4b5a-4968-8d7e-1a2b3c4d5e6f", role: "platform_admin" });
+    mocks.callOps.mockImplementation(async (fn: string) =>
+      fn === "list_reports" ? UNAVAILABLE : { ok: true, data: { items: [{ id: "c1a0b2c3-4d5e-4f60-8a1b-2c3d4e5f6a7b", status: "open", is_test: true }], next_cursor: null } },
+    );
+    const html = h(await TestDataPage());
+    expect(html).toContain("Needs registry 180");
+    expect(html).not.toContain("Test record</span>");
+  });
+
+  it("NEGATIVE CONTROL — a reader that fails for a DIFFERENT reason is not reported as registry 180", async () => {
+    mocks.requireOperator.mockResolvedValue({ id: "f0e1d2c3-4b5a-4968-8d7e-1a2b3c4d5e6f", role: "platform_admin" });
+    mocks.callOps.mockImplementation(async (fn: string) => (fn === "list_cases" ? { ok: false, kind: "denied" } : { ok: true, data: { items: [], next_cursor: null } }));
+    const html = h(await TestDataPage());
+    expect(html).not.toContain("Needs registry 180");
+  });
+
+  it("NEGATIVE CONTROL — when every reader accepts the argument the page renders normally", async () => {
+    mocks.requireOperator.mockResolvedValue({ id: "f0e1d2c3-4b5a-4968-8d7e-1a2b3c4d5e6f", role: "platform_admin" });
+    mocks.callOps.mockImplementation(async () => ({ ok: true, data: { items: [{ id: "c1a0b2c3-4d5e-4f60-8a1b-2c3d4e5f6a7b", status: "open", is_test: true }], next_cursor: null } }));
+    const html = h(await TestDataPage());
+    expect(html).not.toContain("Needs registry 180");
+    expect(html).toContain("Test record</span>");
+  });
+
   it("on a server without 180 the page says so and badges nothing", async () => {
     mocks.requireOperator.mockResolvedValue({ id: "f0000000-0000-4000-8000-0000000000a1", role: "platform_admin" });
     mocks.callOps.mockImplementation(async () => ({ ok: true, data: { items: [{ id: "c1000000-0000-4000-8000-000000000001", status: "open" }], next_cursor: null } }));
