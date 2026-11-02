@@ -1804,7 +1804,7 @@ jobs:
           set -euo pipefail
           deployed="auto-finalize-auctions confirm-and-release confirm-payment create-connect-account create-payment-intent delete-account enforce-transfer-expiry notify-report notify-transfer send-push stripe-webhook"
           aligned="credential-sign door-manifest door-session ops-refund-execute"
-          native="connect-onboarding payout-execute primary-checkout refund-execute"
+          native="connect-onboarding payout-execute primary-checkout primary-lapse-canceller refund-execute"
           for d in supabase/functions/*/; do
             n=$(basename "$d"); [ "$n" = "_shared" ] && continue
             case " $deployed $aligned $native " in *" $n "*) ;; *) echo "::error::supabase/functions/$n is in none of the deployed/aligned/native deno-check lists — add it deliberately."; exit 1;; esac
@@ -1818,7 +1818,7 @@ jobs:
         continue-on-error: true
         run: |
           set -uo pipefail
-          native="connect-onboarding payout-execute primary-checkout refund-execute"
+          native="connect-onboarding payout-execute primary-checkout primary-lapse-canceller refund-execute"
           files=""; for n in $native; do [ -f "supabase/functions/$n/index.ts" ] && files="$files supabase/functions/$n/index.ts"; done
           # shellcheck disable=SC2086
           if deno check $files; then echo "native arm type-checks clean"; else
