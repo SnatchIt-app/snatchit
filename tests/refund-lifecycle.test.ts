@@ -117,7 +117,11 @@ describe('W: refund.* events', () => {
 
 describe('W: charge.refunded', () => {
   it('W7 writes every refund with ITS OWN status — a failed refund in the list is never recorded as money returned', async () => {
-    const h = await webhook();
+    // refunds-6: embedded refunds are re-read, so Stripe serves the same states.
+    const h = await webhook({ refunds: {
+      re_ok: refundObj('re_ok', 'succeeded', { amount: 5000 }),
+      re_bad: refundObj('re_bad', 'failed', { amount: 6000, failure_reason: 'declined' }),
+    } });
     const res = await h.send('charge.refunded', {
       id: 'ch_1', payment_intent: 'pi_1', refunded: false, amount_refunded: 5000,
       refunds: { data: [refundObj('re_ok', 'succeeded', { amount: 5000 }), refundObj('re_bad', 'failed', { amount: 6000, failure_reason: 'declined' })] },
@@ -136,6 +140,34 @@ describe('W: charge.refunded', () => {
     expect(res.status).toBe(200);
     expect(h.stripe.calls.some((c) => c.path === '/refunds/re_ns')).toBe(true);
     expect(h.writes()[0]).toMatchObject({ p_stripe_refund_id: 're_ns', p_status: 'pending', p_amount_cents: 4000 });
+  });
+
+  // refunds-6: an embedded charge.refunds list is the event's SNAPSHOT. If
+  // refund.updated already recorded 'succeeded', a late or redelivered
+  // charge.refunded carrying 'pending' must not move it back (record_refund_state
+  // refuses only exits from failed/canceled — 20260925000000:186).
+  it('W9 refunds-6 an embedded refund is re-read before it is written — a stale "pending" snapshot never overwrites Stripe\'s current "succeeded"', async () => {
+    const h = await webhook({ refunds: { re_1: refundObj('re_1', 'succeeded', { amount: 5000 }) } });
+    const res = await h.send('charge.refunded', {
+      id: 'ch_1', payment_intent: 'pi_1', refunded: false, amount_refunded: 5000,
+      refunds: { data: [refundObj('re_1', 'pending', { amount: 5000 })] },
+    });
+    expect(res.status).toBe(200);
+    expect(h.stripe.calls.map((c) => `${c.method} ${c.path}`)).toEqual(['GET /refunds/re_1']);
+    expect(h.writes()).toEqual([
+      { p_payment_intent_id: 'pi_1', p_stripe_refund_id: 're_1', p_status: 'succeeded', p_amount_cents: 5000, p_failure_reason: null, p_source: 'dashboard', p_observed_via: 'webhook' },
+    ]);
+  });
+
+  it('W10 refunds-6 an embedded refund that cannot be re-read answers non-2xx and writes nothing (Stripe retries)', async () => {
+    const h = await webhook({ fetchFail: true });
+    const res = await h.send('charge.refunded', {
+      id: 'ch_1', payment_intent: 'pi_1', refunded: true, amount_refunded: 5000,
+      refunds: { data: [refundObj('re_1', 'pending', { amount: 5000 })] },
+    });
+    expect(res.status).toBeGreaterThanOrEqual(500);
+    expect(h.writes()).toHaveLength(0);
+    expect(h.names()).toContain('fail_stripe_webhook_event');
   });
 });
 
