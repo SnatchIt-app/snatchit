@@ -29,6 +29,12 @@ interface World {
   disputeUpsertError?: string;
   transferPaidOut?: boolean;
   retriesInsertError?: string;
+  /** the legacy dispute arm's `select('id')` read of payments errors (the native arm's discriminator read still succeeds) */
+  paymentsLookupError?: string;
+  /** every transfers read errors */
+  transfersLookupError?: string;
+  /** the payment has no transfers row at all (a genuinely absent row, not an error) */
+  noTransferRow?: boolean;
   stripe?: (c: StripeCall) => { ok: boolean; status?: number; data: unknown };
 }
 
@@ -52,8 +58,12 @@ async function load(w: World = {}) {
         if (q.op === 'update') return { data: w.disputeRow === undefined ? { id: 'd1', payment_id: 'p1', transfer_id: 't1' } : w.disputeRow };
         return { data: null };
       },
-      payments: () => ({ data: { id: 'p1', stripe_payment_intent_id: 'pi_1', total: 11000 } }),
-      transfers: () => ({ data: { id: 't1', status: w.transferPaidOut ? 'buyer_confirmed' : 'seller_sent', payout_released_at: w.transferPaidOut ? '2026-09-01T00:00:00Z' : null, stripe_transfer_id: w.transferPaidOut ? 'tr_1' : null } }),
+      payments: (q: QueryCall) => (w.paymentsLookupError && q.select === 'id'
+        ? { data: null, error: { message: w.paymentsLookupError } }
+        : { data: { id: 'p1', stripe_payment_intent_id: 'pi_1', total: 11000 } }),
+      transfers: () => (w.transfersLookupError
+        ? { data: null, error: { message: w.transfersLookupError } }
+        : { data: w.noTransferRow ? null : { id: 't1', status: w.transferPaidOut ? 'buyer_confirmed' : 'seller_sent', payout_released_at: w.transferPaidOut ? '2026-09-01T00:00:00Z' : null, stripe_transfer_id: w.transferPaidOut ? 'tr_1' : null } }),
       webhook_retries: (q: QueryCall) => (q.op === 'insert' && w.retriesInsertError ? { data: null, error: { message: w.retriesInsertError } } : { data: null }),
     },
   });
@@ -64,9 +74,18 @@ async function load(w: World = {}) {
   return { sb, stripe, edge, send, rpcNames, rpc };
 }
 
+/** refunds-6: embedded refunds are re-read (GET /refunds/{id}); Stripe serves these current objects. */
+const serveRefunds = (byId: Record<string, Record<string, unknown>>) => (c: StripeCall) => {
+  const id = /^\/refunds\/(re_[A-Za-z0-9_]+)$/.exec(c.path)?.[1];
+  return id && byId[id] ? { ok: true, data: { id, payment_intent: 'pi_1', ...byId[id] } } : { ok: false, status: 404, data: {} };
+};
+
 describe('charge.refunded', () => {
   it('records every refund object through record_refund_state with its own status and acknowledges', async () => {
-    const h = await load();
+    const h = await load({ stripe: serveRefunds({
+      re_1: { amount: 5000, status: 'succeeded' },
+      re_2: { amount: 6000, status: 'succeeded', metadata: { source: 'enforce-transfer-expiry' } },
+    }) });
     const res = await h.send('charge.refunded', {
       id: 'ch_1', payment_intent: 'pi_1', refunded: true, amount_refunded: 11000,
       refunds: { data: [{ id: 're_1', amount: 5000, status: 'succeeded' }, { id: 're_2', amount: 6000, status: 'succeeded', metadata: { source: 'enforce-transfer-expiry' } }] },
@@ -92,9 +111,10 @@ describe('charge.refunded', () => {
   });
 
   it('DB failure ⇒ non-2xx and the lease is released (Stripe retries)', async () => {
-    const h = await load({ rpcFail: { record_refund_state: 'connection reset' } });
+    const h = await load({ rpcFail: { record_refund_state: 'connection reset' }, stripe: serveRefunds({ re_1: { amount: 11000, status: 'succeeded' } }) });
     const res = await h.send('charge.refunded', { id: 'ch_1', payment_intent: 'pi_1', refunded: true, refunds: { data: [{ id: 're_1', amount: 11000, status: 'succeeded' }] } });
     expect(res.status).toBeGreaterThanOrEqual(500);
+    expect(h.rpc('record_refund_state')).toHaveLength(1); // the DB write is what failed, not the re-read
     expect(h.rpcNames()).toContain('fail_stripe_webhook_event');
     expect(h.rpcNames()).not.toContain('complete_stripe_webhook_event');
   });
@@ -168,6 +188,41 @@ describe('charge.dispute.created / transfer.created / transfer.reversed', () => 
     expect(h.rpcNames()).toContain('freeze_transfer_for_dispute');
     expect(h.rpcNames()).toContain('fail_stripe_webhook_event');
     expect(h.sb.queries.filter((q) => q.table === 'disputes' && q.op === 'upsert')).toHaveLength(0);
+  });
+
+  // webhook-ingress-1: a lookup ERROR is not "no row". transfers.payment_id is
+  // UNIQUE (003_payment_integrity.sql:70), so a null transfer with a row present
+  // can only be an error — and swallowing it skipped the freeze, upserted the
+  // dispute with transfer_id NULL and ACKed, so the lost-dispute arm later had
+  // no transfer to flag (DISPUTE_LOST_AFTER_PAYOUT). Retry instead, exactly as
+  // the dispute.closed reconcile path does.
+  it('webhook-ingress-1 dispute.created transfers lookup ERROR ⇒ non-2xx, lease released, no freeze and no upsert this delivery', async () => {
+    const h = await load({ transfersLookupError: 'canceling statement due to statement timeout' });
+    const res = await h.send('charge.dispute.created', { id: 'dp_3', charge: 'ch_1', payment_intent: 'pi_1', amount: 11000, currency: 'usd', reason: 'fraudulent', status: 'needs_response' });
+    expect(res.status).toBeGreaterThanOrEqual(500);
+    expect(h.rpcNames()).toContain('fail_stripe_webhook_event');
+    expect(h.rpcNames()).not.toContain('complete_stripe_webhook_event');
+    expect(h.rpcNames()).not.toContain('freeze_transfer_for_dispute');
+    expect(h.sb.queries.filter((q) => q.table === 'disputes' && q.op === 'upsert')).toHaveLength(0);
+  });
+
+  it('webhook-ingress-1 dispute.created payments lookup ERROR (legacy arm) ⇒ non-2xx, lease released, no upsert with payment_id NULL', async () => {
+    const h = await load({ paymentsLookupError: 'connection reset' });
+    const res = await h.send('charge.dispute.created', { id: 'dp_4', charge: 'ch_1', payment_intent: 'pi_1', amount: 11000, currency: 'usd', reason: 'fraudulent', status: 'needs_response' });
+    expect(res.status).toBeGreaterThanOrEqual(500);
+    expect(h.rpcNames()).toContain('fail_stripe_webhook_event');
+    expect(h.rpcNames()).not.toContain('complete_stripe_webhook_event');
+    expect(h.sb.queries.filter((q) => q.table === 'disputes' && q.op === 'upsert')).toHaveLength(0);
+  });
+
+  it('webhook-ingress-1 control: a genuinely ABSENT transfers row keeps today\'s behaviour (recorded with transfer_id NULL, 200)', async () => {
+    const h = await load({ noTransferRow: true });
+    const res = await h.send('charge.dispute.created', { id: 'dp_5', charge: 'ch_1', payment_intent: 'pi_1', amount: 11000, currency: 'usd', reason: 'fraudulent', status: 'needs_response' });
+    expect(res.status).toBe(200);
+    expect(h.rpcNames()).not.toContain('freeze_transfer_for_dispute');
+    const upsert = h.sb.queries.find((q) => q.table === 'disputes' && q.op === 'upsert');
+    expect(upsert?.body).toMatchObject({ stripe_dispute_id: 'dp_5', payment_id: 'p1', transfer_id: null });
+    expect(h.rpcNames()).toContain('complete_stripe_webhook_event');
   });
 
   it('transfer.created with metadata.attempt_id ⇒ record_payout_attempt_result (idempotent); without ⇒ log only', async () => {
