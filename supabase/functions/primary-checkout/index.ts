@@ -140,7 +140,7 @@
  */
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
+import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
 import { captureException } from '../_shared/sentry.ts';
 import { stripeFetch, stripeFetchRaw, STRIPE_MOBILE_API_VERSION } from '../_shared/stripe.ts';
 // ONLY the rail-neutral guard. See the A5 block above: the fee RATES in that
@@ -345,7 +345,7 @@ const PAYMENTS_MODE_NATIVE_PRIMARY = 'native_primary';
 type RateLimitResult = 'allowed' | 'over_limit' | 'error';
 
 async function checkRateLimit(
-  service: ReturnType<typeof createClient>,
+  service: SupabaseClient,
   userId: string,
 ): Promise<RateLimitResult> {
   try {
@@ -372,7 +372,7 @@ async function checkRateLimit(
 // this cycle and must not be edited; the two should be lifted into
 // `_shared/stripe-customer.ts` in a later, separate change.
 async function ensureStripeCustomerAndEphemeralKey(
-  service: ReturnType<typeof createClient>,
+  service: SupabaseClient,
   userId: string,
   email: string | null,
 ): Promise<{ customerId: string; ephemeralKeySecret: string }> {
@@ -1654,7 +1654,7 @@ function replayRereadWaitMs(): number {
 }
 
 async function recoverReplayQuote(
-  service: ReturnType<typeof createClient>,
+  service: SupabaseClient,
   orderId: string,
   faceMinor: number,
   buyerId: string,
@@ -1746,7 +1746,7 @@ async function cancelOrphanPi(piId: string): Promise<void> {
  * opened `venue` to service_role for exactly this verb (085:2088-2091); it is
  * the same client stripe-webhook builds for it (stripe-webhook/index.ts:550-553).
  */
-function venueServiceClient(): ReturnType<typeof createClient> {
+function venueServiceClient(): SupabaseClient<any, 'venue', any> {
   return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
     auth: { autoRefreshToken: false, persistSession: false },
     db:   { schema: 'venue' },

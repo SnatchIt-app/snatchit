@@ -168,8 +168,13 @@ function constantTimeEqual(a: string, b: string): boolean {
 // Clients
 // ─────────────────────────────────────────────────────────────────────────────
 
+// The kernel*Client() builders pin `db.schema` to 'kernel'. The bare
+// `SupabaseClient` type defaults that parameter to 'public' and so rejects
+// them (deno check TS2322); this alias names the schema instead.
+type KernelClient = SupabaseClient<any, 'kernel', any>;
+
 /** service_role, kernel schema. The DELEGATED arm + mark_refund_state. */
-function kernelServiceClient(): SupabaseClient {
+function kernelServiceClient(): KernelClient {
   return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
     auth: { autoRefreshToken: false, persistSession: false },
     db: { schema: 'kernel' },
@@ -177,7 +182,7 @@ function kernelServiceClient(): SupabaseClient {
 }
 
 /** The caller's own JWT, kernel schema. Everything that reads auth.uid(). */
-function kernelCallerClient(authHeader: string): SupabaseClient {
+function kernelCallerClient(authHeader: string): KernelClient {
   return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     global: { headers: { Authorization: authHeader } },
     auth: { autoRefreshToken: false, persistSession: false },
@@ -197,7 +202,7 @@ function publicServiceClient(): SupabaseClient {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function recordMoneyDenial(
-  caller: SupabaseClient,
+  caller: KernelClient,
   subjectKind: 'order' | 'payment' | 'approval_request',
   subjectId: string | null,
   errorCode: string,
@@ -224,7 +229,7 @@ type ContextResult =
   | { ok: true; ctx: RefundExecutionContext }
   | { ok: false; status: number; code: string; detail: string; hold?: ExecutorHold };
 
-async function loadContext(service: SupabaseClient, refundId: string): Promise<ContextResult> {
+async function loadContext(service: KernelClient, refundId: string): Promise<ContextResult> {
   const { data, error } = await service.rpc(CONTEXT_RPC, { p_refund_id: refundId });
   if (error) {
     // A HELD ROW (registry 199, DESIGN-199-FINAL §3.4, §5.3). The context now
@@ -285,7 +290,7 @@ export type ExecuteOutcome = {
  * this twice with the same object is therefore always safe.
  */
 async function applyStateSync(
-  service: SupabaseClient,
+  service: KernelClient,
   refundId: string,
   commandKey: string,
   ctx: RefundExecutionContext,
@@ -486,7 +491,7 @@ async function stripeCreateFailure(
  *                      REFUSE and page a human; guessing here spends money.
  */
 async function reconcileOne(
-  service: SupabaseClient,
+  service: KernelClient,
   refundId: string,
   commandKey: string,
   ctx: RefundExecutionContext,
@@ -575,7 +580,7 @@ async function reconcileOne(
 }
 
 async function executeOne(
-  service: SupabaseClient,
+  service: KernelClient,
   refundId: string,
   commandKey: string,
   expected: { order_id?: string | null },
@@ -712,7 +717,7 @@ async function executeOne(
  * refunds-7 scenario is ONE page. A fault pages once and never fails the
  * batch; the unparked row is simply claimed again next tick, as before 199.
  */
-async function parkIfTerminal(service: SupabaseClient, row: ClaimedRefund, res: ExecuteOutcome): Promise<void> {
+async function parkIfTerminal(service: KernelClient, row: ClaimedRefund, res: ExecuteOutcome): Promise<void> {
   const park = planPark(row, res);
   if (!park) return;
   try {
