@@ -10,7 +10,7 @@
  * let a paid order with issued atoms and no atoms on this account fall through to 'empty' (H4);
  * drop the refund line's "Refunded" word (L3); read a failed read as 'unknown' (H3); let the first
  * pending order win regardless of a newer paid one (H5b); drop 'partially_refunded' from the known
- * statuses or from the issued rule (H7); drop its "Partly refunded" line (L8).
+ * statuses or from the issued rule (H7); drop its "Partial refund initiated" line (L8).
  */
 import { describe, expect, it } from 'vitest';
 
@@ -131,9 +131,9 @@ describe('orderStatusLine — one honest line per order, in USD from integer min
     expect(orderStatusLine(order({ status: 'disputed' as never })).status).toBe('Status unavailable');
   });
 
-  it('L8: partially_refunded says "Partly refunded"; the amount is the charged total only, as for every line', () => {
+  it('L8: partially_refunded says a partial refund was INITIATED (A, 2026-09-24: never a completed refund); the amount is the charged total only', () => {
     const l = orderStatusLine(order({ status: 'partially_refunded', payment_state: 'succeeded', atoms_issued: 2 }));
-    expect(l.status).toBe('Partly refunded');
+    expect(l.status).toBe('Partial refund initiated');
     expect(l.amount).toBeNull();
     expect(orderStatusLine(order({ status: 'partially_refunded', total_minor: 2000, charge_total_minor: 2200 })).amount).toBe('$22.00');
   });

@@ -144,7 +144,8 @@ export function orderStatusLine(o: PrimaryOrderRow): OrderLine {
       status = o.atoms_issued > 0 ? `Paid · ${issuedCount(o.atoms_issued)}` : 'Paid · tickets being issued';
       break;
     case 'partially_refunded':
-      status = 'Partly refunded';
+      // Initiated, never completed (A's interim refund-wording ruling, 2026-09-24; v3-refund-initiated-wording RI1).
+      status = 'Partial refund initiated';
       break;
     case 'refunded':
       status = 'Refunded';
