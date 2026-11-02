@@ -70,6 +70,10 @@ interface WorldOpts {
   cancelFails?: boolean;
   /** POST /payment_intents/{id}/cancel is refused (the confirm won, R9) */
   piCancelRefused?: boolean;
+  /** GET /payment_intents/{id} answers 503 (Stripe could not be read) */
+  piReadFails?: boolean;
+  /** the currency a REPLAY return carries (082:449-454 returns the stored order's) */
+  replayCurrency?: string;
 }
 
 function pick(row: Record<string, unknown>, select: string | null): Record<string, unknown> {
@@ -110,7 +114,7 @@ async function world(opts: WorldOpts = {}) {
           // §3.1 BLOCK P1/P3: the replay gains order_status + holds_live (§4.1).
           return {
             data: {
-              status: 'idempotency_replay', order_id: existing.orderId, total_minor: FACE, currency: 'USD',
+              status: 'idempotency_replay', order_id: existing.orderId, total_minor: FACE, currency: opts.replayCurrency ?? 'USD',
               ...(opts.preShape ? {} : { order_status: existing.status, holds_live: existing.holdsLive }),
             },
           };
@@ -205,6 +209,7 @@ async function world(opts: WorldOpts = {}) {
       return { ok: true, data: { ...pi } };
     }
     if (c.method === 'GET' && c.path.startsWith('/payment_intents/')) {
+      if (opts.piReadFails) return { ok: false, status: 503, data: { error: { type: 'api_error', message: 'stripe unreadable (test)' } } };
       const pi = pis.get(c.path.split('/')[2]);
       return pi ? { ok: true, data: { ...pi } } : { ok: false, status: 404, data: { error: { code: 'resource_missing' } } };
     }
@@ -373,17 +378,72 @@ describe('A-2 — the replay rule on order_status / holds_live (§4.2 A-2, §4.1
     expect(w.piCancels()).toEqual([]);
   });
 
-  it('a replay WITHOUT order_status (the pre-198 shape) fails CLOSED: 503 replay_state_unavailable + activation blocker, no client_secret', async () => {
+  it('pending + lapsed, Stripe cannot be read (GET 503) → 503 replay_recovery_failed + Retry-After 10 (transient: retry the SAME key), nothing cancelled', async () => {
+    const opts: WorldOpts = {};
+    const w = await world(opts);
+    const first = await w.run('cmd-r-lapsed-unreadable');
+    expect(first.res.status).toBe(200);
+    Object.assign(w.order('cmd-r-lapsed-unreadable'), { holdsLive: false });
+    opts.piReadFails = true;
+    const replay = await w.run('cmd-r-lapsed-unreadable');
+    expect(replay.res.status).toBe(503);
+    expect(replay.body.code).toBe('replay_recovery_failed');
+    expect(replay.res.headers.get('Retry-After')).toBe('10');
+    expect(w.piCancels()).toEqual([]);
+    expect(w.cancels()).toEqual([]);
+  });
+
+  // A's refinement (sent to D): an ANOMALY is permanent — a requires_capture PI
+  // never leaves that state on its own — so a 503 would send the client back
+  // on the SAME key forever. It is hold_invalid ("start again") plus an alert
+  // naming the order and the PI, and nothing is touched at Stripe or in SQL.
+  it('pending + lapsed, PI in a state this rail never produces (requires_capture) → 409 hold_invalid + an alert naming order and PI (not a blocker); nothing touched; a second replay answers the same, never 503', async () => {
+    const w = await world();
+    const { first, replay } = await replayWith(w, 'cmd-r-lapsed-anomaly', { holdsLive: false }, 'requires_capture');
+    const piId = first.body.paymentIntentId as string;
+    expect(replay.res.status).toBe(409);
+    expect(replay.body).toEqual(HOLD_INVALID);
+    expect(replay.res.headers.get('Retry-After')).toBeNull();
+    expect(w.piCancels()).toEqual([]);
+    expect(w.cancels()).toEqual([]);
+    expect(w.pis.get(piId)!.status).toBe('requires_capture');
+    expect(w.blockerAlerts()).toEqual([]);
+    const anomalyAlerts = w.edge.sentry.filter((s) => String((s.error as Error).message).includes('anomaly'));
+    expect(anomalyAlerts.map((s) => s.ctx)).toEqual([{ order_id: first.body.order_id, pi_id: piId, activation_blocker: false }]);
+
+    const again = await w.run('cmd-r-lapsed-anomaly');
+    expect(again.res.status).toBe(409);
+    expect(again.body).toEqual(HOLD_INVALID);
+  });
+
+  it('a replay WITHOUT an order_status key (the pre-198 shape: 198 rolled back under this edge) → the existing recoverReplayQuote path: the SAME PI back, no alert', async () => {
     const w = await world({ preShape: true });
     const first = await w.run('cmd-r-preshape');
     expect(first.res.status).toBe(200);
-    const callsBefore = w.stripe.calls.length;
+    // holds_live is not consulted without order_status: the pre-198 edge never read it
+    Object.assign(w.order('cmd-r-preshape'), { holdsLive: false });
     const replay = await w.run('cmd-r-preshape');
+    expect(replay.res.status).toBe(200);
+    expect(replay.body.paymentIntentId).toBe(first.body.paymentIntentId);
+    expect(replay.body.clientSecret).toBe(first.body.clientSecret);
+    expect(w.edge.sentry).toEqual([]);
+    expect(w.piCancels()).toEqual([]);
+    expect(w.cancels()).toEqual([]);
+    expect(w.piMints()).toHaveLength(1);
+  });
+
+  it.each([
+    ['an unrecognised value', 'refund_review'],
+    ['NULL', null],
+  ])('a replay whose order_status is PRESENT but %s fails CLOSED: 503 replay_state_unavailable + activation blocker, no client_secret, no Stripe call', async (_label, status) => {
+    const w = await world();
+    const { replay, stripeAfter } = await replayWith(w, `cmd-r-unknown-${String(status)}`, { status: status as string });
     expect(replay.res.status).toBe(503);
     expect(replay.body).toEqual({ error: 'Ticket sales are not available yet for this event.', code: 'replay_state_unavailable' });
     expect(replay.res.headers.get('Retry-After')).toBe('300');
     expect(w.blockerAlerts()).toHaveLength(1);
-    expect(w.stripe.calls.slice(callsBefore)).toEqual([]);
+    expect(stripeAfter).toEqual([]);
+    expect(w.cancels()).toEqual([]);
   });
 });
 
@@ -487,6 +547,37 @@ describe('A-3 — a success-path abort cancels the order it just created (§4.2 
     expect(replay.body.code).toBe('total_mismatch');
     expect(w.cancels()).toEqual([]);
     expect(w.order('cmd-a3-replay').status).toBe('pending');
+  });
+
+  // The property above, defended where a replay DOES reach an abort site: the
+  // top-level catch (a thrown Customer step) and the currency refusal both call
+  // abortFreshOrder, which must find nothing armed for a replayed order — its
+  // client may already hold the client_secret.
+  it('a REPLAYED order whose Stripe Customer step throws is never cancelled: still the top-level 500, the order stays pending', async () => {
+    const opts: WorldOpts = {};
+    const w = await world(opts);
+    const first = await w.run('cmd-a3-replay-customer');
+    expect(first.res.status).toBe(200);
+    opts.ephemeralKeyFails = true;
+    const replay = await w.run('cmd-a3-replay-customer');
+    expect(replay.res.status).toBe(500);
+    expect(replay.body).toEqual({ error: 'Internal server error' });
+    expect(w.cancels()).toEqual([]);
+    expect(w.piCancels()).toEqual([]);
+    expect(w.order('cmd-a3-replay-customer').status).toBe('pending');
+  });
+
+  it('a REPLAYED non-USD order is never cancelled: 409 unsupported_currency, the order stays pending', async () => {
+    const opts: WorldOpts = {};
+    const w = await world(opts);
+    const first = await w.run('cmd-a3-replay-eur');
+    expect(first.res.status).toBe(200);
+    opts.replayCurrency = 'EUR';
+    const replay = await w.run('cmd-a3-replay-eur');
+    expect(replay.res.status).toBe(409);
+    expect(replay.body.code).toBe('unsupported_currency');
+    expect(w.cancels()).toEqual([]);
+    expect(w.order('cmd-a3-replay-eur').status).toBe('pending');
   });
 });
 

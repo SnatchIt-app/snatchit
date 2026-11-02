@@ -153,9 +153,10 @@ async function world(opts: WorldOpts = {}) {
         // status/order_id/total_minor/currency — no org_id, no fee fields.
         // Registry 198 (DESIGN-198-FINAL §3.1 BLOCKS P1/P3, §4.1) adds
         // order_status + holds_live to both; this suite is about the replay
-        // path proper, so its order is always pending with live holds — the
-        // only state A-2 lets through to recoverReplayQuote. A-2's other arms
-        // are pinned in primary-checkout-198-arms.test.ts.
+        // path proper, so its order is always pending with live holds — one
+        // of the two shapes A-2 lets through to recoverReplayQuote (the other
+        // is a replay with no order_status key at all, the pre-198 shape). A-2's
+        // other arms are pinned in primary-checkout-198-arms.test.ts.
         if (existing) {
           return {
             data: {

@@ -76,16 +76,24 @@ export type PiSearch = { kind: 'error'; detail: string } | { kind: 'looked'; con
 export const REPLAY_CANDIDATE_STATUSES: readonly string[] = ['pending', 'processing', 'succeeded'];
 
 /**
- * A-6's selector. §4.2 A-6 step 2 names "status pending or failed", and step 3
- * then acts on PIs that are `processing` or `succeeded`. The two cannot both
- * hold: the webhook moves `payments.status` to `succeeded` on
- * `payment_intent.succeeded`, so a pending-or-failed filter can never see a
- * succeeded PI, step 3's `succeeded → alert` arm is unreachable, and a lapsed
- * order that WAS PAID reads as "no PI found". Read as the SAFE superset:
- * pending + failed (the design's two — `failed` is where a non-terminal decline
- * and a canceled PI leave the row, stripe-webhook/index.ts:1199-1204) plus
- * processing + succeeded (so money that moved is seen, never mistaken for
- * absence). The replay selector above is deliberately left as it was.
+ * A-6's selector — DEVIATION D1 from §4.2 A-6 step 2 (A's, sent to D for
+ * ratification; see `cancelLapsedOrderPaymentIntents`). Step 2 names "status
+ * pending or failed"; this is that pair plus `succeeded` and `processing`.
+ *
+ * Why `succeeded`: the webhook claims the payments row as `succeeded` BEFORE it
+ * calls finalize (stripe-webhook/index.ts:907-914). Step 3's `succeeded` arm is
+ * reachable under the literal filter only in the window before that claim
+ * lands; after it, the row drops out of a pending-or-failed read. A lapsed
+ * order whose payment won and whose finalize raised `refund_required` stays
+ * pending and stays in the lapse report (O13) — under the literal filter it
+ * would read as `no_pi` and `lapsed_order_paid` would never be alerted, and a
+ * live sibling PI would be cancelled (see D3).
+ * Why `processing`: a superset that costs nothing — no native writer sets it
+ * today (the PI's own status is what step 3 reads), but a row marked so can
+ * never be mistaken for absence. Same set as the replay selector, plus failed.
+ * `failed` is the design's: where a non-terminal decline and a canceled PI
+ * leave the row (stripe-webhook/index.ts:1199-1204). The replay selector above
+ * is deliberately left as it was.
  */
 export const LAPSE_CANDIDATE_STATUSES: readonly string[] = ['pending', 'processing', 'succeeded', 'failed'];
 
@@ -224,8 +232,12 @@ export type LapseOutcome =
   | { kind: 'in_flight'; piIds: string[] }
   /** no PI confirms this order. A-4's rule: leave it (see `no_pi` below). */
   | { kind: 'no_pi' }
-  /** a state this rail never produces. Nothing is touched. */
-  | { kind: 'anomaly'; detail: string }
+  /**
+   * a state this rail never produces. Nothing is touched. `piId` names the PI
+   * that showed it, so an alert can name both the order and the PI. Permanent:
+   * a caller must not answer it with a retry-the-same-key 503 (A-2 R5).
+   */
+  | { kind: 'anomaly'; piId: string; detail: string }
   /** could not look, or a Stripe/DB write failed. Nothing more is attempted; the next run retries. */
   | { kind: 'error'; detail: string };
 
@@ -245,10 +257,28 @@ export function edgeAbortCommandKey(orderId: string): string {
 /**
  * §4.2 A-6 steps 2-3 for ONE lapsed order.
  *
- * Step 3 is written per PaymentIntent; an order can have more than one (the
- * salted re-mint after a canceled idempotent replay, primary-checkout §11; a
- * Stripe Customer re-created mid-window). The ORDER-level precedence below is
- * what keeps the per-PI rules from undoing each other:
+ * ── DEVIATIONS FROM §4.2 A-6 STEPS 2-3 (A's; sent to D for ratification as an
+ * amendment to DESIGN-198-FINAL §4.2 A-6; each is pinned in
+ * tests/primary-lapse-canceller.test.ts) ──────────────────────────────────────
+ *   D1. CANDIDATE STATUSES WIDENED. Step 2's "pending or failed" becomes
+ *       pending, processing, succeeded, failed (`LAPSE_CANDIDATE_STATUSES`).
+ *       Reason: the webhook marks the row `succeeded` before finalize, so the
+ *       literal filter loses a PAID lapsed order once that claim lands — an O13
+ *       refund_required order would read as no_pi, never alert, and its live
+ *       sibling would be cancelled (D3).
+ *   D2. ORDER-LEVEL PRECEDENCE. Step 3 is written per PaymentIntent; here ONE
+ *       precedence (below) decides for the whole order. Reason: an order can
+ *       have more than one PI (the salted re-mint after a canceled idempotent
+ *       replay, primary-checkout §11; a Stripe Customer re-created mid-window),
+ *       and per-PI rules applied independently undo each other.
+ *   D3. NEVER CANCEL A SIBLING OF A SUCCEEDED OR PROCESSING PI. Reason: the
+ *       sibling's cancel fires `payment_intent.canceled`, whose branch calls
+ *       cancel_pending_order on this still-pending order, and the payment that
+ *       won (or is about to) lands on a cancelled order — charged, no ticket
+ *       (§10 risk 13).
+ *
+ * The ORDER-level precedence (D2) that keeps the per-PI rules from undoing
+ * each other:
  *
  *   1. a PI naming another session (when the report gave one) → `anomaly`.
  *      Identity is in doubt, so nothing is acted on.
@@ -291,7 +321,7 @@ export async function cancelLapsedOrderPaymentIntents(
 
   if (t.sessionId !== null) {
     const off = pis.find((c) => c.sessionId !== t.sessionId);
-    if (off) return { kind: 'anomaly', detail: `pi ${off.piId} names session ${off.sessionId ?? '<none>'}, not the order's` };
+    if (off) return { kind: 'anomaly', piId: off.piId, detail: `pi ${off.piId} names session ${off.sessionId ?? '<none>'}, not the order's` };
   }
 
   const isPaid = (c: ConfirmedPi) => c.status === 'succeeded' || c.row.status === 'succeeded';
@@ -299,7 +329,7 @@ export async function cancelLapsedOrderPaymentIntents(
   if (paid.length > 0) return { kind: 'paid', piIds: paid.map((c) => c.piId) };
 
   const unknown = pis.find((c) => c.status !== 'processing' && c.status !== 'canceled' && !CANCELLABLE.has(c.status));
-  if (unknown) return { kind: 'anomaly', detail: `pi ${unknown.piId} has status ${unknown.status}` };
+  if (unknown) return { kind: 'anomaly', piId: unknown.piId, detail: `pi ${unknown.piId} has status ${unknown.status}` };
 
   const inFlight = pis.filter((c) => c.status === 'processing');
   if (inFlight.length > 0) return { kind: 'in_flight', piIds: inFlight.map((c) => c.piId) };

@@ -33,8 +33,18 @@
  *      Idempotency-Key pi_lapse_cancel_{pi}; processing → skip; succeeded →
  *      nothing, alert once (below); canceled while pending → cancel_pending_
  *      order with buildCancelCommandKey(order, pi); none → A-4's default,
- *      leave it. The order-level precedence that keeps those per-PI rules from
- *      undoing each other is documented there.
+ *      leave it.
+ *      THREE DEVIATIONS from "steps 2-3 exactly", A's and sent to D for
+ *      ratification, each with its reason in that function's header:
+ *        D1 candidate statuses widened from pending|failed to pending|
+ *           processing|succeeded|failed — the webhook marks the row succeeded
+ *           BEFORE finalize, so the literal filter loses a paid lapsed order
+ *           (O13 would never alert);
+ *        D2 one ORDER-level precedence decides for all of an order's PIs —
+ *           per-PI rules applied independently undo each other;
+ *        D3 no sibling of a succeeded or processing PI is ever cancelled — its
+ *           payment_intent.canceled would cancel the order the money is
+ *           landing on (§10 risk 13).
  *   4. `buyer_id` never leaves this function (§4.2 A-6 step 4): it is used for
  *      the candidate read and is in no log line and no response. `lapsed_at`
  *      is a timezone-offset string; it is parsed, never compared as text.

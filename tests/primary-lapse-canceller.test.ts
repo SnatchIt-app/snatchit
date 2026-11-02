@@ -280,6 +280,17 @@ describe('A-6 steps 2-3 — per lapsed order, act on the PaymentIntent\'s status
     expect(w.alerts('lapsed_order_paid')).toHaveLength(1);
   });
 
+  it('a PROCESSING PI with a still-live sibling → the sibling is NOT cancelled either (deviation D3: the money may yet win); in_flight, retried next run', async () => {
+    const w = await world({ report: [lapsed(1)] });
+    w.addPi(1, 'requires_payment_method');
+    w.addPi(1, 'processing');
+    const r = await w.run();
+    expect(r.res.status).toBe(200);
+    expect(w.piCancels()).toEqual([]);
+    expect(w.orderCancels()).toEqual([]);
+    expect(r.body.results).toEqual([{ order_id: orderUuid(1), outcome: 'in_flight' }]);
+  });
+
   it('canceled while the order is still pending → cancel_pending_order with buildCancelCommandKey(order, pi)', async () => {
     const w = await world({ report: [lapsed(1)] });
     const pi = w.addPi(1, 'canceled', { rowStatus: 'failed' });

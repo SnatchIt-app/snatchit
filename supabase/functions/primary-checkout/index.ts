@@ -978,32 +978,53 @@ serve(async (req: Request) => {
     // (§5 scenario 11). Decided from the RPC's answer alone, BEFORE the Stripe
     // Customer step: a refusal mints no ephemeral key.
     //
+    // §4.2 A-2 as written:
     //   paid                          → already_paid (the existing answer)
     //   cancelled                     → 409 hold_invalid ("start again")
     //   pending, holds_live not true  → 409 hold_invalid + best-effort cancel of
     //                                   the order's live PI (the A-6 canceller)
-    //   pending, holds_live true      → §10/§11 unchanged (recoverReplayQuote)
+    //   otherwise                     → the existing recoverReplayQuote path
     //
-    // FOUR READINGS THE DESIGN LEAVES OPEN, each taken fail-closed:
-    //   • `order_status` ABSENT (a replay in the pre-198 shape) is not
-    //     "otherwise". It means 198 is not deployed, so liveness is unknowable:
-    //     503 replay_state_unavailable + activation-blocker alert, the same
-    //     posture §9 takes for a missing org_id, and A-8 already orders 198
-    //     before this code. No client_secret leaves on an unproven order.
-    //   • `refunded` / `partially_refunded` are a paid order later refunded:
-    //     already_paid, never a client_secret. Any OTHER unknown status is the
-    //     same 503 as an absent one.
-    //   • "holds_live is not true" is literal: false, NULL (no bound hold) and
-    //     a missing key all refuse.
-    //   • The refusal for a lapsed pending order is NOT "start again" when the
-    //     canceller saw money move: a PI that already SUCCEEDED (finalize in
-    //     flight — §5 scenario 4 still mints a ticket for it) answers
-    //     already_paid, and a PI that is processing, refused our cancel (R9),
-    //     or could not be read answers 503 replay_recovery_failed so the client
-    //     retries the SAME key. "Start again" there would invite a second
-    //     purchase while the first can still be charged. hold_invalid is
-    //     answered only once no PI of this order can still take money.
-    if (isReplay) {
+    // REFINEMENTS — A's (release integration), sent to D for ratification as an
+    // amendment to DESIGN-198-FINAL §4.2 A-2. Until D ratifies, this block is
+    // the reading A ships; each refinement is pinned in
+    // tests/primary-checkout-198-arms.test.ts.
+    //
+    //   R1. NO `order_status` KEY (the pre-198 replay shape) is the literal
+    //       "otherwise": recoverReplayQuote, exactly the pre-198 behaviour. A
+    //       198 rollback with this edge still deployed therefore keeps
+    //       double-tap recovery working instead of 503-ing every replay.
+    //   R2. `order_status` PRESENT but not a known value (including NULL):
+    //       198 is deployed and answered something this edge cannot read, so
+    //       liveness is unknowable: 503 replay_state_unavailable + activation-
+    //       blocker alert. No client_secret leaves on an unproven order.
+    //   R3. `refunded` / `partially_refunded` are a paid order later refunded:
+    //       already_paid, never a client_secret.
+    //   R4. "holds_live is not true" is literal: false, NULL (no bound hold)
+    //       and a missing key all refuse.
+    //   R5. A lapsed pending order's answer follows what the best-effort cancel
+    //       found, because "start again" while the first PI can still take
+    //       money invites a second purchase:
+    //         • a PI already SUCCEEDED (finalize in flight — §5 scenario 4
+    //           still mints a ticket for it) → already_paid. A paid order
+    //           always speaks first; the mobile app depends on it.
+    //         • TRANSIENT — a PI processing, our cancel refused (R9), or Stripe
+    //           / the candidate read could not be read (`in_flight` / `error`)
+    //           → 503 replay_recovery_failed + Retry-After 10, retry the SAME
+    //           key: the next attempt sees the settled state.
+    //         • ANOMALY — a PI state that is permanent for this rail (e.g.
+    //           requires_capture: every PI here is automatic-capture) or that
+    //           the canceller cannot classify as transient → 409 hold_invalid
+    //           plus an alert (activation_blocker false) naming the order and
+    //           the PI. Never a 503: the state will not change, so a same-key
+    //           retry would answer 503 forever. Nothing is touched.
+    //         • otherwise (`cancel_requested` / `order_cancelled` / `no_pi`)
+    //           → 409 hold_invalid after the best-effort cancel: the design's
+    //           literal rule.
+    if (isReplay && !('order_status' in order)) {
+      // R1: the pre-198 shape. Straight to §10/§11, as before 198.
+      logStage('replay-pre-198-shape', { order_id: orderId });
+    } else if (isReplay) {
       const replayStatus = order.order_status;
       if (replayStatus === 'paid' || replayStatus === 'partially_refunded' || replayStatus === 'refunded') {
         logStage('replay-paid', { order_id: orderId, order_status: replayStatus });
@@ -1014,10 +1035,11 @@ serve(async (req: Request) => {
         return json({ ...HOLD_INVALID_BODY }, 409, H);
       }
       if (replayStatus !== 'pending') {
+        // R2: present, but not a value this edge knows.
         logStage('replay-state-unavailable', { order_id: orderId, order_status: replayStatus ?? null });
         await captureException(
           'primary-checkout',
-          new Error(`idempotency_replay carried no usable order_status (${String(replayStatus)}) — registry 198 must be deployed first (DESIGN-198-FINAL §4.2 A-8)`),
+          new Error(`idempotency_replay carried an unrecognised order_status (${String(replayStatus)}) — DESIGN-198-FINAL §4.1 row 2 names paid / cancelled / pending`),
           { order_id: orderId, activation_blocker: true },
         );
         return json(
@@ -1041,8 +1063,9 @@ serve(async (req: Request) => {
         if (lapse.kind === 'paid') {
           return json({ error: 'Payment already completed for this order.', code: 'already_paid' }, 409, H);
         }
-        if (lapse.kind === 'in_flight' || lapse.kind === 'error' || lapse.kind === 'anomaly') {
-          if (lapse.kind !== 'in_flight') {
+        if (lapse.kind === 'in_flight' || lapse.kind === 'error') {
+          // R5 transient: the same key will see the settled state.
+          if (lapse.kind === 'error') {
             await captureException('primary-checkout', new Error(`lapsed replay: ${lapse.detail}`), { order_id: orderId });
           }
           return json(
@@ -1050,6 +1073,15 @@ serve(async (req: Request) => {
             503,
             { ...H, 'Retry-After': '10' },
           );
+        }
+        if (lapse.kind === 'anomaly') {
+          // R5 anomaly: permanent, so never a 503 — alert, then "start again".
+          await captureException(
+            'primary-checkout',
+            new Error(`lapsed replay anomaly: ${lapse.detail}`),
+            { order_id: orderId, pi_id: lapse.piId, activation_blocker: false },
+          );
+          return json({ ...HOLD_INVALID_BODY }, 409, H);
         }
         // cancel_requested | order_cancelled | no_pi — no PI of this order can
         // still be confirmed.
