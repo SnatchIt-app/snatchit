@@ -33,6 +33,10 @@ export function EventCommandPanel({ ids, event, keys, zone, capacities }: { ids:
       </Detail>
 
       <Detail summary="The nights: times, doors and how many each may sell">
+        {terminal ? (
+          // 203: the server refuses every session change on a completed or cancelled event (event_terminal).
+          <p className="text-sm text-dim">This event is {status}. Its nights, times and capacity can no longer change.</p>
+        ) : (
         <div className="space-y-6">
           {event.sessions.map((s) => (
             <div key={s.sessionId} className="space-y-3 border-t border-line pt-4 first:border-0 first:pt-0">
@@ -61,6 +65,7 @@ export function EventCommandPanel({ ids, event, keys, zone, capacities }: { ids:
             </div>
           </div>
         </div>
+        )}
       </Detail>
 
       {!terminal ? <Detail summary="Cancel this event">
