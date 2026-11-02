@@ -10,10 +10,15 @@
  *              expected_total_cents? }
  *   200      { order_id, clientSecret, paymentIntentId, amount (FACE), buyer_fee, seller_fee: 0,
  *              total (ALL-IN charge), currency, customerId, customerEphemeralKeySecret }
- *   refusals 401 · 403 identity_erased | deletion_pending · 404 not_found · 409 not_on_sale |
- *            session_terminal | hold_invalid | total_mismatch {server_total_cents} | org_not_eligible |
- *            precondition_failed | command_key_session_mismatch | already_paid ·
- *            503 service_fee_unset | service_fee_out_of_range · 429 · 500
+ *   refusals 401 · 403 identity_erased | deletion_pending | account_deletion_pending · 404 not_found ·
+ *            409 not_on_sale | session_terminal | hold_invalid | total_mismatch {server_total_cents} |
+ *            org_not_eligible | precondition_failed | command_key_session_mismatch | already_paid |
+ *            quote_unavailable | unsupported_currency · 503 service_fee_unset | service_fee_out_of_range |
+ *            org_id_unavailable | payments_shape_unmigrated · 429 · 500 (order_inconsistent)
+ *
+ * c35 (D8): a code that the same command key can only repeat is never "Try again" — onRetry replays the
+ * same key. quote_unavailable is the edge's "start a fresh checkout with a NEW key" (RES-1);
+ * order_inconsistent is its "contact support". Transient codes (replay_recovery_failed, …) stay retryable.
  *
  * `already_paid` is not a refusal: the order this command key names is paid, so the flow is `submitted`
  * and the buyer goes to the ticket page (A's review, 2026-10-26). Offering "try again" would replay the
@@ -66,6 +71,8 @@ export type CheckoutRefusal =
   | 'not_found'
   | 'account_blocked'
   | 'refused'
+  | 'expired'
+  | 'contact_support'
   | 'signed_out'
   | 'rate_limited'
   | 'offline'
@@ -113,10 +120,16 @@ export function parsePrimaryCheckoutResponse(status: number | null, body: unknow
     case 'hold_invalid': return { ok: false, reason: 'hold_expired' };
     case 'service_fee_unset':
     case 'service_fee_out_of_range':
-    case 'org_not_eligible': return { ok: false, reason: 'sales_unavailable' };
+    case 'org_not_eligible':
+    case 'unsupported_currency':
+    case 'org_id_unavailable':
+    case 'payments_shape_unmigrated': return { ok: false, reason: 'sales_unavailable' };
+    case 'quote_unavailable': return { ok: false, reason: 'expired' };
+    case 'order_inconsistent': return { ok: false, reason: 'contact_support' };
     case 'not_found': return { ok: false, reason: 'not_found' };
     case 'identity_erased':
-    case 'deletion_pending': return { ok: false, reason: 'account_blocked' };
+    case 'deletion_pending':
+    case 'account_deletion_pending': return { ok: false, reason: 'account_blocked' };
     case 'precondition_failed':
     case 'command_key_session_mismatch': return { ok: false, reason: 'refused' };
     default: return { ok: false, reason: 'unavailable' };
@@ -229,6 +242,8 @@ export const PRIMARY_CHECKOUT_COPY = {
     not_found: 'We couldn’t find this event or ticket type.',
     account_blocked: 'This account can’t buy tickets right now. Contact support if you think this is wrong.',
     refused: 'We couldn’t start this purchase. Choose your tickets again.',
+    expired: 'This checkout expired. Choose your tickets again.',
+    contact_support: 'We couldn’t finish this checkout. Contact support before you try again.',
     signed_out: 'Sign in to buy tickets.',
     rate_limited: 'Too many attempts. Try again in a minute.',
     offline: 'You’re offline. Connect and try again.',

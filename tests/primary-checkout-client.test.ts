@@ -21,7 +21,7 @@
  * Negative controls (run by hand, each must FAIL): send `expected_total_cents` on the first quote (C1);
  * admit a quote where total ≠ amount + buyer_fee (Q2); mint a fresh command key per retry (K1); show the
  * failure line for a canceled sheet (V4); restore Pay when the check was unreachable (V6); treat a paid intent
- * after a sheet error as unpaid (V2).
+ * after a sheet error as unpaid (V2); let quote_unavailable fall through to the retryable default (Q8).
  */
 import { describe, expect, it } from 'vitest';
 
@@ -130,6 +130,26 @@ describe('parsePrimaryCheckoutResponse', () => {
 
   it('Q7: command_key_session_mismatch (409) is refused — the buyer starts again; the same key is never retried', () => {
     expect(parsePrimaryCheckoutResponse(409, { error: 'server text', code: 'command_key_session_mismatch' })).toEqual({ ok: false, reason: 'refused' });
+  });
+
+  it('Q8: codes a retry under the same key cannot change go Back, never "Try again" (c35, D8 + S2)', () => {
+    const r = (status: number, code: string) => parsePrimaryCheckoutResponse(status, { error: 'server text', code });
+    // the order exists but no usable intent does: the edge says start a fresh checkout with a NEW key (RES-1)
+    expect(r(409, 'quote_unavailable')).toEqual({ ok: false, reason: 'expired' });
+    // two live intents claim one order: the edge says contact support; a fresh attempt would mint a third
+    expect(r(500, 'order_inconsistent')).toEqual({ ok: false, reason: 'contact_support' });
+    // the event or the platform cannot sell yet — every retry gets the same answer
+    for (const [st, c] of [[409, 'unsupported_currency'], [503, 'org_id_unavailable'], [503, 'payments_shape_unmigrated']] as const) {
+      expect(r(st, c), c).toEqual({ ok: false, reason: 'sales_unavailable' });
+    }
+    // the edge's own spelling of a pending deletion
+    expect(r(403, 'account_deletion_pending')).toEqual({ ok: false, reason: 'account_blocked' });
+    // genuinely transient answers stay retryable
+    for (const [st, c] of [[503, 'replay_recovery_failed'], [503, 'eligibility_unverified'], [500, 'quote_incoherent']] as const) {
+      expect(r(st, c), c).toEqual({ ok: false, reason: 'unavailable' });
+    }
+    expect(PRIMARY_CHECKOUT_COPY.refusal.expired).toMatch(/choose your tickets again/i);
+    expect(PRIMARY_CHECKOUT_COPY.refusal.contact_support).toMatch(/contact support/i);
   });
 
   it('Q5: refusal copy never repeats server text and never claims a charge or a ticket', () => {
