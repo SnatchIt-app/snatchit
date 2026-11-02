@@ -80,10 +80,11 @@ export function issuanceHint(orders: readonly PrimaryOrderRow[] | null): Issuanc
 export function issuanceHint(orders: readonly PrimaryOrderRow[] | null): IssuanceHint {
   if (orders === null) return 'read_failed';
   if (orders.some((o) => !ORDER_STATUSES.has(o.status))) return 'unknown';
-  // Newest first: a pending order counts only until the first paid one — anything older was abandoned.
+  // Newest first: a pending order is in flight only while nothing newer has settled — an order paid, refunded,
+  // cancelled or expired after it means the buyer moved on, and an abandoned checkout stays pending (RES-1).
   for (const o of orders) {
-    if (PAID_STATUSES.has(o.status)) break;
-    if (o.status === 'pending') return pendingHint(o);
+    if (o.status !== 'pending') break;
+    return pendingHint(o);
   }
   if (orders.some((o) => PAID_STATUSES.has(o.status) && o.atoms_issued > 0)) return 'issued';
   return 'none';

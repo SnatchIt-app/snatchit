@@ -67,8 +67,12 @@ describe('issuanceHint — A’s C5 ruling, newest order first', () => {
     expect(issuanceHint([{ ...newerPaid, status: 'partially_refunded' }, olderPending])).toBe('issued');
     // a pending order newer than every paid one is still in flight, wherever older paid orders sit
     expect(issuanceHint([order({ payment_state: 'processing' }), newerPaid, olderPending])).toBe('payment_processing');
-    // newer than a refunded or cancelled order only: still in flight
-    expect(issuanceHint([order({ order_id: 'o-r', status: 'refunded', payment_state: 'succeeded' }), olderPending])).toBe('awaiting_confirmation');
+    // anything newer that settled — refunded, cancelled, expired — also means the older pending one was abandoned
+    for (const status of ['refunded', 'cancelled', 'expired'] as const) {
+      expect(issuanceHint([order({ order_id: 'o-s', status, created_at: '2026-10-27T00:00:00Z' }), olderPending]), status).toBe('none');
+    }
+    // and a pending order newer than all of them is still in flight
+    expect(issuanceHint([order({ order_id: 'o-n' }), order({ status: 'cancelled' }), olderPending])).toBe('awaiting_confirmation');
   });
 
   it('H6: an order status the client does not know is unknown, not none', () => {

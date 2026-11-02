@@ -105,6 +105,7 @@ export default function TicketDetailRoute() {
   const credentialsRef = useRef<Credentials>({});
   useEffect(() => { credentialsRef.current = credentials; }, [credentials]);
   const versionsRef = useRef<Record<string, number>>({});
+  const withdrawReadRef = useRef<Promise<void> | null>(null);
 
   useEffect(() => { watchEntitlementSignOut(); }, []);
   useEffect(() => { if (!authLoading) bindEntitlementOwner(userId); }, [authLoading, userId]);
@@ -184,9 +185,10 @@ export default function TicketDetailRoute() {
     setNotes((p) => ({ ...p, [atomId]: note }));
     // The server withdrew the code: the cache forgets it (a reopen must not prime it as ready), and the page
     // re-reads once to say what the server now says. Arrival never re-mints an atom that has a state: no loop.
+    // Codes refused together (an order moved away) share the one re-read in flight.
     if (!r.ok && withdrawsCode(r.reason)) {
       dropCredential(userId, atomId);
-      void readAll();
+      if (!withdrawReadRef.current) withdrawReadRef.current = readAll().finally(() => { withdrawReadRef.current = null; });
     }
   }, [userId, readAll]);
 

@@ -172,7 +172,7 @@ describe('withdrawal and read call sites — a withdrawn code is forgotten, one 
 
   it('W5: on a withdrawing refusal mint forgets the cached code, then re-reads once — after the generation check, success-only store kept', () => {
     const { body } = mint();
-    expect(body).toMatch(/if \(!r\.ok && withdrawsCode\(r\.reason\)\) \{\s*dropCredential\(userId, atomId\);\s*void readAll\(\);\s*\}/);
+    expect(body).toMatch(/if \(!r\.ok && withdrawsCode\(r\.reason\)\) \{\s*dropCredential\(userId, atomId\);\s*if \(!withdrawReadRef\.current\) withdrawReadRef\.current = readAll\(\)\.finally\(\(\) => \{ withdrawReadRef\.current = null; \}\);\s*\}/);
     expect(body.indexOf('withdrawsCode(')).toBeGreaterThan(body.indexOf('if (gen !== entitlementGeneration()) return;'));
     expect(body).toContain('if (r.ok) storeCredential(userId, atomId, r.credential, now);');
     expect(reads(body)).toBe(1);
@@ -191,6 +191,12 @@ describe('withdrawal and read call sites — a withdrawn code is forgotten, one 
     expect(reads(mint().body)).toBe(1);
     expect(reads(route)).toBe(4);
     expect(route).not.toMatch(/setTimeout\(/);
+    // Passing readAll by name (setInterval(readAll, …), .then(readAll), a listener) is a read too: every token is
+    // accounted for — the declaration, the four calls, and three dependency lists (mint, mount, focus) — and the
+    // focus effect's sweep is the route's only timer (review of 57461714).
+    expect((route.match(/\breadAll\b/g) ?? []).length).toBe(8);
+    expect((route.match(/\bsetInterval\(/g) ?? []).length).toBe(1);
+    expect((route.match(/\breadAll\(/g) ?? []).length).toBe(4);
   });
 
   it('W7: the mount effect, mint and arrival depend on nothing a read changes, and arrival never re-mints an atom that has a credential state', () => {
