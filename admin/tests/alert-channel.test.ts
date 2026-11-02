@@ -103,7 +103,9 @@ const setting = (key: string, value: unknown) => ({ key, value, updated_at: "202
 const OTHER_SETTINGS = [setting("actions_enabled", true), setting("detectors_enabled", true)];
 const withSwitch = (value: unknown) => ({ data: [...OTHER_SETTINGS, setting("alert_delivery_enabled", value)], error: null });
 
-const EXISTING_READS = ["audit_log", "job_health", "latest_summary", "list_actions", "list_approvals", "settings"];
+// /system's reads, measured from the page's own Promise.all — not a guess. The 196 Money settings panel,
+// carried in by the dddc8e92 merge, adds `list_config_approvals` (system/page.tsx:83, platform_admin only).
+const EXISTING_READS = ["audit_log", "job_health", "latest_summary", "list_actions", "list_approvals", "list_config_approvals", "settings"];
 const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/;
 const COMPONENT_SRC = resolve(__dirname, "../src/components/system/AlertChannel.tsx");
 
@@ -153,7 +155,7 @@ describe("/system's Alerts panel carries a read-only Delivery channel block", ()
     expect(text(block(html))).toMatch(/^Delivery channel /);
   });
 
-  it("makes no read beyond the page's existing six, each once", async () => {
+  it("makes exactly the page's reads, each once", async () => {
     await renderSystem();
     expect([...h.calls].sort()).toEqual(EXISTING_READS);
   });
@@ -193,7 +195,8 @@ describe("1. alert_delivery_enabled is shown as ops.settings returns it, else un
     expect(r.value).toBe("unknown");
     expect(r.text).toContain("ops.settings is readable by platform_admin only");
     expect(h.calls).not.toContain("settings");
-    expect([...h.calls].sort()).toEqual(EXISTING_READS.filter((f) => f !== "settings"));
+    // Both admin-only reads are skipped for a non-admin: `settings`, and the money panel's list_config_approvals.
+    expect([...h.calls].sort()).toEqual(EXISTING_READS.filter((f) => f !== "settings" && f !== "list_config_approvals"));
   });
 
   it("unknown when the ops.settings read fails, never the seeded default", async () => {
