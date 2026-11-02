@@ -63,6 +63,8 @@ class StripeWithMemory {
   postError: { status: number; error: Record<string, string> } | null = null;
   /** When set, every GET /refunds?payment_intent=… (the reconcile list) is answered with this Stripe error. */
   listError: { status: number; error: Record<string, string> } | null = null;
+  /** Overrides has_more on the reconcile list (undefined = omit the field). Default false. */
+  listHasMore: boolean | undefined | 'omit' = false;
 
   /** Stripe's 24h idempotency retention has elapsed: every key is a fresh key again. */
   forgetKeys() { this.byKey.clear(); }
@@ -99,7 +101,9 @@ class StripeWithMemory {
     if (c.method === 'GET' && list) {
       if (this.listError) return { ok: false, status: this.listError.status, data: { error: this.listError.error } };
       const pi = decodeURIComponent(list[1]);
-      return { ok: true, data: { object: 'list', data: this.refunds.filter((r) => r.payment_intent === pi), has_more: false } };
+      const page: Record<string, unknown> = { object: 'list', data: this.refunds.filter((r) => r.payment_intent === pi) };
+      if (this.listHasMore !== 'omit') page.has_more = this.listHasMore;
+      return { ok: true, data: page };
     }
     const one = /^\/refunds\/(re_[A-Za-z0-9]+)$/.exec(c.path);
     if (c.method === 'GET' && one) {
@@ -548,5 +552,36 @@ describe('L: a Stripe error on the reconcile LIST pages exactly as a create erro
     expect(r.body.retryable).toBe(true);
     expect(h.edge.sentry.filter((s) => s.tag === 'refund-execute:stripe')).toHaveLength(0);
     expect(h.calls().filter((c) => c.startsWith('POST'))).toHaveLength(0);
+  });
+});
+
+describe('M: an unexhausted reconcile list never ends in a create (execute always reconciles now)', { timeout: LOAD_BUDGET_MS }, () => {
+  // E's review of c2864a87 (LOW-1): reconcile_ambiguous is the branch that stops a
+  // second real refund when the PaymentIntent has more refunds than one page shows,
+  // and nothing exercised it. LOW-2: `has_more === true` let an ABSENT has_more fall
+  // through to the create; only an explicit `false` proves the list was exhausted.
+  it('M1 has_more: true with no metadata match → reconcile_ambiguous, 409, paged, and NO POST', async () => {
+    const h = await harness();
+    h.stripe.listHasMore = true;
+    const r = await h.execute();
+    expect(r.status).toBe(409);
+    expect(r.body.code).toBe('reconcile_ambiguous');
+    expect(h.edge.sentry.filter((s) => s.tag === 'refund-execute:reconcile-ambiguous')).toHaveLength(1);
+    expect(h.calls().filter((c) => c.startsWith('POST'))).toHaveLength(0);
+  });
+
+  it('M2 an ABSENT has_more is treated as unexhausted: refused, NO POST', async () => {
+    const h = await harness();
+    h.stripe.listHasMore = 'omit';
+    const r = await h.execute();
+    expect(r.body.code).toBe('reconcile_ambiguous');
+    expect(h.calls().filter((c) => c.startsWith('POST'))).toHaveLength(0);
+  });
+
+  it('M3 control: has_more: false with no match still creates exactly one refund', async () => {
+    const h = await harness();
+    const r = await h.execute();
+    expect(r.status).toBe(200);
+    expect(h.calls().filter((c) => c.startsWith('POST'))).toHaveLength(1);
   });
 });

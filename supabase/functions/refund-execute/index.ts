@@ -535,8 +535,11 @@ async function reconcileOne(
     });
     return await applyStateSync(service, refundId, commandKey, ctx, match);
   }
-  if (body?.has_more === true) {
-    // We did not see the whole set, so "not found" is not established.
+  if (body?.has_more !== false) {
+    // We did not see the whole set, so "not found" is not established. Only an
+    // explicit `false` proves the list was exhausted: an absent has_more must
+    // never fall through to a create, whose failure direction is a duplicate
+    // real refund (E review of c2864a87, LOW-2; pinned by tests M1-M3).
     await captureException('refund-execute:reconcile-ambiguous', new Error(`>100 refunds on ${plan.payment_intent}; existence not established`), {
       refund_id: refundId, payment_id: ctx.payment_id,
     });
