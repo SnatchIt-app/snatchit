@@ -540,7 +540,7 @@ async function reconcileOne(
     // explicit `false` proves the list was exhausted: an absent has_more must
     // never fall through to a create, whose failure direction is a duplicate
     // real refund (E review of c2864a87, LOW-2; pinned by tests M1-M3).
-    await captureException('refund-execute:reconcile-ambiguous', new Error(`>100 refunds on ${plan.payment_intent}; existence not established`), {
+    await captureException('refund-execute:reconcile-ambiguous', new Error(`refund list on ${plan.payment_intent} is not proven exhausted (has_more ${body?.has_more === undefined ? 'absent' : String(body?.has_more)}); existence not established`), {
       refund_id: refundId, payment_id: ctx.payment_id,
     });
     return { refund_id: refundId, outcome: 'refused', code: 'reconcile_ambiguous', detail: 'more refunds on this PaymentIntent than one page — human reconciliation required', retryable: false, http: 409 };
