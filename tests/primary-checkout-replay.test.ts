@@ -30,12 +30,28 @@
  *   • public.payments honours eq/in, .order() and .limit(). With no .order() it
  *     returns heap (insertion) order — an order Postgres is free to return.
  * No network, no database, no real key.
+ *
+ * Review follow-ups (A, 2026-11-02), each its own describe below:
+ *   • guard placement: a fresh return without org_id is refused BEFORE the
+ *     Stripe Customer step (no customer create, no profiles write, no
+ *     ephemeral key), so a Customer-step fault cannot turn the activation
+ *     blocker into a bare 500.
+ *   • a THROWN replay probe (network/timeout) is 503 replay_recovery_failed,
+ *     the same as a 5xx status, not the top-level 500.
+ *   • the in-flight race: a same-key request whose candidate read lands before
+ *     the first request has written its payments row re-reads ONCE after a
+ *     short wait (PRIMARY_CHECKOUT_REPLAY_REREAD_MS, default 2000; '0' here so
+ *     the suite does not sleep) and finds that row. If it still finds nothing,
+ *     the answer is today's 409 quote_unavailable, unchanged.
  */
 import { describe, expect, it } from 'vitest';
 import { authedJsonRequest, json, loadEdgeHandler, mockStripe, mockSupabase, type QueryCall, type StripeCall } from './helpers/edge-vm';
 import { totalMismatch } from '../supabase/functions/_shared/money';
 
-const ENV = { SUPABASE_URL: 'https://x.invalid', SUPABASE_ANON_KEY: 'anon-test', SUPABASE_SERVICE_ROLE_KEY: 'service-test' };
+const ENV: Record<string, string | undefined> = {
+  SUPABASE_URL: 'https://x.invalid', SUPABASE_ANON_KEY: 'anon-test', SUPABASE_SERVICE_ROLE_KEY: 'service-test',
+  PRIMARY_CHECKOUT_REPLAY_REREAD_MS: '0',
+};
 const STRIPE_MOBILE_API_VERSION = '2024-04-10';
 
 // Synthetic uuids: version 4, variant 8-b, a hex letter in every group.
@@ -64,7 +80,22 @@ interface WorldOpts {
   history?: number;
   /** a contract break: the RPC's SUCCESS return omits org_id */
   omitOrgId?: boolean;
+  /** profiles holds no stripe_customer_id, so the Customer step would create one and write it back */
+  noCustomer?: boolean;
+  /** POST /ephemeral_keys fails, so the Customer step throws */
+  ephemeralKeyFails?: boolean;
+  /** merged over ENV; an undefined value unsets the key */
+  env?: Record<string, string | undefined>;
 }
+
+function deferred<T = void>() {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => { resolve = r; });
+  return { promise, resolve };
+}
+
+/** the replay candidate read is the only payments select filtered on `mode` */
+const isCandidateRead = (q: QueryCall) => q.op === 'select' && q.filters.some((f) => f[0] === 'eq' && f[1] === 'mode');
 
 function pick(row: Record<string, unknown>, select: string | null): Record<string, unknown> {
   if (!select || select.trim() === '*') return { ...row };
@@ -90,6 +121,12 @@ async function world(opts: WorldOpts = {}) {
   const piByIdemKey = new Map<string, string>();
   const orders = new Map<string, string>(); // `${buyer}|${command_key}` → order_id
   let probe: Probe | null = null;
+  /** Date.now() of each replay candidate read, in order */
+  const candidateReadAt: number[] = [];
+  /** runs BEFORE a candidate read is evaluated; a returned promise is awaited first */
+  let onCandidateRead: ((n: number) => Promise<unknown> | void) | null = null;
+  /** while set, POST /payment_intents signals `reached` and then waits on `gate` */
+  let mintHold: { gate: Promise<void>; reached: () => void } | null = null;
 
   for (let i = 1; i <= (opts.history ?? 0); i++) {
     const id = `pi_test_hist_${i}`;
@@ -127,8 +164,16 @@ async function world(opts: WorldOpts = {}) {
       return { error: { message: `unmocked rpc ${name}` } };
     },
     tables: {
-      profiles: () => ({ data: { stripe_customer_id: CUSTOMER } }),
-      payments: (q: QueryCall) => {
+      profiles: (q: QueryCall) => (q.op === 'select' ? { data: { stripe_customer_id: opts.noCustomer ? null : CUSTOMER } } : { data: null }),
+      payments: async (q: QueryCall) => {
+        if (isCandidateRead(q)) {
+          candidateReadAt.push(Date.now());
+          // Only a hook that RETURNS a promise is awaited: a synchronous hook
+          // (e.g. one that releases another request) must not yield before the
+          // rows below are read, or the other request could write first.
+          const pending = onCandidateRead?.(candidateReadAt.length);
+          if (pending) await pending;
+        }
         if (q.op === 'insert') {
           const b = q.body as Record<string, unknown>;
           if (rows.some((r) => r.stripe_payment_intent_id === b.stripe_payment_intent_id)) {
@@ -153,10 +198,17 @@ async function world(opts: WorldOpts = {}) {
     },
   });
 
-  const stripe = mockStripe((c: StripeCall) => {
+  const stripe = mockStripe(async (c: StripeCall) => {
     if (c.method === 'GET' && c.path === `/customers/${CUSTOMER}`) return { ok: true, data: { id: CUSTOMER } };
-    if (c.method === 'POST' && c.path === '/ephemeral_keys') return { ok: true, data: { secret: 'ek_test_secret' } };
+    if (c.method === 'POST' && c.path === '/customers') return { ok: true, data: { id: CUSTOMER } };
+    if (c.method === 'POST' && c.path === `/customers/${CUSTOMER}`) return { ok: true, data: { id: CUSTOMER } };
+    if (c.method === 'POST' && c.path === '/ephemeral_keys') {
+      return opts.ephemeralKeyFails
+        ? { ok: false, status: 500, data: { error: { type: 'api_error' } } }
+        : { ok: true, data: { secret: 'ek_test_secret' } };
+    }
     if (c.method === 'POST' && c.path === '/payment_intents') {
+      if (mintHold) { mintHold.reached(); await mintHold.gate; }
       // Stripe idempotency: the same key replays the same object.
       const prior = c.idempotencyKey ? piByIdemKey.get(c.idempotencyKey) : undefined;
       if (prior) return { ok: true, data: { ...pis.get(prior)! } };
@@ -179,9 +231,10 @@ async function world(opts: WorldOpts = {}) {
     return { ok: false, status: 404, data: { error: { message: `unmocked ${c.method} ${c.path}` } } };
   });
 
+  const env: Record<string, string | undefined> = { ...ENV, ...opts.env };
   const edge = await loadEdgeHandler('supabase/functions/primary-checkout/index.ts', {
     supabase: sb,
-    env: ENV,
+    env,
     provide: { stripeFetch: stripe.stripeFetch, stripeFetchRaw: stripe.stripeFetchRaw, STRIPE_MOBILE_API_VERSION, totalMismatch },
   });
 
@@ -194,7 +247,14 @@ async function world(opts: WorldOpts = {}) {
   const piMints = () => stripe.calls.filter((c) => c.method === 'POST' && c.path === '/payment_intents');
   const blockerAlerts = () => edge.sentry.filter((s) => (s.ctx as { activation_blocker?: boolean } | undefined)?.activation_blocker === true);
 
-  return { run, rows, pis, stripe, edge, piMints, blockerAlerts, setProbe: (p: Probe | null) => { probe = p; } };
+  const piGets = (piId: string) => stripe.calls.filter((c) => c.method === 'GET' && c.path === `/payment_intents/${piId}`).length;
+
+  return {
+    run, rows, pis, stripe, sb, edge, piMints, piGets, blockerAlerts, candidateReadAt,
+    setProbe: (p: Probe | null) => { probe = p; },
+    setOnCandidateRead: (h: ((n: number) => Promise<unknown> | void) | null) => { onCandidateRead = h; },
+    holdMint: (gate: Promise<void>, reached: () => void) => { mintHold = { gate, reached }; },
+  };
 }
 
 describe('primary-checkout-1 — an idempotency_replay is never answered 503 org_id_unavailable', () => {
@@ -297,4 +357,144 @@ describe('primary-checkout-4 — replay recovery finds the live PaymentIntent', 
     expect(retry.body.code).toBe('quote_unavailable');
     expect(w.piMints()).toHaveLength(1);
   });
+});
+
+describe('review follow-up — the org_id guard stands in front of the Stripe Customer step on the fresh path', () => {
+  it('a fresh return without org_id is refused before any Customer get/create, profiles write or ephemeral key', async () => {
+    // noCustomer: had §10 run, it would have created a Stripe Customer and
+    // written profiles.stripe_customer_id for a checkout that is then refused.
+    const w = await world({ omitOrgId: true, noCustomer: true });
+    const r = await w.run('cmd-no-org-no-customer');
+    expect(r.res.status).toBe(503);
+    expect(r.body.code).toBe('org_id_unavailable');
+    expect(r.res.headers.get('Retry-After')).toBe('300');
+    expect(w.blockerAlerts()).toHaveLength(1);
+    expect(w.stripe.calls.map((c) => `${c.method} ${c.path}`)).toEqual([]);
+    expect(w.sb.queries.filter((q) => q.table === 'profiles').map((q) => q.op)).toEqual([]);
+    expect(w.rows).toHaveLength(0);
+  });
+
+  it('a Customer-step fault cannot mask the activation blocker: still 503 org_id_unavailable with its alert, not a bare 500', async () => {
+    const w = await world({ omitOrgId: true, ephemeralKeyFails: true });
+    const r = await w.run('cmd-no-org-ek-fails');
+    expect(r.res.status).toBe(503);
+    expect(r.body.code).toBe('org_id_unavailable');
+    expect(w.blockerAlerts()).toHaveLength(1);
+    expect(w.piMints()).toHaveLength(0);
+  });
+});
+
+describe('review follow-up — a replay probe that THROWS is retryable, not the top-level 500', () => {
+  it.each([
+    ['a network failure', () => new TypeError('fetch failed')],
+    ['a timeout', () => new DOMException('The operation timed out.', 'TimeoutError')],
+  ])('%s on the candidate PI GET answers 503 replay_recovery_failed, and the SAME key then gets the SAME PI', async (_label, makeErr) => {
+    const w = await world();
+    const first = await w.run('cmd-probe-throws');
+    expect(first.res.status).toBe(200);
+    const piId = first.body.paymentIntentId as string;
+    w.setProbe((id) => { if (id === piId) throw makeErr(); return null; });
+
+    const retry = await w.run('cmd-probe-throws');
+    expect(retry.res.status).toBe(503);
+    expect(retry.body).toEqual({ error: 'Service temporarily unavailable. Please try again shortly.', code: 'replay_recovery_failed' });
+    expect(retry.res.headers.get('Retry-After')).toBe('10');
+    expect(w.edge.sentry.map((s) => (s.error as Error).message).filter((m) => m.startsWith('replay recovery failed:'))).toHaveLength(1);
+    expect(w.piMints()).toHaveLength(1);
+
+    w.setProbe(null);
+    const again = await w.run('cmd-probe-throws');
+    expect(again.res.status).toBe(200);
+    expect(again.body.paymentIntentId).toBe(piId);
+    expect(w.piMints()).toHaveLength(1);
+  });
+});
+
+describe('review follow-up — the in-flight same-key race: ONE re-read before answering quote_unavailable', () => {
+  type W = Awaited<ReturnType<typeof world>>;
+
+  /**
+   * Request A (fresh) is held inside its PaymentIntent mint: its order exists,
+   * its PI does not yet, and its payments row is not written. Request B (same
+   * key, so the RPC answers idempotency_replay) then does its candidate read
+   * and finds nothing of A's. That first read lets A go; B's re-read is held
+   * until A has finished, which is what the production wait buys.
+   */
+  async function raceSameKey(w: W, key: string) {
+    const gate = deferred();
+    const reached = deferred();
+    w.holdMint(gate.promise, reached.resolve);
+    const rowsBefore = w.rows.length;
+    const a = w.run(key);
+    await reached.promise;
+    expect(w.rows).toHaveLength(rowsBefore);
+    w.setOnCandidateRead((n) => {
+      if (n === 1) { expect(w.rows).toHaveLength(rowsBefore); gate.resolve(); return; }
+      return a;
+    });
+    const b = w.run(key);
+    const [ra, rb] = await Promise.all([a, b]);
+    return { ra, rb };
+  }
+
+  it('a same-key request that looks before the first has written its payments row gets the SAME order and PI back', async () => {
+    const w = await world();
+    const { ra, rb } = await raceSameKey(w, 'cmd-race');
+    expect(ra.res.status).toBe(200);
+    expect(rb.body.code).toBeUndefined();
+    expect(rb.res.status).toBe(200);
+    expect(rb.body.order_id).toBe(ra.body.order_id);
+    expect(rb.body.paymentIntentId).toBe(ra.body.paymentIntentId);
+    expect(rb.body.clientSecret).toBe(ra.body.clientSecret);
+    expect([rb.body.amount, rb.body.buyer_fee, rb.body.total]).toEqual([FACE, FEE, CHARGE]);
+    expect(w.candidateReadAt).toHaveLength(2);
+    expect(w.piMints()).toHaveLength(1);
+    expect(w.rows).toHaveLength(1);
+  });
+
+  it('a repeat buyer in the same race: the re-read finds the new row and does not GET the historic PIs a second time', async () => {
+    const w = await world({ history: 3 });
+    const { ra, rb } = await raceSameKey(w, 'cmd-race-repeat');
+    expect(rb.res.status).toBe(200);
+    expect(rb.body.paymentIntentId).toBe(ra.body.paymentIntentId);
+    expect(w.candidateReadAt).toHaveLength(2);
+    // each historic PI was shown not to be this order's on the first pass;
+    // that cannot change, so the re-read does not ask Stripe again
+    for (let i = 1; i <= 3; i++) expect(w.piGets(`pi_test_hist_${i}`)).toBe(1);
+    expect(w.piGets(ra.body.paymentIntentId as string)).toBe(1);
+    expect(w.piMints()).toHaveLength(1);
+  });
+
+  it('if the re-read still finds nothing, the answer is today\'s 409 quote_unavailable, unchanged, after exactly one re-read', async () => {
+    const w = await world();
+    // the first attempt dies before any PI: an order exists, no PI, no row
+    const first = await w.run('cmd-dead', { expected_total_cents: CHARGE + 1 });
+    expect(first.res.status).toBe(409);
+    expect(first.body.code).toBe('total_mismatch');
+    expect(w.piMints()).toHaveLength(0);
+
+    const retry = await w.run('cmd-dead');
+    expect(retry.res.status).toBe(409);
+    expect(retry.body).toEqual({ error: 'This checkout expired. Please start again.', code: 'quote_unavailable' });
+    expect(retry.res.headers.get('Retry-After')).toBeNull();
+    expect(w.candidateReadAt).toHaveLength(2);
+    expect(w.piMints()).toHaveLength(0);
+  });
+
+  it('the wait is injectable: PRIMARY_CHECKOUT_REPLAY_REREAD_MS=0 does not sleep the 2s default', async () => {
+    const w = await world();
+    await w.run('cmd-dead-zero', { expected_total_cents: CHARGE + 1 });
+    await w.run('cmd-dead-zero');
+    expect(w.candidateReadAt).toHaveLength(2);
+    expect(w.candidateReadAt[1] - w.candidateReadAt[0]).toBeLessThan(1900);
+  });
+
+  it('the wait defaults to 2s when PRIMARY_CHECKOUT_REPLAY_REREAD_MS is unset', async () => {
+    const w = await world({ env: { PRIMARY_CHECKOUT_REPLAY_REREAD_MS: undefined } });
+    await w.run('cmd-dead-default', { expected_total_cents: CHARGE + 1 });
+    const retry = await w.run('cmd-dead-default');
+    expect(retry.body.code).toBe('quote_unavailable');
+    expect(w.candidateReadAt).toHaveLength(2);
+    expect(w.candidateReadAt[1] - w.candidateReadAt[0]).toBeGreaterThanOrEqual(1900);
+  }, 30_000);
 });

@@ -841,15 +841,35 @@ serve(async (req: Request) => {
     // guessed `org_id` would write a metadata contract the webhook cannot
     // dispatch on and would attribute money to no organization.
     //
-    // THE GUARD ITSELF SITS AFTER THE §11 REPLAY BRANCH, NOT HERE
-    // (primary-checkout-1). Both `idempotency_replay` returns omit org_id on
-    // purpose (20261027031000:190-191 and :496-497, reasoned at :506-514), so a
-    // guard at this point answered EVERY replay — a double-tap, a retry, the
-    // loser of a same-key race, a retry after payment — 503 org_id_unavailable
-    // with a false activation-blocker alert, and left §11 unreachable. The
-    // client's only way out was a NEW command_key: a second order and a second
-    // PaymentIntent on the same holds. What the guard protects is the fresh
-    // mint's `metadata[org_id]`, so it now heads the fresh path (§12).
+    // THE GUARD SKIPS REPLAYS (primary-checkout-1). Both `idempotency_replay`
+    // returns omit org_id on purpose (20261027031000:190-191 and :496-497,
+    // reasoned at :506-514), so an unconditional guard here answered EVERY
+    // replay — a double-tap, a retry, the loser of a same-key race, a retry
+    // after payment — 503 org_id_unavailable with a false activation-blocker
+    // alert, and left §11 unreachable. The client's only way out was a NEW
+    // command_key: a second order and a second PaymentIntent on the same holds.
+    // A replay mints nothing, so it needs no org_id.
+    //
+    // AND IT STAYS HERE, AHEAD OF §10, for the fresh path. A missing org_id is
+    // refused before the Stripe Customer get/create, the
+    // profiles.stripe_customer_id write and the ephemeral-key mint: none of
+    // that work is thrown away, and a fault in it (it throws to the top-level
+    // 500) cannot mask the activation blocker and its alert.
+    const orgIdRaw = order.org_id;
+    const orgId = typeof orgIdRaw === 'string' && UUID_RE.test(orgIdRaw) ? orgIdRaw : null;
+    if (!isReplay && orgId === null) {
+      logStage('org-id-missing', { order_id: orderId });
+      await captureException(
+        'primary-checkout',
+        new Error('create_primary_checkout returned no org_id — slice 30 must add it to the success return (E2-RT-A-6)'),
+        { order_id: orderId, activation_blocker: true },
+      );
+      return json(
+        { error: 'Ticket sales are not available yet for this event.', code: 'org_id_unavailable' },
+        503,
+        { ...H, 'Retry-After': '300' },
+      );
+    }
 
     // ── 9b. RULING A8 — why there is NO edge-side eligibility check ────────
     //
@@ -916,6 +936,8 @@ serve(async (req: Request) => {
       if (recovered.kind === 'none') {
         // The order exists but no usable PaymentIntent does — the original
         // attempt died between the RPC and the PI, or its PI was cancelled.
+        // (An attempt still in flight gets one re-read first; see THE
+        // IN-FLIGHT RACE in recoverReplayQuote.)
         // The quote CANNOT be reconstructed: the fee is derived, never stored,
         // and the RPC will not re-derive it for a replay. Inventing one here is
         // exactly the failure this branch exists to prevent.
@@ -1010,26 +1032,12 @@ serve(async (req: Request) => {
       );
     }
 
-    // ── 9 (the guard) — org_id on the FRESH path only. See the §9 note. ────
-    // Every replay has returned above, so this runs only for a `status:'ok'`
-    // return, the one shape that carries org_id (20261027031000:515-519). It
-    // still fails CLOSED before any quote or PaymentIntent work. The one
-    // ordering consequence: §10's Stripe Customer + ephemeral key now precede
-    // it on this path; both are per-buyer, idempotent, and move no money.
-    const orgId = order.org_id;
-    if (typeof orgId !== 'string' || !UUID_RE.test(orgId)) {
-      logStage('org-id-missing', { order_id: orderId });
-      await captureException(
-        'primary-checkout',
-        new Error('create_primary_checkout returned no org_id — slice 30 must add it to the success return (E2-RT-A-6)'),
-        { order_id: orderId, activation_blocker: true },
-      );
-      return json(
-        { error: 'Ticket sales are not available yet for this event.', code: 'org_id_unavailable' },
-        503,
-        { ...H, 'Retry-After': '300' },
-      );
-    }
+    // Every replay has returned above, and §9 refused every fresh return
+    // without a valid org_id, so this cannot fire. It is here so the type
+    // checker sees `orgId` as a string at `metadata[org_id]`, and so a future
+    // reordering fails CLOSED (top-level 500, no mint) instead of minting a
+    // PaymentIntent with no organization.
+    if (orgId === null) throw new Error('org_id guard (§9) was bypassed on the fresh path');
 
     // ── 12. THE FRESH QUOTE — the RPC's numbers, validated, never recomputed ─
     //
@@ -1374,6 +1382,24 @@ type ReplayRecovery =
   | { kind: 'ambiguous' }
   | { kind: 'error'; detail: string };
 
+// The one wait before the replay re-read (see THE IN-FLIGHT RACE in
+// recoverReplayQuote). 2 s by A's decision: room for a winner that is one
+// PaymentIntent create away from its payments row, at the cost of answering a
+// genuinely dead attempt's 409 2 s later. PRIMARY_CHECKOUT_REPLAY_REREAD_MS
+// overrides it (tests set '0' so the suite does not sleep), following
+// create-payment-intent's CHECKOUT_STRIPE_TIMEOUT_MS. Unset, blank,
+// non-numeric, negative or over 10 s means the default: a bad value can never
+// stall a checkout for long.
+const DEFAULT_REPLAY_REREAD_MS = 2_000;
+const MAX_REPLAY_REREAD_MS     = 10_000;
+
+function replayRereadWaitMs(): number {
+  const raw = Deno.env.get('PRIMARY_CHECKOUT_REPLAY_REREAD_MS');
+  if (raw === undefined || raw.trim() === '') return DEFAULT_REPLAY_REREAD_MS;
+  const v = Number(raw);
+  return Number.isFinite(v) && v >= 0 && v <= MAX_REPLAY_REREAD_MS ? v : DEFAULT_REPLAY_REREAD_MS;
+}
+
 async function recoverReplayQuote(
   service: ReturnType<typeof createClient>,
   orderId: string,
@@ -1385,65 +1411,114 @@ async function recoverReplayQuote(
     status: string; stripe_payment_intent_id: string | null;
   };
 
-  let candidates: Row[];
-  try {
-    const { data, error } = await service
-      .from('payments')
-      .select('amount, buyer_fee, total, status, stripe_payment_intent_id')
-      .eq('buyer_id', buyerId)
-      .eq('mode', PAYMENTS_MODE_NATIVE_PRIMARY)
-      .eq('amount', faceMinor)
-      .in('status', ['pending', 'processing', 'succeeded'])
-      // NEWEST FIRST, BEFORE THE CAP (primary-checkout-4a). `succeeded` rows
-      // accumulate for good, so a repeat buyer at one price point (a weekly
-      // $25 GA ticket) can hold 10+ historic matches; with no ORDER BY the cap
-      // could return only those and leave this order's row out, answering a
-      // live PI 409 quote_unavailable. A replay is for a recent attempt, so
-      // its row is among the newest.
-      .order('created_at', { ascending: false })
-      // Bounded: this drives one Stripe GET per candidate. A buyer with more
-      // than a handful of concurrent same-priced native orders is pathological.
-      .limit(10);
-    if (error) return { kind: 'error', detail: error.message };
-    candidates = (data ?? []) as Row[];
-  } catch (err) {
-    return { kind: 'error', detail: err instanceof Error ? err.message : String(err) };
-  }
-
-  if (candidates.length === 0) return { kind: 'none' };
-
   type Confirmed = {
     row: Row; piId: string; status: string; clientSecret: string | null; sessionId: string | null;
   };
-  const confirmed: Confirmed[] = [];
+  type Look = { kind: 'error'; detail: string } | { kind: 'looked'; confirmed: Confirmed[] };
 
-  for (const row of candidates) {
-    if (!row.stripe_payment_intent_id) continue;
-    const probe = await stripeFetchRaw(`/payment_intents/${row.stripe_payment_intent_id}`);
-    // 404: Stripe has no such PI, so it cannot confirm anything — skip it.
-    // ANY OTHER failure (429, 5xx, auth) means "could not look", not "not
-    // ours" (primary-checkout-4b). Skipping it would turn a transient Stripe
-    // fault into `none` → 409 quote_unavailable, which sends the client to a
-    // NEW command_key: a second order and a second PI on the same holds.
-    // `error` → 503 replay_recovery_failed + Retry-After, and the retry with
-    // the SAME key finds the same PI.
-    if (probe.status === 404) continue;
-    if (!probe.ok) {
-      return { kind: 'error', detail: `stripe GET payment_intent ${row.stripe_payment_intent_id} answered ${probe.status}` };
+  // PI ids a look has already shown cannot be this order's: Stripe answered
+  // 404, or the PI's own metadata names another order or rail. Neither can
+  // change (we never edit metadata after the mint), so the re-read below does
+  // not spend a second Stripe GET on them. A repeat buyer's historic rows are
+  // exactly these.
+  const ruledOut = new Set<string>();
+
+  const look = async (): Promise<Look> => {
+    let candidates: Row[];
+    try {
+      const { data, error } = await service
+        .from('payments')
+        .select('amount, buyer_fee, total, status, stripe_payment_intent_id')
+        .eq('buyer_id', buyerId)
+        .eq('mode', PAYMENTS_MODE_NATIVE_PRIMARY)
+        .eq('amount', faceMinor)
+        .in('status', ['pending', 'processing', 'succeeded'])
+        // NEWEST FIRST, BEFORE THE CAP (primary-checkout-4a). `succeeded` rows
+        // accumulate for good, so a repeat buyer at one price point (a weekly
+        // $25 GA ticket) can hold 10+ historic matches; with no ORDER BY the cap
+        // could return only those and leave this order's row out, answering a
+        // live PI 409 quote_unavailable. A replay is for a recent attempt, so
+        // its row is among the newest.
+        .order('created_at', { ascending: false })
+        // Bounded: this drives one Stripe GET per candidate. A buyer with more
+        // than a handful of concurrent same-priced native orders is pathological.
+        .limit(10);
+      if (error) return { kind: 'error', detail: error.message };
+      candidates = (data ?? []) as Row[];
+    } catch (err) {
+      return { kind: 'error', detail: err instanceof Error ? err.message : String(err) };
     }
-    const pi = probe.data as {
-      id?: string; status?: string; client_secret?: string; metadata?: Record<string, string>;
-    };
-    // THE AUTHORITATIVE CHECK. Both must match: the order this PI was minted
-    // for, and the rail that minted it.
-    if (pi.metadata?.order_id !== orderId) continue;
-    if (pi.metadata?.rail !== RAIL_NATIVE_PRIMARY) continue;
-    if (!pi.id) continue;
-    confirmed.push({
-      row, piId: pi.id, status: pi.status ?? 'unknown', clientSecret: pi.client_secret ?? null,
-      sessionId: pi.metadata?.session_id ?? null,
-    });
+
+    const confirmed: Confirmed[] = [];
+
+    for (const row of candidates) {
+      const rowPiId = row.stripe_payment_intent_id;
+      if (!rowPiId || ruledOut.has(rowPiId)) continue;
+      // A probe that THROWS (network failure, timeout) is "could not look" too,
+      // the same as a 5xx below. Uncaught, it escaped to the top-level catch: a
+      // bare 500 'Internal server error' instead of the retryable 503
+      // replay_recovery_failed + Retry-After that keeps the client on the SAME
+      // key.
+      let probe: Awaited<ReturnType<typeof stripeFetchRaw>>;
+      try {
+        probe = await stripeFetchRaw(`/payment_intents/${rowPiId}`);
+      } catch (err) {
+        return {
+          kind:   'error',
+          detail: `stripe GET payment_intent ${rowPiId} threw: ${err instanceof Error ? err.message : String(err)}`,
+        };
+      }
+      // 404: Stripe has no such PI, so it cannot confirm anything — skip it.
+      // ANY OTHER failure (429, 5xx, auth) means "could not look", not "not
+      // ours" (primary-checkout-4b). Skipping it would turn a transient Stripe
+      // fault into `none` → 409 quote_unavailable, which sends the client to a
+      // NEW command_key: a second order and a second PI on the same holds.
+      // `error` → 503 replay_recovery_failed + Retry-After, and the retry with
+      // the SAME key finds the same PI.
+      if (probe.status === 404) { ruledOut.add(rowPiId); continue; }
+      if (!probe.ok) {
+        return { kind: 'error', detail: `stripe GET payment_intent ${rowPiId} answered ${probe.status}` };
+      }
+      const pi = probe.data as {
+        id?: string; status?: string; client_secret?: string; metadata?: Record<string, string>;
+      };
+      // THE AUTHORITATIVE CHECK. Both must match: the order this PI was minted
+      // for, and the rail that minted it.
+      if (pi.metadata?.order_id !== orderId || pi.metadata?.rail !== RAIL_NATIVE_PRIMARY || !pi.id) {
+        ruledOut.add(rowPiId);
+        continue;
+      }
+      confirmed.push({
+        row, piId: pi.id, status: pi.status ?? 'unknown', clientSecret: pi.client_secret ?? null,
+        sessionId: pi.metadata?.session_id ?? null,
+      });
+    }
+    return { kind: 'looked', confirmed };
+  };
+
+  let found = await look();
+  if (found.kind === 'error') return found;
+
+  // THE IN-FLIGHT RACE — ONE RE-READ (review follow-up to primary-checkout-1).
+  // Nothing here tells an attempt that is still running from one that died.
+  // A same-key request that arrives while the first is still minting (the
+  // loser of a same-key race unblocks when the winner's order commits, then
+  // makes 2 Stripe calls before this read; the winner makes 3 before it
+  // inserts its payments row) finds no row of this order's yet. Answering
+  // `none` at once sends the client to a NEW command_key: a second order and a
+  // second PI on the same holds. So when no candidate confirms this order, wait
+  // once and look again. A row written in the meantime is found; if there is
+  // still none, the answer is the same 409 quote_unavailable as before. No new
+  // response code, so the client contract is unchanged. This NARROWS the race;
+  // it cannot close it (the winner may take longer than the wait). Only a
+  // confirmed-but-dead PI (canceled, no client_secret) skips the wait: that
+  // order's attempt has already finished.
+  if (found.confirmed.length === 0) {
+    await new Promise((resolve) => setTimeout(resolve, replayRereadWaitMs()));
+    found = await look();
+    if (found.kind === 'error') return found;
   }
+  const confirmed = found.confirmed;
 
   if (confirmed.length === 0) return { kind: 'none' };
 
