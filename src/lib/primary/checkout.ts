@@ -214,6 +214,13 @@ export const PRIMARY_CHECKOUT_COPY = {
     body: 'We’ll show your tickets as soon as your payment is confirmed. This usually takes a moment.',
   },
   paymentFailed: 'Your payment didn’t go through. You can try again.',
+  paymentCheck: {
+    checking: 'Checking your payment',
+    title: 'We couldn’t check your payment',
+    body: 'Don’t pay again yet. Check again, or open your tickets: a payment that went through shows up there.',
+    checkAgain: 'Check again',
+    viewTickets: 'View your tickets',
+  },
   refusal: {
     not_on_sale: 'This event isn’t on sale right now.',
     ended: 'This event has ended or was cancelled.',
@@ -255,6 +262,37 @@ export function applePayCartItems(q: PrimaryQuote): { label: string; amount: str
  */
 export function intentAlreadyPaid(status: string | null | undefined): boolean {
   return status === 'Succeeded' || status === 'Processing' || status === 'RequiresCapture';
+}
+
+export type AfterSheet =
+  | { kind: 'submitted' }
+  | { kind: 'review'; quote: PrimaryQuote; paymentFailed: boolean }
+  | { kind: 'unverified' }
+  | { kind: 'price_changed'; serverTotalMinor: number | null }
+  | { kind: 'refused'; reason: CheckoutRefusal };
+
+/**
+ * After a sheet that did not complete (c35, D1). A sheet error is not proof the charge failed — the network can
+ * drop after Stripe has the money — so the screen asks again under the SAME command key before saying anything
+ * (the resale checkout's A-04): the edge answers already_paid for a paid order, or replays the same
+ * PaymentIntent, whose status the SDK then reads (`intent`, null when there was no replay to read). Paid or
+ * paying → the ticket page; a check that could not be made → no Pay and no claim; the failure line only after
+ * `failed` with the intent back at requires_payment_method. Stripe's status never authorises anything here.
+ */
+export function afterSheetVerdict(
+  outcome: 'canceled' | 'failed',
+  replay: QuoteResult,
+  intent: { status: string | null; reachable: boolean } | null,
+): AfterSheet {
+  if (!replay.ok) {
+    if (replay.reason === 'already_paid') return { kind: 'submitted' };
+    if (replay.reason === 'price_changed') return { kind: 'price_changed', serverTotalMinor: replay.serverTotalMinor };
+    if (replay.reason === 'offline' || replay.reason === 'unavailable' || replay.reason === 'rate_limited') return { kind: 'unverified' };
+    return { kind: 'refused', reason: replay.reason };
+  }
+  if (!intent || !intent.reachable) return { kind: 'unverified' };
+  if (intentAlreadyPaid(intent.status)) return { kind: 'submitted' };
+  return { kind: 'review', quote: replay.quote, paymentFailed: outcome === 'failed' && intent.status === 'RequiresPaymentMethod' };
 }
 
 /** The PaymentSheet's result → the flow's sheet outcome. No error = the sheet completed (not "paid"). */

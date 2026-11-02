@@ -14,13 +14,20 @@
  *   - the flow never reaches a success state: after the PaymentSheet it is "submitted", and the ticket
  *     screen says "Awaiting payment confirmation" until the webhook issues atoms.
  *
+ *   - after a sheet that did not complete (c35, D1) nothing is said until the server is asked again under the
+ *     SAME key: already_paid or a paid intent → the ticket page; an unreachable check → no Pay and no failure
+ *     claim; the failure line only when Stripe reports the intent still needs a payment method after `failed`.
+ *
  * Negative controls (run by hand, each must FAIL): send `expected_total_cents` on the first quote (C1);
- * admit a quote where total ≠ amount + buyer_fee (Q2); mint a fresh command key per retry (K1).
+ * admit a quote where total ≠ amount + buyer_fee (Q2); mint a fresh command key per retry (K1); show the
+ * failure line for a canceled sheet (V4); restore Pay when the check was unreachable (V6); treat a paid intent
+ * after a sheet error as unpaid (V2).
  */
 import { describe, expect, it } from 'vitest';
 
 import {
   PRIMARY_CHECKOUT_COPY,
+  afterSheetVerdict,
   applePayCartItems,
   attemptCommandKey,
   checkoutStep,
@@ -224,5 +231,60 @@ describe('resume and sheet outcomes', () => {
     expect(sheetOutcome({ code: 'Canceled' })).toBe('canceled');
     expect(sheetOutcome({ code: 'Failed' })).toBe('failed');
     expect(sheetOutcome({ code: 'Timeout' })).toBe('failed');
+  });
+});
+
+describe('afterSheetVerdict — a sheet that did not complete is checked with the server first (c35, D1)', () => {
+  const quote: PrimaryQuote = {
+    orderId: 'o', clientSecret: 's', paymentIntentId: 'pi', faceMinor: 2500, buyerFeeMinor: 250, totalMinor: 2750, customerId: 'c', ephemeralKeySecret: 'e',
+  };
+  const ok = { ok: true as const, quote };
+  const seen = (status: string | null) => ({ status, reachable: true });
+
+  it('V1: the edge says the order is paid → the ticket page, whatever the sheet reported', () => {
+    for (const o of ['canceled', 'failed'] as const) {
+      expect(afterSheetVerdict(o, { ok: false, reason: 'already_paid' }, null)).toEqual({ kind: 'submitted' });
+    }
+  });
+
+  it('V2: the replayed intent is succeeded, processing or awaiting capture → the ticket page, never "didn’t go through"', () => {
+    for (const st of ['Succeeded', 'Processing', 'RequiresCapture']) {
+      expect(afterSheetVerdict('failed', ok, seen(st)), st).toEqual({ kind: 'submitted' });
+      expect(afterSheetVerdict('canceled', ok, seen(st)), st).toEqual({ kind: 'submitted' });
+    }
+  });
+
+  it('V3: a failed sheet whose intent still needs a payment method is the only case that says it didn’t go through', () => {
+    expect(afterSheetVerdict('failed', ok, seen('RequiresPaymentMethod'))).toEqual({ kind: 'review', quote, paymentFailed: true });
+  });
+
+  it('V4: a canceled sheet goes back to review without a failure line', () => {
+    expect(afterSheetVerdict('canceled', ok, seen('RequiresPaymentMethod'))).toEqual({ kind: 'review', quote, paymentFailed: false });
+  });
+
+  it('V5: an intent waiting on the buyer (3-D Secure not finished, or not yet confirmed) is not called a failure', () => {
+    for (const st of ['RequiresAction', 'RequiresConfirmation', 'Unknown', null]) {
+      expect(afterSheetVerdict('failed', ok, seen(st)), String(st)).toEqual({ kind: 'review', quote, paymentFailed: false });
+    }
+  });
+
+  it('V6: a check that could not be completed withdraws Pay and claims nothing', () => {
+    for (const reason of ['offline', 'unavailable', 'rate_limited'] as const) {
+      expect(afterSheetVerdict('failed', { ok: false, reason }, null), reason).toEqual({ kind: 'unverified' });
+    }
+    expect(afterSheetVerdict('failed', ok, { status: null, reachable: false })).toEqual({ kind: 'unverified' });
+    expect(afterSheetVerdict('canceled', ok, null)).toEqual({ kind: 'unverified' });
+  });
+
+  it('V7: any other server answer is shown as that answer', () => {
+    expect(afterSheetVerdict('failed', { ok: false, reason: 'hold_expired' }, null)).toEqual({ kind: 'refused', reason: 'hold_expired' });
+    expect(afterSheetVerdict('canceled', { ok: false, reason: 'price_changed', serverTotalMinor: 2800 }, null))
+      .toEqual({ kind: 'price_changed', serverTotalMinor: 2800 });
+  });
+
+  it('V8: the check’s copy claims no outcome and tells the buyer not to pay again yet', () => {
+    const c = PRIMARY_CHECKOUT_COPY.paymentCheck;
+    expect(`${c.title} ${c.body}`.toLowerCase()).not.toMatch(/success|confirmed|charged|didn.t go through|failed/);
+    expect(c.body).toMatch(/pay again/i);
   });
 });

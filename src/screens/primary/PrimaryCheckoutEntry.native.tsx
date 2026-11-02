@@ -12,7 +12,10 @@
  *                paid (a 3-D Secure return or a killed app), no second sheet: go straight to the ticket page
  *   4. review  — the all-in total is the headline, itemised beneath; money moves only in the sheet
  *   5. sheet   — completed → the ticket page ("Awaiting payment confirmation" until the webhook issues
- *                tickets); canceled → back to review; failed → review with the failure line
+ *                tickets); canceled or failed → first the same key again and Stripe's reading of the
+ *                intent (c35, D1: a sheet error is not proof the charge failed): paid → the ticket page;
+ *                unreachable → no Pay, "Check again" or the ticket page; else review (the failure line
+ *                only after `failed` with the intent back at requires_payment_method)
  * A price change (409 total_mismatch) shows the server's new total; "Review new total" re-quotes WITH
  * expected_total_cents = that total, so the buyer only ever pays a total they were shown.
  *
@@ -34,6 +37,7 @@ import { Platform } from 'react-native';
 import { useAuth } from '@/src/hooks/useAuth';
 import { useNetworkStatus } from '@/src/hooks/useNetworkStatus';
 import {
+  afterSheetVerdict,
   applePayCartItems,
   attemptCommandKey,
   intentAlreadyPaid,
@@ -118,6 +122,32 @@ export default function PrimaryCheckoutNative() {
     router.replace(`/ticket/${sessionId}`);
   }, [sessionId]);
 
+  /** The review, then the sheet for THIS quote; Pay arms only once the sheet is ready. */
+  const prepareSheet = useCallback(async (run: number, quote: PrimaryQuote, paymentFailed: boolean) => {
+    if (!sessionId || !ticketTypeId || !attemptId) return;
+    setState({ kind: 'review', quote, sheetReady: false, paying: false, paymentFailed });
+    // Apple Pay as in the resale checkout: iOS only; a probe that throws is "unsupported", and the sheet
+    // still offers cards. The Apple Pay lines carry the same all-in total as the review.
+    let applePay = false;
+    if (Platform.OS === 'ios') {
+      try { applePay = await isPlatformPaySupported(); } catch { applePay = false; }
+    }
+    if (!live(run)) return;
+    const { error } = await initPaymentSheet({
+      paymentIntentClientSecret: quote.clientSecret,
+      merchantDisplayName: 'Snatch It',
+      returnURL: buildPrimaryReturnURL({ sessionId, ticketTypeId, quantity, attemptId }),
+      allowsDelayedPaymentMethods: false,
+      customerId: quote.customerId,
+      customerEphemeralKeySecret: quote.ephemeralKeySecret,
+      ...(userEmail ? { defaultBillingDetails: { email: userEmail } } : {}),
+      ...(applePay ? { applePay: { merchantCountryCode: 'US', cartItems: applePayCartItems(quote).map((i): PlatformPay.CartSummaryItem => ({ ...i, paymentType: PlatformPay.PaymentType.Immediate })) } } : {}),
+    });
+    if (!live(run)) return;
+    if (error) { setState({ kind: 'quote_refused', reason: 'unavailable' }); return; }
+    setState({ kind: 'review', quote, sheetReady: true, paying: false, paymentFailed });
+  }, [sessionId, ticketTypeId, quantity, attemptId, initPaymentSheet, userEmail, live]);
+
   /** Quote (optionally against a total the buyer was shown), resume if already paid, else prepare the sheet. */
   const quoteAndPrepare = useCallback(async (shownTotalMinor: number | null) => {
     if (!sessionId || !ticketTypeId || !attemptId || !holdIdRef.current) return;
@@ -141,28 +171,40 @@ export default function PrimaryCheckoutNative() {
     const existing = await retrievePaymentIntent(quote.clientSecret);
     if (!live(run)) return;
     if (intentAlreadyPaid(existing.paymentIntent?.status)) { submitted(); return; }
-    setState({ kind: 'review', quote, sheetReady: false, paying: false, paymentFailed: false });
-    // Apple Pay as in the resale checkout: iOS only; a probe that throws is "unsupported", and the sheet
-    // still offers cards. The Apple Pay lines carry the same all-in total as the review.
-    let applePay = false;
-    if (Platform.OS === 'ios') {
-      try { applePay = await isPlatformPaySupported(); } catch { applePay = false; }
-    }
-    if (!live(run)) return;
-    const { error } = await initPaymentSheet({
-      paymentIntentClientSecret: quote.clientSecret,
-      merchantDisplayName: 'Snatch It',
-      returnURL: buildPrimaryReturnURL({ sessionId, ticketTypeId, quantity, attemptId }),
-      allowsDelayedPaymentMethods: false,
-      customerId: quote.customerId,
-      customerEphemeralKeySecret: quote.ephemeralKeySecret,
-      ...(userEmail ? { defaultBillingDetails: { email: userEmail } } : {}),
-      ...(applePay ? { applePay: { merchantCountryCode: 'US', cartItems: applePayCartItems(quote).map((i): PlatformPay.CartSummaryItem => ({ ...i, paymentType: PlatformPay.PaymentType.Immediate })) } } : {}),
+    await prepareSheet(run, quote, false);
+  }, [sessionId, ticketTypeId, quantity, attemptId, retrievePaymentIntent, submitted, live, prepareSheet]);
+
+  /**
+   * After a sheet that did not complete (D1): the same key again, against the total the buyer was shown, then
+   * Stripe's reading of the replayed intent — and only then a verdict (afterSheetVerdict, checkout.ts).
+   */
+  const checkAfterSheet = useCallback(async (quote: PrimaryQuote, outcome: 'canceled' | 'failed') => {
+    if (!sessionId || !ticketTypeId || !attemptId || !holdIdRef.current) return;
+    const run = ++runRef.current;
+    setState({ kind: 'checking' });
+    const replay = await requestPrimaryQuote(supabaseInvoker, {
+      sessionId,
+      items: [{ ticketTypeId, quantity }],
+      holdIds: [holdIdRef.current],
+      commandKey: attemptCommandKey(sessionId, attemptId),
+      shownTotalMinor: quote.totalMinor,
     });
     if (!live(run)) return;
-    if (error) { setState({ kind: 'quote_refused', reason: 'unavailable' }); return; }
-    setState({ kind: 'review', quote, sheetReady: true, paying: false, paymentFailed: false });
-  }, [sessionId, ticketTypeId, quantity, attemptId, initPaymentSheet, retrievePaymentIntent, submitted, userEmail, live]);
+    let intent: { status: string | null; reachable: boolean } | null = null;
+    if (replay.ok) {
+      const read = await retrievePaymentIntent(replay.quote.clientSecret);
+      if (!live(run)) return;
+      intent = { status: read.paymentIntent?.status ?? null, reachable: !read.error };
+    }
+    const verdict = afterSheetVerdict(outcome, replay, intent);
+    switch (verdict.kind) {
+      case 'submitted': submitted(); return;
+      case 'unverified': setState({ kind: 'unverified', quote, outcome }); return;
+      case 'price_changed': setState({ kind: 'price_changed', serverTotalMinor: verdict.serverTotalMinor }); return;
+      case 'refused': setState({ kind: 'quote_refused', reason: verdict.reason }); return;
+      default: await prepareSheet(run, verdict.quote, verdict.paymentFailed);
+    }
+  }, [sessionId, ticketTypeId, quantity, attemptId, retrievePaymentIntent, submitted, live, prepareSheet]);
 
   const start = useCallback(async () => {
     if (!ok || !sessionId || !ticketTypeId) { setState({ kind: 'invalid' }); return; }
@@ -204,8 +246,8 @@ export default function PrimaryCheckoutNative() {
     if (!aliveRef.current) return;
     const outcome = sheetOutcome(error);
     if (outcome === 'completed') { submitted(); return; }
-    setState({ kind: 'review', quote, sheetReady: true, paying: false, paymentFailed: outcome === 'failed' });
-  }, [state, sessionId, presentPaymentSheet, submitted]);
+    await checkAfterSheet(quote, outcome);
+  }, [state, sessionId, presentPaymentSheet, submitted, checkAfterSheet]);
 
   return (
     <PrimaryCheckoutView
@@ -217,6 +259,8 @@ export default function PrimaryCheckoutNative() {
       onPay={() => { void onPay(); }}
       onReviewAgain={() => { void quoteAndPrepare(state.kind === 'price_changed' ? state.serverTotalMinor : null); }}
       onRetry={() => { void start(); }}
+      onCheckAgain={() => { if (state.kind === 'unverified') void checkAfterSheet(state.quote, state.outcome); }}
+      onViewTickets={submitted}
       onSignIn={() => router.push('/(auth)/login')}
       onBack={() => (router.canGoBack() ? router.back() : sessionId ? router.replace(`/event/${sessionId}`) : router.replace('/(tabs)/home'))}
     />

@@ -36,6 +36,8 @@ export type PrimaryCheckoutViewState =
   | { kind: 'invalid' }
   | { kind: 'signed_out' }
   | { kind: 'preparing' }
+  | { kind: 'checking' }
+  | { kind: 'unverified'; quote: PrimaryQuote; outcome: 'canceled' | 'failed' }
   | { kind: 'hold_refused'; reason: HoldRefusal }
   | { kind: 'quote_refused'; reason: CheckoutRefusal }
   | { kind: 'price_changed'; serverTotalMinor: number | null }
@@ -49,6 +51,10 @@ export interface PrimaryCheckoutViewProps {
   /** Display text for the hold's server expiry, already formatted; null hides the line. */
   heldUntil: string | null;
   onPay: () => void;
+  /** After a check that could not be made: ask the server again (never pays). */
+  onCheckAgain?: () => void;
+  /** After a check that could not be made: the ticket page, which reads the server. */
+  onViewTickets?: () => void;
   onReviewAgain: () => void;
   onRetry: () => void;
   onSignIn: () => void;
@@ -68,6 +74,18 @@ export function PrimaryCheckoutView(props: PrimaryCheckoutViewProps) {
         return <EmptyState title={PRIMARY_REVIEW_COPY.signIn.title} body={PRIMARY_REVIEW_COPY.signIn.body} action={{ label: PRIMARY_REVIEW_COPY.signInAction, onPress: props.onSignIn }} />;
       case 'preparing':
         return <View style={s.center}><Spinner size="large" label={PRIMARY_REVIEW_COPY.preparing} /></View>;
+      case 'checking':
+        return <View style={s.center}><Spinner size="large" label={PRIMARY_CHECKOUT_COPY.paymentCheck.checking} /></View>;
+      case 'unverified':
+        // No Pay here: the money may already have moved. Only a reachable check gives Pay back.
+        return (
+          <View style={s.block}>
+            <Text style={[textStyle('title'), s.title]} accessibilityRole="header">{PRIMARY_CHECKOUT_COPY.paymentCheck.title}</Text>
+            <Text style={[textStyle('body'), s.meta]}>{PRIMARY_CHECKOUT_COPY.paymentCheck.body}</Text>
+            <Button label={PRIMARY_CHECKOUT_COPY.paymentCheck.checkAgain} variant="primary" onPress={props.onCheckAgain} />
+            <Button label={PRIMARY_CHECKOUT_COPY.paymentCheck.viewTickets} variant="secondary" onPress={props.onViewTickets} />
+          </View>
+        );
       case 'hold_refused':
         return (
           <EmptyState

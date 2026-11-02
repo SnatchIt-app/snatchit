@@ -192,6 +192,20 @@ describe('primary checkout screen — a payments surface (A reviews)', () => {
     expect(native).toMatch(/if \(!live\(run\)\) return;\s*const \{ error \} = await initPaymentSheet\(/);
   });
 
+  it('K12: a sheet that did not complete goes to the server check under the same key — never straight back to Pay (c35, D1)', () => {
+    expect(native).toMatch(/if \(outcome === 'completed'\) \{ submitted\(\); return; \}\s*await checkAfterSheet\(quote, outcome\);/);
+    expect(native).not.toContain("paymentFailed: outcome === 'failed'");
+    expect(native).toMatch(/const checkAfterSheet = useCallback\(async \(quote: PrimaryQuote, outcome: 'canceled' \| 'failed'\) => \{[\s\S]{0,400}commandKey: attemptCommandKey\(sessionId, attemptId\),\s*shownTotalMinor: quote\.totalMinor,/);
+    expect(native).toContain('const verdict = afterSheetVerdict(outcome, replay, intent);');
+    // the unverified view offers no Pay: only "Check again" and the ticket page
+    expect(view).toMatch(/case 'unverified':[\s\S]*?onPress=\{props\.onCheckAgain\}[\s\S]*?onPress=\{props\.onViewTickets\}[\s\S]*?case 'review'/);
+    expect(view.slice(view.indexOf("case 'unverified':"), view.indexOf("case 'review'"))).not.toContain('props.onPay');
+  });
+
+  it('K13: a quote refusal offers a retry only for offline, unavailable or rate limited; every other one goes Back (D14)', () => {
+    expect(view).toMatch(/case 'quote_refused':[\s\S]{0,250}action=\{state\.reason === 'offline' \|\| state\.reason === 'unavailable' \|\| state\.reason === 'rate_limited'\s*\?/);
+  });
+
   it('K5: the review headline is the all-in total; tickets and fee are itemised beneath it', () => {
     expect(view).toMatch(/PRIMARY_CHECKOUT_COPY\.totalLabel[\s\S]*formatUsd\(q\.totalMinor\)/);
     expect(view).toContain('PRIMARY_CHECKOUT_COPY.faceLabel} ${formatUsd(q.faceMinor)}');
