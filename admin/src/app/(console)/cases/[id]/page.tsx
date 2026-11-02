@@ -13,7 +13,7 @@ import { DateTime } from "@/components/ui/DateTime";
 import { Alert, OpsFailureAlert } from "@/components/ui/Alert";
 import { Icon } from "@/components/ui/Icon";
 import { CaseControls, CaseFacts, CaseNotes, CaseRefundResolution, caseEnvelope, caseRefundState } from "@/components/cases/CaseWork";
-import { GenericTable, hrefFor, renderValue } from "@/components/generic/GenericRpc";
+import { GenericTable, hrefFor, renderSubjectValue } from "@/components/generic/GenericRpc";
 
 export const metadata: Metadata = { title: "Case" };
 export const dynamic = "force-dynamic";
@@ -114,7 +114,7 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
 
           {detail.subject ? (
             <Panel eyebrow="What this case is about" title={humanize(c.subject_kind ?? "subject")}>
-              <KeyValue columns={3} items={Object.entries(detail.subject).map(([k, v]) => ({ key: k, value: renderValue(k, v, 1) }))} />
+              <KeyValue columns={3} items={Object.entries(detail.subject).map(([k, v]) => ({ key: k, value: renderSubjectValue(c.subject_kind, k, v) }))} />
             </Panel>
           ) : null}
 

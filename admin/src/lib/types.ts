@@ -6,6 +6,8 @@
  * degrades to "—" rather than crashing when a field is renamed or absent.
  */
 
+import { listingDollarsToCents } from "@/lib/listing-money";
+
 export type Json = string | number | boolean | null | Json[] | { [k: string]: Json };
 export type JsonRecord = Record<string, unknown>;
 
@@ -743,12 +745,16 @@ export type ListingSummary = {
   seller_id?: string | null;
   seller_display_name?: string | null;
   buy_now_enabled?: boolean | null;
-  buy_now_price?: number | null;
-  starting_bid?: number | null;
-  current_bid?: number | null;
+  /**
+   * Integer cents. The server sends buy_now_price / starting_bid / current_bid /
+   * winning_bid_amount in whole dollars; toListingSummary converts them (lib/listing-money.ts).
+   */
+  buy_now_price_cents?: number | null;
+  starting_bid_cents?: number | null;
+  current_bid_cents?: number | null;
   bid_count?: number | null;
   winner_user_id?: string | null;
-  winning_bid_amount?: number | null;
+  winning_bid_cents?: number | null;
   ends_at?: string | null;
   sold_at?: string | null;
   created_at?: string | null;
@@ -779,12 +785,12 @@ export function toListingSummary(v: unknown): ListingSummary | null {
     seller_id: str(v.seller_id),
     seller_display_name: str(v.seller_display_name),
     buy_now_enabled: bool(v.buy_now_enabled),
-    buy_now_price: num(v.buy_now_price),
-    starting_bid: num(v.starting_bid),
-    current_bid: num(v.current_bid),
+    buy_now_price_cents: listingDollarsToCents(v.buy_now_price),
+    starting_bid_cents: listingDollarsToCents(v.starting_bid),
+    current_bid_cents: listingDollarsToCents(v.current_bid),
     bid_count: num(v.bid_count),
     winner_user_id: str(v.winner_user_id),
-    winning_bid_amount: num(v.winning_bid_amount),
+    winning_bid_cents: listingDollarsToCents(v.winning_bid_amount),
     ends_at: str(v.ends_at),
     sold_at: str(v.sold_at),
     created_at: str(v.created_at),
@@ -1215,7 +1221,8 @@ export function toUserDetail(v: unknown): UserDetail | null {
 
 // ---------- §3.3 listing_detail ----------
 
-export type Bid = { id?: string; amount?: number | null; bidder_id?: string | null; bidder_display_name?: string | null; created_at?: string | null };
+/** amount_cents: integer cents, converted from the server's whole-dollar bids.amount. */
+export type Bid = { id?: string; amount_cents?: number | null; bidder_id?: string | null; bidder_display_name?: string | null; created_at?: string | null };
 
 export type ListingDetail = {
   /** DC-1 (180): the server's classification of the subject; null on a server without it. */
@@ -1224,7 +1231,8 @@ export type ListingDetail = {
   seller: UserSummary | null;
   payments: OrderRow[];
   transfer: Transfer | null;
-  bids: { count: number | null; highest: number | null; highest_bidder_id: string | null; recent: Bid[] };
+  /** highest_cents: integer cents, converted from the server's whole-dollar max(bids.amount). */
+  bids: { count: number | null; highest_cents: number | null; highest_bidder_id: string | null; recent: Bid[] };
   reports: Report[];
   seller_flags: JsonRecord[];
   cases: OpsCase[];
@@ -1244,11 +1252,11 @@ export function toListingDetail(v: unknown): ListingDetail | null {
     transfer: toTransfer(v.transfer),
     bids: {
       count: num(bids.count),
-      highest: num(bids.highest),
+      highest_cents: listingDollarsToCents(bids.highest),
       highest_bidder_id: str(bids.highest_bidder_id),
       recent: asRecords(bids.recent).map((b) => ({
         id: str(b.id) ?? undefined,
-        amount: num(b.amount),
+        amount_cents: listingDollarsToCents(b.amount),
         bidder_id: str(b.bidder_id),
         bidder_display_name: str(b.bidder_display_name),
         created_at: str(b.created_at),
