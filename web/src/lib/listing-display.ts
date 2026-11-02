@@ -59,7 +59,7 @@ export type ClockTone = "urgent" | "normal" | "muted";
 /** Event dates and end times are Miami-local by product definition; the web server runs on UTC. */
 export const MARKET_TIME_ZONE = "America/New_York";
 
-function marketParts(d: Date): { y: number; m: number; d: number; wd: string; h: number; min: number } {
+function marketParts(d: Date): { y: number; m: number; d: number; wd: string; h: number; min: number; tz: string } {
   const parts = Object.fromEntries(
     new Intl.DateTimeFormat("en-US", {
       timeZone: MARKET_TIME_ZONE,
@@ -70,17 +70,46 @@ function marketParts(d: Date): { y: number; m: number; d: number; wd: string; h:
       hour: "numeric",
       minute: "2-digit",
       hourCycle: "h23",
+      timeZoneName: "short",
     })
       .formatToParts(d)
       .map((p) => [p.type, p.value]),
   );
-  return { y: Number(parts.year), m: Number(parts.month), d: Number(parts.day), wd: parts.weekday, h: Number(parts.hour), min: Number(parts.minute) };
+  return { y: Number(parts.year), m: Number(parts.month), d: Number(parts.day), wd: parts.weekday, h: Number(parts.hour), min: Number(parts.minute), tz: parts.timeZoneName };
+}
+
+/*
+ * Snatch It operates in Eastern Time (owner decision, 2026-11-02). These read an instant in MARKET_TIME_ZONE,
+ * never in the runtime zone: the web server runs on UTC and a buyer's browser can run anywhere, so a bare
+ * toLocaleDateString() or getFullYear() gives a different day on each side.
+ */
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+/** The Miami (Eastern) calendar date at an instant: 2026-11-02T04:59:59Z → "2026-11-01". */
+export function marketDateISO(now: Date): string {
+  const p = marketParts(now);
+  return `${p.y}-${pad2(p.m)}-${pad2(p.d)}`;
+}
+
+/** The Miami (Eastern) year at an instant: 2027-01-01T04:59:59Z → 2026. */
+export function marketYear(now: Date): number {
+  return marketParts(now).y;
+}
+
+/** "November 2026" in Miami time. */
+export function marketMonthYear(iso: string): string {
+  return new Intl.DateTimeFormat("en-US", { timeZone: MARKET_TIME_ZONE, month: "long", year: "numeric" }).format(new Date(iso));
+}
+
+/** "Nov 1" in Miami time. */
+export function marketShortDate(iso: string): string {
+  return new Intl.DateTimeFormat("en-US", { timeZone: MARKET_TIME_ZONE, month: "short", day: "numeric" }).format(new Date(iso));
 }
 
 /**
  * Auction clock line (feedRowState.ts): "Ending in 7m" (amber, under an hour),
- * "2h 11m left" (under a day), otherwise the end time in Miami time
- * ("Ends Thu, 12:41 AM"). Closed listings say so plainly. An unreadable end
+ * "2h 11m left" (under a day), otherwise the end time in Miami time with its
+ * EST/EDT label ("Ends Thu, 12:41 AM EDT"). Closed listings say so plainly. An unreadable end
  * time reads as ended (listingCardStatus fails closed).
  */
 export function clockState(l: ListingLike, now: Date = new Date()): { text: string; tone: ClockTone } {
@@ -94,7 +123,7 @@ export function clockState(l: ListingLike, now: Date = new Date()): { text: stri
   if (minutes < 24 * 60) return { text: `${Math.floor(minutes / 60)}h ${minutes % 60}m left`, tone: "normal" };
   const p = marketParts(ends);
   const time = `${p.h % 12 === 0 ? 12 : p.h % 12}:${String(p.min).padStart(2, "0")} ${p.h >= 12 ? "PM" : "AM"}`;
-  return { text: `Ends ${p.wd}, ${time}`, tone: "normal" };
+  return { text: `Ends ${p.wd}, ${time} ${p.tz}`, tone: "normal" };
 }
 
 /**

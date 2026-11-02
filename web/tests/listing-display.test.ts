@@ -49,7 +49,7 @@ describe("clockState — native feed-row clock", () => {
   });
   it("later shows the end time in Miami time, not the server's UTC", () => {
     // 04:41 UTC on Thu Oct 15 is 12:41 AM Thursday in Miami
-    expect(clockState(listing({ ends_at: "2026-10-15T04:41:00Z" }), NOW)).toEqual({ text: "Ends Thu, 12:41 AM", tone: "normal" });
+    expect(clockState(listing({ ends_at: "2026-10-15T04:41:00Z" }), NOW)).toEqual({ text: "Ends Thu, 12:41 AM EDT", tone: "normal" });
   });
   it("closed and held states say so", () => {
     expect(clockState(listing({ status: "sold" }), NOW).text).toBe("Sold");

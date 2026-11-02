@@ -8,6 +8,7 @@ import { allInFromDollars } from "@snatchit/core";
 // From lib/format, NOT lib/listings — the latter imports lib/supabase/server
 // (next/headers) and would drag a server-only module into this client bundle.
 import { coverImageUrl } from "@/lib/format";
+import { marketShortDate } from "@/lib/listing-display";
 import type { SellerListingView } from "@/lib/seller-listings";
 import {
   canCancel,
@@ -49,7 +50,7 @@ function badgeLabel(badge: SellerBadge): string {
 function subline(l: SellerListingView): string {
   if (l.badge === "CANCELLED") return "Cancelled — bids voided";
   if (l.badge === "SOLD" && l.needsTicketSend) return "Action needed — send the tickets";
-  if (l.badge === "SOLD" && l.sold_at) return `Sold ${new Date(l.sold_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+  if (l.badge === "SOLD" && l.sold_at) return `Sold ${marketShortDate(l.sold_at)}`;
   if (l.badge === "SOLD") return "Sold";
   if (l.badge === "ENDED") return l.winner_user_id ? "Winner selected" : "No winner";
   if (l.badge === "RESERVED") return "Reserved by a buyer";
