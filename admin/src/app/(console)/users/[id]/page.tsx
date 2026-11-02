@@ -13,6 +13,7 @@ import { Panel } from "@/components/ui/Panel";
 import { KeyValue } from "@/components/ui/KeyValue";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { DateTime } from "@/components/ui/DateTime";
+import { isTimeValue } from "@/components/generic/GenericRpc";
 import { Alert, OpsFailureAlert } from "@/components/ui/Alert";
 import { ConfirmForm } from "@/components/ui/ConfirmForm";
 import { DataTable, type Column } from "@/components/ui/DataTable";
@@ -103,7 +104,7 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
                 { key: "last_sign_in_at", value: u.auth.last_sign_in_at ? <DateTime value={u.auth.last_sign_in_at} /> : <span className="text-dim">unavailable</span> },
                 ...profileExtras.map(([k, v]) => ({
                   key: k,
-                  value: typeof v === "boolean" ? <StatusBadge status={String(v)} label={v ? "yes" : "no"} /> : typeof v === "string" || typeof v === "number" ? String(v) : null,
+                  value: typeof v === "boolean" ? <StatusBadge status={String(v)} label={v ? "yes" : "no"} /> : isTimeValue(k, v) ? <DateTime value={v} /> : typeof v === "string" || typeof v === "number" ? String(v) : null,
                 })),
               ]}
             />

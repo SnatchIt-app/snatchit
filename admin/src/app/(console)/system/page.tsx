@@ -303,7 +303,7 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
           {!auditRes.ok ? <OpsFailureAlert failure={auditRes} fn="audit_log" retryHref={selfHref("/system", sp)} /> : <AuditTable rows={audit} basePath="/system" searchParams={sp} nextCursor={auditPage?.next_cursor} cursorParam="audit_cursor" meId={me.id} />}
         </Panel>
 
-        <Panel eyebrow="13:00 UTC daily" title="Latest daily summary">
+        <Panel eyebrow="Daily at 13:00 UTC (8:00 AM EST, 9:00 AM EDT)" title="Latest daily summary">
           <div id="summary" />
           {!summaryRes.ok ? (
             <OpsFailureAlert failure={summaryRes} fn="latest_summary" retryHref={selfHref("/system", sp)} />
@@ -393,7 +393,7 @@ function OpsJobTable({ jobs, canRetry }: { jobs: OpsJob[]; canRetry: boolean }) 
 function CronTable({ rows, available }: { rows: CronJob[]; available: boolean }) {
   const columns: Column<CronJob>[] = [
     { key: "jobname", header: "Cron job", render: (c) => <code className="font-mono text-[0.75rem]">{c.jobname ?? c.jobid}</code> },
-    { key: "schedule", header: "Schedule", render: (c) => <code className="font-mono text-[0.75rem]">{c.schedule ?? "—"}</code> },
+    { key: "schedule", header: "Schedule (cron, UTC)", render: (c) => <code className="font-mono text-[0.75rem]">{c.schedule ?? "—"}</code> },
     { key: "active", header: "Active", render: (c) => <StatusBadge status={String(c.active ?? false)} label={c.active ? "active" : "inactive"} /> },
     { key: "last_status", header: "Last status", render: (c) => (available ? <StatusBadge status={c.last_status} /> : <span className="text-dim">unavailable</span>) },
     { key: "last_end", header: "Last end", render: (c) => (available ? <DateTime value={c.last_end} /> : <span className="text-dim">—</span>) },

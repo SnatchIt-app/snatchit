@@ -18,16 +18,57 @@ export function formatMoney(cents: unknown): string {
   return `${usd.format(cents / 100)} USD`;
 }
 
+/** A date-time with no zone designator, e.g. "2026-11-01T12:00" (an operator-typed value kept in action params). */
+const ZONELESS_DATE_TIME = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/;
+
+/** "YYYY-MM-DD": a calendar date, not an instant. Show it as written; never shift it into a zone. */
+export function isCalendarDate(v: unknown): boolean {
+  return typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
+}
+
+/**
+ * A zone-less date-time is read as UTC, the database's zone (production TimeZone is UTC, A, 2026-11-02),
+ * never as the runtime zone: JavaScript would read it as local time, which is UTC on the server and the
+ * operator's zone in the browser.
+ */
 export function parseDate(v: unknown): Date | null {
   if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v;
   if (typeof v !== "string" && typeof v !== "number") return null;
-  const d = new Date(v);
+  const d = new Date(typeof v === "string" && ZONELESS_DATE_TIME.test(v.trim()) ? `${v.trim().replace(" ", "T")}Z` : v);
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
-/** "2026-09-06 18:45 UTC" — explicit basis, no locale ambiguity. */
+/** Snatch It operates in Eastern Time (owner decision, 2026-11-02). Every time shown to a person uses this zone. */
+export const DISPLAY_TIME_ZONE = "America/New_York";
+
+const etParts = new Intl.DateTimeFormat("en-US", {
+  timeZone: DISPLAY_TIME_ZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+  timeZoneName: "short",
+});
+
+/**
+ * "2026-11-01 23:59 EST" — Eastern wall clock with the EST/EDT that applies at that instant. The zone is
+ * explicit, so the server render and the browser render give the same text whatever zone either runs in.
+ */
+export function formatEt(v: unknown, withSeconds = false): string {
+  const d = parseDate(v);
+  if (!d) return "—";
+  const p: Record<string, string> = {};
+  for (const part of etParts.formatToParts(d)) p[part.type] = part.value;
+  const base = `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}`;
+  return `${withSeconds ? `${base}:${p.second}` : base} ${p.timeZoneName}`;
+}
+
+/** "2026-09-06 18:45 UTC" — the canonical instant, for support and evidence. People-facing times use formatEt. */
 export function formatUtc(v: unknown, withSeconds = false): string {
   const d = parseDate(v);
   if (!d) return "—";
