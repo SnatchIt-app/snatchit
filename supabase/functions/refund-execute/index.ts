@@ -72,14 +72,17 @@ import {
   classifyArm,
   classifyStateSyncError,
   classifyStripeRefundError,
+  executorHoldOf,
   httpStatusForRpcError,
   isMoneyDenial,
   isUuid,
   planClaimedBatch,
+  planPark,
   planReconcile,
   planRefund,
   planStateSync,
   type ClaimedRefund,
+  type ExecutorHold,
   type RefundExecutionContext,
   type RefundExecutionMode,
 } from './executor.ts';
@@ -219,11 +222,22 @@ async function recordMoneyDenial(
 
 type ContextResult =
   | { ok: true; ctx: RefundExecutionContext }
-  | { ok: false; status: number; code: string; detail: string };
+  | { ok: false; status: number; code: string; detail: string; hold?: ExecutorHold };
 
 async function loadContext(service: SupabaseClient, refundId: string): Promise<ContextResult> {
   const { data, error } = await service.rpc(CONTEXT_RPC, { p_refund_id: refundId });
   if (error) {
+    // A HELD ROW (registry 199, DESIGN-199-FINAL §3.4, §5.3). The context now
+    // raises `executor_hold manual_record|parked` for a pending/submitted row
+    // the executor must never touch: a manual-rail record (refunds-2; the
+    // owner may already have refunded it in the Dashboard, and that re_ carries
+    // no metadata.refund_id, so reconcile's search could not see it) or a
+    // parked row (refunds-7). Without this it already fails closed as
+    // context_read_failed 409; naming it lets executeOne mark it non-retryable
+    // and page only what a human must act on. Every Stripe call in this file
+    // sits behind this read (executeOne, :598), sweep and execute alike.
+    const hold = executorHoldOf(error.message);
+    if (hold) return { ok: false, status: 409, code: 'executor_hold', detail: hold, hold };
     // PGRST202 = function not found in the exposed schema cache.
     const missing = error.code === 'PGRST202' || /could not find the function|does not exist/i.test(error.message);
     return {
@@ -583,6 +597,20 @@ async function executeOne(
 
   const loaded = await loadContext(service, refundId);
   if (!loaded.ok) {
+    if (loaded.hold) {
+      // Non-retryable: the hold is a durable DB fact, and only a human verb
+      // clears one (parked → kernel.rearm_refund_execution; manual_record has
+      // no exit, 199 §1 I-E2). A manual row is a known, decided state, so it
+      // does not page. A parked row was already paged when it was parked
+      // (199 §5.2); reaching one again here means a human called execute on it
+      // or a sweep raced the park, so it pages once more, by refund id only.
+      if (loaded.hold === 'parked') {
+        await captureException('refund-execute:executor-hold', new Error('executor_hold parked: refund-execute will not touch this refund until a human re-arms it (kernel.rearm_refund_execution)'), {
+          refund_id: refundId,
+        });
+      }
+      return { refund_id: refundId, outcome: 'refused', code: loaded.code, detail: loaded.detail, retryable: false, http: loaded.status };
+    }
     return { refund_id: refundId, outcome: 'refused', code: loaded.code, detail: loaded.detail, http: loaded.status };
   }
   const ctx = loaded.ctx;
@@ -673,6 +701,36 @@ async function executeOne(
   return await applyStateSync(service, refundId, commandKey, ctx, res.data);
 }
 
+/**
+ * Park a claimed row whose outcome a retry cannot change (registry 199,
+ * refunds-7, DESIGN-199-FINAL §3.6, §5.2), so the claim stops handing it out
+ * (§3.3) and it stops paging every tick. `planPark` decides whether; the verb
+ * decides whether it still may: `not_parked` (terminal / stale_attempt /
+ * status_moved, §6 R2, R3) and `noop_replay` (already held) are logged, not
+ * paged. No page on success either: the outcome that earned the park already
+ * paged in executeOne (every non-retryable outcome does), and 199 §6's
+ * refunds-7 scenario is ONE page. A fault pages once and never fails the
+ * batch; the unparked row is simply claimed again next tick, as before 199.
+ */
+async function parkIfTerminal(service: SupabaseClient, row: ClaimedRefund, res: ExecuteOutcome): Promise<void> {
+  const park = planPark(row, res);
+  if (!park) return;
+  try {
+    const { data, error } = await service.rpc('park_refund_execution', park);
+    if (error) {
+      console.error('[refund-execute] park_refund_execution did not apply:', { refund_id: row.refund_id, attempt: row.attempt, error: error.message });
+      await captureException('refund-execute:park', new Error(`park_refund_execution(${park.p_outcome}, ${park.p_reason_code}): ${error.message}`), {
+        refund_id: row.refund_id,
+      });
+      return;
+    }
+    const answer = (data ?? {}) as { status?: string; reason?: string; hold?: string };
+    console.log('[refund-execute] park:', { refund_id: row.refund_id, attempt: row.attempt, reason_code: park.p_reason_code, status: answer.status, reason: answer.reason ?? answer.hold });
+  } catch (err) {
+    await captureException('refund-execute:park', err, { refund_id: row.refund_id });
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Handler
 // ─────────────────────────────────────────────────────────────────────────────
@@ -747,16 +805,20 @@ serve(async (req: Request) => {
       const results: ExecuteOutcome[] = [];
       // One failure NEVER blocks the batch (the enforce-transfer-expiry rule).
       for (const row of claimed) {
+        let res: ExecuteOutcome;
         try {
           // The command key is the DATABASE's (`refund.execute:<uuid>`, 42
           // chars — inside the 64-char audit budget with no truncation).
           // Truncating or minting one would collapse two different refunds
           // onto one audit identity.
-          results.push(await executeOne(service, row.refund_id, row.command_key, {}, row.execution_mode));
+          res = await executeOne(service, row.refund_id, row.command_key, {}, row.execution_mode);
         } catch (err) {
           await captureException('refund-execute:sweep', err, { refund_id: row.refund_id });
-          results.push({ refund_id: row.refund_id, outcome: 'stripe_error', code: 'unhandled', detail: String(err), retryable: true });
+          res = { refund_id: row.refund_id, outcome: 'stripe_error', code: 'unhandled', detail: String(err), retryable: true };
         }
+        results.push(res);
+        // 199 §5.2: after each executeOne, never instead of it. Sweep only.
+        await parkIfTerminal(service, row, res);
       }
       const counts = results.reduce<Record<string, number>>((acc, r) => {
         acc[r.outcome] = (acc[r.outcome] ?? 0) + 1;

@@ -632,6 +632,59 @@ export function planClaimedBatch(rows: ClaimedRefund[] | null | undefined): Clai
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Parking (registry 199, refunds-7, DESIGN-199-FINAL §3.6, §5.2)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Exactly the arguments of `kernel.park_refund_execution` (199 §3.6). */
+export interface ParkRequest {
+  p_refund_id: string;
+  /** The claim's attempt: the fencing token. A stale holder's park is `stale_attempt`. */
+  p_attempt: number;
+  p_outcome: 'refused' | 'stripe_error' | 'state_sync_deferred';
+  p_reason_code: string;
+  /** The claim's DB-issued `refund.execute:<refund_id>`; the verb refuses any other key. */
+  p_command_key: string;
+}
+
+const PARKABLE_OUTCOMES: ReadonlyArray<string> = ['refused', 'stripe_error', 'state_sync_deferred'];
+/** The verb's own reason_code check (199 §3.6), so no free text reaches the immutable audit. */
+const PARK_REASON_RE = /^[a-z][a-z0-9_]{0,63}$/;
+
+/**
+ * Should the sweep park this row after executing it, and with what?
+ *
+ * Before 199 a non-retryable outcome (charge_disputed, a binding refusal,
+ * reconcile_ambiguous, state_sync_conflict, …) left the row `pending` or
+ * `submitted`, so every tick re-claimed it, re-ran it and paged again, and
+ * after 20h re-ran it in reconcile mode (refunds-7). Parking excludes it from
+ * the claim until a human re-arms it (199 §3.3, §3.7). Rules (§5.2):
+ *   • only `retryable === false`; true OR undefined is never parked, because an
+ *     unclassified failure (e.g. context_read_failed) may be a DB blip;
+ *   • only refused / stripe_error / state_sync_deferred, never noop_replay or a
+ *     recorded state (a converged race is not a fault);
+ *   • never `executor_hold`: the row is already held, and a manual_record row
+ *     has no claim row, so the verb would raise never_claimed and page for a
+ *     row 199 says must not page;
+ *   • only the sweep: `action:execute` has no claim attempt and no
+ *     `refund.execute:<id>` key, which the verb refuses (§3.6).
+ */
+export function planPark(
+  row: ClaimedRefund,
+  res: { outcome: string; code?: string; retryable?: boolean },
+): ParkRequest | null {
+  if (res.retryable !== false) return null;
+  if (!PARKABLE_OUTCOMES.includes(res.outcome)) return null;
+  if (res.code === 'executor_hold') return null;
+  return {
+    p_refund_id: row.refund_id,
+    p_attempt: row.attempt,
+    p_outcome: res.outcome as ParkRequest['p_outcome'],
+    p_reason_code: PARK_REASON_RE.test(res.code ?? '') ? (res.code as string) : 'unclassified',
+    p_command_key: row.command_key,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // mark_refund_state error classification
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -704,6 +757,27 @@ export function classifyArm(commandKey: string): RefundArm {
 /** The four money-denial codes the edge spec routes to `record_money_denial`. */
 export function isMoneyDenial(message: string): boolean {
   return /insufficient_privilege|sod_violation|step_up_required|step_up_unavailable/.test(message);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Executor holds (registry 199, DESIGN-199-FINAL §3.1, §3.4, §5.3)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** `kernel.refund_executor_hold`'s two answers (199 §3.1). */
+export type ExecutorHold = 'manual_record' | 'parked';
+
+/**
+ * Read the hold out of `get_refund_execution_context`'s raise. Since 199 the
+ * context RAISES `precondition_failed: executor_hold <hold> (refund <id>)` for
+ * a pending/submitted row that is a manual-rail record or is parked (199 §3.4,
+ * §4), instead of projecting it, so a held row cannot reach Stripe whether or
+ * not this edge looks. This only NAMES it: any other text, including a hold
+ * kind 199 does not define, returns null and stays `context_read_failed`
+ * (409, still no Stripe call), which is the fail-closed direction.
+ */
+export function executorHoldOf(message: string): ExecutorHold | null {
+  const m = /executor_hold (manual_record|parked)/.exec(message);
+  return m ? (m[1] as ExecutorHold) : null;
 }
 
 /** Map a Postgres RPC error onto an HTTP status, per the edge spec's failure table. */
