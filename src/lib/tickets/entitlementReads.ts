@@ -133,7 +133,7 @@ export function isOrderRow(v: unknown): v is PrimaryOrderRow {
   );
 }
 
-/** Null on any failure, so the caller's hint is `unknown` — never `none`. */
+/** Null on any failure, so the caller's hint is `read_failed` — never `none`. */
 export async function readMyPrimaryOrders(read: RpcReader, eventSessionId: string): Promise<PrimaryOrderRow[] | null> {
   try {
     const res = await read(eventSessionId);

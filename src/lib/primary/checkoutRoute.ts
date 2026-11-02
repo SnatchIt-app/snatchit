@@ -19,7 +19,7 @@
  * `session_terminal`, `deletion_pending` and `not_found` (no sellable batch) are named too (A, 22:45Z):
  * "Try again" would only replay the same refusal.
  */
-import { PRIMARY_CHECKOUT_COPY } from '@/src/lib/primary/checkout';
+import { attemptCommandKey, PRIMARY_CHECKOUT_COPY } from '@/src/lib/primary/checkout';
 import { supabase } from '@/src/lib/supabase';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -48,6 +48,35 @@ export function parsePrimaryCheckoutParams(raw: { session?: unknown; tt?: unknow
     attemptId = raw.attempt;
   }
   return { ok: true, sessionId: session, ticketTypeId: tt, quantity, attemptId };
+}
+
+/** An attempt id the screen drew, bound to the purchase intent it was drawn for. */
+export interface DrawnAttempt {
+  intent: string;
+  id: string;
+}
+
+/**
+ * The attempt this render belongs to (c35). The URL's wins — a 3-D Secure return, or the id the screen wrote back
+ * with setParams — so a remount replays the same keys. Without one, the id drawn earlier is reused only for the
+ * same session, tier and quantity: a link that changes either is a new purchase, never the first order replayed.
+ */
+export function chooseAttempt(
+  params: PrimaryCheckoutParams,
+  drawn: DrawnAttempt | null,
+  draw: () => string,
+): { attemptId: string | null; drawn: DrawnAttempt | null } {
+  if (!params.ok) return { attemptId: null, drawn };
+  if (params.attemptId) return { attemptId: params.attemptId, drawn };
+  const intent = `${params.sessionId}|${params.ticketTypeId}|${params.quantity}`;
+  if (drawn && drawn.intent === intent) return { attemptId: drawn.id, drawn };
+  const next = { intent, id: draw() };
+  return { attemptId: next.id, drawn: next };
+}
+
+/** The 167 hold's command key: the quote key's attempt, under its own prefix. */
+export function holdCommandKey(sessionId: string, attemptId: string): string {
+  return `ph-${attemptCommandKey(sessionId, attemptId).slice(3)}`;
 }
 
 export type HoldRefusal =

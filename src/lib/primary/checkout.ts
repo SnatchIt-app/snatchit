@@ -10,10 +10,15 @@
  *              expected_total_cents? }
  *   200      { order_id, clientSecret, paymentIntentId, amount (FACE), buyer_fee, seller_fee: 0,
  *              total (ALL-IN charge), currency, customerId, customerEphemeralKeySecret }
- *   refusals 401 · 403 identity_erased | deletion_pending · 404 not_found · 409 not_on_sale |
- *            session_terminal | hold_invalid | total_mismatch {server_total_cents} | org_not_eligible |
- *            precondition_failed | command_key_session_mismatch | already_paid ·
- *            503 service_fee_unset | service_fee_out_of_range · 429 · 500
+ *   refusals 401 · 403 identity_erased | deletion_pending | account_deletion_pending · 404 not_found ·
+ *            409 not_on_sale | session_terminal | hold_invalid | total_mismatch {server_total_cents} |
+ *            org_not_eligible | precondition_failed | command_key_session_mismatch | already_paid |
+ *            quote_unavailable | unsupported_currency · 503 service_fee_unset | service_fee_out_of_range |
+ *            org_id_unavailable | payments_shape_unmigrated · 429 · 500 (order_inconsistent)
+ *
+ * c35 (D8): a code that the same command key can only repeat is never "Try again" — onRetry replays the
+ * same key. quote_unavailable is the edge's "start a fresh checkout with a NEW key" (RES-1);
+ * order_inconsistent is its "contact support". Transient codes (replay_recovery_failed, …) stay retryable.
  *
  * `already_paid` is not a refusal: the order this command key names is paid, so the flow is `submitted`
  * and the buyer goes to the ticket page (A's review, 2026-10-26). Offering "try again" would replay the
@@ -66,6 +71,8 @@ export type CheckoutRefusal =
   | 'not_found'
   | 'account_blocked'
   | 'refused'
+  | 'expired'
+  | 'contact_support'
   | 'signed_out'
   | 'rate_limited'
   | 'offline'
@@ -113,10 +120,16 @@ export function parsePrimaryCheckoutResponse(status: number | null, body: unknow
     case 'hold_invalid': return { ok: false, reason: 'hold_expired' };
     case 'service_fee_unset':
     case 'service_fee_out_of_range':
-    case 'org_not_eligible': return { ok: false, reason: 'sales_unavailable' };
+    case 'org_not_eligible':
+    case 'unsupported_currency':
+    case 'org_id_unavailable':
+    case 'payments_shape_unmigrated': return { ok: false, reason: 'sales_unavailable' };
+    case 'quote_unavailable': return { ok: false, reason: 'expired' };
+    case 'order_inconsistent': return { ok: false, reason: 'contact_support' };
     case 'not_found': return { ok: false, reason: 'not_found' };
     case 'identity_erased':
-    case 'deletion_pending': return { ok: false, reason: 'account_blocked' };
+    case 'deletion_pending':
+    case 'account_deletion_pending': return { ok: false, reason: 'account_blocked' };
     case 'precondition_failed':
     case 'command_key_session_mismatch': return { ok: false, reason: 'refused' };
     default: return { ok: false, reason: 'unavailable' };
@@ -214,6 +227,13 @@ export const PRIMARY_CHECKOUT_COPY = {
     body: 'We’ll show your tickets as soon as your payment is confirmed. This usually takes a moment.',
   },
   paymentFailed: 'Your payment didn’t go through. You can try again.',
+  paymentCheck: {
+    checking: 'Checking your payment',
+    title: 'We couldn’t check your payment',
+    body: 'Don’t pay again yet. Check again, or open your tickets: a payment that went through shows up there.',
+    checkAgain: 'Check again',
+    viewTickets: 'View your tickets',
+  },
   refusal: {
     not_on_sale: 'This event isn’t on sale right now.',
     ended: 'This event has ended or was cancelled.',
@@ -222,6 +242,8 @@ export const PRIMARY_CHECKOUT_COPY = {
     not_found: 'We couldn’t find this event or ticket type.',
     account_blocked: 'This account can’t buy tickets right now. Contact support if you think this is wrong.',
     refused: 'We couldn’t start this purchase. Choose your tickets again.',
+    expired: 'This checkout expired. Choose your tickets again.',
+    contact_support: 'We couldn’t finish this checkout. Contact support before you try again.',
     signed_out: 'Sign in to buy tickets.',
     rate_limited: 'Too many attempts. Try again in a minute.',
     offline: 'You’re offline. Connect and try again.',
@@ -255,6 +277,37 @@ export function applePayCartItems(q: PrimaryQuote): { label: string; amount: str
  */
 export function intentAlreadyPaid(status: string | null | undefined): boolean {
   return status === 'Succeeded' || status === 'Processing' || status === 'RequiresCapture';
+}
+
+export type AfterSheet =
+  | { kind: 'submitted' }
+  | { kind: 'review'; quote: PrimaryQuote; paymentFailed: boolean }
+  | { kind: 'unverified' }
+  | { kind: 'price_changed'; serverTotalMinor: number | null }
+  | { kind: 'refused'; reason: CheckoutRefusal };
+
+/**
+ * After a sheet that did not complete (c35, D1). A sheet error is not proof the charge failed — the network can
+ * drop after Stripe has the money — so the screen asks again under the SAME command key before saying anything
+ * (the resale checkout's A-04): the edge answers already_paid for a paid order, or replays the same
+ * PaymentIntent, whose status the SDK then reads (`intent`, null when there was no replay to read). Paid or
+ * paying → the ticket page; a check that could not be made → no Pay and no claim; the failure line only after
+ * `failed` with the intent back at requires_payment_method. Stripe's status never authorises anything here.
+ */
+export function afterSheetVerdict(
+  outcome: 'canceled' | 'failed',
+  replay: QuoteResult,
+  intent: { status: string | null; reachable: boolean } | null,
+): AfterSheet {
+  if (!replay.ok) {
+    if (replay.reason === 'already_paid') return { kind: 'submitted' };
+    if (replay.reason === 'price_changed') return { kind: 'price_changed', serverTotalMinor: replay.serverTotalMinor };
+    if (replay.reason === 'offline' || replay.reason === 'unavailable' || replay.reason === 'rate_limited') return { kind: 'unverified' };
+    return { kind: 'refused', reason: replay.reason };
+  }
+  if (!intent || !intent.reachable) return { kind: 'unverified' };
+  if (intentAlreadyPaid(intent.status)) return { kind: 'submitted' };
+  return { kind: 'review', quote: replay.quote, paymentFailed: outcome === 'failed' && intent.status === 'RequiresPaymentMethod' };
 }
 
 /** The PaymentSheet's result → the flow's sheet outcome. No error = the sheet completed (not "paid"). */

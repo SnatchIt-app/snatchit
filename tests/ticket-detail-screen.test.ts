@@ -9,7 +9,16 @@
  *     black-on-white SVG and the standard quiet zone, and carries an accessibility label;
  *   - the screen binds the entitlement cache to the signed-in account and re-mints on focus;
  *   - no copy on the screen says "no tickets" for a failure, and the sample harness token can
- *     never pass as a credential.
+ *     never pass as a credential;
+ *   - a code the server withdrew is forgotten by the cache and the page re-reads once; the card
+ *     claims nothing ready beside a not_owner / atom_terminal refusal (D2, D3a);
+ *   - the complete set of readAll() call sites — no read on a timer (D16);
+ *   - a failed orders re-read keeps the last orders answer; with none yet the hint is read_failed,
+ *     which is never "no tickets" (D7).
+ *
+ * Negative controls (run by hand, each must FAIL): drop the dropCredential call (W5); drop the
+ * withdrawal re-read (W5, W6); put readAll() in the setInterval callback (W6); show the ready body
+ * beside a refusal (W8); set the hint from a failed orders read, or drop the per-account reset (O1).
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
@@ -144,6 +153,86 @@ describe('EntitlementCard and the view — a code only from a server credential'
     const route = src('app/ticket/[session].tsx');
     expect(route).toContain('credentialStale(');
     expect(route).not.toMatch(/Date\.parse\([^)]*not_after/);
+  });
+});
+
+describe('withdrawal and read call sites — a withdrawn code is forgotten, one re-read, no timer read (D2, D3a, D16)', () => {
+  const route = src('app/ticket/[session].tsx');
+  const card = src('src/components/tickets/EntitlementCard.tsx');
+  const block = (re: RegExp) => {
+    const m = route.match(re);
+    expect(m, String(re)).not.toBeNull();
+    return { body: m![1], deps: (m![2] ?? '').split(',').map((d) => d.trim()).filter(Boolean) };
+  };
+  const reads = (s: string) => (s.match(/\breadAll\(\)/g) ?? []).length;
+  const mint = () => block(/const mint = useCallback\(async \(atomId: string\) => \{([\s\S]*?)\n  \}, \[([^\]]*)\]\);/);
+  const mount = () => block(/useEffect\(\(\) => \{\n    if \(authLoading\) return;([\s\S]*?)\n  \}, \[([^\]]*)\]\);/);
+  const focus = () => block(/useFocusEffect\(\s*useCallback\(\(\) => \{([\s\S]*?)\}, \[([^\]]*)\]\)/);
+  const onRefresh = () => block(/async function onRefresh\(\) \{([\s\S]*?)\n  \}/);
+
+  it('W5: on a withdrawing refusal mint forgets the cached code, then re-reads once — after the generation check, success-only store kept', () => {
+    const { body } = mint();
+    expect(body).toMatch(/if \(!r\.ok && withdrawsCode\(r\.reason\)\) \{\s*dropCredential\(userId, atomId\);\s*if \(!withdrawReadRef\.current\) withdrawReadRef\.current = readAll\(\)\.finally\(\(\) => \{ withdrawReadRef\.current = null; \}\);\s*\}/);
+    expect(body.indexOf('withdrawsCode(')).toBeGreaterThan(body.indexOf('if (gen !== entitlementGeneration()) return;'));
+    expect(body).toContain('if (r.ok) storeCredential(userId, atomId, r.credential, now);');
+    expect(reads(body)).toBe(1);
+  });
+
+  it('W6: readAll() is called from exactly four places — mount, focus (outside the timer), pull, the withdrawal — and the timer only sweeps', () => {
+    const f = focus().body;
+    const timer = f.match(/setInterval\(\(\) => \{([\s\S]*?)\}, TTL_SWEEP_MS\)/);
+    expect(timer).not.toBeNull();
+    expect(timer![1]).toContain('sweepStale(');
+    expect(timer![1]).not.toMatch(/readAll|\.rpc\(|mint|Rpc\b|invoke|read[A-Z]/);
+    expect(reads(mount().body)).toBe(1);
+    expect(reads(f.replace(timer![0], ''))).toBe(1);
+    expect(onRefresh().body).toContain('await readAll();');
+    expect(reads(onRefresh().body)).toBe(1);
+    expect(reads(mint().body)).toBe(1);
+    expect(reads(route)).toBe(4);
+    expect(route).not.toMatch(/setTimeout\(/);
+    // Passing readAll by name (setInterval(readAll, …), .then(readAll), a listener) is a read too: every token is
+    // accounted for — the declaration, the four calls, and three dependency lists (mint, mount, focus) — and the
+    // focus effect's sweep is the route's only timer (review of 57461714).
+    expect((route.match(/\breadAll\b/g) ?? []).length).toBe(8);
+    expect((route.match(/\bsetInterval\(/g) ?? []).length).toBe(1);
+    expect((route.match(/\breadAll\(/g) ?? []).length).toBe(4);
+  });
+
+  it('W7: the mount effect, mint and arrival depend on nothing a read changes, and arrival never re-mints an atom that has a credential state', () => {
+    expect(mount().deps).toEqual(['authLoading', 'userId', 'sessionId', 'readAll', 'sweepStale']);
+    expect(mint().deps).toEqual(['userId', 'readAll']);
+    const arrival = block(/useEffect\(\(\) => \{\n    if \(load\.kind !== 'ready'\) return;([\s\S]*?)\n  \}, \[([^\]]*)\]\);/);
+    expect(arrival.deps).toEqual(['load', 'credentials', 'mint']);
+    expect(arrival.body).toContain("if (entitlementDisplay(a) === 'ready' && !credentials[a.ticket_atom_id]) void mint(a.ticket_atom_id);");
+    expect(reads(arrival.body)).toBe(0);
+  });
+
+  it('W8: the card takes its badge, tone, label and body from cardDisplay — never the atom display alone — and reuses refusesTicket', () => {
+    expect(card).toContain('const shown = cardDisplay(display, credential);');
+    expect(card).toContain('const copy = ENTITLEMENT_COPY[shown];');
+    expect(card).toContain('<Badge label={copy.badge} tone={TONE[shown]} />');
+    expect(card).toContain('accessibilityLabel={`${heading}, ${atom.ticket_type_name}, ${copy.badge}`}');
+    expect(card).not.toMatch(/ENTITLEMENT_COPY\[display\]|TONE\[display\]|ENTITLEMENT_COPY\.ready/);
+    expect(card).toContain('refusesTicket(credential.reason)');
+    expect(card).not.toMatch(/'not_owner'|'atom_terminal'/);
+  });
+});
+
+describe('orders hint — a failed orders re-read keeps the last answer; none yet is read_failed (D7)', () => {
+  const route = src('app/ticket/[session].tsx');
+
+  it('O1: the hint and order lines are written only from a successful orders read, or reset per account/session before its first read', () => {
+    expect(route).toContain("const [hint, setHint] = useState<IssuanceHint>('read_failed');");
+    expect(route.match(/\bsetHint\(/g)).toHaveLength(2);
+    expect(route.match(/\bsetOrders\(/g)).toHaveLength(2);
+    expect(route).toMatch(/if \(orderRows\) \{\s*setHint\(issuanceHint\(orderRows\)\);\s*setOrders\(orderRows\.map\(orderStatusLine\)\);\s*\}/);
+    const mount = route.match(/useEffect\(\(\) => \{\n    if \(authLoading\) return;([\s\S]*?)\n  \}, \[([^\]]*)\]\);/);
+    expect(mount).not.toBeNull();
+    const body = mount![1];
+    expect(body).toContain("setHint('read_failed');");
+    expect(body).toContain('setOrders([]);');
+    expect(body.indexOf("setHint('read_failed');")).toBeLessThan(body.indexOf('void readAll();'));
   });
 });
 

@@ -8,7 +8,9 @@
  *
  * Negative controls (run by hand, each must FAIL): map (pending, none) to 'none' (H1);
  * let a paid order with issued atoms and no atoms on this account fall through to 'empty' (H4);
- * drop the refund line's "Refunded" word (L3).
+ * drop the refund line's "Refunded" word (L3); read a failed read as 'unknown' (H3); let the first
+ * pending order win regardless of a newer paid one (H5b); drop 'partially_refunded' from the known
+ * statuses or from the issued rule (H7); drop its "Partial refund initiated" line (L8).
  */
 import { describe, expect, it } from 'vitest';
 
@@ -41,9 +43,9 @@ describe('issuanceHint — A’s C5 ruling, newest order first', () => {
     expect(issuanceHint([order({ payment_state: 'failed' })])).toBe('payment_failed');
   });
 
-  it('H3: no orders is none; a failed read is unknown, never none', () => {
+  it('H3: no orders is none; a failed read is read_failed — never none, and not the unrecognised-status unknown (D7)', () => {
     expect(issuanceHint([])).toBe('none');
-    expect(issuanceHint(null)).toBe('unknown');
+    expect(issuanceHint(null)).toBe('read_failed');
   });
 
   it('H4: a paid order whose atoms were issued means the tickets exist — if this account has none, they are elsewhere', () => {
@@ -58,8 +60,29 @@ describe('issuanceHint — A’s C5 ruling, newest order first', () => {
     }
   });
 
+  it('H5b: an OLDER pending order does not outrank a NEWER paid one — an abandoned checkout stays pending forever (RES-1) (D10)', () => {
+    const newerPaid = order({ order_id: 'o-new', status: 'paid', atoms_issued: 1, payment_state: 'succeeded', created_at: '2026-10-27T00:00:00Z' });
+    const olderPending = order({ order_id: 'o-old', created_at: '2026-10-20T00:00:00Z' });
+    expect(issuanceHint([newerPaid, olderPending])).toBe('issued');
+    expect(issuanceHint([{ ...newerPaid, status: 'partially_refunded' }, olderPending])).toBe('issued');
+    // a pending order newer than every paid one is still in flight, wherever older paid orders sit
+    expect(issuanceHint([order({ payment_state: 'processing' }), newerPaid, olderPending])).toBe('payment_processing');
+    // anything newer that settled — refunded, cancelled, expired — also means the older pending one was abandoned
+    for (const status of ['refunded', 'cancelled', 'expired'] as const) {
+      expect(issuanceHint([order({ order_id: 'o-s', status, created_at: '2026-10-27T00:00:00Z' }), olderPending]), status).toBe('none');
+    }
+    // and a pending order newer than all of them is still in flight
+    expect(issuanceHint([order({ order_id: 'o-n' }), order({ status: 'cancelled' }), olderPending])).toBe('awaiting_confirmation');
+  });
+
   it('H6: an order status the client does not know is unknown, not none', () => {
     expect(issuanceHint([order({ status: 'disputed' as never })])).toBe('unknown');
+  });
+
+  it('H7: partially_refunded is a known settled status (082 check, 182 raw) — issued like paid when atoms were issued, never unknown (D15)', () => {
+    expect(issuanceHint([order({ status: 'partially_refunded', atoms_issued: 2, payment_state: 'succeeded' })])).toBe('issued');
+    expect(issuanceHint([order({ status: 'partially_refunded', atoms_issued: 0, payment_state: 'succeeded' })])).toBe('none');
+    expect(issuanceHint([order({ status: 'partially_refunded', atoms_issued: 1 }), order({ status: 'cancelled' })])).toBe('issued');
   });
 });
 
@@ -106,5 +129,12 @@ describe('orderStatusLine — one honest line per order, in USD from integer min
 
   it('L6: an unknown status says the status is unavailable', () => {
     expect(orderStatusLine(order({ status: 'disputed' as never })).status).toBe('Status unavailable');
+  });
+
+  it('L8: partially_refunded says a partial refund was INITIATED (A, 2026-09-24: never a completed refund); the amount is the charged total only', () => {
+    const l = orderStatusLine(order({ status: 'partially_refunded', payment_state: 'succeeded', atoms_issued: 2 }));
+    expect(l.status).toBe('Partial refund initiated');
+    expect(l.amount).toBeNull();
+    expect(orderStatusLine(order({ status: 'partially_refunded', total_minor: 2000, charge_total_minor: 2200 })).amount).toBe('$22.00');
   });
 });

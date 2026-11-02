@@ -37,8 +37,14 @@ export function authPhase(session: { user?: { id?: string | null } | null } | nu
   return `signed_in:${id}`;
 }
 
-/** Home and login, or — after a sign-in only — an allowlisted screen remembered by returnTo.ts (CFT-603). */
-export type RootRouteTarget = '/(tabs)/home' | '/(auth)/login' | ReturnToPath;
+/** c35-D6: one event session's ticket page, app/ticket/[session].tsx — read-only, and it reads the order fresh. */
+export type TicketPath = `/ticket/${string}`;
+
+/**
+ * Home and login, or — after a sign-in only — an allowlisted screen remembered by returnTo.ts (CFT-603), or the
+ * ticket page a cold payment return opens (c35-D6).
+ */
+export type RootRouteTarget = '/(tabs)/home' | '/(auth)/login' | ReturnToPath | TicketPath;
 
 export type RootRouteDecision =
   | { navigate: false; reason: 'loading' | 'navigator' | 'recovery' | 'onboarding' | 'same_phase' }
@@ -71,6 +77,13 @@ export interface RootRouteInput {
    * allowlisted screen; otherwise Home, as before. Omitted means Home.
    */
   returnTo?: string | null;
+  /**
+   * c35-D6: the route on screen, as expo-router's pathname. Read only on the layout's very first route, a signed-in one, after
+   * every hold and after returnTo, and only through paymentReturnTicket: a primary checkout there is a payment
+   * return that relaunched a killed app, and it opens that session's ticket page instead of Home. Omitted means
+   * Home, as before.
+   */
+  pathname?: string | null;
 }
 
 /**
@@ -97,7 +110,37 @@ export function rootRouteDecision(input: RootRouteInput): RootRouteDecision {
   if (input.phase === 'signed_out') return { navigate: true, to: '/(auth)/login' };
   // CFT-603: a remembered screen, re-checked against the allowlist here so nothing else can ever be a target.
   const back = classifyReturnPath(input.returnTo);
-  return { navigate: true, to: back ? back.path : '/(tabs)/home' };
+  if (back) return { navigate: true, to: back.path };
+  // c35-D6: a killed app relaunched onto the checkout by a payment return. Replacing it with Home left a buyer who
+  // may just have paid on Home with nothing said; the ticket page says what the server knows about the order. Only
+  // the layout's very first route is a relaunch: a sign-in or an account change on screen is not a payment return.
+  const ticket = input.lastRoutedPhase === null ? paymentReturnTicket(input.pathname) : null;
+  return { navigate: true, to: ticket ?? '/(tabs)/home' };
+}
+
+/**
+ * The primary checkout route, app/primary-checkout/[session].tsx, with the session id the route itself accepts (its
+ * uuid check is case-blind). The route name is matched exactly: expo-router's pathname always spells it this way.
+ */
+const PRIMARY_CHECKOUT_PATH = /^\/primary-checkout\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$/;
+
+/**
+ * c35-D6: the ticket page for a primary checkout on screen at a first signed-in route, or null.
+ *
+ * The checkout's 3-D Secure / bank-app return URL is snatchit://primary-checkout/<session>?tt&qty&attempt
+ * (checkoutRoute.ts). If iOS killed the app while the buyer was in the bank app, the relaunch opens the tabs with
+ * the checkout on top, and this is the root's first route. The checkout is never kept — it reserves on mount, and
+ * a link is untrusted — and the ticket page reads the order from the server ("Awaiting payment confirmation", or
+ * the tickets), so nothing here says whether anyone paid. Everything after a '?' or '#' is cut off unread: a
+ * payment provider may append its own keys and a status, and none of them can decide where the buyer goes or
+ * count as a confirmation. Only the session id, matched whole, reaches the target.
+ */
+export function paymentReturnTicket(pathname: unknown): TicketPath | null {
+  if (typeof pathname !== 'string') return null;
+  const cut = pathname.search(/[?#]/);
+  const match = PRIMARY_CHECKOUT_PATH.exec(cut === -1 ? pathname : pathname.slice(0, cut));
+  // Lowercase, as the server spells the id the ticket page compares against.
+  return match ? `/ticket/${match[1].toLowerCase()}` : null;
 }
 
 /** N7: whether the current route is the reset screen, app/(auth)/reset-password.tsx. */

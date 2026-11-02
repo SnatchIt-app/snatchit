@@ -139,14 +139,14 @@ describe('primary checkout screen — a payments surface (A reviews)', () => {
   });
 
   it('K3: an intent Stripe already reports paid is not shown the sheet again; completion routes to the ticket page, never a success screen', () => {
-    expect(native).toContain('if (intentAlreadyPaid(existing.paymentIntent?.status)) { submitted(params.sessionId); return; }');
+    expect(native).toContain('if (intentAlreadyPaid(existing.paymentIntent?.status)) { submitted(); return; }');
     expect(native).toContain("router.replace(`/ticket/${sessionId}`)");
-    expect(native).toContain("if (outcome === 'completed') { submitted(params.sessionId); return; }");
+    expect(native).toContain("if (outcome === 'completed') { submitted(); return; }");
     expect(view + native).not.toMatch(/Payment successful|You're in|Tickets confirmed|Order complete/i);
   });
 
   it('K3b: a quote refused as already_paid goes to the ticket page, like an intent Stripe reports paid — never "try again"', () => {
-    expect(native).toContain("if (result.reason === 'already_paid') { submitted(params.sessionId); return; }");
+    expect(native).toContain("if (result.reason === 'already_paid') { submitted(); return; }");
   });
 
   it('K8: Apple Pay at parity with resale — probed on iOS only (a throw is unsupported), cart items from the quote, US', () => {
@@ -163,7 +163,59 @@ describe('primary checkout screen — a payments surface (A reviews)', () => {
   it('K4: one attempt id per purchase, kept in the route params; the 3-D Secure return URL carries it; Pay is latched', () => {
     expect(native).toContain('router.setParams({ attempt: attemptId })');
     expect(native).toContain('returnURL: buildPrimaryReturnURL({');
-    expect(native).toContain('if (state.kind !== \'review\' || !state.sheetReady || payingRef.current || !params.ok) return;');
+    expect(native).toContain('if (state.kind !== \'review\' || !state.sheetReady || payingRef.current || !sessionId) return;');
+  });
+
+  it('K9: the attempt comes from chooseAttempt (URL first, one drawn id per purchase intent); hold, quote and return URL all use it', () => {
+    expect(native).toContain('const chosen = chooseAttempt(params, drawnRef.current, () => newAttemptId(randomBytes));');
+    expect(native).toContain('commandKey: holdCommandKey(sessionId, attemptId),');
+    expect(native).toContain('commandKey: attemptCommandKey(sessionId, attemptId),');
+    expect(native).toContain('returnURL: buildPrimaryReturnURL({ sessionId, ticketTypeId, quantity, attemptId }),');
+    expect((native.match(/newAttemptId\(/g) ?? []).length).toBe(1);   // drawn only through chooseAttempt
+  });
+
+  it('K10: the purchase starts once per mount — keyed on primitives and the user id, never the session object or connectivity (c35, D4)', () => {
+    expect(native).toContain('}, [ok, sessionId, ticketTypeId, quantity, attemptId, userId, quoteAndPrepare, live]);');
+    expect(native).not.toMatch(/,\s*user\s*[,\]]/);              // the session object changes identity on every token refresh
+    expect(native).not.toMatch(/\bisOffline\s*,\s*quoteAndPrepare/);
+    expect(native).toContain('readPrimarySessionDetail(primarySessionRpc, sessionId, offlineRef.current)');
+    expect(native).toContain('if (authLoading || payingRef.current) return;');   // an effect never re-runs under an open sheet
+  });
+
+  it('K11: a closed or covered checkout neither configures the shared sheet nor navigates (c35, D5)', () => {
+    expect(native).toContain('return () => { aliveRef.current = false; runRef.current += 1; };');
+    expect(native).toContain('const live = useCallback((run: number) => aliveRef.current && run === runRef.current, []);');
+    expect(native).toContain('if (submittedRef.current || !aliveRef.current) return;');
+    expect(native).not.toContain('if (run !== runRef.current) return;');
+    expect((native.match(/if \(!live\(run\)\) return;/g) ?? []).length).toBeGreaterThanOrEqual(5);
+    // the one sheet initialisation is reached only by a caller that is still current
+    expect((native.match(/await initPaymentSheet\(/g) ?? []).length).toBe(1);
+    expect(native).toMatch(/if \(!stillMine\(\)\) return false;\s*const \{ error \} = await initPaymentSheet\(/);
+    expect(native).toContain('const ready = await initSheetFor(quote, () => live(run));');
+  });
+
+  it('K14: Pay presents only this screen’s quote — the shared sheet is configured for it immediately before presenting (c35, D5)', () => {
+    expect(native).toMatch(/const ready = await initSheetFor\(quote, \(\) => aliveRef\.current\);[\s\S]{0,400}const \{ error \} = await presentPaymentSheet\(\);/);
+    expect(native).toMatch(/if \(!ready\) \{ payingRef\.current = false; await quoteAndPrepare\(quote\.totalMinor\); return; \}/);
+    // and the event page cannot open two checkouts from one Continue (the latch resets when it is back in focus)
+    const event = src('app/event/[session].tsx');
+    expect(event).toContain('if (!selectedTierId || continuingRef.current) return;');
+    expect(event).toMatch(/continuingRef\.current = true;\s*router\.push\(\{ pathname: '\/primary-checkout\/\[session\]'/);
+    expect(event).toMatch(/useFocusEffect\(useCallback\(\(\) => \{ continuingRef\.current = false; void read\(\); \}, \[read\]\)\);/);
+  });
+
+  it('K12: a sheet that did not complete goes to the server check under the same key — never straight back to Pay (c35, D1)', () => {
+    expect(native).toMatch(/if \(outcome === 'completed'\) \{ submitted\(\); return; \}\s*await checkAfterSheet\(quote, outcome\);/);
+    expect(native).not.toContain("paymentFailed: outcome === 'failed'");
+    expect(native).toMatch(/const checkAfterSheet = useCallback\(async \(quote: PrimaryQuote, outcome: 'canceled' \| 'failed'\) => \{[\s\S]{0,400}commandKey: attemptCommandKey\(sessionId, attemptId\),\s*shownTotalMinor: quote\.totalMinor,/);
+    expect(native).toContain('const verdict = afterSheetVerdict(outcome, replay, intent);');
+    // the unverified view offers no Pay: only "Check again" and the ticket page
+    expect(view).toMatch(/case 'unverified':[\s\S]*?onPress=\{props\.onCheckAgain\}[\s\S]*?onPress=\{props\.onViewTickets\}[\s\S]*?case 'review'/);
+    expect(view.slice(view.indexOf("case 'unverified':"), view.indexOf("case 'review'"))).not.toContain('props.onPay');
+  });
+
+  it('K13: a quote refusal offers a retry only for offline, unavailable or rate limited; every other one goes Back (D14)', () => {
+    expect(view).toMatch(/case 'quote_refused':[\s\S]{0,250}action=\{state\.reason === 'offline' \|\| state\.reason === 'unavailable' \|\| state\.reason === 'rate_limited'\s*\?/);
   });
 
   it('K5: the review headline is the all-in total; tickets and fee are itemised beneath it', () => {

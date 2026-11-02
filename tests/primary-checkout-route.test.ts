@@ -8,15 +8,21 @@
  *   - the 167 hold reply (`public.reserve_primary_tier`, DARK) maps to a hold or a named refusal; a missing
  *     function (PGRST202) is "checkout not available yet", never a crash and never a fake hold.
  *
+ *   - the screen's attempt (A1–A4, c35): an attempt id in the URL always wins; a drawn one belongs to one purchase
+ *     intent (session, tier, quantity) and is redrawn when a link changes the tier or quantity; the hold and quote
+ *     keys depend only on (session, attempt).
+ *
  * Negative controls (run by hand, each must FAIL): drop `attempt` from the return URL (R1); accept quantity
- * 0 (P2); map PGRST202 to `unavailable` (H3); drop the hold_ttl_unset / feature_disabled mapping (H5); drop the session_terminal (H7), deletion_pending
+ * 0 (P2); let a drawn attempt win over the URL's (A1); reuse a drawn attempt across a tier or quantity change (A3); map PGRST202 to `unavailable` (H3); drop the hold_ttl_unset / feature_disabled mapping (H5); drop the session_terminal (H7), deletion_pending
  * (H8) or not_found (H9) mapping.
  */
 import { describe, expect, it, vi } from 'vitest';
 
-import { PRIMARY_CHECKOUT_COPY } from '@/src/lib/primary/checkout';
+import { attemptCommandKey, PRIMARY_CHECKOUT_COPY } from '@/src/lib/primary/checkout';
 import {
   buildPrimaryReturnURL,
+  chooseAttempt,
+  holdCommandKey,
   HOLD_COPY,
   parseHoldReply,
   parsePrimaryCheckoutParams,
@@ -36,6 +42,40 @@ describe('buildPrimaryReturnURL', () => {
     expect(q.get('tt')).toBe(TT);
     expect(q.get('qty')).toBe('2');
     expect(q.get('attempt')).toBe('abc123');
+  });
+});
+
+describe('chooseAttempt — one attempt per purchase intent (c35)', () => {
+  const parsed = (raw: Record<string, string>) => parsePrimaryCheckoutParams({ session: SESSION, tt: TT, qty: '2', ...raw });
+  const drawer = () => { let n = 0; return () => `drawn${++n}`; };
+
+  it('A1: an attempt id in the URL (a 3-D Secure return, or the one the screen wrote back) always wins and nothing is drawn', () => {
+    const draw = vi.fn(() => 'never');
+    const drawn = { intent: `${SESSION}|${TT}|2`, id: 'other1' };
+    expect(chooseAttempt(parsed({ attempt: 'fromurl1' }), drawn, draw)).toEqual({ attemptId: 'fromurl1', drawn });
+    expect(draw).not.toHaveBeenCalled();
+  });
+
+  it('A2: without one, an id is drawn once and kept for every later render of the same purchase', () => {
+    const draw = drawer();
+    const first = chooseAttempt(parsed({}), null, draw);
+    expect(first.attemptId).toBe('drawn1');
+    expect(chooseAttempt(parsed({}), first.drawn, draw)).toEqual(first);
+  });
+
+  it('A3: a link that changes the tier or quantity is a new purchase — a new attempt, never the first order replayed', () => {
+    const draw = drawer();
+    const first = chooseAttempt(parsed({}), null, draw);
+    expect(chooseAttempt(parsed({ qty: '3' }), first.drawn, draw).attemptId).toBe('drawn2');
+    expect(chooseAttempt(parsed({ tt: '88888888-8888-4888-8888-888888888888' }), first.drawn, draw).attemptId).toBe('drawn3');
+  });
+
+  it('A4: invalid params have no attempt; the hold and quote keys depend only on (session, attempt)', () => {
+    expect(chooseAttempt({ ok: false }, null, () => 'x1').attemptId).toBeNull();
+    expect(holdCommandKey(SESSION, 'abc123')).toBe(`ph-${attemptCommandKey(SESSION, 'abc123').slice(3)}`);
+    expect(holdCommandKey(SESSION, 'abc123')).not.toBe(attemptCommandKey(SESSION, 'abc123'));
+    expect(holdCommandKey(SESSION, 'abc123')).toBe(holdCommandKey(SESSION, 'abc123'));
+    expect(holdCommandKey(SESSION, 'abc124')).not.toBe(holdCommandKey(SESSION, 'abc123'));
   });
 });
 

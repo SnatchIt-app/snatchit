@@ -4,7 +4,8 @@
  *
  * Row: (order_id, status, total_minor, currency, created_at, atoms_issued, payment_state), newest
  * first, `buyer_id = auth.uid()` only. `status` is the raw `venue.order` status (pending | paid |
- * cancelled | expired | refunded). `payment_state` comes from the order↔payment link that
+ * partially_refunded | cancelled | expired | refunded — 082's check; 182 returns it as stored).
+ * `payment_state` comes from the order↔payment link that
  * `finalize_primary_order` writes; before finalize there is no link, so a PENDING order reads
  * `none` today — "unpaid" and "paid, awaiting the webhook" are indistinguishable (A's ruling).
  *
@@ -14,10 +15,13 @@
  *   - the order's `total_minor` is FACE value (venue entitlement, per the primary-checkout edge) and is
  *     never shown as what the buyer paid. A's all-in rule: the only amount shown is the CHARGED total
  *     (`charge_total_minor`, requested from D on this read); without it the line shows no amount;
- *   - an order status the client does not know is "Status unavailable", and the hint is `unknown`.
+ *   - an order status the client does not know is "Status unavailable", and the hint is `unknown`;
+ *     a failed read is `read_failed` — two different things, neither ever "no tickets";
+ *   - an abandoned checkout stays pending forever (edge RES-1, accepted), so a pending order is in
+ *     flight only while it is newer than every paid order.
  */
 
-export type OrderStatus = 'pending' | 'paid' | 'cancelled' | 'expired' | 'refunded';
+export type OrderStatus = 'pending' | 'paid' | 'partially_refunded' | 'cancelled' | 'expired' | 'refunded';
 export type PaymentState = 'none' | 'processing' | 'succeeded' | 'failed';
 
 export interface PrimaryOrderRow {
@@ -32,7 +36,9 @@ export interface PrimaryOrderRow {
   charge_total_minor?: number | null;
 }
 
-const ORDER_STATUSES: ReadonlySet<string> = new Set<OrderStatus>(['pending', 'paid', 'cancelled', 'expired', 'refunded']);
+const ORDER_STATUSES: ReadonlySet<string> = new Set<OrderStatus>(['pending', 'paid', 'partially_refunded', 'cancelled', 'expired', 'refunded']);
+/** Paid, whole or with part of it refunded: the order settled, and issued whatever atoms it says. */
+const PAID_STATUSES: ReadonlySet<string> = new Set<OrderStatus>(['paid', 'partially_refunded']);
 
 /**
  * What the orders say about tickets that are not on screen yet:
@@ -40,9 +46,11 @@ const ORDER_STATUSES: ReadonlySet<string> = new Set<OrderStatus>(['pending', 'pa
  *   payment_processing     pending, payment processing        (readable once PENDING-A C5-1 lands)
  *   paid_pending           pending, payment succeeded, nothing issued yet
  *   payment_failed         pending, payment failed
- *   issued                 a paid order issued atoms — if none are on this account, they are elsewhere
+ *   issued                 a paid (or partly refunded) order issued atoms — if none are on this
+ *                          account, they are elsewhere
  *   none                   no order needs the screen's attention
- *   unknown                the read failed or carried a status the client does not know
+ *   unknown                the read carried a status the client does not know
+ *   read_failed            the read failed or is not deployed — never `none`
  */
 export type IssuanceHint =
   | 'awaiting_confirmation'
@@ -51,7 +59,8 @@ export type IssuanceHint =
   | 'payment_failed'
   | 'issued'
   | 'none'
-  | 'unknown';
+  | 'unknown'
+  | 'read_failed';
 
 function pendingHint(o: PrimaryOrderRow): IssuanceHint {
   switch (o.payment_state) {
@@ -62,13 +71,22 @@ function pendingHint(o: PrimaryOrderRow): IssuanceHint {
   }
 }
 
-/** `orders` newest first, as the read returns them; `null` = the read failed or is not deployed. */
+/**
+ * `orders` newest first, as the read returns them; `null` = the read failed or is not deployed.
+ * Rows that were read can never be `read_failed` (the overload says so to pendingOrders.ts).
+ */
+export function issuanceHint(orders: readonly PrimaryOrderRow[]): Exclude<IssuanceHint, 'read_failed'>;
+export function issuanceHint(orders: readonly PrimaryOrderRow[] | null): IssuanceHint;
 export function issuanceHint(orders: readonly PrimaryOrderRow[] | null): IssuanceHint {
-  if (orders === null) return 'unknown';
+  if (orders === null) return 'read_failed';
   if (orders.some((o) => !ORDER_STATUSES.has(o.status))) return 'unknown';
-  const pending = orders.find((o) => o.status === 'pending');
-  if (pending) return pendingHint(pending);
-  if (orders.some((o) => o.status === 'paid' && o.atoms_issued > 0)) return 'issued';
+  // Newest first: a pending order is in flight only while nothing newer has settled — an order paid, refunded,
+  // cancelled or expired after it means the buyer moved on, and an abandoned checkout stays pending (RES-1).
+  for (const o of orders) {
+    if (o.status !== 'pending') break;
+    return pendingHint(o);
+  }
+  if (orders.some((o) => PAID_STATUSES.has(o.status) && o.atoms_issued > 0)) return 'issued';
   return 'none';
 }
 
@@ -124,6 +142,10 @@ export function orderStatusLine(o: PrimaryOrderRow): OrderLine {
       break;
     case 'paid':
       status = o.atoms_issued > 0 ? `Paid · ${issuedCount(o.atoms_issued)}` : 'Paid · tickets being issued';
+      break;
+    case 'partially_refunded':
+      // Initiated, never completed (A's interim refund-wording ruling, 2026-09-24; v3-refund-initiated-wording RI1).
+      status = 'Partial refund initiated';
       break;
     case 'refunded':
       status = 'Refunded';

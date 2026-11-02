@@ -31,6 +31,8 @@ export default function PrimaryEventRoute() {
   const [quantity, setQuantity] = useState(1);
   const { user } = useAuth();
   const requestRef = useRef(0);
+  // One checkout per Continue (c35, D5): a double tap pushed two, and both ran. Reset when this screen is back.
+  const continuingRef = useRef(false);
 
   const read = useCallback(async () => {
     const request = ++requestRef.current;
@@ -42,7 +44,7 @@ export default function PrimaryEventRoute() {
   }, [sessionId]);
 
   useEffect(() => { setLoad({ kind: 'loading' }); void read(); }, [read]);
-  useFocusEffect(useCallback(() => { void read(); }, [read]));
+  useFocusEffect(useCallback(() => { continuingRef.current = false; void read(); }, [read]));
 
   async function onRefresh() {
     setRefreshing(true);
@@ -63,7 +65,8 @@ export default function PrimaryEventRoute() {
       onSelectTier={(id) => { setSelectedTierId(id); setQuantity(1); }}
       onChangeQuantity={(q) => setQuantity(Math.max(1, Math.min(10, q)))}
       onContinue={() => {
-        if (!selectedTierId) return;
+        if (!selectedTierId || continuingRef.current) return;
+        continuingRef.current = true;
         router.push({ pathname: '/primary-checkout/[session]', params: { session: sessionId, tt: selectedTierId, qty: String(quantity) } });
       }}
       onSignIn={() => router.push('/(auth)/login')}

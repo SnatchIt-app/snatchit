@@ -15,8 +15,11 @@
  *   - a code is minted on arrival for each ready atom, again when the server TTL has elapsed on a
  *     MONOTONIC clock or the atom's credential_version moved on; the device wall clock never decides;
  *   - C-R4: a refresh keeps the code on screen while it runs, and a transient refusal keeps it
- *     (`afterMint`); only the server's not_owner / atom_terminal / signed_out withdraw it;
+ *     (`afterMint`); only the server's not_owner / atom_terminal / signed_out withdraw it — and then
+ *     the cache forgets it and the page re-reads once (`withdrawsCode`);
+ *   - reads happen on mount, focus, pull and that one withdrawal re-read — never on a timer;
  *   - a failed re-read keeps what is on screen; a first failure is the failure screen, never "no tickets";
+ *     a failed orders read keeps the last orders answer, and with none yet the hint is read_failed;
  *   - nothing is written to disk.
  */
 import { useFocusEffect } from '@react-navigation/native';
@@ -31,6 +34,7 @@ import {
   credentialStale,
   detailState,
   entitlementDisplay,
+  withdrawsCode,
   type AtomsLoad,
   type CredentialState,
   type MyTicketAtom,
@@ -49,6 +53,7 @@ import {
 } from '@/src/lib/tickets/entitlementReads';
 import {
   bindEntitlementOwner,
+  dropCredential,
   entitlementGeneration,
   readAtoms,
   readCredential,
@@ -85,7 +90,8 @@ export default function TicketDetailRoute() {
   // useFocusEffect re-ran it while focused — a continuous re-read loop (C33 device log, 2026-10-29).
   const loadRef = useRef<AtomsLoad>({ kind: 'loading' });
   useEffect(() => { loadRef.current = load; }, [load]);
-  const [hint, setHint] = useState<IssuanceHint>('unknown');
+  // No orders answer yet is read_failed — never `none`, so never "no tickets" before the server said so.
+  const [hint, setHint] = useState<IssuanceHint>('read_failed');
   const [orders, setOrders] = useState<OrderLine[]>([]);
   const [credentials, setCredentials] = useState<Credentials>({});
   const [refreshing, setRefreshing] = useState<Record<string, boolean>>({});
@@ -99,30 +105,10 @@ export default function TicketDetailRoute() {
   const credentialsRef = useRef<Credentials>({});
   useEffect(() => { credentialsRef.current = credentials; }, [credentials]);
   const versionsRef = useRef<Record<string, number>>({});
+  const withdrawReadRef = useRef<Promise<void> | null>(null);
 
   useEffect(() => { watchEntitlementSignOut(); }, []);
   useEffect(() => { if (!authLoading) bindEntitlementOwner(userId); }, [authLoading, userId]);
-
-  const mint = useCallback(async (atomId: string) => {
-    if (!userId || mintingRef.current.has(atomId)) return;
-    mintingRef.current.add(atomId);
-    const gen = entitlementGeneration();
-    const before = credentialsRef.current[atomId] ?? { kind: 'idle' as const };
-    // C-R4: a code already on screen stays while the refresh runs.
-    if (before.kind === 'ready') setRefreshing((p) => ({ ...p, [atomId]: true }));
-    else setCredentials((p) => ({ ...p, [atomId]: { kind: 'minting' } }));
-    const r = await mintCredential(supabaseInvoker, atomId);
-    mintingRef.current.delete(atomId);
-    setRefreshing((p) => ({ ...p, [atomId]: false }));
-    // The account changed while the edge answered: the answer belongs to nobody on screen.
-    if (gen !== entitlementGeneration()) return;
-    const now = monotonicMs();
-    const latest = credentialsRef.current[atomId] ?? before;
-    const { state, note } = afterMint(latest, r, now, versionsRef.current[atomId] ?? -1);
-    if (r.ok) storeCredential(userId, atomId, r.credential, now);
-    setCredentials((p) => ({ ...p, [atomId]: state }));
-    setNotes((p) => ({ ...p, [atomId]: note }));
-  }, [userId]);
 
   /** Drops credentials the TTL or a version change has made stale; the arrival effect re-mints. */
   const sweepStale = useCallback((atoms: MyTicketAtom[]) => {
@@ -163,8 +149,11 @@ export default function TicketDetailRoute() {
       setExpected(mine.reduce((n, r) => n + (r.quantity ?? 0), 0));
     }
     if (sessionFacts) setFacts(sessionFacts);
-    setHint(issuanceHint(orderRows));
-    if (orderRows) setOrders(orderRows.map(orderStatusLine));
+    // A failed orders re-read keeps the last answer: a correct hint is never downgraded by a failure.
+    if (orderRows) {
+      setHint(issuanceHint(orderRows));
+      setOrders(orderRows.map(orderStatusLine));
+    }
     if (atomsLoad.kind === 'ready') {
       storeAtoms(userId, sessionId, atomsLoad.atoms);
       sweepStale(atomsLoad.atoms);
@@ -175,12 +164,43 @@ export default function TicketDetailRoute() {
     }
   }, [userId, sessionId, sweepStale]);
 
+  const mint = useCallback(async (atomId: string) => {
+    if (!userId || mintingRef.current.has(atomId)) return;
+    mintingRef.current.add(atomId);
+    const gen = entitlementGeneration();
+    const before = credentialsRef.current[atomId] ?? { kind: 'idle' as const };
+    // C-R4: a code already on screen stays while the refresh runs.
+    if (before.kind === 'ready') setRefreshing((p) => ({ ...p, [atomId]: true }));
+    else setCredentials((p) => ({ ...p, [atomId]: { kind: 'minting' } }));
+    const r = await mintCredential(supabaseInvoker, atomId);
+    mintingRef.current.delete(atomId);
+    setRefreshing((p) => ({ ...p, [atomId]: false }));
+    // The account changed while the edge answered: the answer belongs to nobody on screen.
+    if (gen !== entitlementGeneration()) return;
+    const now = monotonicMs();
+    const latest = credentialsRef.current[atomId] ?? before;
+    const { state, note } = afterMint(latest, r, now, versionsRef.current[atomId] ?? -1);
+    if (r.ok) storeCredential(userId, atomId, r.credential, now);
+    setCredentials((p) => ({ ...p, [atomId]: state }));
+    setNotes((p) => ({ ...p, [atomId]: note }));
+    // The server withdrew the code: the cache forgets it (a reopen must not prime it as ready), and the page
+    // re-reads once to say what the server now says. Arrival never re-mints an atom that has a state: no loop.
+    // Codes refused together (an order moved away) share the one re-read in flight.
+    if (!r.ok && withdrawsCode(r.reason)) {
+      dropCredential(userId, atomId);
+      if (!withdrawReadRef.current) withdrawReadRef.current = readAll().finally(() => { withdrawReadRef.current = null; });
+    }
+  }, [userId, readAll]);
+
   // First read per account: paint from this account's in-memory cache first, then read.
   useEffect(() => {
     if (authLoading) return;
     setCredentials({});
     setNotes({});
     setRefreshing({});
+    // The last orders answer belongs to the previous account or session: none yet for this one.
+    setHint('read_failed');
+    setOrders([]);
     mintingRef.current.clear();
     if (!userId) { setLoad({ kind: 'failed', failure: 'signed_out' }); return; }
     if (!sessionId) { setLoad({ kind: 'failed', failure: 'unavailable' }); return; }

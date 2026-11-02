@@ -8,7 +8,9 @@
  *   - a token is stale after its server TTL (monotonic, not the wall clock) or a version change.
  *
  * Negative controls (run by hand, each must FAIL): return 'ready' for a `listed` atom (D3);
- * map a failed load to 'empty' (S2); skip the owner check in `readAtoms` (C2).
+ * map a failed load to 'empty' (S2); skip the owner check in `readAtoms` (C2); let `cardDisplay`
+ * keep 'ready' under a not_owner / atom_terminal refusal (W2); map 'read_failed' or 'unknown' with
+ * no atoms to 'empty' (S4).
  */
 import { describe, expect, it } from 'vitest';
 
@@ -19,14 +21,20 @@ import {
   REFRESH_KEPT_NOTE,
   afterMint,
   canRequestCredential,
+  cardDisplay,
   credentialStale,
   detailState,
   entitlementDisplay,
   parseCredentialResponse,
+  refusesTicket,
+  withdrawsCode,
+  type CredentialRefusal,
+  type CredentialState,
   type MyTicketAtom,
 } from '@/src/lib/tickets/entitlement';
 import {
   bindEntitlementOwner,
+  dropCredential,
   entitlementGeneration,
   readAtoms,
   readCredential,
@@ -111,14 +119,20 @@ describe('detailState — a failed or inconsistent read is never "no tickets"', 
 
   it('S3b: atoms on screen win over any order hint — an order never hides or replaces an atom', () => {
     const a = [atom()];
-    for (const h of ['awaiting_confirmation', 'payment_failed', 'issued', 'unknown'] as const) {
+    for (const h of ['awaiting_confirmation', 'payment_failed', 'issued', 'unknown', 'read_failed'] as const) {
       expect(detailState({ kind: 'ready', atoms: a }, h, 1), h).toEqual({ kind: 'atoms', atoms: a });
     }
   });
 
-  it('S4: empty only when nothing is expected and nothing is pending', () => {
+  it('S4: empty only when the orders were read, say nothing is in flight, and nothing is expected (D7)', () => {
     expect(detailState({ kind: 'ready', atoms: [] }, 'none', 0)).toEqual({ kind: 'empty' });
-    expect(detailState({ kind: 'ready', atoms: [] }, 'unknown', 0)).toEqual({ kind: 'empty' });
+    expect(detailState({ kind: 'ready', atoms: [] }, 'none', 2)).toEqual({ kind: 'inconsistent' });
+    // a failed orders read, or a status the client does not know, is never "no tickets"
+    for (const h of ['read_failed', 'unknown'] as const) {
+      expect(detailState({ kind: 'ready', atoms: [] }, h, 0), h).toEqual({ kind: 'inconsistent' });
+      expect(detailState({ kind: 'ready', atoms: [] }, h, 2), h).toEqual({ kind: 'inconsistent' });
+    }
+    expect(`${DETAIL_COPY.inconsistent.title} ${DETAIL_COPY.inconsistent.body}`.toLowerCase()).not.toMatch(/no tickets/);
   });
 });
 
@@ -193,6 +207,38 @@ describe('afterMint — C-R4: a refused refresh keeps a still-valid code; only t
   });
 });
 
+describe('withdrawal — the server took the code back, so nothing on the card says ready (D2, D3a)', () => {
+  const cred = { token: token(), credential_version: 2, signing_key_id: 'k', not_after: 'x', ttl_seconds: 600 };
+  const refusals = Object.keys(CREDENTIAL_COPY) as CredentialRefusal[];
+
+  it('W1: withdrawsCode is exactly not_owner, atom_terminal and signed_out; refusesTicket is the ticket half of it', () => {
+    expect(refusals.filter((r) => withdrawsCode(r)).sort()).toEqual(['atom_terminal', 'not_owner', 'signed_out']);
+    expect(refusals.filter((r) => refusesTicket(r)).sort()).toEqual(['atom_terminal', 'not_owner']);
+  });
+
+  it('W2: a ready atom whose code was refused for the ticket itself shows unknown — no Ready badge, tone or body', () => {
+    for (const reason of ['not_owner', 'atom_terminal'] as const) {
+      const shown = cardDisplay('ready', { kind: 'refused', reason });
+      expect(shown, reason).toBe('unknown');
+      expect(`${ENTITLEMENT_COPY[shown].badge} ${ENTITLEMENT_COPY[shown].body}`).not.toMatch(/ready|show this code/i);
+    }
+  });
+
+  it('W3: transient and session refusals, and every non-refused state, leave the atom display alone', () => {
+    for (const reason of ['signing_unavailable', 'rate_limited', 'signed_out', 'offline', 'unavailable'] as const) {
+      expect(cardDisplay('ready', { kind: 'refused', reason }), reason).toBe('ready');
+    }
+    const states: CredentialState[] = [{ kind: 'idle' }, { kind: 'minting' }, { kind: 'ready', credential: cred, receivedAtMs: 1 }];
+    for (const c of states) expect(cardDisplay('ready', c), c.kind).toBe('ready');
+    expect(cardDisplay('revoked', { kind: 'refused', reason: 'atom_terminal' })).toBe('revoked');
+    expect(cardDisplay('held', { kind: 'refused', reason: 'not_owner' })).toBe('held');
+  });
+
+  it('W4: a refused credential is never stale, so the TTL sweep cannot clear it into a re-mint', () => {
+    expect(credentialStale({ kind: 'refused', reason: 'atom_terminal' }, 10 ** 12, 99)).toBe(false);
+  });
+});
+
 describe('entitlementStore — one account, memory only, emptied on any owner change', () => {
   const SESSION = 'sess-1';
 
@@ -232,5 +278,18 @@ describe('entitlementStore — one account, memory only, emptied on any owner ch
     expect(readAtoms('u-B', SESSION)).toBeNull();
     expect(readCredential('u-B', atom().ticket_atom_id)).toBeNull();
     expect(readAtoms('u-A', SESSION)).toBeNull();
+  });
+
+  it('C5: dropCredential forgets the owner\'s code for that atom only; a drop for another account is ignored', () => {
+    const other = '22222222-2222-4222-8222-222222222222';
+    const c = { token: token(), credential_version: 1, signing_key_id: 'k', not_after: 'x', ttl_seconds: 900 };
+    bindEntitlementOwner('u-A');
+    storeCredential('u-A', atom().ticket_atom_id, c, 5);
+    storeCredential('u-A', other, c, 5);
+    dropCredential('u-B', atom().ticket_atom_id);
+    expect(readCredential('u-A', atom().ticket_atom_id)).not.toBeNull();
+    dropCredential('u-A', atom().ticket_atom_id);
+    expect(readCredential('u-A', atom().ticket_atom_id)).toBeNull();
+    expect(readCredential('u-A', other)).not.toBeNull();
   });
 });

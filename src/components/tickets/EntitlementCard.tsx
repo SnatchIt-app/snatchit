@@ -8,6 +8,9 @@
  *
  * C-R4: while a refresh is in flight or after a refresh was refused for a transient reason, the
  * code already on screen stays (the route decides with `afterMint`); `refreshNote` says so.
+ *
+ * D3a: beside a not_owner / atom_terminal refusal the card says nothing ready — badge, tone, label
+ * and body come from `cardDisplay` ('unknown' copy), and the refusal sentence stays.
  */
 import { memo, useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
@@ -17,7 +20,9 @@ import {
   CREDENTIAL_COPY,
   ENTITLEMENT_COPY,
   canRequestCredential,
+  cardDisplay,
   entitlementDisplay,
+  refusesTicket,
   type CredentialState,
   type EntitlementDisplay,
   type MyTicketAtom,
@@ -37,9 +42,6 @@ const TONE: Record<EntitlementDisplay, BadgeTone> = {
   held: 'warning',
   unknown: 'warning',
 };
-
-/** Refusals a tap can do nothing about: no retry button, just the sentence. */
-const NO_RETRY: ReadonlySet<string> = new Set(['not_owner', 'atom_terminal']);
 
 export const ENTITLEMENT_ACTIONS = {
   show: 'Show entry code',
@@ -79,7 +81,8 @@ export const EntitlementCard = memo(function EntitlementCard({
   const { palette } = useTheme();
   const s = useMemo(() => makeStyles(palette), [palette]);
   const display = entitlementDisplay(atom);
-  const copy = ENTITLEMENT_COPY[display];
+  const shown = cardDisplay(display, credential);
+  const copy = ENTITLEMENT_COPY[shown];
   const heading = entitlementHeading(index, total);
   const qrLabel = `Entry code, ${heading}, ${atom.ticket_type_name}`;
 
@@ -90,7 +93,7 @@ export const EntitlementCard = memo(function EntitlementCard({
           <Text style={[textStyle('title'), s.heading]}>{heading}</Text>
           <Text style={[textStyle('bodySm'), s.type]}>{atom.ticket_type_name}</Text>
         </View>
-        <Badge label={copy.badge} tone={TONE[display]} />
+        <Badge label={copy.badge} tone={TONE[shown]} />
       </View>
 
       {canRequestCredential(display) ? (
@@ -106,7 +109,8 @@ export const EntitlementCard = memo(function EntitlementCard({
               <Text style={[textStyle('body'), s.refusalText]} accessibilityRole="alert">
                 {CREDENTIAL_COPY[credential.reason]}
               </Text>
-              {NO_RETRY.has(credential.reason) ? null : (
+              {/* A refusal of the ticket itself: a tap can do nothing, so just the sentence. */}
+              {refusesTicket(credential.reason) ? null : (
                 <Button label={ENTITLEMENT_ACTIONS.retry} variant="secondary" size="md" onPress={onShowCode} />
               )}
             </View>
