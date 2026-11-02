@@ -40,7 +40,7 @@ import { NameText } from '@/src/components/NameText';
 import { FromAFanBadge, IconButton } from '@/src/components/ui';
 import { SaveControl, SaveNote, type SaveControlProps } from '@/src/components/listing/SaveControl';
 import { FEATURE_GUTTER, HERO_NAME_GAP } from '@/src/lib/design/featureMetrics';
-import { rowWhenLabel } from '@/src/lib/listing/feedRowState';
+import { listingWhenLabel } from '@/src/lib/listing/feedRowState';
 import type { MediaAsset } from '@/src/lib/media/url';
 import { textStyle } from '@/src/theme/typography';
 import { useTheme } from '@/src/theme/appearance';
@@ -141,10 +141,11 @@ export function ListingHero({
           No line cap: at the largest accessibility size this read "Sat 24 Oct · 1…", losing the
           time entirely (owner, 2026-10-08 — the complete date and time must be available). It is
           one line at every standard size, so the approved layout is unchanged; it simply wraps
-          when it no longer fits rather than dropping what it cannot show.
+          when it no longer fits rather than dropping what it cannot show. The stored date and
+          time are labelled EST / EDT, never converted (listingWhenLabel).
         */}
         <Text style={[textStyle('bodySm'), styles.when]}>
-          {`${rowWhenLabel(eventDate, eventTime)} · ${venue}`}
+          {`${listingWhenLabel(eventDate, eventTime)} · ${venue}`}
         </Text>
         {/*
           No line cap either, for the same reason as the date line: this is the screen that says which

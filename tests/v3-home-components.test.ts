@@ -45,12 +45,12 @@ import { rowMeta } from '@/src/lib/listing/feedRowState';
 import { MEDIA_SLOTS, type SlotSpec } from '@/src/lib/media/slots';
 import { findElement, HookHost, type Element } from './helpers/nav-stack-harness';
 
-const NOW = Date.parse('2026-09-22T18:00:00');
+const NOW = Date.parse('2026-09-22T18:00:00-04:00');   // an instant: the clock reads New York's day (Eastern time, 2026-11-02)
 
 function listing(extra: Record<string, unknown> = {}) {
   return {
     status: 'active', auction_status: 'active',
-    ends_at: new Date(NOW + 3 * 3600_000).toISOString(),   // same local day, 3h out
+    ends_at: new Date(NOW + 3 * 3600_000).toISOString(),   // same New York day, 3h out
     buy_now_enabled: false, buy_now_price: null,
     starting_bid: 90, current_bid: 120, bid_count: 11,
     ...extra,
@@ -256,7 +256,7 @@ describe('HomeFeature — the feature (the §3 full-bleed poster until 2026-10-2
 
   it('HF3: meta carries when · venue and qty × type · bids · clock', async () => {
     const host = await mountFeature();
-    expect(byText(host, 'Sat 26 Sep · 22:00 · Lantern Room')).toBeDefined();
+    expect(byText(host, 'Sat 26 Sep · 22:00 EDT · Lantern Room')).toBeDefined();   // stored wall clock, labelled
     expect(byText(host, '2 × GA · 11 bids · 3h 0m left')).toBeDefined();
   });
 
