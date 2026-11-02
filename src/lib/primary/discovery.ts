@@ -3,14 +3,16 @@
  * (CONTRACTS C1; registry 182 = D's #170, DARK until applied; A reviews, C consumes).
  *
  *   public.list_primary_sessions_on_sale()   anon + auth → (event_id, session_id, title, venue_name,
- *                                            neighborhood, starts_at, doors_at, age_restriction, status)
+ *                                            neighborhood, starts_at, doors_at, age_restriction, status,
+ *                                            timezone, starts_at_local, doors_at_local)
  *   public.get_primary_session(p_session_id) anon + auth → one row (session, event, venue, ticket_types)
  *                                            or ZERO rows for unknown/draft/announced/cancelled — that is
  *                                            "not available", never an error and never an existence leak.
  *
  * Display rules held here:
- *   - times: the session's `*_local` strings + the venue `timezone` (A's rule from D's 162); the list
- *     rows carry only instants, so the list shows times through the session read (see the screen);
+ *   - times: the session's `*_local` strings + the venue `timezone` (A's rule from D's 162). The list rows
+ *     carry them too (182:360-362), so the list labels each row from its own row — no per-row session read
+ *     (D trace DSC-C8); the venue-local text is shown as sent and only labelled with its zone, never converted;
  *   - tiers: the server's `on_sale_now` decides; the device clock never puts a tier on sale. `remaining`
  *     only distinguishes sold out — no counts are shown (no invented scarcity);
  *   - prices (A's all-in rule, US live-event ticket pricing): a tier shows ONLY the server's
@@ -36,6 +38,10 @@ export interface DiscoveryRow {
   doorsAt: string | null;
   ageRestriction: string | null;
   status: string;
+  /** The venue's IANA zone and its 'YYYY-MM-DD HH24:MI' venue-local start / doors (null when not sent). */
+  timezone: string | null;
+  startsAtLocal: string | null;
+  doorsAtLocal: string | null;
 }
 
 const s = (v: unknown): string | null => (typeof v === 'string' && v.length > 0 ? v : null);
@@ -51,6 +57,7 @@ export function parseDiscoveryRows(data: unknown): DiscoveryRow[] | null {
     out.push({
       eventId, sessionId, title, startsAt, status,
       venueName: s(r.venue_name), neighborhood: s(r.neighborhood), doorsAt: s(r.doors_at), ageRestriction: s(r.age_restriction),
+      timezone: s(r.timezone), startsAtLocal: s(r.starts_at_local), doorsAtLocal: s(r.doors_at_local),
     });
   }
   return out;

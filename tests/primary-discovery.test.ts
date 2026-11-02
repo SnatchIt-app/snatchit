@@ -70,6 +70,13 @@ describe('parseDiscoveryRows', () => {
     expect(rows[0].ageRestriction).toBe('21_plus');
   });
 
+  it('D1c: the list row’s own venue zone and *_local strings are kept (182 returns them: D trace DSC-C8); a row without them still parses', () => {
+    const [withLocal] = parseDiscoveryRows([listRow({ timezone: 'America/New_York', starts_at_local: '2026-11-30 23:00', doors_at_local: '2026-11-30 22:00' })]) ?? [];
+    expect(withLocal).toMatchObject({ timezone: 'America/New_York', startsAtLocal: '2026-11-30 23:00', doorsAtLocal: '2026-11-30 22:00' });
+    const [bare] = parseDiscoveryRows([listRow()]) ?? [];
+    expect(bare).toMatchObject({ timezone: null, startsAtLocal: null, doorsAtLocal: null });
+  });
+
   it('D1b: a non-array answer is not a list', () => {
     expect(parseDiscoveryRows(null)).toBeNull();
     expect(parseDiscoveryRows({})).toBeNull();

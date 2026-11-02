@@ -69,6 +69,11 @@ describe('views — server facts only', () => {
     expect(listRoute).not.toMatch(/whenLine\(/);
   });
 
+  it('V3b: the list labels each row from that row’s own venue zone and *_local text — no per-row session reads (D trace DSC-C8)', () => {
+    expect(listRoute).toContain('whenFromLocal({ startsAtLocal: r.startsAtLocal, doorsAtLocal: r.doorsAtLocal, timezone: r.timezone, startsAt: r.startsAt })');
+    expect(listRoute).not.toMatch(/readPrimarySession\(|FACTS_LIMIT|Promise\.all\(/);
+  });
+
   it('V4: failure, not-available and empty states each use their own pinned copy', () => {
     expect(event).toContain('DISCOVERY_COPY.notAvailableTitle');
     expect(event).toMatch(/<ScreenState state=\{load\.failure === 'offline' \? 'offline' : 'error'\}/);
