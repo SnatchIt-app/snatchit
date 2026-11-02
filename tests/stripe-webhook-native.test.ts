@@ -20,6 +20,7 @@
  *       tested against the EXACT strings 082/085/093 raise, quoted inline.
  */
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   CANCEL_REASON_PAYMENT_FAILED,
@@ -376,7 +377,7 @@ describe('finalize_primary_order error classification (085:1881-2082)', () => {
     // classifier's own source and require that its ack:true arms are exactly
     // refund_required plus ACK_ARM_SUBSTRINGS, so a new ACK arm added without
     // updating the list fails here instead of silently escaping the precedence pins.
-    const src = readFileSync(new URL('../supabase/functions/stripe-webhook/native.ts', import.meta.url), 'utf8');
+    const src: string = readFileSync(resolve(process.cwd(), 'supabase/functions/stripe-webhook/native.ts'), 'utf8');
     const start = src.indexOf('export function classifyFinalizeError');
     const body = src.slice(start, src.indexOf('\n}\n', start));
     const ackArms = [...body.matchAll(/message\.includes\('([^']+)'\)\)\s*\{\s*return \{ ack: true/g)].map((m) => m[1]);
