@@ -65,9 +65,12 @@ BEGIN;
 SELECT plan(48);
 
 CREATE TABLE tap.memo_272 (k text PRIMARY KEY, v text);
-CREATE FUNCTION tap._store272(k text, v text) RETURNS text
+-- RETURNS void: a stored value must never reach the TAP stream. pg_prove's parser reads any output line
+-- that starts with "ok" as a test result, so echoing K4's stored 'ok|1|1|0' counted a 49th test and threw
+-- every later number out of sequence (CI run 41532350645 on f656c6da).
+CREATE FUNCTION tap._store272(k text, v text) RETURNS void
 LANGUAGE sql SECURITY DEFINER AS
-$m$ INSERT INTO tap.memo_272 VALUES (k, v) ON CONFLICT (k) DO UPDATE SET v = excluded.v RETURNING v $m$;
+$m$ INSERT INTO tap.memo_272 VALUES (k, v) ON CONFLICT (k) DO UPDATE SET v = excluded.v $m$;
 CREATE FUNCTION tap._fetch272(k text) RETURNS text
 LANGUAGE sql SECURITY DEFINER AS
 $m$ SELECT v FROM tap.memo_272 WHERE k = $1 $m$;
