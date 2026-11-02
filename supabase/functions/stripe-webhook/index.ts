@@ -1375,9 +1375,10 @@ serve(async (req: Request) => {
         // paymentId/transferId NULL, skipped the freeze below and ACKed, so the
         // transfer stayed payable during the dispute and the lost-dispute arm
         // (dispute.closed, `ourDispute.payment_id` / `.transfer_id` guards) had
-        // nothing to record or flag. transfers.payment_id is UNIQUE
-        // (003_payment_integrity.sql:70), so only an error can hide a present
-        // row. Retry before any freeze or upsert, exactly as the dispute.closed
+        // nothing to record or flag. payments.stripe_payment_intent_id and
+        // transfers.payment_id are both UNIQUE (000_baseline_schema.sql:988,
+        // 003_payment_integrity.sql:70), so maybeSingle never sees duplicates and
+        // only an error can hide a present row. Retry before any freeze or upsert, exactly as the dispute.closed
         // reconcile path does; a genuinely absent row keeps today's behaviour.
         const { data: payment, error: payLookupErr } = await supabase
           .from('payments')
@@ -1985,7 +1986,7 @@ serve(async (req: Request) => {
         // non-2xx (finish(), above), and this write is not a side path: it is
         // the only writer that turns stripe_onboarding_complete back to false
         // (create-connect-account only ever sets it true), which the listing
-        // INSERT guard (072_fix_listing_insert_guards.sql:22) and payout policy
+        // INSERT guard (038_listing_requires_verified_phone.sql:42) and payout policy
         // (_shared/payout-policy.ts:260) read. The organization arm above
         // retries the identical error for the same reason. The UPDATE is
         // idempotent, so redelivery is safe.
