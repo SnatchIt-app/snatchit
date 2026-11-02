@@ -126,6 +126,12 @@ export function etDayEnd(day: string): Date | null {
   return nextStart ? new Date(nextStart.getTime() - 1) : null;
 }
 
+/** The Eastern calendar date at an instant ("2026-11-02T04:59:59Z" → "2026-11-01"). */
+export function etToday(now: Date): string {
+  const p = etWall(now);
+  return `${p.year}-${p.month}-${p.day}`;
+}
+
 /** An instant → the Eastern wall clock for <input type="datetime-local"> ("2026-11-01T23:59"). */
 export function toDatetimeLocalEt(v: unknown): string {
   const d = parseDate(v);

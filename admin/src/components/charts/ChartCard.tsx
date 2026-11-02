@@ -22,7 +22,7 @@ export function ChartCard({
   footnote,
 }: {
   title: string;
-  /** Units, range and grain, e.g. "USD per day · Aug 16 – Sep 14 (UTC)". */
+  /** Units, range and grain, e.g. "USD per day · Aug 16 – Sep 14 (ET)". */
   description: ReactNode;
   /** The FigureMeta line for this chart. */
   meta?: ReactNode;

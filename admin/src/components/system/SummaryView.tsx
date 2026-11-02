@@ -15,6 +15,12 @@ function scalar(k: string, v: unknown): ReactNode {
   return <code className="font-mono text-[0.6875rem]">{JSON.stringify(v)}</code>;
 }
 
+/**
+ * The daily summary covers ONE Eastern calendar day (registry 200: [summary_date 00:00 ET, next 00:00 ET), 23 h,
+ * 24 h or 25 h). The server keeps the *_24h key names as the contract; the labels say what they count.
+ */
+const DAY_KEY_LABELS: Record<string, string | undefined> = { opened_24h: "Opened that day", resolved_24h: "Resolved that day" };
+
 function CountMap({ map }: { map: JsonRecord }) {
   const entries = Object.entries(map);
   if (entries.length === 0) return <span className="text-dim">none</span>;
@@ -45,7 +51,7 @@ export function SummaryView({ summary }: { summary: DailySummary }) {
   return (
     <div className="space-y-5 text-[0.8125rem]">
       <p className="text-[0.75rem] text-muted">
-        Summary for <span className="text-ink">{summary.summary_date ?? "—"}</span>, generated <DateTime value={summary.generated_at} /> · period <DateTime value={period.from} relative={false} /> → <DateTime value={period.to} relative={false} /> ·{" "}
+        Summary for <span className="text-ink">{summary.summary_date ?? "—"}</span> (one Eastern Time calendar day), generated <DateTime value={summary.generated_at} /> · period <DateTime value={period.from} relative={false} /> → <DateTime value={period.to} relative={false} /> ·{" "}
         <StatusBadge status={summary.delivery_state} label={summary.delivery_state === "portal_only" ? "portal only — no delivery channel configured" : summary.delivery_state ?? "—"} variant="muted" />
       </p>
 
@@ -53,7 +59,7 @@ export function SummaryView({ summary }: { summary: DailySummary }) {
         <h3 className="eyebrow mb-2 text-dim">Cases</h3>
         <KeyValue
           columns={3}
-          items={["opened_24h", "resolved_24h", "open_total", "unassigned", "overdue_due_at", "oldest_open"].map((k) => ({ key: k, value: scalar(k, cases[k]) }))}
+          items={["opened_24h", "resolved_24h", "open_total", "unassigned", "overdue_due_at", "oldest_open"].map((k) => ({ key: k, label: DAY_KEY_LABELS[k], value: scalar(k, cases[k]) }))}
         />
         <div className="mt-2 grid gap-3 sm:grid-cols-2">
           <div>
@@ -72,7 +78,7 @@ export function SummaryView({ summary }: { summary: DailySummary }) {
       </section>
 
       <section>
-        <h3 className="eyebrow mb-2 text-dim">Money — last 24 h ({str(money.currency) ?? "USD"}, {str(money.basis) ?? "basis not stated"})</h3>
+        <h3 className="eyebrow mb-2 text-dim">Money — the summary day ({str(money.currency) ?? "USD"}, {str(money.basis) ?? "basis not stated"} calendar day)</h3>
         <KeyValue
           columns={3}
           items={[
@@ -108,9 +114,9 @@ export function SummaryView({ summary }: { summary: DailySummary }) {
         <KeyValue
           columns={3}
           items={[
-            { key: "succeeded", label: "Runs succeeded (24 h)", value: scalar("succeeded", runs.succeeded) },
-            { key: "failed", label: "Runs failed (24 h)", value: scalar("failed", runs.failed) },
-            { key: "skipped", label: "Runs skipped (24 h)", value: scalar("skipped", runs.skipped) },
+            { key: "succeeded", label: "Runs succeeded (that day)", value: scalar("succeeded", runs.succeeded) },
+            { key: "failed", label: "Runs failed (that day)", value: scalar("failed", runs.failed) },
+            { key: "skipped", label: "Runs skipped (that day)", value: scalar("skipped", runs.skipped) },
             { key: "last_detector_success_at", value: scalar("last_detector_success_at", jobs.last_detector_success_at) },
           ]}
         />
