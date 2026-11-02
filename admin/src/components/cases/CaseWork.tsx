@@ -289,8 +289,8 @@ function RefundControls({ c, detail, me, envelope, refund, id }: { c: OpsCase; d
                 ))}
             </select>
             <p className="mt-1 text-[0.6875rem] text-dim">
-              Classifying assigns the case to whoever is chosen here, whatever the classification; it does not change the status. B and C always raise an obligation, and A
-              does when the payout was already released. The database refuses a classification that would leave an obligation with nobody assigned.
+              Classifying assigns the case to the person chosen here. It does not change the status. B and C always raise an obligation. A raises one only when the
+              payout was already released. The server refuses a classification that would leave an obligation with nobody assigned.
             </p>
           </ConfirmForm>
         </OutcomeHost>
@@ -380,7 +380,7 @@ export function CaseNotes({ c, detail, meId, envelope, idPrefix, limit }: { c: O
             <label htmlFor={`${idPrefix}-note`} className="eyebrow block text-dim">
               New note
             </label>
-            <textarea id={`${idPrefix}-note`} name="param.body" required rows={3} maxLength={4000} className="field mt-1" placeholder="Append-only; visible to all operators." />
+            <textarea id={`${idPrefix}-note`} name="param.body" required rows={3} maxLength={4000} className="field mt-1" placeholder="Notes cannot be edited or deleted. All operators can see them." />
           </ConfirmForm>
         </OutcomeHost>
       </div>

@@ -51,7 +51,7 @@ export function MoneySettingsPanel({ list, meId }: { list: MoneyConfigList; meId
       <div className="border-t border-line-neutral pt-4">
         <h3 className="eyebrow text-dim">Request a change</h3>
         <p className="mt-1 text-[12px] text-muted">
-          A loosening is parked for a different founder to approve; a tightening applies at once. The database decides which, and records you as the requester.
+          A loosening waits for a different founder to approve. A tightening applies at once. The server decides which it is and records you as the requester.
         </p>
         <div className="mt-3 max-w-xl">
           {list.money_keys.length === 0 ? (
@@ -131,7 +131,7 @@ function MoneyRequestCard({ request: r }: { request: MoneyConfigRequest }) {
         ]}
       />
       {r.key_changed_since_request === true ? (
-        <p className="mt-2 text-[12px] text-warning">The key changed after this request was made. Approving writes the proposed value over the live one; deny and re-request if that is not intended.</p>
+        <p className="mt-2 text-[12px] text-warning">The key changed after this request was made. Approving writes the proposed value over the live value. If you do not want that, deny it and request again.</p>
       ) : null}
       <div className="mt-3">
         {r.requested_by_me ? (

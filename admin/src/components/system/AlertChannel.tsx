@@ -18,7 +18,7 @@ export type DeliverySwitch = { state: "true" | "false"; updatedAt: string | null
  * a default is not a record of what the database holds.
  */
 export function deliverySwitch(read: SettingsRead): DeliverySwitch {
-  if (read.status === "not_admin") return { state: "unknown", reason: "ops.settings is readable by platform_admin only." };
+  if (read.status === "not_admin") return { state: "unknown", reason: "only founders can read the console settings." };
   if (read.status === "failed") return { state: "unknown", reason: "ops.settings could not be read." };
   const row = read.settings.find((s) => s.key === "alert_delivery_enabled");
   if (!row) return { state: "unknown", reason: "ops.settings returned no alert_delivery_enabled row." };
@@ -76,8 +76,8 @@ export function AlertDeliveryChannel({ settings }: { settings: SettingsRead }) {
             label: "Schedule",
             value: (
               <>
-                <strong className="font-semibold text-warning">not shown by the server (owner/A to verify)</strong> — ops.job_health lists each pg_cron job&apos;s name, schedule and
-                active flag, not the command it runs (Cron jobs, above), and no other console read covers ops.dispatch_alerts. So this page cannot say whether anything calls it
+                <strong className="font-semibold text-warning">not shown by the server (the owner must check)</strong> — Cron jobs (above) shows each job&apos;s name, schedule and
+                on/off state, but not what it runs. No other console page shows the alert sender. So this page cannot say whether anything sends alerts
                 on a timer.
               </>
             ),

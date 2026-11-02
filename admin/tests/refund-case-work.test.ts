@@ -106,7 +106,7 @@ describe("a refund-resolution case offers 144's controls, and only where they ca
       expect(chosen[0], current).toMatch(/value=""/);
       expect(f).toContain(`Leave as is (${current})`);
       expect(f).toContain("Assign the case to");
-      expect(f).toContain("Classifying assigns the case to whoever is chosen here, whatever the classification");
+      expect(f).toContain("Classifying assigns the case to the person chosen here. It does not change the status.");
       expect(f).not.toContain("Owner, if this leaves money owed");
     }
   });

@@ -159,7 +159,9 @@ describe("E-L1 — the order page's Refund note describes the record as it stand
   it("no longer says 'Until migration 150 is live'; names what 150 keeps and what this page shows", () => {
     const s = src("app/(console)/orders/[paymentId]/page.tsx");
     expect(s).not.toContain("Until migration 150");
-    expect(s).toContain("payment_refund_state");
+    // 150 keeps each refund's own status, and a refund once counted stays counted: said in plain words
+    expect(s).toContain("a refund");
+    expect(s).toContain("that fails later still counts here");
     expect(s).toContain("confirm the outcome in Stripe");
   });
 });

@@ -181,7 +181,7 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
         </div>
 
         <div className="space-y-6">
-          <Panel eyebrow="Enforced by can_create_listing()" title="Listing creation">
+          <Panel eyebrow="Enforced by the server" title="Listing creation">
             <div className="mb-3 flex flex-wrap items-center gap-2 text-[0.8125rem]">
               <StatusBadge status={u.is_listing_blocked ? "held" : "active"} label={u.is_listing_blocked ? "blocked" : "allowed"} />
               {u.is_listing_blocked && risk ? (
@@ -218,14 +218,14 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
                 label="Block listing creation"
                 danger
               >
-                <p className="text-[0.75rem] text-muted">Sets seller_risk_scores.is_listing_blocked; the apps call can_create_listing() before creating a listing. Existing listings and orders are untouched. To stop bidding and buying as well, use Account suspension below.</p>
+                <p className="text-[0.75rem] text-muted">The server refuses new listings from this person. Existing listings and orders do not change. Account suspension below would also stop bidding and buying, but it needs registry 152.</p>
               </ConfirmForm>
             ) : (
               <Alert state="info" title="Your role cannot block listing creation." compact />
             )}
           </Panel>
 
-          <Panel eyebrow="Enforced by the database (migration 152)" title="Account suspension">
+          <Panel eyebrow="Needs registry 152" title="Account suspension">
             <div className="mb-3 flex flex-wrap items-center gap-2 text-[0.8125rem]">
               <StatusBadge status={activeSuspension ? "held" : "active"} label={activeSuspension ? "suspended" : "not suspended"} />
               {activeSuspension ? (
@@ -264,7 +264,7 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
                 label="Suspend account"
                 danger
               >
-                <p className="text-[0.75rem] text-muted">Stops new bids, Buy Now and listings by this person, and new bids and Buy Now on their listings. Orders that already exist, refunds, payouts and reports continue, and they can still sign in. Their existing listings stay visible; their earlier bids stand.</p>
+                <p className="text-[0.75rem] text-muted">Until this server has registry 152, it refuses a suspension as not supported, and nothing changes for this person. The refused request is still recorded under your name. With registry 152, a suspension stops new bids, Buy Now and listings by this person, and new bids and Buy Now on their listings. Existing orders, refunds, payouts and reports continue, and the person can still sign in. Their listings stay visible, and their earlier bids stand.</p>
               </ConfirmForm>
             ) : (
               <Alert state="info" title="Only founders and risk operators can suspend an account." compact />

@@ -205,7 +205,7 @@ export default async function OrderPage({ params }: { params: Promise<{ paymentI
           <Panel eyebrow="Seller obligation" title="Transfer">
             {!t ? (
               <Alert state={p.status === "succeeded" ? "warning" : "info"} title={p.status === "succeeded" ? "Captured payment without a transfer row." : "No transfer obligation (payment not captured)."} compact>
-                {p.status === "succeeded" ? "This is a settlement gap (audit F02). Escalate with the payment id — do not mark anything sold by hand." : null}
+                {p.status === "succeeded" ? "This is a settlement gap. Escalate with the payment id. Do not mark anything sold by hand." : null}
               </Alert>
             ) : (
               <>
@@ -314,12 +314,10 @@ export default async function OrderPage({ params }: { params: Promise<{ paymentI
               ]}
             />
             <p className="mt-3 text-[0.6875rem] text-dim">
-              “Refund recorded” is set by the Stripe webhook or by the expiry job when a refund is recorded — never by the console. It records that a refund
-              was CREATED, not that it settled: the handler records every refund on the charge and the status flips once the recorded amount reaches the
-              total. A card refund can still fail up to ~30 days later. Migration 150 keeps each Stripe refund&apos;s own status in payment_refund_state, and a
-              refund once counted toward the payment stays counted even if it later fails; this page shows only the payment status, “refund recorded at”, the
-              Stripe refund id and the console&apos;s own attempts below, none of which says that a refund settled. Treat them as “a refund exists at Stripe”,
-              and confirm the outcome in Stripe before telling anyone their money is back.
+              “Refund recorded” is set by the Stripe webhook or by the expiry job when a refund is recorded — never by the console. It means refunds
+              were CREATED at Stripe for the full total, not that the money arrived. A card refund can still fail up to ~30 days later, and a refund
+              that fails later still counts here. None of the refund facts on this page shows that a refund settled. Treat them as “a refund exists at Stripe”, and
+              confirm the outcome in Stripe before telling anyone their money is back.
             </p>
             {d.refund.refund_actions.length ? (
               <div className="mt-3">

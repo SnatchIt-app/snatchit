@@ -145,7 +145,7 @@ export default async function TicketOrdersPage({ searchParams }: { searchParams:
       ) : null}
 
       {open && refundKey ? (
-        <Panel eyebrow={`Order ${open.slice(0, 8)}`} title="Record a manual refund" description="Voids the order's voidable tickets and writes the refund. It does not move money.">
+        <Panel eyebrow={`Order ${open.slice(0, 8)}`} title="Record a manual refund" description="A refund of the whole order total voids the order's voidable tickets. A smaller refund records money only. Recording a refund does not move money.">
           {openRow ? (
             <PrimaryRefundForm orderId={open} maxMinor={openRow.paymentTotalMinor ?? openRow.orderTotalMinor ?? null} commandKey={refundKey} />
           ) : (
@@ -155,7 +155,7 @@ export default async function TicketOrdersPage({ searchParams }: { searchParams:
       ) : open && !mayRecordRefund ? (
         // Reached by a typed or shared ?refund= link. Say why there is no form, rather than vanish.
         <Panel eyebrow={`Order ${open.slice(0, 8)}`} title="Record a manual refund">
-          <p className="text-sm text-muted">Recording a refund needs platform_admin or platform_support. Your role can read this page but cannot record a refund, and the server would refuse it.</p>
+          <p className="text-sm text-muted">Only founders and support operators can record a refund. Your role can read this page, but the server would refuse a refund from you.</p>
         </Panel>
       ) : null}
 

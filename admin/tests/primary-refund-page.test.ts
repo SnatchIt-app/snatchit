@@ -139,7 +139,7 @@ describe("the refund action is offered exactly to the roles the server accepts",
       expect(links(await render(role, null))).toBe(2);
       const opened = await render(role, OPEN);
       expect(opened).toContain('name="confirm"');
-      expect(opened).not.toContain("needs platform_admin or platform_support");
+      expect(opened).not.toContain("Only founders and support operators can record a refund.");
     });
   }
 
@@ -148,6 +148,6 @@ describe("the refund action is offered exactly to the roles the server accepts",
     const opened = await render("platform_risk", OPEN);
     expect(opened).not.toContain('name="confirm"');
     // a typed or shared ?refund= link explains itself rather than vanishing
-    expect(opened).toContain("needs platform_admin or platform_support");
+    expect(opened).toContain("Only founders and support operators can record a refund.");
   });
 });

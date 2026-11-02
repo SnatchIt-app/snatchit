@@ -245,7 +245,7 @@ export function OutcomeText({ outcome, actionType }: { outcome: ActionOutcome; a
       );
     case "awaiting_approval":
       return (
-        <Alert state="warning" title="Awaiting a second operator's approval." compact>
+        <Alert state="warning" title="Awaiting a second founder's approval." compact>
           Nothing has changed yet.{" "}
           {outcome.action_id ? (
             <a className="link" href={`/actions/${outcome.action_id}`}>

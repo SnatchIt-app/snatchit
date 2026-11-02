@@ -29,8 +29,8 @@ export function ResumeRefundForm({ actionId, state, refundStatus }: { actionId: 
     <form action={formAction} className="space-y-3">
       <input type="hidden" name="action_id" value={actionId} />
       <p className="text-[0.75rem] text-muted">
-        Current state: <StatusBadge status={state} label={refundStateLabel(state, refundStatus)} />. The executor re-checks the enabled flag, the console pause, the approval and its hash, takes a short lease on the action, looks up any existing Stripe refund under idempotency key{" "}
-        <code className="font-mono">ops_action_{actionId.slice(0, 8)}…</code>, and records the authoritative outcome. Safe to call more than once.
+        Current state: <StatusBadge status={state} label={refundStateLabel(state, refundStatus)} />. First the executor checks again: the refund switch, the console pause, and the approval and its terms. It locks the action for a short time. It looks up any Stripe refund made with idempotency key{" "}
+        <code className="font-mono">ops_action_{actionId.slice(0, 8)}…</code>, then records the outcome. Safe to press more than once.
       </p>
       <Submit />
       {result.submitted ? (
