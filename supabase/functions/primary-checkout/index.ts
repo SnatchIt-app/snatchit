@@ -840,20 +840,16 @@ serve(async (req: Request) => {
     // Until then this fails CLOSED. Minting a PaymentIntent with an absent or
     // guessed `org_id` would write a metadata contract the webhook cannot
     // dispatch on and would attribute money to no organization.
-    const orgId = order.org_id;
-    if (typeof orgId !== 'string' || !UUID_RE.test(orgId)) {
-      logStage('org-id-missing', { order_id: orderId });
-      await captureException(
-        'primary-checkout',
-        new Error('create_primary_checkout returned no org_id — slice 30 must add it to the success return (E2-RT-A-6)'),
-        { order_id: orderId, activation_blocker: true },
-      );
-      return json(
-        { error: 'Ticket sales are not available yet for this event.', code: 'org_id_unavailable' },
-        503,
-        { ...H, 'Retry-After': '300' },
-      );
-    }
+    //
+    // THE GUARD ITSELF SITS AFTER THE §11 REPLAY BRANCH, NOT HERE
+    // (primary-checkout-1). Both `idempotency_replay` returns omit org_id on
+    // purpose (20261027031000:190-191 and :496-497, reasoned at :506-514), so a
+    // guard at this point answered EVERY replay — a double-tap, a retry, the
+    // loser of a same-key race, a retry after payment — 503 org_id_unavailable
+    // with a false activation-blocker alert, and left §11 unreachable. The
+    // client's only way out was a NEW command_key: a second order and a second
+    // PaymentIntent on the same holds. What the guard protects is the fresh
+    // mint's `metadata[org_id]`, so it now heads the fresh path (§12).
 
     // ── 9b. RULING A8 — why there is NO edge-side eligibility check ────────
     //
@@ -1011,6 +1007,27 @@ serve(async (req: Request) => {
         },
         200,
         H,
+      );
+    }
+
+    // ── 9 (the guard) — org_id on the FRESH path only. See the §9 note. ────
+    // Every replay has returned above, so this runs only for a `status:'ok'`
+    // return, the one shape that carries org_id (20261027031000:515-519). It
+    // still fails CLOSED before any quote or PaymentIntent work. The one
+    // ordering consequence: §10's Stripe Customer + ephemeral key now precede
+    // it on this path; both are per-buyer, idempotent, and move no money.
+    const orgId = order.org_id;
+    if (typeof orgId !== 'string' || !UUID_RE.test(orgId)) {
+      logStage('org-id-missing', { order_id: orderId });
+      await captureException(
+        'primary-checkout',
+        new Error('create_primary_checkout returned no org_id — slice 30 must add it to the success return (E2-RT-A-6)'),
+        { order_id: orderId, activation_blocker: true },
+      );
+      return json(
+        { error: 'Ticket sales are not available yet for this event.', code: 'org_id_unavailable' },
+        503,
+        { ...H, 'Retry-After': '300' },
       );
     }
 
@@ -1377,6 +1394,13 @@ async function recoverReplayQuote(
       .eq('mode', PAYMENTS_MODE_NATIVE_PRIMARY)
       .eq('amount', faceMinor)
       .in('status', ['pending', 'processing', 'succeeded'])
+      // NEWEST FIRST, BEFORE THE CAP (primary-checkout-4a). `succeeded` rows
+      // accumulate for good, so a repeat buyer at one price point (a weekly
+      // $25 GA ticket) can hold 10+ historic matches; with no ORDER BY the cap
+      // could return only those and leave this order's row out, answering a
+      // live PI 409 quote_unavailable. A replay is for a recent attempt, so
+      // its row is among the newest.
+      .order('created_at', { ascending: false })
       // Bounded: this drives one Stripe GET per candidate. A buyer with more
       // than a handful of concurrent same-priced native orders is pathological.
       .limit(10);
@@ -1396,7 +1420,17 @@ async function recoverReplayQuote(
   for (const row of candidates) {
     if (!row.stripe_payment_intent_id) continue;
     const probe = await stripeFetchRaw(`/payment_intents/${row.stripe_payment_intent_id}`);
-    if (!probe.ok) continue;   // a PI we cannot read cannot confirm anything
+    // 404: Stripe has no such PI, so it cannot confirm anything — skip it.
+    // ANY OTHER failure (429, 5xx, auth) means "could not look", not "not
+    // ours" (primary-checkout-4b). Skipping it would turn a transient Stripe
+    // fault into `none` → 409 quote_unavailable, which sends the client to a
+    // NEW command_key: a second order and a second PI on the same holds.
+    // `error` → 503 replay_recovery_failed + Retry-After, and the retry with
+    // the SAME key finds the same PI.
+    if (probe.status === 404) continue;
+    if (!probe.ok) {
+      return { kind: 'error', detail: `stripe GET payment_intent ${row.stripe_payment_intent_id} answered ${probe.status}` };
+    }
     const pi = probe.data as {
       id?: string; status?: string; client_secret?: string; metadata?: Record<string, string>;
     };
