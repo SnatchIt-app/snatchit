@@ -1,5 +1,6 @@
 import { formatCents } from '@/src/lib/money';
 import { rowWhenLabel } from '@/src/lib/listing/feedRowState';
+import { easternParts, easternZoneLabel } from '@/src/lib/time/eastern';
 /**
  * src/lib/transfer/transferState.ts — the shared, tested core of the transfer
  * flow (buyer receive + seller send).
@@ -377,28 +378,33 @@ export function refundLine(p: PaymentRefundFacts | null | undefined): string | n
   return recorded ? 'Refund recorded' : null;
 }
 
-/** A server timestamp in the shared row format, local time; null when unparseable. */
-function localDateTime(iso: string): string | null {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
+/**
+ * A server timestamp as New York's wall clock in the shared row format, labelled EST / EDT — "Mon 2 Nov · 21:14
+ * EST" (owner, 2026-11-02: Snatch It operates in Eastern Time; src/lib/time/eastern.ts). Never the device zone: a
+ * buyer's or seller's phone zone must not move a money deadline. Display only; null when unparseable.
+ */
+function easternDateTime(iso: string): string | null {
+  const ms = new Date(iso).getTime();
+  const p = easternParts(ms);
+  if (!p) return null;
   const pad = (n: number) => String(n).padStart(2, '0');
-  return rowWhenLabel(
-    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
-    `${pad(d.getHours())}:${pad(d.getMinutes())}`,
-  );
+  const when = rowWhenLabel(`${p.year}-${pad(p.month)}-${pad(p.day)}`, `${pad(p.hour)}:${pad(p.minute)}`);
+  if (!when) return null;
+  const zone = easternZoneLabel(ms);
+  return zone ? `${when} ${zone}` : when;
 }
 
 /** The buyer's review window, from the server's auto_release_at — or nothing. Never a payout claim. */
 export function buyerReviewDeadlineLine(autoReleaseAt: string | null | undefined): string | null {
   if (!autoReleaseAt) return null;
-  const when = localDateTime(autoReleaseAt);
+  const when = easternDateTime(autoReleaseAt);
   return when ? `Confirm you received the tickets, or report a problem, before ${when}.` : null;
 }
 
 /** The seller's line names the release DECISION time (039 decides at auto_release_at) — not a payout. */
 export function sellerReleaseLine(autoReleaseAt: string | null | undefined): string | null {
   if (!autoReleaseAt) return null;
-  const when = localDateTime(autoReleaseAt);
+  const when = easternDateTime(autoReleaseAt);
   return when ? `Release decision at ${when}.` : null;
 }
 
@@ -409,6 +415,6 @@ export function sellerReleaseLine(autoReleaseAt: string | null | undefined): str
  */
 export function sellerHoldLine(reviewStatus: string | null | undefined, holdUntil: string | null | undefined): string | null {
   if (reviewStatus !== 'held' || !holdUntil) return null;
-  const when = localDateTime(holdUntil);
+  const when = easternDateTime(holdUntil);
   return when ? `Payout held until ${when}.` : null;
 }
