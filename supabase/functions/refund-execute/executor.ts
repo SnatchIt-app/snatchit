@@ -662,9 +662,10 @@ const PARK_REASON_RE = /^[a-z][a-z0-9_]{0,63}$/;
  *     unclassified failure (e.g. context_read_failed) may be a DB blip;
  *   • only refused / stripe_error / state_sync_deferred, never noop_replay or a
  *     recorded state (a converged race is not a fault);
- *   • never `executor_hold`: the row is already held, and a manual_record row
- *     has no claim row, so the verb would raise never_claimed and page for a
- *     row 199 says must not page;
+ *   • never `executor_hold`: the row is already held, so parking it again adds
+ *     nothing. (In the sweep the claim already wrote its execute_claim audit, so
+ *     the verb would pass its checks, see refund_executor_hold and answer
+ *     noop_replay, 199 §3.6. Skipping it saves a round trip; it is not to dodge an error.)
  *   • only the sweep: `action:execute` has no claim attempt and no
  *     `refund.execute:<id>` key, which the verb refuses (§3.6).
  */

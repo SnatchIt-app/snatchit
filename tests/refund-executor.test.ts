@@ -1130,7 +1130,7 @@ describe('park planning — only a non-retryable sweep outcome is parked (199 §
     }
   });
 
-  it('never parks an executor_hold refusal: the row is already held (a manual row has no claim, so the verb would raise never_claimed)', () => {
+  it('never parks an executor_hold refusal: the row is already held, so a park would only be a noop_replay', () => {
     expect(planPark(row, { outcome: 'refused', code: 'executor_hold', retryable: false })).toBeNull();
   });
 
