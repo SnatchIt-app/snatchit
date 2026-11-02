@@ -1790,6 +1790,10 @@ jobs:
       # entrypoint step below and listed explicitly here so a module-level type
       # error is named on its own. The four native EDGES below stay advisory
       # until the PR that first deploys each of them.
+      # 2026-11-02 (A): connect-onboarding has been live in production since
+      # 2026-10-30 (list_edge_functions: ACTIVE v1) but stayed advisory, which hid
+      # two Deno type errors in a deployed function. It moves to `deployed`
+      # (blocking) here, together with the annotation-only fix for those errors.
       - name: deno check — shared pure modules (blocking)
         run: |
           deno check \
@@ -1808,9 +1812,9 @@ jobs:
       - name: deno check — deployed + production-aligned entrypoints (blocking)
         run: |
           set -euo pipefail
-          deployed="auto-finalize-auctions confirm-and-release confirm-payment create-connect-account create-payment-intent delete-account enforce-transfer-expiry notify-report notify-transfer send-push stripe-webhook"
+          deployed="auto-finalize-auctions confirm-and-release confirm-payment connect-onboarding create-connect-account create-payment-intent delete-account enforce-transfer-expiry notify-report notify-transfer send-push stripe-webhook"
           aligned="credential-sign door-manifest door-session ops-refund-execute"
-          native="connect-onboarding payout-execute primary-checkout primary-lapse-canceller refund-execute"
+          native="payout-execute primary-checkout primary-lapse-canceller refund-execute"
           for d in supabase/functions/*/; do
             n=$(basename "$d"); [ "$n" = "_shared" ] && continue
             case " $deployed $aligned $native " in *" $n "*) ;; *) echo "::error::supabase/functions/$n is in none of the deployed/aligned/native deno-check lists — add it deliberately."; exit 1;; esac
@@ -1818,13 +1822,13 @@ jobs:
           files=""; for n in $deployed $aligned; do files="$files supabase/functions/$n/index.ts"; done
           # shellcheck disable=SC2086
           deno check $files
-          echo "deno check OK: $(echo $deployed $aligned | wc -w | tr -d ' ') entrypoints (11 deployed + 4 production-aligned)"
+          echo "deno check OK: $(echo $deployed $aligned | wc -w | tr -d ' ') entrypoints (12 deployed + 4 production-aligned)"
 
       - name: deno check — never-deployed native arm (advisory until first deploy)
         continue-on-error: true
         run: |
           set -uo pipefail
-          native="connect-onboarding payout-execute primary-checkout primary-lapse-canceller refund-execute"
+          native="payout-execute primary-checkout primary-lapse-canceller refund-execute"
           files=""; for n in $native; do [ -f "supabase/functions/$n/index.ts" ] && files="$files supabase/functions/$n/index.ts"; done
           # shellcheck disable=SC2086
           if deno check $files; then echo "native arm type-checks clean"; else
