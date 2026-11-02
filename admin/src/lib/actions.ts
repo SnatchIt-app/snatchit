@@ -141,7 +141,8 @@ export async function submitActionForm(_prev: ActionFormState, formData: FormDat
     // production body of ops.action_dispatch, 2026-11-02). The case that lands here: a tab rendered by a newer
     // release (e.g. a `param.due_at:et` field) posting to this server after a rollback.
     if (!field) return forSubject({ submitted: true, invalid: `This form is out of date (it sent ${k}, which this console does not read). Reload the page, then try again. Nothing was changed.` });
-    if (typeof v !== "string") continue;
+    // Same rule for a value that is not text (a file input under a param.* name): refuse, never drop.
+    if (typeof v !== "string") return forSubject({ submitted: true, invalid: `This form sent a file in ${k}, which this console does not accept. Nothing was changed.` });
     const coerced = coerceParam(field.type, v);
     if (!coerced.ok) return forSubject({ submitted: true, invalid: `${field.key}: ${coerced.error}` });
     if (coerced.value === undefined) continue; // `:optional` left empty: no change, so no key at all

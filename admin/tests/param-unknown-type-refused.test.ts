@@ -60,6 +60,15 @@ describe("a param.* field with a type this console does not read", () => {
     }
   });
 
+  it("a param.* field that carries a file, not text, is refused too (never dropped)", async () => {
+    const fd = dueForm({});
+    fd.set("param.due_at", new File(["2026-11-01T23:59"], "due.txt", { type: "text/plain" }));
+    const state = await submitActionForm({}, fd);
+    expect(calls).toHaveLength(0);
+    expect(state.invalid).toContain("This form sent a file in param.due_at");
+    expect(state.invalid).toContain("Nothing was changed.");
+  });
+
   it("NEGATIVE CONTROL — a field this console reads goes through with its value", async () => {
     const state = await submitActionForm({}, dueForm({ "param.due_at": "2026-11-01T23:59" }));
     expect(state.invalid).toBeUndefined();
