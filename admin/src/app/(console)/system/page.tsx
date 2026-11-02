@@ -39,7 +39,9 @@ import { SummaryView } from "@/components/system/SummaryView";
 import { AlertList } from "@/components/system/AlertList";
 import { AlertDeliveryChannel, type SettingsRead } from "@/components/system/AlertChannel";
 import { MoneySettingsPanel } from "@/components/system/MoneySettingsPanel";
+import { OperationalSettingsForm } from "@/components/system/OperationalSettingsForm";
 import { toMoneyConfigList } from "@/lib/money-config";
+import { toOperationalSettings } from "@/lib/operational-config";
 import { ReportFreshness } from "@/components/shell/Freshness";
 
 export const metadata: Metadata = { title: "System" };
@@ -76,11 +78,12 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
   if (stateF) actionFilters.state = stateF;
   if (typeF) actionFilters.action_type = typeF;
 
-  const [healthRes, approvalsRes, settingsRes, moneyRes, auditRes, actionsRes, summaryRes] = await Promise.all([
+  const [healthRes, approvalsRes, settingsRes, moneyRes, operationalRes, auditRes, actionsRes, summaryRes] = await Promise.all([
     callOps<unknown>("job_health"),
     callOps<unknown>("list_approvals", { p_state: "pending" }),
     isAdmin ? callOps<unknown>("settings") : Promise.resolve(null),
     isAdmin ? callOps<unknown>("list_config_approvals", { p_state: "all" }) : Promise.resolve(null),
+    isAdmin ? callOps<unknown>("list_operational_config") : Promise.resolve(null),
     callOps<unknown>("audit_log", { p_cursor: first(sp.audit_cursor) ?? null, p_limit: 25 }),
     callOps<unknown>("list_actions", { p_filters: actionFilters, p_cursor: first(sp.actions_cursor) ?? null, p_limit: limitOf(sp, 25) }),
     callOps<unknown>("latest_summary"),
@@ -93,6 +96,7 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
   const settingsRead: SettingsRead = !isAdmin ? { status: "not_admin" } : settingsRes && settingsRes.ok ? { status: "ok", settings } : { status: "failed" };
   const money = moneyRes && moneyRes.ok ? toMoneyConfigList(moneyRes.data) : null;
   const moneyPending = money ? money.items.filter((r) => r.state === "pending").length : 0;
+  const operational = operationalRes && operationalRes.ok ? toOperationalSettings(operationalRes.data) : null;
   const auditPage = auditRes.ok ? toListPage(auditRes.data) : null;
   const audit: AuditRow[] = auditPage ? auditPage.items.map(toAuditRow).filter((a): a is AuditRow => a !== null) : [];
   const actionsPage = actionsRes.ok ? toListPage(actionsRes.data) : null;
@@ -132,6 +136,7 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
           // which production's `approvals.length` could not distinguish. The money link is production's.
           ["#approvals", `Approvals (${approvalsRes.ok ? approvals.length : "—"})`],
           ["#money", money ? `Money settings (${moneyPending})` : "Money settings"],
+          ["#operational", "Operational settings"],
           ["#settings", "Settings"],
           ["#actions", "Actions"],
           ["#audit", "Audit log"],
@@ -225,9 +230,9 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
           <p className="mt-3 text-[0.6875rem] text-dim">Approval is bound to the exact action terms; if anything about the request changes it is voided. You cannot approve your own request. Approvals expire after the configured TTL.</p>
         </Panel>
 
-        {/* 196's Money settings panel, carried from production (dddc8e92) with NO behaviour change:
-            the same ops reads, the same guards, the same copy. Only its position moved, into the v2
-            /system layout above the console switches. */}
+        {/* 196's Money settings panel, carried from production (dddc8e92) with 196's ops reads,
+            guards and copy unchanged. 197 adds one read-only live-values overview below the decided
+            list; its position remains in the v2 /system layout above the console switches. */}
         <Panel eyebrow={money ? `${moneyPending} pending` : "platform_config"} title="Money settings (second founder)">
           <div id="money" />
           {!isAdmin ? (
@@ -238,6 +243,28 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
             <MoneySettingsPanel list={money} meId={me.id} />
           ) : null}
           <p className="mt-3 text-[11px] text-dim">Money keys (refund, payout, fee, authn, …) change through the kernel&apos;s dual-control flow: you cannot approve your own request, approving needs a fresh aal2 session, and requests expire after 72 hours.</p>
+        </Panel>
+
+        <Panel eyebrow="platform_config · single founder" title="Operational settings">
+          <div id="operational" />
+          {!isAdmin ? (
+            <Alert state="info" title="Operational settings are visible to platform_admin only." compact />
+          ) : operationalRes && !operationalRes.ok ? (
+            operationalRes.kind === "error" && operationalRes.unavailable ? (
+              <Alert state="info" title="Needs registry 197 — operational settings are not available on this server." compact>
+                The server could not provide <code>ops.list_operational_config</code> (the 197 schema/function is unavailable). No value was read or changed, and no write control is shown.
+              </Alert>
+            ) : (
+              <OpsFailureAlert failure={operationalRes} fn="list_operational_config" retryHref="/system#operational" />
+            )
+          ) : operationalRes && operationalRes.ok && operational === null ? (
+            <Alert state="failed" title="Unrecognised payload from ops.list_operational_config" compact>
+              The read did not return an items array. No write control is shown; reload before changing anything.
+            </Alert>
+          ) : operational ? (
+            <OperationalSettingsForm settings={operational} commandKey={newIdempotencyKey()} />
+          ) : null}
+          <p className="mt-3 text-[11px] text-dim">Hold max, hold lifetime and the native issuance / scanning flags are single-founder settings: one platform_admin changes them at once (aal2 on this path). Money keys stay in Money settings, where a second founder decides.</p>
         </Panel>
 
         <Panel eyebrow="Console switches" title="Settings">

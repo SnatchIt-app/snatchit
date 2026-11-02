@@ -7,6 +7,7 @@ import { firstText, isRecord, parseApprovalDecision, str, toActionOutcome, type 
 import { coerceParam, parseParamField } from "@/lib/form-params";
 import type { OpsFailure } from "@/lib/ops-errors";
 import { buildConfigRequestArgs, buildDecisionArgs } from "@/lib/money-config";
+import { buildOperationalArgs } from "@/lib/operational-config";
 
 export type ExecuteActionInput = {
   idempotencyKey: string;
@@ -180,6 +181,8 @@ export async function submitActionForm(_prev: ActionFormState, formData: FormDat
 
 export type MoneyFormState = {
   submitted?: boolean;
+  /** The operational key this answer belongs to; the form hides an answer for another key. */
+  subjectKey?: string;
   /** The server's status: parked | ok | noop_replay (request); approved | denied | noop_replay (decision). */
   status?: string;
   requestId?: string;
@@ -233,6 +236,41 @@ export async function submitMoneyConfigDecision(_prev: MoneyFormState, formData:
   if (!reply) return { submitted: true, failure: { ok: false, kind: "error", message: "Unrecognised response from approve_refund_request" } };
   revalidatePath("/system");
   return { submitted: true, ...reply };
+}
+
+// ---------------------------------------------------------------------------
+// Operational settings (registry 197): one platform_admin, applied at once
+// ---------------------------------------------------------------------------
+
+/**
+ * `ops.set_operational_config(p_key,p_value,p_reason_code,p_command_key)` is
+ * its own RPC, NOT an ops.action. A dedicated action (the 196 pattern) keeps
+ * the fixed action-type census untouched. The database still enforces
+ * platform_admin + aal2 + the four-key allow-list.
+ */
+export async function submitOperationalConfig(_prev: MoneyFormState, formData: FormData): Promise<MoneyFormState> {
+  const submittedKey = typeof formData.get("key") === "string" ? String(formData.get("key")) : "";
+  const built = buildOperationalArgs({
+    key: formData.get("key"),
+    value: formData.get("value"),
+    reason: formData.get("reason"),
+    confirm: formData.get("confirm"),
+    commandKey: formData.get(IDEMPOTENCY_FIELD),
+  });
+  if (!built.ok) return { submitted: true, invalid: built.invalid, subjectKey: submittedKey };
+  const res = await callOps<unknown>("set_operational_config", built.args);
+  if (!res.ok) {
+    // The direct path has no command-key dedupe; a concurrent write can collide
+    // on (key, version). Say so as a validation outcome, not a raw 500-style error.
+    if (res.kind === "error" && res.code === "23505") {
+      return { submitted: true, invalid: "A concurrent or duplicate write was refused — reload and confirm the live value before retrying.", subjectKey: submittedKey };
+    }
+    return { submitted: true, failure: res, subjectKey: submittedKey };
+  }
+  const reply = moneyReply(res.data);
+  if (!reply) return { submitted: true, failure: { ok: false, kind: "error", message: "Unrecognised response from set_operational_config" }, subjectKey: submittedKey };
+  revalidatePath("/system");
+  return { submitted: true, ...reply, subjectKey: submittedKey };
 }
 
 // ---------------------------------------------------------------------------
