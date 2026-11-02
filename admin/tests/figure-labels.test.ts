@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 /**
  * V-1 item 1 — every figure surface states the date range it covers, the
  * currency, the timezone the dates are shown in and the freshness of this
- * read; the current UTC day is labelled partial; and the empty, unavailable
+ * read; the current Eastern (ET) report day is labelled partial; and the empty, unavailable
  * and error states of each KPI and chart are distinct and explicit (an error
  * is never a zero or an empty plot). Money KPIs and charts render the real
  * server components with the analytics read layer mocked.
@@ -42,13 +42,13 @@ describe("figure-meta — the labels state what the formatters do", () => {
   it("currency and timezone are the ones the money and time formatters print", () => {
     expect(CURRENCY).toBe("USD");
     expect(formatMoney(100)).toMatch(new RegExp(`${CURRENCY}$`));
-    // times are Eastern with the label that applies; the report DAY stays the server's UTC day until registry 200
+    // times are Eastern with the label that applies; report DAYS are Eastern calendar days (registry 200)
     expect(formatEt("2026-10-22T10:54:59Z")).toMatch(/ EDT$/);
     expect(formatEt("2026-11-22T10:54:59Z")).toMatch(/ EST$/);
-    expect(REPORT_DAY_BASIS).toBe("UTC");
+    expect(REPORT_DAY_BASIS).toBe("ET");
   });
 
-  it("rangeLabel names both inclusive UTC calendar days, with the year once unless it changes", () => {
+  it("rangeLabel names both inclusive calendar days, with the year once unless it changes", () => {
     expect(rangeLabel("2026-09-23", "2026-10-22")).toBe("Sep 23 – Oct 22, 2026");
     expect(rangeLabel("2025-12-30", "2026-01-02")).toBe("Dec 30, 2025 – Jan 2, 2026");
     expect(rangeLabel("2026-10-22", "2026-10-22")).toBe("Oct 22, 2026");
@@ -66,13 +66,15 @@ describe("figure-meta — the labels state what the formatters do", () => {
     expect(readFailedLabel(READ_AT)).toBe("read at 2026-10-22 06:55:01 EDT failed — nothing is shown");
   });
 
-  it("isPartialPeriod: a range ending today (UTC) or later is still accumulating; one ending yesterday is complete", () => {
+  it("isPartialPeriod: a range ending today (ET) or later is still accumulating; one ending yesterday is complete", () => {
     const now = new Date("2026-10-22T15:00:00Z");
     expect(isPartialPeriod("2026-10-22", now)).toBe(true);
     expect(isPartialPeriod("2026-10-23", now)).toBe(true);
     expect(isPartialPeriod("2026-10-21", now)).toBe(false);
-    // just after midnight UTC the new day is the partial one
-    expect(isPartialPeriod("2026-10-21", new Date("2026-10-22T00:00:01Z"))).toBe(false);
+    // just after midnight UTC it is still the previous evening in ET, so Oct 21 is still today
+    expect(isPartialPeriod("2026-10-21", new Date("2026-10-22T00:00:01Z"))).toBe(true);
+    // ET midnight (04:00Z in EDT) starts the new day
+    expect(isPartialPeriod("2026-10-21", new Date("2026-10-22T04:00:00Z"))).toBe(false);
     expect(isPartialPeriod("nope", now)).toBe(false);
     expect(PARTIAL_LABEL).toBe("includes today so far (partial)");
   });
@@ -91,10 +93,10 @@ describe("figure-meta — the labels state what the formatters do", () => {
 // ---------------------------------------------------------------------------
 
 describe("FigureMeta — one line with range, timezone, currency, freshness and the partial mark", () => {
-  it("period surfaces: range · UTC calendar days · USD · as of …", () => {
+  it("period surfaces: range · ET calendar days · USD · as of …", () => {
     const html = h(createElement(FigureMeta, { range: { from: "2026-09-23", to: "2026-10-21" }, currency: "USD", computedAt: COMPUTED, readAt: READ_AT }));
     expect(html).toContain("Sep 23 – Oct 21, 2026");
-    expect(html).toContain("UTC calendar days");
+    expect(html).toContain("ET calendar days");
     expect(html).toContain("USD");
     expect(html).toContain("as of 2026-10-22 06:54:59 EDT");
     expect(html).not.toContain(PARTIAL_LABEL);
@@ -270,10 +272,10 @@ async function kpis(cur: unknown, prev: unknown, opts: { from?: string; to?: str
 }
 
 describe("MoneyKpis — labels on the KPI surface", () => {
-  it("ok: range, UTC, USD and the server's computed_at are stated once for the period tiles; the pending tile is labelled point in time", async () => {
+  it("ok: range, ET, USD and the server's computed_at are stated once for the period tiles; the pending tile is labelled point in time", async () => {
     const html = await kpis(overview(FROM, TO_PAST, FULL), overview("2026-08-25", "2026-09-22", FULL));
     expect(html).toContain("Sep 23 – Oct 21, 2026");
-    expect(html).toContain("UTC calendar days");
+    expect(html).toContain("ET calendar days");
     expect(html).toContain("USD");
     expect(html).toContain("as of 2026-10-22 06:54:59 EDT");
     expect(html).not.toContain(PARTIAL_LABEL);
@@ -350,13 +352,13 @@ function series(from: string, to: string, figuresFor: (i: number) => Record<stri
 const cards = (html: string) => [...html.matchAll(/<figure[^>]*data-state="(ok|empty|unavailable|error)"/g)].map((m) => m[1]);
 
 describe("MoneyCharts — labels and states on every chart", () => {
-  it("ok: each card carries the range, UTC, USD or payments, and the series' oldest computed_at", async () => {
+  it("ok: each card carries the range, ET, USD or payments, and the series' oldest computed_at", async () => {
     mocks.readSeries.mockResolvedValue(series("2026-10-15", TO_PAST, () => FULL));
     const html = h(await MoneyCharts({ from: "2026-10-15", to: TO_PAST }));
     expect(cards(html)).toEqual(["ok", "ok", "ok", "ok"]);
     expect(html.match(/Oct 15 – Oct 21, 2026/g)?.length).toBeGreaterThanOrEqual(4);
     expect(html.match(/as of 2026-10-22 06:54:59 EDT/g)?.length).toBeGreaterThanOrEqual(4);
-    expect(html.match(/UTC calendar days/g)?.length).toBeGreaterThanOrEqual(4);
+    expect(html.match(/ET calendar days/g)?.length).toBeGreaterThanOrEqual(4);
     expect(html).not.toContain(PARTIAL_LABEL);
   });
 

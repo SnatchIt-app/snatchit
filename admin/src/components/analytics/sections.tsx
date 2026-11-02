@@ -10,13 +10,13 @@ import {
   formatUsdExact,
   formatUsdWhole,
   isEmptySeries,
-  isoDay,
   previousPeriod,
   refundAmount,
   shortDay,
   type MoneyFigures,
 } from "@/lib/analytics-core";
 import { CURRENCY, rangeLabel, tileState } from "@/lib/figure-meta";
+import { etToday } from "@/lib/format";
 import { ReportFreshness } from "@/components/shell/Freshness";
 import { KpiTile } from "@/components/charts/KpiTile";
 import { ChartCard } from "@/components/charts/ChartCard";
@@ -264,7 +264,7 @@ export async function MoneyKpis({ from, to, compact = false }: { from: string; t
         </section>
       ) : (
         <p className="mt-2 text-[0.75rem] text-dim">
-          {prev ? `Compared with ${shortDay(prev.from)} – ${shortDay(prev.to)} (UTC).` : ""}
+          {prev ? `Compared with ${shortDay(prev.from)} – ${shortDay(prev.to)} (ET).` : ""}
           {before && !before.ok ? " Previous period unavailable — no comparison shown." : ""}
         </p>
       )}
@@ -281,8 +281,8 @@ export async function MoneyCharts({ from, to, only }: { from: string; to: string
   const readAt = new Date();
   const period = { from, to };
   const series = await readSeries(from, to);
-  const range = `${shortDay(from)} – ${shortDay(to)} (UTC)`;
-  const today = isoDay(readAt);
+  const range = `${shortDay(from)} – ${shortDay(to)} (ET)`;
+  const today = etToday(readAt);
   const grainWord = !series.ok ? "" : series.grain === "day" ? "per day" : "per week";
   if (!series.ok) {
     // Subject-led, so the failed bucket (fn) is shown under "For support" — the generic form never printed it.
@@ -312,7 +312,7 @@ export async function MoneyCharts({ from, to, only }: { from: string; to: string
   // A measure the server never returned is unavailable — checked before "empty", which only means zero rows.
   const stateFor = (points: TrendPoint[]) => (points.length > 0 && points.every((pt) => pt.value === null) ? unavailableState : empty ? emptyState : ok);
   const days = dayCount(from, to);
-  const footnote = `${series.calls} database aggregates (${series.grain === "day" ? "one per UTC day" : "one per week"}).${partialLast ? " The last period is today so far." : ""}`;
+  const footnote = `${series.calls} database aggregates (${series.grain === "day" ? "one per ET day" : "one per week"}).${partialLast ? " The last period is today so far." : ""}`;
 
   const captured = pts((f) => f.capturedCents);
   const capturedCard = (

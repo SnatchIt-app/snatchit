@@ -5,11 +5,11 @@ import { HiddenTestRowsNotice } from "@/components/ui/HiddenTestRowsNotice";
 import { requireOperator } from "@/lib/auth/session";
 import { toToday, type OpsCase } from "@/lib/types";
 import { first, type SearchParams } from "@/lib/search-params";
-import { humanize } from "@/lib/format";
+import { etToday, humanize } from "@/lib/format";
 import { Suspense } from "react";
 import { AttentionSummary, MoneyCharts, MoneyKpis, SampleDataNotice } from "@/components/analytics/sections";
 import { ChartSkeleton } from "@/components/charts/ChartCard";
-import { isoDay, DAY_MS } from "@/lib/analytics-core";
+import { isoDay, parseIsoDay, DAY_MS } from "@/lib/analytics-core";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { OpsFailureAlert, Alert } from "@/components/ui/Alert";
@@ -87,9 +87,11 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
   );
 
   const now = new Date();
-  const to = isoDay(now);
-  const from30 = isoDay(new Date(now.getTime() - 29 * DAY_MS));
-  const from14 = isoDay(new Date(now.getTime() - 13 * DAY_MS));
+  // Report days are Eastern calendar days (registry 200): count back from the ET date, in whole days.
+  const to = etToday(now);
+  const toDay = parseIsoDay(to)!.getTime();
+  const from30 = isoDay(new Date(toDay - 29 * DAY_MS));
+  const from14 = isoDay(new Date(toDay - 13 * DAY_MS));
 
   return (
     <>
