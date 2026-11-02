@@ -62,10 +62,76 @@ const etParts = new Intl.DateTimeFormat("en-US", {
 export function formatEt(v: unknown, withSeconds = false): string {
   const d = parseDate(v);
   if (!d) return "—";
-  const p: Record<string, string> = {};
-  for (const part of etParts.formatToParts(d)) p[part.type] = part.value;
+  const p = etWall(d);
   const base = `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}`;
   return `${withSeconds ? `${base}:${p.second}` : base} ${p.timeZoneName}`;
+}
+
+function etWall(d: Date): Record<string, string> {
+  const p: Record<string, string> = {};
+  for (const part of etParts.formatToParts(d)) p[part.type] = part.value;
+  return p;
+}
+
+const ET_WALL_CLOCK = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(\.\d{1,6})?)?$/;
+
+export type EtInstant = { ok: true; iso: string; date: Date } | { ok: false; reason: "invalid" | "skipped" | "repeated"; message: string };
+
+/**
+ * An Eastern wall-clock time ("2026-11-01T00:30", what <input type="datetime-local"> posts) → the instant,
+ * written with the offset that applies on that date ("2026-11-01T00:30:00-04:00"). Never a fixed −05:00.
+ * A time that does not exist (the spring-forward gap) or happens twice (the fall-back hour) is refused
+ * with a plain reason, so the console never guesses which instant a person meant.
+ */
+export function etWallClockToInstant(wall: string): EtInstant {
+  const m = ET_WALL_CLOCK.exec(wall.trim());
+  if (!m) return { ok: false, reason: "invalid", message: `"${wall}" is not a date and time (YYYY-MM-DDTHH:MM, Eastern Time)` };
+  const [, y, mo, d, h, mi, s = "00", frac = ""] = m;
+  const asUtc = Date.UTC(+y, +mo - 1, +d, +h, +mi, +s, frac ? Math.round(Number(`0${frac}`) * 1000) : 0);
+  const check = new Date(asUtc);
+  if (check.getUTCFullYear() !== +y || check.getUTCMonth() !== +mo - 1 || check.getUTCDate() !== +d || check.getUTCHours() !== +h || check.getUTCMinutes() !== +mi || check.getUTCSeconds() !== +s) {
+    return { ok: false, reason: "invalid", message: `"${wall}" is not a real date and time` };
+  }
+  // Eastern is UTC−4 (EDT) or UTC−5 (EST): keep each candidate instant whose Eastern wall clock reads back as typed.
+  const matches = [4, 5]
+    .map((hours) => new Date(asUtc + hours * 3_600_000))
+    .filter((cand) => {
+      const p = etWall(cand);
+      return p.year === y && p.month === mo && p.day === d && p.hour === h && p.minute === mi && p.second === s;
+    });
+  const day = `${y}-${mo}-${d}`;
+  if (matches.length === 0) return { ok: false, reason: "skipped", message: `${h}:${mi} on ${day} does not exist in Eastern Time (clocks jump from 2:00 to 3:00 AM). Choose another time.` };
+  if (matches.length > 1) return { ok: false, reason: "repeated", message: `${h}:${mi} on ${day} happens twice in Eastern Time (clocks go back from 2:00 to 1:00 AM). Choose a time before 1:00 AM or from 2:00 AM.` };
+  const date = matches[0];
+  const offsetMin = Math.round((asUtc - date.getTime()) / 60_000);
+  const sign = offsetMin < 0 ? "-" : "+";
+  const abs = Math.abs(offsetMin);
+  return { ok: true, date, iso: `${day}T${h}:${mi}:${s}${frac}${sign}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}` };
+}
+
+/** The instant an Eastern calendar day starts ("2026-11-01" → 2026-11-01T04:00:00Z). Midnight always exists once in Eastern. */
+export function etDayStart(day: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const r = etWallClockToInstant(`${day}T00:00`);
+  return r.ok ? r.date : null;
+}
+
+/** The last millisecond of an Eastern calendar day: the next day's start minus 1 ms (a 23 h or 25 h day included). */
+export function etDayEnd(day: string): Date | null {
+  const start = etDayStart(day);
+  if (!start) return null;
+  const next = new Date(start.getTime() + 36 * 3_600_000); // always inside the next Eastern day
+  const p = etWall(next);
+  const nextStart = etDayStart(`${p.year}-${p.month}-${p.day}`);
+  return nextStart ? new Date(nextStart.getTime() - 1) : null;
+}
+
+/** An instant → the Eastern wall clock for <input type="datetime-local"> ("2026-11-01T23:59"). */
+export function toDatetimeLocalEt(v: unknown): string {
+  const d = parseDate(v);
+  if (!d) return "";
+  const p = etWall(d);
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
 }
 
 /** "2026-09-06 18:45 UTC" — the canonical instant, for support and evidence. People-facing times use formatEt. */
