@@ -19,6 +19,12 @@
  * One attempt id per purchase intent, kept in the route params so the remount after a 3-D Secure
  * challenge (the return URL carries it) replays the same command keys: same hold, same order, same
  * PaymentIntent. Double taps on Pay are absorbed by a ref latch.
+ *
+ * c35 (D4/D5): the purchase starts once per mount. It is keyed on primitives and the user id — supabase-js
+ * hands out a new session object on INITIAL_SESSION and every TOKEN_REFRESHED, and a re-run under an open
+ * sheet re-initialised it (on Android that drops the sheet's result). Connectivity is read through a ref. A
+ * screen that is closed or covered stops: the PaymentSheet is one per process and router.replace acts on
+ * whichever screen is on top, so a stale run may neither configure the sheet nor navigate.
  */
 import { isPlatformPaySupported, PlatformPay, useStripe } from '@stripe/stripe-react-native';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -36,7 +42,14 @@ import {
   sheetOutcome,
   type PrimaryQuote,
 } from '@/src/lib/primary/checkout';
-import { buildPrimaryReturnURL, parsePrimaryCheckoutParams, reservePrimaryTier } from '@/src/lib/primary/checkoutRoute';
+import {
+  buildPrimaryReturnURL,
+  chooseAttempt,
+  holdCommandKey,
+  parsePrimaryCheckoutParams,
+  reservePrimaryTier,
+  type DrawnAttempt,
+} from '@/src/lib/primary/checkoutRoute';
 import { primarySessionRpc, readPrimarySessionDetail } from '@/src/lib/primary/discovery';
 import { supabaseInvoker } from '@/src/lib/tickets/entitlementReads';
 import { PrimaryCheckoutView, type PrimaryCheckoutViewState } from '@/src/screens/primary/PrimaryCheckoutView';
@@ -58,16 +71,23 @@ export default function PrimaryCheckoutNative() {
   const raw = useLocalSearchParams<{ session?: string; tt?: string; qty?: string; attempt?: string }>();
   const params = useMemo(() => parsePrimaryCheckoutParams(raw), [raw.session, raw.tt, raw.qty, raw.attempt]); // eslint-disable-line react-hooks/exhaustive-deps
   const { user, loading: authLoading } = useAuth();
+  const userId = user?.id ?? null;
+  const userEmail = user?.email ?? null;
   const { isOffline } = useNetworkStatus();
+  const offlineRef = useRef(isOffline);
+  useEffect(() => { offlineRef.current = isOffline; }, [isOffline]);
   const { initPaymentSheet, presentPaymentSheet, retrievePaymentIntent } = useStripe();
 
-  // One attempt per purchase intent: from the URL (a 3-D Secure remount) or drawn once here.
-  const drawnAttempt = useRef<string | null>(null);
-  if (params.ok && !params.attemptId && !drawnAttempt.current) drawnAttempt.current = newAttemptId(randomBytes);
-  const attemptId = params.ok ? params.attemptId ?? drawnAttempt.current : null;
-  useEffect(() => {
-    if (params.ok && !params.attemptId && attemptId) router.setParams({ attempt: attemptId });
-  }, [params, attemptId]);
+  // One attempt per purchase intent: from the URL (a 3-D Secure remount) or drawn once here (checkoutRoute.ts).
+  const drawnRef = useRef<DrawnAttempt | null>(null);
+  const chosen = chooseAttempt(params, drawnRef.current, () => newAttemptId(randomBytes));
+  drawnRef.current = chosen.drawn;
+  const attemptId = chosen.attemptId;
+  const ok = params.ok;
+  const sessionId = params.ok ? params.sessionId : null;
+  const ticketTypeId = params.ok ? params.ticketTypeId : null;
+  const quantity = params.ok ? params.quantity : 0;
+  const urlAttempt = params.ok ? params.attemptId : null;
 
   const [state, setState] = useState<PrimaryCheckoutViewState>({ kind: 'preparing' });
   const [heldUntil, setHeldUntil] = useState<string | null>(null);
@@ -76,34 +96,51 @@ export default function PrimaryCheckoutNative() {
   const holdIdRef = useRef<string | null>(null);
   const payingRef = useRef(false);
   const runRef = useRef(0);
+  const detailRunRef = useRef(0);
+  const submittedRef = useRef(false);
 
-  const submitted = useCallback((sessionId: string) => {
-    router.replace(`/ticket/${sessionId}`);
+  // Declared first, so every later effect sees a live screen; the cleanup retires any run still in flight.
+  const aliveRef = useRef(false);
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => { aliveRef.current = false; runRef.current += 1; };
   }, []);
+  const live = useCallback((run: number) => aliveRef.current && run === runRef.current, []);
+
+  useEffect(() => {
+    if (aliveRef.current && sessionId && !urlAttempt && attemptId) router.setParams({ attempt: attemptId });
+  }, [sessionId, urlAttempt, attemptId]);
+
+  const submitted = useCallback(() => {
+    // Once per screen, and never from a screen that is gone.
+    if (submittedRef.current || !aliveRef.current) return;
+    submittedRef.current = true;
+    router.replace(`/ticket/${sessionId}`);
+  }, [sessionId]);
 
   /** Quote (optionally against a total the buyer was shown), resume if already paid, else prepare the sheet. */
   const quoteAndPrepare = useCallback(async (shownTotalMinor: number | null) => {
-    if (!params.ok || !attemptId || !holdIdRef.current) return;
+    if (!sessionId || !ticketTypeId || !attemptId || !holdIdRef.current) return;
     const run = ++runRef.current;
     setState({ kind: 'preparing' });
     const result = await requestPrimaryQuote(supabaseInvoker, {
-      sessionId: params.sessionId,
-      items: [{ ticketTypeId: params.ticketTypeId, quantity: params.quantity }],
+      sessionId,
+      items: [{ ticketTypeId, quantity }],
       holdIds: [holdIdRef.current],
-      commandKey: attemptCommandKey(params.sessionId, attemptId),
+      commandKey: attemptCommandKey(sessionId, attemptId),
       shownTotalMinor,
     });
-    if (run !== runRef.current) return;
+    if (!live(run)) return;
     if (!result.ok) {
-      if (result.reason === 'already_paid') { submitted(params.sessionId); return; }
+      if (result.reason === 'already_paid') { submitted(); return; }
       if (result.reason === 'price_changed') setState({ kind: 'price_changed', serverTotalMinor: result.serverTotalMinor });
       else setState({ kind: 'quote_refused', reason: result.reason });
       return;
     }
     const quote: PrimaryQuote = result.quote;
     const existing = await retrievePaymentIntent(quote.clientSecret);
-    if (run !== runRef.current) return;
-    if (intentAlreadyPaid(existing.paymentIntent?.status)) { submitted(params.sessionId); return; }
+    if (!live(run)) return;
+    if (intentAlreadyPaid(existing.paymentIntent?.status)) { submitted(); return; }
     setState({ kind: 'review', quote, sheetReady: false, paying: false, paymentFailed: false });
     // Apple Pay as in the resale checkout: iOS only; a probe that throws is "unsupported", and the sheet
     // still offers cards. The Apple Pay lines carry the same all-in total as the review.
@@ -111,75 +148,77 @@ export default function PrimaryCheckoutNative() {
     if (Platform.OS === 'ios') {
       try { applePay = await isPlatformPaySupported(); } catch { applePay = false; }
     }
-    if (run !== runRef.current) return;
+    if (!live(run)) return;
     const { error } = await initPaymentSheet({
       paymentIntentClientSecret: quote.clientSecret,
       merchantDisplayName: 'Snatch It',
-      returnURL: buildPrimaryReturnURL({ sessionId: params.sessionId, ticketTypeId: params.ticketTypeId, quantity: params.quantity, attemptId }),
+      returnURL: buildPrimaryReturnURL({ sessionId, ticketTypeId, quantity, attemptId }),
       allowsDelayedPaymentMethods: false,
       customerId: quote.customerId,
       customerEphemeralKeySecret: quote.ephemeralKeySecret,
-      ...(user?.email ? { defaultBillingDetails: { email: user.email } } : {}),
+      ...(userEmail ? { defaultBillingDetails: { email: userEmail } } : {}),
       ...(applePay ? { applePay: { merchantCountryCode: 'US', cartItems: applePayCartItems(quote).map((i): PlatformPay.CartSummaryItem => ({ ...i, paymentType: PlatformPay.PaymentType.Immediate })) } } : {}),
     });
-    if (run !== runRef.current) return;
+    if (!live(run)) return;
     if (error) { setState({ kind: 'quote_refused', reason: 'unavailable' }); return; }
     setState({ kind: 'review', quote, sheetReady: true, paying: false, paymentFailed: false });
-  }, [params, attemptId, initPaymentSheet, retrievePaymentIntent, submitted, user?.email]);
+  }, [sessionId, ticketTypeId, quantity, attemptId, initPaymentSheet, retrievePaymentIntent, submitted, userEmail, live]);
 
   const start = useCallback(async () => {
-    if (!params.ok) { setState({ kind: 'invalid' }); return; }
-    if (!user) { setState({ kind: 'signed_out' }); return; }
+    if (!ok || !sessionId || !ticketTypeId) { setState({ kind: 'invalid' }); return; }
+    if (!userId) { setState({ kind: 'signed_out' }); return; }
     if (!attemptId) return;
     const run = ++runRef.current;
     setState({ kind: 'preparing' });
-    void readPrimarySessionDetail(primarySessionRpc, params.sessionId, isOffline).then((d) => {
-      if (d.kind !== 'ready') return;
+    const detailRun = ++detailRunRef.current;
+    void readPrimarySessionDetail(primarySessionRpc, sessionId, offlineRef.current).then((d) => {
+      if (!aliveRef.current || detailRun !== detailRunRef.current || d.kind !== 'ready') return;
       setEventTitle(d.detail.facts.title);
-      setTierName(d.detail.tiers.find((t) => t.ticket_type_id === params.ticketTypeId)?.name ?? null);
+      setTierName(d.detail.tiers.find((t) => t.ticket_type_id === ticketTypeId)?.name ?? null);
     });
     const hold = await reservePrimaryTier({
-      sessionId: params.sessionId,
-      ticketTypeId: params.ticketTypeId,
-      quantity: params.quantity,
-      commandKey: `ph-${attemptCommandKey(params.sessionId, attemptId).slice(3)}`,
+      sessionId,
+      ticketTypeId,
+      quantity,
+      commandKey: holdCommandKey(sessionId, attemptId),
     });
-    if (run !== runRef.current) return;
+    if (!live(run)) return;
     if (!hold.ok) { setState({ kind: 'hold_refused', reason: hold.reason }); return; }
     holdIdRef.current = hold.holdId;
     setHeldUntil(clockText(hold.expiresAt));
     await quoteAndPrepare(null);
-  }, [params, user, attemptId, isOffline, quoteAndPrepare]);
+  }, [ok, sessionId, ticketTypeId, quantity, attemptId, userId, quoteAndPrepare, live]);
 
   useEffect(() => {
-    if (authLoading) return;
+    if (authLoading || payingRef.current) return;
     void start();
   }, [authLoading, start]);
 
   const onPay = useCallback(async () => {
-    if (state.kind !== 'review' || !state.sheetReady || payingRef.current || !params.ok) return;
+    if (state.kind !== 'review' || !state.sheetReady || payingRef.current || !sessionId) return;
     payingRef.current = true;
     const quote = state.quote;
     setState({ kind: 'review', quote, sheetReady: true, paying: true, paymentFailed: false });
     const { error } = await presentPaymentSheet();
     payingRef.current = false;
+    if (!aliveRef.current) return;
     const outcome = sheetOutcome(error);
-    if (outcome === 'completed') { submitted(params.sessionId); return; }
+    if (outcome === 'completed') { submitted(); return; }
     setState({ kind: 'review', quote, sheetReady: true, paying: false, paymentFailed: outcome === 'failed' });
-  }, [state, params, presentPaymentSheet, submitted]);
+  }, [state, sessionId, presentPaymentSheet, submitted]);
 
   return (
     <PrimaryCheckoutView
       state={state}
       eventTitle={eventTitle}
       tierName={tierName}
-      quantity={params.ok ? params.quantity : 0}
+      quantity={quantity}
       heldUntil={heldUntil}
       onPay={() => { void onPay(); }}
       onReviewAgain={() => { void quoteAndPrepare(state.kind === 'price_changed' ? state.serverTotalMinor : null); }}
       onRetry={() => { void start(); }}
       onSignIn={() => router.push('/(auth)/login')}
-      onBack={() => (router.canGoBack() ? router.back() : params.ok ? router.replace(`/event/${params.sessionId}`) : router.replace('/(tabs)/home'))}
+      onBack={() => (router.canGoBack() ? router.back() : sessionId ? router.replace(`/event/${sessionId}`) : router.replace('/(tabs)/home'))}
     />
   );
 }

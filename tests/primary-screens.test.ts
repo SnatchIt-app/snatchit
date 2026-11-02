@@ -139,14 +139,14 @@ describe('primary checkout screen — a payments surface (A reviews)', () => {
   });
 
   it('K3: an intent Stripe already reports paid is not shown the sheet again; completion routes to the ticket page, never a success screen', () => {
-    expect(native).toContain('if (intentAlreadyPaid(existing.paymentIntent?.status)) { submitted(params.sessionId); return; }');
+    expect(native).toContain('if (intentAlreadyPaid(existing.paymentIntent?.status)) { submitted(); return; }');
     expect(native).toContain("router.replace(`/ticket/${sessionId}`)");
-    expect(native).toContain("if (outcome === 'completed') { submitted(params.sessionId); return; }");
+    expect(native).toContain("if (outcome === 'completed') { submitted(); return; }");
     expect(view + native).not.toMatch(/Payment successful|You're in|Tickets confirmed|Order complete/i);
   });
 
   it('K3b: a quote refused as already_paid goes to the ticket page, like an intent Stripe reports paid — never "try again"', () => {
-    expect(native).toContain("if (result.reason === 'already_paid') { submitted(params.sessionId); return; }");
+    expect(native).toContain("if (result.reason === 'already_paid') { submitted(); return; }");
   });
 
   it('K8: Apple Pay at parity with resale — probed on iOS only (a throw is unsupported), cart items from the quote, US', () => {
@@ -163,7 +163,33 @@ describe('primary checkout screen — a payments surface (A reviews)', () => {
   it('K4: one attempt id per purchase, kept in the route params; the 3-D Secure return URL carries it; Pay is latched', () => {
     expect(native).toContain('router.setParams({ attempt: attemptId })');
     expect(native).toContain('returnURL: buildPrimaryReturnURL({');
-    expect(native).toContain('if (state.kind !== \'review\' || !state.sheetReady || payingRef.current || !params.ok) return;');
+    expect(native).toContain('if (state.kind !== \'review\' || !state.sheetReady || payingRef.current || !sessionId) return;');
+  });
+
+  it('K9: the attempt comes from chooseAttempt (URL first, one drawn id per purchase intent); hold, quote and return URL all use it', () => {
+    expect(native).toContain('const chosen = chooseAttempt(params, drawnRef.current, () => newAttemptId(randomBytes));');
+    expect(native).toContain('commandKey: holdCommandKey(sessionId, attemptId),');
+    expect(native).toContain('commandKey: attemptCommandKey(sessionId, attemptId),');
+    expect(native).toContain('returnURL: buildPrimaryReturnURL({ sessionId, ticketTypeId, quantity, attemptId }),');
+    expect((native.match(/newAttemptId\(/g) ?? []).length).toBe(1);   // drawn only through chooseAttempt
+  });
+
+  it('K10: the purchase starts once per mount — keyed on primitives and the user id, never the session object or connectivity (c35, D4)', () => {
+    expect(native).toContain('}, [ok, sessionId, ticketTypeId, quantity, attemptId, userId, quoteAndPrepare, live]);');
+    expect(native).not.toMatch(/,\s*user\s*[,\]]/);              // the session object changes identity on every token refresh
+    expect(native).not.toMatch(/\bisOffline\s*,\s*quoteAndPrepare/);
+    expect(native).toContain('readPrimarySessionDetail(primarySessionRpc, sessionId, offlineRef.current)');
+    expect(native).toContain('if (authLoading || payingRef.current) return;');   // an effect never re-runs under an open sheet
+  });
+
+  it('K11: a closed or covered checkout neither configures the shared sheet nor navigates (c35, D5)', () => {
+    expect(native).toContain('return () => { aliveRef.current = false; runRef.current += 1; };');
+    expect(native).toContain('const live = useCallback((run: number) => aliveRef.current && run === runRef.current, []);');
+    expect(native).toContain('if (submittedRef.current || !aliveRef.current) return;');
+    expect(native).not.toContain('if (run !== runRef.current) return;');
+    expect((native.match(/if \(!live\(run\)\) return;/g) ?? []).length).toBeGreaterThanOrEqual(5);
+    // every sheet initialisation and every navigation to the ticket page sits behind those guards
+    expect(native).toMatch(/if \(!live\(run\)\) return;\s*const \{ error \} = await initPaymentSheet\(/);
   });
 
   it('K5: the review headline is the all-in total; tickets and fee are itemised beneath it', () => {
