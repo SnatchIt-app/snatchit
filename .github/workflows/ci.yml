@@ -761,6 +761,11 @@ jobs:
           # grant beyond EXECUTE on those three to authenticated (pinned by pgTAP 265 A1/A2 and 196's post-flight).
           # Read from a local PG17 replay of main 517ad393 + 196 with the service_role function default revoked:
           # 35|133|37|49 before and after.
+          # 2026-11-02 registry 205 (D, ops.current_aal reads an empty-string claims GUC as absent; REPO-ONLY, applied
+          # nowhere): NO change to any of the four counters. 205 is a body-only `create or replace` of ONE function in
+          # schema `ops` (current_aal; same signature, SECURITY DEFINER, search_path, owner and ACL — pinned by pgTAP
+          # 274 A1-A3 and 205's own post-flight). No object, no grant, nothing in `public`. Read from a local PG17 replay
+          # of main 7496fee3 + 205 with the service_role function default revoked: 35|133|37|49 before and after.
           EXPECT_TABLES: 35
           # 2026-09-15 migration 130 (L1 concurrency, B): functions 94 -> 96 —
           # +2 public.claim_checkout_supersede, public.release_checkout_supersede
