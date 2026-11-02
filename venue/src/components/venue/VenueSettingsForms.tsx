@@ -81,7 +81,7 @@ export function VenueTimezoneForm({ ids, commandKey, timeZone, stored }: { ids: 
         hint={
           stored
             ? "Every time you enter for this venue's nights is read in this zone. Changing it does not move times already saved."
-            : "This venue's stored time zone isn't readable yet, so nothing is preselected — choose one explicitly. Saving without choosing would write the platform default over whatever is stored."
+            : "This venue's stored time zone isn't readable yet, so nothing is preselected. Choose the venue's time zone yourself."
         }
       />
       <Field label="Reason" name="reason_code" required placeholder="venue_moved" maxLength={80} />

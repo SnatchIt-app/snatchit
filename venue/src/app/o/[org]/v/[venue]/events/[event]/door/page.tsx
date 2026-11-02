@@ -21,7 +21,7 @@ export default async function DoorPage({ params, searchParams }: { params: Promi
   if (p.ctx.source === "database") {
     return (
       <Shell ctx={p.ctx} event={p.event ? { eventId: p.event.eventId, title: p.event.title } : null} active="door" signedInAs={p.signedInAs} title="Check-in">
-        {p.entry.kind === "ok" ? <NotWiredState surface="Door status" /> : <EntryGate entry={p.entry} loginHref={`/login?next=${encodeURIComponent(p.scope.basePath)}`} retryHref={p.scope.basePath} />}
+        {p.entry.kind === "ok" ? <NotWiredState surface="Check-in" /> : <EntryGate entry={p.entry} loginHref={`/login?next=${encodeURIComponent(p.scope.basePath)}`} retryHref={p.scope.basePath} />}
       </Shell>
     );
   }

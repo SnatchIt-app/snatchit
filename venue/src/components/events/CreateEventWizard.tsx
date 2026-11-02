@@ -24,7 +24,7 @@ export function CreateEventWizard({ ctx, basePath, step, venueApproved, venueNam
             Cancel and go back to events
           </a>
         </div>
-        <p className="mt-3 text-[0.9375rem] leading-relaxed text-muted">Three steps. It ends as a draft — visible to your staff only, not announced and not selling, so nothing is public until you choose to announce it.</p>
+        <p className="mt-3 text-[0.9375rem] leading-relaxed text-muted">Three steps. The event starts as a draft. Buyers cannot see a draft, and it sells nothing.</p>
         <ol className="mt-5 grid grid-cols-3 gap-2 text-[0.8125rem]">
           {steps.map((s, i) => (
             <li key={s} aria-current={i + 1 === step ? "step" : undefined} className={`border-t-2 pt-2 ${i + 1 === step ? "border-[#26211d] font-medium text-ink" : i + 1 < step ? "border-[#2f6b33] text-success" : "border-line text-dim"}`}>
@@ -55,7 +55,7 @@ export function CreateEventWizard({ ctx, basePath, step, venueApproved, venueNam
         </Panel>
       ) : step === 2 ? (
         <Panel title="First ticket type" eyebrow="Step 2 of 3">
-          <p className="mb-3 text-sm text-muted">Publishing requires at least one ticket type with a release. Doing it later is allowed; doing it never means the event can never go on sale.</p>
+          <p className="mb-3 text-sm text-muted">To go on sale, an event needs at least one ticket type with a release. You can add it later.</p>
           <form method="get" action={withPreview(self, ctx)} className="space-y-3">
             <input type="hidden" name="step" value="3" />
             <input type="hidden" name="did" value="venue.create_ticket_type" />

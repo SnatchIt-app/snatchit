@@ -19,7 +19,7 @@ export default async function AttendeesPage({ params, searchParams }: { params: 
   if (p.ctx.source === "database") {
     return (
       <Shell ctx={p.ctx} event={p.event ? { eventId: p.event.eventId, title: p.event.title } : null} active="attendees" signedInAs={p.signedInAs} title="Guest list">
-        {p.entry.kind === "ok" ? <NotWiredState surface="Attendees" /> : <EntryGate entry={p.entry} loginHref={`/login?next=${encodeURIComponent(p.scope.basePath)}`} retryHref={p.scope.basePath} />}
+        {p.entry.kind === "ok" ? <NotWiredState surface="Guest list" /> : <EntryGate entry={p.entry} loginHref={`/login?next=${encodeURIComponent(p.scope.basePath)}`} retryHref={p.scope.basePath} />}
       </Shell>
     );
   }

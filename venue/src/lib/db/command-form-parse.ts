@@ -42,5 +42,5 @@ export function rank(raw: string): ParsedField<number> {
   return integer(raw, "displayRank", 0, 999, "Enter a rank from 0 (first) to 999.");
 }
 export function capacity(raw: string): ParsedField<number> {
-  return integer(raw, "newCapacity", 0, 2_147_483_647, "Enter a whole number of tickets, 0 or more.");
+  return integer(raw, "newCapacity", 0, 2_147_483_647, "Enter a whole number of tickets, 1 or more.");
 }

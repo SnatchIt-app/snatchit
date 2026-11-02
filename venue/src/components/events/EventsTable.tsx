@@ -100,7 +100,7 @@ export function EventsTable({
       {rows.map((e) => {
         const s = nextSession(e);
         const sc = soldCap(e);
-        const sales = sc && sc.capacity > 0 ? (counters ? `${sc.sold} of ${sc.capacity} sold` : sc.capacity - sc.sold > 0 ? `${sc.capacity - sc.sold} still available` : "None available") : null;
+        const sales = sc && sc.capacity > 0 ? (counters ? `${sc.sold} of ${sc.capacity} sold` : sc.capacity - sc.sold > 0 ? `${sc.capacity - sc.sold} remaining, all releases` : "None remaining, all releases") : null;
         return (
           <Row
             key={e.eventId}

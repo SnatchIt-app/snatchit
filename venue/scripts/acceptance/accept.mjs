@@ -104,8 +104,9 @@ const NO_GRANT = "holds no staff or organization role at this venue";
 // after sign-in) commits the new URL while that fallback is still showing, so a page is read only once it is gone;
 // settled() throws if it never goes (20 s), which records a FAIL for the phase rather than checking the skeleton.
 const ROUTE_LOADING = "[data-route-loading]";
-// v2 events list: remaining-only figure for the next session ("<n> still available"; the pre-v2 app said "<n> available").
-const REMAINING_A = "174 still available";
+// v2 events list: remaining-only figure for the next session ("<n> remaining, all releases" since the plain-language
+// pass: it counts every release kind, not only what buyers can buy; it said "<n> still available" before, "<n> available" pre-v2).
+const REMAINING_A = "174 remaining, all releases";
 // v2 keeps Sign out in the account popover (a closed <details>), so it is in the DOM but not in innerText.
 const SIGN_OUT = 'form[action="/logout"] button';
 const SIGN_IN = "Sign in to continue";

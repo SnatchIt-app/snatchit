@@ -89,7 +89,7 @@ export function resolveLanding(cookieOrg: string | null, eligibleOrgIds: string[
  */
 export const RETURN_COPY = {
   heading: "Back from Stripe",
-  body: "Stripe has sent you back. Your payout state is read fresh below — Stripe decides when an account can receive transfers, and it is sometimes a minute behind.",
+  body: "Stripe has sent you back. Stripe decides when an account can receive transfers, and it can be a minute behind.",
 } as const;
 
 export const REFRESH_COPY = {

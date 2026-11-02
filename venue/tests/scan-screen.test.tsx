@@ -77,7 +77,8 @@ describe("the scanner screen's first paint", () => {
     expect(h).toContain("Doors ·");
     expect(h).toContain("name=\"device_label\"");
     expect(h).toContain("Start scanning");
-    expect(h).toContain("the 21+ ID check stays with you");
+    // a scan checks the pass only; ID and age stay with the door person (the dashboard never reads age_policy)
+    expect(h).toContain("It does not check ID or age; that stays with you.");
     expect(h).toContain("Times are in America/Chicago, whatever time zone this phone is set to.");
     expect(h).toContain("Doors · Sun, Nov 29, 9:00 PM CST · live"); // 2026-11-30T03:00Z in Chicago
     expect(h).not.toContain("phone&#x27;s time zone");
@@ -94,7 +95,7 @@ describe("the scanner screen's first paint", () => {
   it("nothing in the scanner's copy turns a camera scan into age or identity verification, or a timeout into an admit", () => {
     const src = [readFileSync(resolve(__dirname, "../src/components/scan/ScannerClient.tsx"), "utf8"), readFileSync(resolve(__dirname, "../src/lib/scan/outcome.ts"), "utf8")].join("\n");
     expect(src.toLowerCase()).not.toMatch(/age verif|verifies (their )?age|id verified/);
-    expect(src).toContain("21+ ID check stays with you");
+    expect(src).toContain("It does not check ID or age; that stays with you.");
     expect(src).not.toMatch(/timeout[^\n]*admitted:|admitted[^\n]*on timeout/);
   });
 });

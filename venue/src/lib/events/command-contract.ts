@@ -214,14 +214,14 @@ export const REFUSAL_COPY: Record<string, string> = {
   empty_inventory: "This event has no ticket type with a release yet, so there is nothing to sell.",
   org_not_saleable: "This organization is not cleared to sell yet. Finish payout setup, then try again.",
   connect_not_ready: "Stripe has not confirmed this organization's payout account yet, so sales cannot open.",
-  signing_not_ready: "Ticket signing is not ready on this project, so tickets could not be issued. The platform has to enable it.",
+  signing_not_ready: "Ticket signing is not ready on this platform yet, so sales cannot open. Snatch It has to turn it on.",
   fee_policy_unset: "The platform's service fee is not set yet, so a price cannot be charged. Snatch It has to set it.",
-  illegal_transition: "An event moves forward one step at a time, and never backwards.",
+  illegal_transition: "The event cannot move to that status from its current one. It may already have moved. Reload the page to see its status.",
   // shared preconditions
   event_terminal: "This event is completed or cancelled, so it can no longer be changed.",
   session_terminal: "This session is completed or cancelled, so it can no longer be changed.",
   boundary_engaged: "The door schedule for this session is already engaged, so its times are fixed.",
-  move_exceeds_grace: "This session has tickets issued and the new time moves it too far. A smaller change, or a platform decision, is needed.",
+  move_exceeds_grace: "This session has tickets issued, and the new time moves it too far. Make a smaller change, or ask Snatch It.",
   reason_required: "A reason is required for this change; it is recorded.",
   unwritable_key: "The dashboard tried to change a field the server does not accept. Nothing changed; this is a bug in the dashboard.",
   duplicate_name: "Another one here already uses that name.",
@@ -254,5 +254,5 @@ export function refusalCopy(message: string | null | undefined): string {
   const token = refusalToken(message);
   if (token) return REFUSAL_COPY[token];
   const m = (message ?? "").trim();
-  return m ? `The server refused this change: ${m}` : "The server refused this change. Nothing changed.";
+  return m ? `The server did not confirm this change (${m}). Reload the page and check before you send it again.` : "The server refused this change. Nothing changed.";
 }

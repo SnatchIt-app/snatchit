@@ -32,7 +32,7 @@ export default async function OverviewPage({ params, searchParams }: { params: P
   if (ctx.source === "database") {
     return (
       <Shell ctx={ctx} event={null} active="overview" signedInAs={p.signedInAs} title="Today">
-        {p.entry.kind === "ok" ? <NotWiredState surface="Tonight overview" /> : <EntryGate entry={p.entry} loginHref={`/login?next=${encodeURIComponent(basePath)}`} retryHref={basePath} />}
+        {p.entry.kind === "ok" ? <NotWiredState surface="Today" /> : <EntryGate entry={p.entry} loginHref={`/login?next=${encodeURIComponent(basePath)}`} retryHref={basePath} />}
       </Shell>
     );
   }

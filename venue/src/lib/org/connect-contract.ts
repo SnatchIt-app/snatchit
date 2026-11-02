@@ -176,7 +176,7 @@ export const FAILURE_COPY: Record<ConnectFailureKind, string> = {
   rate_limited: "Too many attempts. Wait a moment, then try again.",
   state_unavailable: "The payout state could not be read right now. Nothing changed. Try again.",
   invalid_request: "The request was refused as malformed. Nothing changed; this is a bug in the dashboard, not your setup.",
-  transport: "The request did not get through. Nothing was sent to Stripe. Try again.",
+  transport: "The request did not complete, so it may or may not have reached Stripe. Press “Check the state again” before you try again.",
   server_error: "The server could not complete that. Nothing changed.",
 };
 
