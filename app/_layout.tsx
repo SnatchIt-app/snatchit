@@ -207,6 +207,9 @@ function RootLayout() {
       phase,
       lastRoutedPhase: routedPhaseRef.current,
       inSignedInArea,
+      // D6: the route on screen, written by the capture hook during this render. On iOS a cold start's first state
+      // comes from the launch URL synchronously, so a payment return that relaunched a killed app is already here.
+      pathname: pathnameRef.current,
       // The Stack renders once fonts are ready and AppearanceProvider has read the stored choice; that read is
       // queued on AsyncStorage's serial queue before useAuth's first session read, so it always lands first.
       navigatorReady: fontsReady,
@@ -218,7 +221,8 @@ function RootLayout() {
     settleReturnToOnRoute({ phase, lastRoutedPhase: routedPhaseRef.current, pathname: pathnameRef.current, sessionEnd: peekSessionEnd() });
     routedPhaseRef.current = phase;
     // CFT-603 (RAS-1): a remembered screen opens with the tabs under it and no Sign in below it (returnToNav.ts);
-    // Home and login are replaced exactly as before.
+    // Home and login are replaced exactly as before. D6: so is the payment-return checkout, by its ticket page — the
+    // relaunch anchored the checkout on the tabs, so the tabs stay under the ticket page and Back reaches them.
     if (!restoreOnTabs(decision.to, navigationRef.current)) router.replace(decision.to);
   }, [session, routingLoading, isRecovery, onboarding, inDevHarness, inSignedInArea, fontsReady]);
 

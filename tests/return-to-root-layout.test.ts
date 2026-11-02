@@ -25,7 +25,9 @@ import { HookHost } from './helpers/nav-stack-harness';
 
 const h = vi.hoisted(() => {
   type Route = { key: string; name: string; params?: Record<string, unknown>; state?: unknown };
-  const ROOT_ROUTE_NAMES = ['(tabs)', '(auth)', 'listing/[id]', 'bid/[id]', 'profile/[id]', 'my-listings', 'transfer/send/[id]', 'transfer/receive/[id]', 'checkout/[id]'];
+  const ROOT_ROUTE_NAMES = ['(tabs)', '(auth)', 'listing/[id]', 'bid/[id]', 'profile/[id]', 'my-listings', 'transfer/send/[id]', 'transfer/receive/[id]', 'checkout/[id]', 'primary-checkout/[session]', 'ticket/[session]'];
+  /** A route's path, as expo-router's pathname: the dynamic segment filled in, the query never part of it. */
+  const pathOf = (r: Route) => `/${r.name.replace(/\[(id|session)\]/, (_, k: string) => String(r.params?.[k]))}`;
   const m = {
     auth: { session: null as null | { user: { id: string } }, loading: false },
     routes: [] as Route[],
@@ -39,7 +41,7 @@ const h = vi.hoisted(() => {
       if (!r) return '/';
       if (r.name === '(tabs)') return '/home';
       if (r.name === '(auth)') return '/login';
-      return `/${r.name.replace('[id]', String(r.params?.id))}`;
+      return pathOf(r);
     },
     segments(): string[] {
       const r = m.top();
@@ -59,7 +61,7 @@ const h = vi.hoisted(() => {
       },
     },
   };
-  return m;
+  return Object.assign(m, { pathOf });
 });
 
 vi.mock('react-native-get-random-values', () => ({}));
@@ -112,12 +114,15 @@ const tick = () => new Promise((r) => setImmediate(r));
 function routeFor(href: string): { name: string; params?: Record<string, unknown> } {
   if (href === '/(tabs)/home') return { name: '(tabs)', params: { screen: 'home' } };
   if (href === '/(auth)/login') return { name: '(auth)' };
+  // D6: the session screens, with a link's query carried as route params the way expo-router carries it.
+  const session = /^\/(primary-checkout|ticket)\/([^/?#]+)(?:\?(.*))?$/.exec(href);
+  if (session) return { name: `${session[1]}/[session]`, params: { ...Object.fromEntries(new URLSearchParams(session[3] ?? '')), session: session[2] } };
   const screen = returnToStackRoute(href);
   if (!screen) throw new Error(`unmodelled href ${href}`);
   return screen;
 }
 const key = (name: string) => `${name}-${++h.seq}`;
-const stackNames = () => h.routes.map((r) => (r.name === '(tabs)' || r.name === '(auth)' ? r.name : `/${r.name.replace('[id]', String(r.params?.id))}`));
+const stackNames = () => h.routes.map((r) => (r.name === '(tabs)' || r.name === '(auth)' ? r.name : h.pathOf(r)));
 
 let host: HookHost;
 /** expo-router's queue runs after the effects that filled it; then the root re-renders on the new route. */
@@ -259,5 +264,47 @@ describe('RAS-5 — recovery and sign up, through the real root', () => {
     await act(() => { setOnboarding(false); setRecoveryHold(true); });
     await push(LISTING);
     expect(peekReturnTo('anyone')).toBeNull();
+  });
+});
+
+describe('D6 — a cold payment return, through the real root', () => {
+  const S = '5e55e55e-c0de-4abc-8def-00000000beef';
+  const CHECKOUT = `/primary-checkout/${S}`;
+  const TICKET = `/ticket/${S}`;
+  // The 3-D Secure / bank-app return URL's own query, plus what a payment provider may append. None of it is read.
+  const RETURN_QUERY = '?tt=7ab1e5e5-c0de-4abc-8def-00000000cafe&qty=2&attempt=attempt-abc123'
+    + '&payment_intent=REDACTED&payment_intent_client_secret=REDACTED&redirect_status=failed';
+
+  it('LP1: iOS relaunches a killed app onto [tabs, checkout], signed in — the ticket page opens over the tabs, and Back reaches them', async () => {
+    await launch(['/(tabs)/home', `${CHECKOUT}${RETURN_QUERY}`], 'user-a');
+    expect(stackNames()).toEqual(['(tabs)', TICKET]);
+    expect(h.replaced).toEqual([TICKET]);                 // one replace of the checkout; not Home, never the checkout kept
+    expect(h.resets).toBe(0);
+    await back();
+    expect(stackNames()).toEqual(['(tabs)']);
+  });
+
+  it('LP2: the same relaunch signed out goes to Sign in exactly as before', async () => {
+    await launch(['/(tabs)/home', `${CHECKOUT}${RETURN_QUERY}`], null);
+    expect(stackNames()).toEqual(['(tabs)', '(auth)']);
+    expect(h.replaced).toEqual(['/(auth)/login']);
+  });
+
+  it('LP3: every other signed-in cold start still goes Home — no link, a listing link, a malformed checkout link', async () => {
+    for (const initial of [['/(tabs)/home'], ['/(tabs)/home', LISTING], ['/(tabs)/home', '/primary-checkout/not-a-uuid']]) {
+      resetReturnToForTests(); h.replaced = []; h.resets = 0;
+      await launch(initial, 'user-a');
+      expect({ initial, replaced: h.replaced, resets: h.resets }).toEqual({ initial, replaced: ['/(tabs)/home'], resets: 0 });
+    }
+  });
+
+  it('LP4: a checkout opened inside a routed session keeps control — a token refresh moves no one; a sign-out still goes to login', async () => {
+    await launch(['/(tabs)/home'], 'user-a');
+    await push(`${CHECKOUT}${RETURN_QUERY}`);
+    await act(() => { h.auth.session = { user: { id: 'user-a' } }; });   // TOKEN_REFRESHED / USER_UPDATED: a new object
+    expect(stackNames()).toEqual(['(tabs)', CHECKOUT]);
+    expect(h.replaced).toEqual(['/(tabs)/home']);
+    await act(() => { markSessionEnd('user'); h.auth.session = null; });
+    expect(stackNames()).toEqual(['(tabs)', '(auth)']);
   });
 });
