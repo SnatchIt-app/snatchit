@@ -396,7 +396,7 @@ async function browser() {
     check(P, "H1 no Create event control in database mode", !t.toLowerCase().includes("create event"), "");
     await m.screenshot(join(OUT, "evidence-manager-events.png"));
     t = await visit(m, `${A}/events/${ID.e1}`);
-    check(P, "H1 event setup: both ticket types, no status writes", t.includes("General admission (synthetic)") && t.includes("Hidden early bird (synthetic)") && t.includes("Status changes are not available in database mode"), t.slice(0, 400));
+    check(P, "H1 event setup: both ticket types, no status writes", t.includes("General admission (synthetic)") && t.includes("Hidden early bird (synthetic)") && t.includes("enabled on this project yet"), t.slice(0, 400));
     t = await visit(m, `${A}/events/${ID.e1}/inventory`);
     check(P, "H1 inventory: remaining-only note", t.includes("remaining") && !t.includes("venue.release_inventory_hold"), t.slice(0, 300));
     for (const sub of ["attendees", "door"]) {
