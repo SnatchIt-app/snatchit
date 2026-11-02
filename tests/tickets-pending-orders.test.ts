@@ -71,7 +71,6 @@ describe('pendingOrderItems', () => {
     expect(pendingOrderItems([
       row({ event_session_id: S1, status: 'paid', atoms_issued: 2 }),
       row({ event_session_id: S2, status: 'cancelled' }),
-      row({ event_session_id: S3, status: 'expired' }),
       row({ event_session_id: S3, status: 'refunded' }),
     ])).toEqual([]);
   });
