@@ -10,14 +10,18 @@
  * refunds but FORGETS idempotency keys on demand (Stripe keeps a key's result
  * for 24 hours; 093:1255-1274).
  *
- *   G  refunds-3 — `action: execute` requires a platform operator at aal2,
- *      decided by ops.whoami() run as the caller, and refuses everyone else
+ *   G  refunds-3 — `action: execute` requires platform_admin at aal2 (the
+ *      ops-refund-execute gate), decided by ops.whoami() run as the caller, and
+ *      refuses everyone else — platform_support and platform_risk included —
  *      before any refund is read, without naming a refund, order, amount or ref.
  *   X  refunds-1 — `action: execute` never creates blind: it lists the
  *      PaymentIntent's refunds for metadata.refund_id before any POST, so a
  *      retry after Stripe forgot the key records the first refund instead of
  *      minting a second. A refund_state_backwards that carries a DIFFERENT ref
- *      is a second real refund, and pages instead of passing as a converged race.
+ *      is a second real refund, and pages instead of passing as a converged race;
+ *      one whose re-read FAILED proves nothing either way, and is retryable.
+ *   P  a terminal Stripe create error on `action: execute` pages exactly as the
+ *      sweep's create path does (execute runs the reconcile leg since refunds-1).
  *
  * Nothing here talks to a network, a database or a real Stripe key.
  */
@@ -55,6 +59,8 @@ class StripeWithMemory {
   loseNextResponse = false;
   /** Runs at the start of every POST /refunds — used to interleave a concurrent actor. */
   onPost: (() => void) | null = null;
+  /** When set, every POST /refunds is answered with this Stripe error and creates nothing. */
+  postError: { status: number; error: Record<string, string> } | null = null;
 
   /** Stripe's 24h idempotency retention has elapsed: every key is a fresh key again. */
   forgetKeys() { this.byKey.clear(); }
@@ -63,6 +69,7 @@ class StripeWithMemory {
   route = (c: StripeCall) => {
     if (c.method === 'POST' && c.path === '/refunds') {
       this.onPost?.();
+      if (this.postError) return { ok: false, status: this.postError.status, data: { error: this.postError.error } };
       const body = c.body as Record<string, string>;
       const serialized = JSON.stringify(body);
       const hit = c.idempotencyKey ? this.byKey.get(c.idempotencyKey) : undefined;
@@ -108,6 +115,9 @@ class Kernel {
   row: Row = { status: 'pending', stripe_refund_ref: null };
   /** When set, the NEXT get_refund_execution_context returns THIS once (a read taken before a concurrent write). */
   staleNextContext: Row | null = null;
+  /** get_refund_execution_context calls so far, and the 1-based call (if any) that fails transiently. */
+  contextReads = 0;
+  failContextRead: number | null = null;
 
   context(refundId: string) {
     if (refundId !== REFUND) return null;           // 093: unknown id ⇒ SQL NULL
@@ -153,7 +163,13 @@ async function harness(opts: { user?: string; whoami?: WhoAmI; claim?: unknown[]
     rpc: async (name, params) => {
       if (name === 'whoami') return opts.whoami ?? OPERATOR_AAL2;
       if (name === 'check_rate_limit') return { data: true };
-      if (name === 'get_refund_execution_context') return { data: kernel.context(params.p_refund_id as string) };
+      if (name === 'get_refund_execution_context') {
+        kernel.contextReads += 1;
+        if (kernel.contextReads === kernel.failContextRead) {
+          return { data: null, error: { message: 'canceling statement due to statement timeout', code: '57014' } };
+        }
+        return { data: kernel.context(params.p_refund_id as string) };
+      }
       if (name === 'mark_refund_state') {
         try {
           return { data: kernel.mark(params.p_new_status as string, params.p_stripe_refund_ref as string | null, params.p_failure_code as string | null) };
@@ -245,7 +261,19 @@ describe('G: action:execute is a platform-operator-at-aal2 action, decided in th
     expect(h.transport.calls).toHaveLength(0);
   });
 
-  it('G5 control: a platform operator at aal2 executes the refund', async () => {
+  it.each(['platform_support', 'platform_risk'])('G6 %s at aal2 is refused: execute is platform_admin only, as ops-refund-execute', async (role) => {
+    const h = await harness({ whoami: { data: { user_id: OPERATOR, role, aal: 'aal2' } } });
+    const r = await h.execute({ expected_order_id: ORDER });
+    expect(r.status).toBe(403);
+    expect(r.body.error).toBe('forbidden');
+    expectNoLeak(r.body);
+    expect(h.transport.calls).toHaveLength(0);
+    expect(h.rpcNames()).not.toContain('get_refund_execution_context');
+    expect(h.rpcNames()).not.toContain('mark_refund_state');
+    expect(h.kernel.row).toEqual({ status: 'pending', stripe_refund_ref: null });
+  });
+
+  it('G5 control: a platform_admin at aal2 executes the refund', async () => {
     const h = await harness();
     const r = await h.execute({ expected_order_id: ORDER });
     expect(r.status).toBe(200);
@@ -311,13 +339,18 @@ describe('X: action:execute establishes what exists at Stripe before it may crea
   });
 
   it('X7 a submitted row is finished from its own ref (GET), never POSTed', async () => {
+    // Pins the behaviour index.ts states at the execute branch, which
+    // supersedes E4_refund_executor.md:187 (§5 case 4, "a direct re-execute is
+    // noop_replay"): execute GETs the recorded re_… and advances the row.
     const h = await harness();
     h.stripe.refunds.push({ id: 're_1', object: 'refund', status: 'succeeded', amount: AMOUNT, payment_intent: PI, metadata: { refund_id: REFUND } });
     h.kernel.row = { status: 'submitted', stripe_refund_ref: 're_1' };
     const r = await h.execute({ expected_order_id: ORDER });
-    expect(h.transport.calls.filter((c) => c.method === 'POST')).toHaveLength(0);
+    expect(h.calls()).toEqual(['GET /refunds/re_1']);
+    expect(r.body.status).toBe('succeeded');
     expect(r.body.stripe_refund_ref).toBe('re_1');
     expect(h.stripe.refunds).toHaveLength(1);
+    expect(h.kernel.row).toEqual({ status: 'succeeded', stripe_refund_ref: 're_1' });
   });
 
   it('X4 a refund_state_backwards carrying a DIFFERENT ref is a second real refund: it pages, never "converged"', async () => {
@@ -362,5 +395,110 @@ describe('X: action:execute establishes what exists at Stripe before it may crea
     expect(result.outcome).toBe('noop_replay');
     expect(result.code).toBe('converged_elsewhere');
     expect(h.edge.sentry.filter((s) => s.tag === 'refund-execute:state-sync')).toHaveLength(0);
+  });
+
+  it('X8 the same benign race whose RE-READ fails is unknown and retryable — never paged as a second Stripe refund', async () => {
+    const h = await harness({
+      claim: [{ refund_id: REFUND, created_at: '2026-10-01T00:00:00Z', status: 'pending', execution_mode: 'create', attempt: 1, command_key: `refund.execute:${REFUND}` }],
+    });
+    const plan = planRefund(h.kernel.context(REFUND)!);
+    if (plan.kind !== 'stripe_create') throw new Error('fixture: expected a create plan');
+    await h.stripe.route({ method: 'POST', path: '/refunds', body: plan.body, idempotencyKey: plan.idempotency_key });
+    h.kernel.row = { status: 'succeeded', stripe_refund_ref: 're_1' };
+    h.kernel.staleNextContext = { status: 'pending', stripe_refund_ref: null };
+    h.kernel.failContextRead = 2;                           // read 1 = the claim's (stale); read 2 = the re-read
+
+    const r = await h.sweep();
+    const result = (r.body.results as Array<Record<string, unknown>>)[0];
+    expect(h.stripe.refunds).toHaveLength(1);                // there IS no second refund
+    expect(result.outcome).toBe('state_sync_deferred');
+    expect(result.code).toBe('state_sync_unverified');
+    expect(result.retryable).toBe(true);
+    const pages = h.edge.sentry.filter((s) => s.tag === 'refund-execute:state-sync');
+    expect(pages).toHaveLength(1);
+    const msg = (pages[0].error as Error).message;
+    expect(msg).toMatch(/re-read/);
+    expect(msg).not.toMatch(/second Stripe refund/);
+    expect(pages[0].ctx).not.toHaveProperty('recorded_stripe_refund_ref');
+    expect(h.kernel.row).toEqual({ status: 'succeeded', stripe_refund_ref: 're_1' });
+  });
+
+  it('X9 on action:execute too: a failed re-read after refund_state_backwards answers retryable, with no POST', async () => {
+    // A concurrent worker recorded re_1 after our context read. Reconcile finds
+    // re_1 by metadata (no POST), its mark raises refund_state_backwards, and
+    // the re-read that would prove the recorded ref is ours fails transiently.
+    const h = await harness();
+    h.stripe.refunds.push({ id: 're_1', object: 'refund', status: 'succeeded', amount: AMOUNT, payment_intent: PI, metadata: { refund_id: REFUND } });
+    h.kernel.row = { status: 'succeeded', stripe_refund_ref: 're_1' };
+    h.kernel.staleNextContext = { status: 'pending', stripe_refund_ref: null };
+    h.kernel.failContextRead = 2;
+
+    const r = await h.execute({ expected_order_id: ORDER });
+    expect(h.transport.calls.filter((c) => c.method === 'POST')).toHaveLength(0);
+    expect(r.body.status).toBe('state_sync_deferred');
+    expect(r.body.code).toBe('state_sync_unverified');
+    expect(r.body.retryable).toBe(true);
+    const pages = h.edge.sentry.filter((s) => s.tag === 'refund-execute:state-sync');
+    expect(pages).toHaveLength(1);
+    expect((pages[0].error as Error).message).not.toMatch(/second Stripe refund/);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// P — paging parity: execute's create leg pages like the sweep's create leg
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('P: a terminal Stripe create error on action:execute pages exactly as before', { timeout: LOAD_BUDGET_MS }, () => {
+  const CASES: Array<[string, string, string]> = [
+    ['charge_already_refunded', 'charge_already_refunded', 'synthetic: this charge has already been refunded'],
+    ['idempotency_error', 'idempotency_conflict', 'synthetic: same key, different parameters'],
+  ];
+
+  it.each(CASES)('P1 Stripe 400 %s → pages refund-execute:stripe with the Stripe code; detail is Stripe\'s message; nothing written', async (code, cls, message) => {
+    const h = await harness();
+    h.stripe.postError = { status: 400, error: { type: 'invalid_request_error', code, message } };
+    const r = await h.execute({ expected_order_id: ORDER });
+    expect(h.calls()).toEqual(['GET /refunds', 'POST /refunds']);
+    expect(r.status).toBe(409);
+    expect(r.body.status).toBe('stripe_error');
+    expect(r.body.code).toBe(cls);
+    expect(r.body.retryable).toBe(false);
+    expect(r.body.detail).toBe(message);
+    const pages = h.edge.sentry.filter((s) => s.tag === 'refund-execute:stripe');
+    expect(pages).toHaveLength(1);
+    expect((pages[0].error as Error).message).toBe(`${cls}: ${message}`);
+    expect(pages[0].ctx).toEqual({ refund_id: REFUND, payment_id: PAYMENT, stripe_code: code });
+    expect(h.rpcNames()).not.toContain('mark_refund_state');
+    expect(h.kernel.row).toEqual({ status: 'pending', stripe_refund_ref: null });
+  });
+
+  it.each(CASES)('P2 parity: %s pages identically from action:execute and from the sweep\'s DB-issued create', async (code, _cls, message) => {
+    const pageOf = async (drive: 'execute' | 'sweep') => {
+      const h = await harness({
+        claim: [{ refund_id: REFUND, created_at: '2026-10-01T00:00:00Z', status: 'pending', execution_mode: 'create', attempt: 1, command_key: `refund.execute:${REFUND}` }],
+      });
+      h.stripe.postError = { status: 400, error: { type: 'invalid_request_error', code, message } };
+      const r = drive === 'execute' ? await h.execute() : await h.sweep();
+      const outcome = drive === 'execute' ? r.body : (r.body.results as Array<Record<string, unknown>>)[0];
+      const pages = h.edge.sentry.filter((s) => s.tag === 'refund-execute:stripe');
+      return {
+        pages: pages.map((p) => ({ message: (p.error as Error).message, ctx: p.ctx })),
+        code: outcome.code, detail: outcome.detail, retryable: outcome.retryable,
+      };
+    };
+    const viaExecute = await pageOf('execute');
+    const viaSweep = await pageOf('sweep');
+    expect(viaSweep.pages).toHaveLength(1);
+    expect(viaExecute).toEqual(viaSweep);
+  });
+
+  it('P3 control: a retryable, non-paging Stripe error (429) on execute does not page', async () => {
+    const h = await harness();
+    h.stripe.postError = { status: 429, error: { type: 'rate_limit_error', code: 'rate_limit', message: 'synthetic: slow down' } };
+    const r = await h.execute();
+    expect(r.status).toBe(503);
+    expect(r.body.code).toBe('rate_limited');
+    expect(r.body.retryable).toBe(true);
+    expect(h.edge.sentry.filter((s) => s.tag === 'refund-execute:stripe')).toHaveLength(0);
   });
 });
