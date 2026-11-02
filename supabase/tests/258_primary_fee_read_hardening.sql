@@ -34,6 +34,12 @@
 --       inventory.per_user_active_hold_max — "5", 2.5, 0, -3, 2147483648 refused, nothing written; 5 and 1
 --       accepted (executed: a new version).
 --
+-- Registry 198 (20261102120000) moved four pins here, nothing else: the fixture appends a newer
+-- feature.native_issuance_enabled = true (checkout now refuses feature_disabled unless the newest version is
+-- true) and a second fan hold …032 for P6 (one hold backs at most one live order, so P6 can no longer re-use
+-- P5's bound hold …031; the batch's held is 2 to match); A7 expects 198's checkout md5 (daf8bffd); A9's strip
+-- removes the 188 and the 198 blocks (198 blocks are byte-for-byte additions, so the 093 md5 stands).
+--
 -- NOT in-suite (runner, evidence dir a188_189/): pre-flight refusal of a foreign body with nothing changed,
 -- idempotent re-apply, rollback to both predecessor md5s with every other function unchanged, rollback
 -- refusal and re-run (CI mounts supabase/tests only — the 250/253/255 precedent).
@@ -92,14 +98,14 @@ CREATE FUNCTION tap._orders258(p_prefix text) RETURNS integer LANGUAGE sql STABL
 $m$ SELECT count(*)::integer FROM venue."order" WHERE buyer_id = '25800000-0000-4000-8000-000000000199' AND command_idempotency_key LIKE p_prefix || '%' $m$;
 CREATE FUNCTION tap._top258(k text) RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER AS
 $m$ SELECT c.value FROM catalog.platform_config c WHERE c.key = k ORDER BY c.version DESC LIMIT 1 $m$;
--- strip rule (188 header): every line from a '-- ── 188 BLOCK <X> …' marker through its
--- '-- ── 188 BLOCK <X> END' marker (both included) goes; everything else is kept byte for byte.
+-- strip rule (188 header; 198 adds its own blocks the same way): every line from a '-- ── 188 BLOCK <X> …' or
+-- '-- ── 198 BLOCK <X> …' marker through its END marker (both included) goes; everything else is kept byte for byte.
 CREATE FUNCTION tap._strip258(p_sig text) RETURNS text LANGUAGE sql STABLE AS $m$
   WITH l AS (
     SELECT t.line, t.n,
-           CASE WHEN t.line ~ '^ *-- ── 188 BLOCK [A-Z0-9]+ END *$' THEN -1
-                WHEN t.line ~ '^ *-- ── 188 BLOCK [A-Z0-9]+( |$)'   THEN 1 ELSE 0 END AS d,
-           t.line ~ '^ *-- ── 188 BLOCK ' AS marker
+           CASE WHEN t.line ~ '^ *-- ── (188|198) BLOCK [A-Z0-9]+ END *$' THEN -1
+                WHEN t.line ~ '^ *-- ── (188|198) BLOCK [A-Z0-9]+( |$)'   THEN 1 ELSE 0 END AS d,
+           t.line ~ '^ *-- ── (188|198) BLOCK ' AS marker
       FROM regexp_split_to_table(pg_get_functiondef(to_regprocedure(p_sig)), E'\n') WITH ORDINALITY AS t(line, n))
   SELECT md5(string_agg(x.line, E'\n' ORDER BY x.n))
     FROM (SELECT l.line, l.n, l.marker, sum(l.d) OVER (ORDER BY l.n) AS depth FROM l) x
@@ -138,14 +144,19 @@ INSERT INTO catalog.event_session (session_id, event_id, starts_at, status) VALU
 INSERT INTO venue.ticket_type (ticket_type_id, event_id, kind, name, price_minor, visibility) VALUES
   ('25800000-0000-4000-8000-000000000011', '25800000-0000-4000-8000-0000000000e1', 'admission', 'GA 258', 2500, 'public');
 INSERT INTO venue.inventory_batch (batch_id, ticket_type_id, event_session_id, release_kind, capacity, held, sold) VALUES
-  ('25800000-0000-4000-8000-000000000021', '25800000-0000-4000-8000-000000000011', '25800000-0000-4000-8000-0000000000f1', 'public_sale', 50, 1, 0);
+  ('25800000-0000-4000-8000-000000000021', '25800000-0000-4000-8000-000000000011', '25800000-0000-4000-8000-0000000000f1', 'public_sale', 50, 2, 0);
 INSERT INTO venue.inventory_hold (hold_id, batch_id, identity_id, quantity, status, expires_at, command_idempotency_key) VALUES
-  ('25800000-0000-4000-8000-000000000031', '25800000-0000-4000-8000-000000000021', '25800000-0000-4000-8000-000000000199', 1, 'active', now() + interval '1 hour', 'h-258');
+  ('25800000-0000-4000-8000-000000000031', '25800000-0000-4000-8000-000000000021', '25800000-0000-4000-8000-000000000199', 1, 'active', now() + interval '1 hour', 'h-258'),
+  ('25800000-0000-4000-8000-000000000032', '25800000-0000-4000-8000-000000000021', '25800000-0000-4000-8000-000000000199', 1, 'active', now() + interval '1 hour', 'h-258b');
 -- the global ES256 bootstrap key THROUGH THE LIVE 110 GUARD (B's recipe), only when no active global key resolves
 INSERT INTO kernel.signing_key (key_id, scope, public_key, kms_handle_ref, algorithm, status, not_before)
 SELECT '00000000-0000-0000-0000-0000000000b0', 'global', tap._pem258(),
        'arn:aws:kms:us-east-1:000000000000:key/1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b', 'ES256', 'active', now()
  WHERE NOT EXISTS (SELECT 1 FROM kernel.signing_key k WHERE k.scope = 'global' AND k.status = 'active');
+-- the sales switch on (198: checkout refuses feature_disabled unless the newest version is true) — a new version, as postgres
+INSERT INTO catalog.platform_config (key, version, value, visibility)
+SELECT 'feature.native_issuance_enabled', coalesce(max(version), 0) + 1, 'true'::jsonb, 'public'
+  FROM catalog.platform_config WHERE key = 'feature.native_issuance_enabled';
 -- the rate history: whatever the chain carries, then "ten percent" (a non-numeric version), then 1000 on top
 SELECT tap._rate258('"ten percent"'::jsonb);
 SELECT tap._rate258('1000'::jsonb);
@@ -177,13 +188,13 @@ SELECT is(ARRAY[tap._markers258('venue.create_primary_checkout(uuid, jsonb, uuid
                 tap._markers258('catalog.set_platform_config(text, jsonb, text, text)', true)], ARRAY[3, 3, 1, 1],
   'A6: 188 blocks — checkout carries three (D, R1, R2), set_platform_config one (V); every opening has its END');
 SELECT is(md5(pg_get_functiondef(to_regprocedure('venue.create_primary_checkout(uuid, jsonb, uuid[], text)'))),
-  '77004331198b9dad2e51e1ed2ceaef35',
-  'A7: create_primary_checkout body = 188''s (md5(pg_get_functiondef) 77004331)');
+  'daf8bffd8a5f4a71fc7229dc11e3494a',
+  'A7: create_primary_checkout body = 198''s (md5(pg_get_functiondef) daf8bffd; 188''s 77004331 plus the 198 blocks)');
 SELECT is(md5(pg_get_functiondef(to_regprocedure('catalog.set_platform_config(text, jsonb, text, text)'))),
   '2ece44b98c73af1e8c2b5d930b0a5895',
   'A8: set_platform_config body = 188''s (md5(pg_get_functiondef) 2ece44b9)');
 SELECT is(tap._strip258('venue.create_primary_checkout(uuid, jsonb, uuid[], text)'), 'a629b41216397da48f71a7c6cc4fd298',
-  'A9: create_primary_checkout minus the 188 blocks = the 093 predecessor byte for byte (md5 a629b412)');
+  'A9: create_primary_checkout minus the 188 and 198 blocks = the 093 predecessor byte for byte (md5 a629b412)');
 SELECT is(tap._strip258('catalog.set_platform_config(text, jsonb, text, text)'), 'd0aaada87856b8579f7e19fcd9934fbf',
   'A10: set_platform_config minus the 188 block = the 102 predecessor byte for byte (md5 d0aaada8)');
 SELECT ok(pg_get_functiondef(to_regprocedure('venue.create_primary_checkout(uuid, jsonb, uuid[], text)'))
@@ -226,7 +237,7 @@ SELECT is((SELECT (j ->> 'status', (j ->> 'total_minor')::int, (j ->> 'buyer_fee
 DISCARD PLANS;
 SELECT tap._idxplan258();
 SELECT tap.login('25800000-0000-4000-8000-000000000199');
-SELECT tap._store258('p6', tap._try258($q$SELECT venue.create_primary_checkout('25800000-0000-4000-8000-0000000000f1', '[{"ticket_type_id":"25800000-0000-4000-8000-000000000011","quantity":1}]'::jsonb, ARRAY['25800000-0000-4000-8000-000000000031']::uuid[], 'ck258-p6-idx')$q$)::text);
+SELECT tap._store258('p6', tap._try258($q$SELECT venue.create_primary_checkout('25800000-0000-4000-8000-0000000000f1', '[{"ticket_type_id":"25800000-0000-4000-8000-000000000011","quantity":1}]'::jsonb, ARRAY['25800000-0000-4000-8000-000000000032']::uuid[], 'ck258-p6-idx')$q$)::text);
 SELECT tap.logout();
 SELECT is((SELECT (j ->> 'status', (j ->> 'total_minor')::int, (j ->> 'buyer_fee_minor')::int, (j ->> 'charge_total_minor')::int)::text FROM (SELECT tap._fetch258('p6')::jsonb j) x),
   ('ok', 2500, 250, 2750)::text,
