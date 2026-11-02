@@ -202,7 +202,7 @@ describe("marketplace/[id]: when the relist form renders", () => {
     }
     const tree = await renderPage(row);
     expect(relistForms(tree)).toHaveLength(0);
-    expect(treeText(tree)).toContain("ops.listing_detail did not return this listing's version");
+    expect(treeText(tree)).toContain("Relist is unavailable: the server did not return this listing's version.");
   });
 
   it("a non-founder sees the founder-only note, not the form", async () => {

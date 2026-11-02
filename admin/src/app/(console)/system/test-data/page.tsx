@@ -53,15 +53,13 @@ export default async function TestDataPage() {
         <PageHeader
           eyebrow="System"
           title={RESTRICTED_VIEW_TITLE}
-          description="This view asks the readers to include test records. This server's readers do not accept that request, so nothing is listed here."
+          description="This view asks the server to include test records. This server does not support that yet, so nothing is listed here."
           meta="Needs registry 180."
         />
         <Alert state="info" title="Needs registry 180 — the readers on this server cannot include test records.">
           <p>
-            The console asked <code className="font-mono">ops.list_cases</code>,{" "}
-            <code className="font-mono">list_orders</code>, <code className="font-mono">list_listings</code> and{" "}
-            <code className="font-mono">list_reports</code> for test records. On this server those functions take{" "}
-            <code className="font-mono">(p_filters, p_cursor, p_limit)</code> only, so the request was refused.
+            The console asked this server for cases, orders, listings and reports, test records included. This server does not
+            support that request yet, so it refused it.
           </p>
           <p className="mt-2">
             <strong>No rows are shown and nothing has been classified.</strong> This is not an outage and no data is

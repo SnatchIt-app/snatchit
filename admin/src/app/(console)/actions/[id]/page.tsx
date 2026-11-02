@@ -131,7 +131,7 @@ export default async function ActionPage({ params }: { params: Promise<{ id: str
                 ) : pending.can_decide ? (
                   <ApprovalDecisionForms approval={pending} actionId={id} revalidate={path} />
                 ) : (
-                  <Alert state="info" title="Only another platform_admin can decide this approval." compact />
+                  <Alert state="info" title="Only another founder can decide this approval." compact />
                 )}
               </div>
             ) : null}
@@ -164,11 +164,11 @@ export default async function ActionPage({ params }: { params: Promise<{ id: str
               ) : null}
               {a.state === "unknown" ? (
                 <Alert state="failed" title="Outcome unknown — needs reconciliation." compact>
-                  Stripe may or may not have refunded. Resume looks the refund up under its idempotency key before doing anything; if it stays unknown, verify in the Stripe Dashboard and escalate.
+                  Stripe may or may not have refunded. Resume first looks up the refund by its idempotency key. If the outcome stays unknown, check the Stripe Dashboard and escalate.
                 </Alert>
               ) : null}
               {a.state === "succeeded_at_provider" ? (
-                <Alert state="info" title="Succeeded at provider — awaiting local webhook." compact>
+                <Alert state="info" title="Succeeded at Stripe — waiting for the Stripe webhook." compact>
                   Stripe refunded{a.provider_ref ? <> (<code className="font-mono">{a.provider_ref}</code>)</> : null}; the local payment flips to refunded when charge.refunded lands and the detector completes this action. Nothing to resume.
                 </Alert>
               ) : null}
@@ -208,7 +208,7 @@ function ApprovalDecisionForms({ approval, actionId, revalidate }: { approval: A
     <div className="grid gap-4 sm:grid-cols-2">
       {approval.hash_current === false ? <Alert state="stale" title="Action terms changed since approval was requested — the decision will be rejected as stale." compact /> : null}
       <ConfirmForm idempotencyKey={newIdempotencyKey()} actionType="approval_decide" subjectKind="action" subjectId={actionId} params={{ action_id: actionId, decision: approve }} revalidate={revalidate} label="Approve and execute" danger reasonLabel="Approval reason">
-        <p className="text-[0.75rem] text-muted">Approving executes the action immediately with the requester as the domain actor. Bound to the exact terms shown above.</p>
+        <p className="text-[0.75rem] text-muted">Approving runs the action at once, in the requester&apos;s name, with the exact terms shown above.</p>
       </ConfirmForm>
       <ConfirmForm idempotencyKey={newIdempotencyKey()} actionType="approval_decide" subjectKind="action" subjectId={actionId} params={{ action_id: actionId, decision: deny }} revalidate={revalidate} label="Deny" reasonLabel="Denial reason">
         <p className="text-[0.75rem] text-muted">Denying rejects the action; nothing changes.</p>

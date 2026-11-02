@@ -47,7 +47,7 @@ describe("case work keeps its safeguards wherever it is rendered", () => {
     expect(hidden(f, "action_type")).toBe("case_note");
     expect(hidden(f, "reason_required")).toBe("0");
     expect(JSON.parse(hidden(f, "expected") ?? "{}")).toEqual({ version: 7 });
-    expect(html).toContain("Append-only; visible to all operators.");
+    expect(html).toContain("Notes cannot be edited or deleted. All operators can see them.");
   });
 
   it("a case without a version sends no expected state rather than a made-up one", () => {

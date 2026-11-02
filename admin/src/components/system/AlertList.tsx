@@ -51,9 +51,9 @@ export function AlertList({ alerts, meId, revalidate = "/system" }: { alerts: Op
         </ul>
       )}
       <p className="mt-4 border-t border-line-neutral pt-3 text-[0.6875rem] text-dim">
-        Migration 146 records delivery but sends nothing by itself: it seeds <span className="font-mono">alert_delivery_enabled</span> false and schedules no caller for{" "}
-        <span className="font-mono">ops.dispatch_alerts</span>. Turning delivery on and scheduling a caller are both owner decisions; until both are made, an alert reaches a
-        person only when someone opens this page. Acknowledging records that a person saw this incident. It does not fix the condition, and it is not a delivery.
+        Alert delivery is installed switched off: <span className="font-mono">alert_delivery_enabled</span> starts as false, and the install schedules no sender. Turning delivery
+        on and scheduling a sender are both owner decisions. Until both are done, a person sees an alert only by opening this page. Acknowledging records that a person saw
+        this incident. It does not fix the condition, and it does not send the alert.
       </p>
     </>
   );
@@ -77,13 +77,13 @@ export function AlertDelivery({ alert, meId }: { alert: OpsAlert; meId?: string 
     delivery = (
       <>
         <span className="text-success">Delivery confirmed</span> <TimeAgo value={alert.delivered_at} />
-        {alert.delivery_status ? ` (HTTP ${alert.delivery_status})` : ""}: notify-report reported a delivery — not proof anyone read it
+        {alert.delivery_status ? ` (HTTP ${alert.delivery_status})` : ""}: the delivery service reported it delivered — not proof anyone read it
       </>
     );
   } else if (alert.queued_at) {
     delivery = (
       <>
-        <span className="text-warning">Queued</span> <TimeAgo value={alert.queued_at} />: pg_net accepted the post — not confirmed delivered
+        <span className="text-warning">Queued</span> <TimeAgo value={alert.queued_at} />: the database queued it for sending — not confirmed delivered
       </>
     );
   } else if (attempts > 0) {
@@ -91,7 +91,7 @@ export function AlertDelivery({ alert, meId }: { alert: OpsAlert; meId?: string 
       <>
         <span className="text-warning">Not delivered</span> after {attempts} attempt{attempts === 1 ? "" : "s"}
         {alert.last_notify_error ? `: ${alert.last_notify_error}` : ""}
-        {attempts >= ALERT_MAX_ATTEMPTS ? ` — attempt limit (${ALERT_MAX_ATTEMPTS}) reached; ops.dispatch_alerts no longer posts it` : ""}
+        {attempts >= ALERT_MAX_ATTEMPTS ? ` — attempt limit (${ALERT_MAX_ATTEMPTS}) reached; it will not be sent again` : ""}
       </>
     );
   } else {

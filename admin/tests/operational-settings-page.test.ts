@@ -103,7 +103,7 @@ describe("operational settings panel", () => {
     const html = await render();
     expect(mocks.calls).not.toContain("list_operational_config");
     expect(mocks.calls).not.toContain("list_config_approvals");
-    expect(html).toContain("Operational settings are visible to platform_admin only.");
+    expect(html).toContain("Only founders can see Operational settings.");
     expect(html).not.toContain("Apply now");
   });
 

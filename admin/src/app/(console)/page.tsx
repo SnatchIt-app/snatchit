@@ -25,7 +25,7 @@ type Assignee = "me" | "unassigned" | "all";
 
 /** Tooltip definitions for the counts ops.today() returns (§3.5 / §5). */
 const METRIC_DEFINITIONS: Record<string, string> = {
-  open_cases: "ops.case rows whose status is not resolved or dismissed.",
+  open_cases: "Cases whose status is not resolved or dismissed.",
   paid_unsettled: "Succeeded payments older than the grace window with no transfer row yet.",
   transfers_due_6h: "Pending transfers whose seller deadline falls within the next 6 hours.",
   transfers_overdue: "Pending transfers whose seller deadline has passed.",
@@ -37,8 +37,8 @@ const METRIC_DEFINITIONS: Record<string, string> = {
   reports_pending: "User reports in 'pending' status.",
   jobs_failing: "Enabled ops jobs with 2+ consecutive failures.",
   webhook_backlog: "Stripe webhook events unprocessed for longer than the stuck window.",
-  approvals_pending: "Second-operator approvals still pending and not expired.",
-  alerts_firing: "ops.alert rows in 'firing' state.",
+  approvals_pending: "Second-founder approvals still pending and not expired.",
+  alerts_firing: "Alerts that are firing now.",
 };
 
 export default async function TodayPage({ searchParams }: { searchParams: Promise<SearchParams> }) {

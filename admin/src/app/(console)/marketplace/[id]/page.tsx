@@ -192,7 +192,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
               {relist && founder ? (
                 <ConfirmForm key={`relist-${relist.updated_at}`} idempotencyKey={newIdempotencyKey()} actionType="listing_relist" subjectKind="listing" subjectId={id} expected={relist} revalidate={path} label="Relist" danger>
                   <p className="text-[0.75rem] text-muted">
-                    admin_relist_listing only accepts admin-owned inventory that has never transacted; anything else is rejected by the domain guard. Price and fees are not editable.
+                    Relist works only for a listing from an admin account with no bids, payments, transfers, winner or reservation. The server rejects any other listing. You cannot change the price or fees.
                     {transacted ? " This listing has a captured payment — expect a rejection." : ""}
                   </p>
                   <div>
@@ -206,8 +206,8 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
               ) : relist ? (
                 <Alert state="info" title="Only a founder can relist." compact />
               ) : relistState ? (
-                <Alert state="failed" title="Relist is unavailable: ops.listing_detail did not return this listing's version." compact>
-                  The relist form states updated_at, ends_at and ended_at exactly as loaded. Reload; if this persists, the read contract changed.
+                <Alert state="failed" title="Relist is unavailable: the server did not return this listing's version." compact>
+                  The relist form needs the listing&apos;s version from the server. Reload the page. If this message stays, report it with the code ops.listing_detail.
                 </Alert>
               ) : (
                 <Alert state="info" title="Relist applies only to active listings whose auction is cancelled." compact>

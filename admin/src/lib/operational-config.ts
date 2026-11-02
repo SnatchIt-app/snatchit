@@ -39,13 +39,13 @@ export const OPERATIONAL_KEYS: readonly OperationalKeySpec[] = [
     key: "feature.native_issuance_enabled",
     label: "Native ticket issuance",
     kind: "boolean",
-    help: "The Stage 8 flip and the sales kill switch: false stops native issuance.",
+    help: "Turned on at launch stage 8. It is also the sales kill switch: false stops Snatch It from issuing new tickets.",
   },
   {
     key: "feature.native_scanning_enabled",
     label: "Native door scanning",
     kind: "boolean",
-    help: "The Stage 8 scanning flip.",
+    help: "Snatch It's own door scanning. Launch stage 8 turns it on.",
   },
 ];
 

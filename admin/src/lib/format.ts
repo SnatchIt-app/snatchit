@@ -263,7 +263,7 @@ export function refundStateLabel(state: unknown, refundStatus: unknown): string 
 export const EXECUTOR_REFUSAL_LABELS: Record<string, string> = {
   disabled: "refund execution is disabled (ops.setting refund_execute_enabled = false)",
   paused: "console actions are paused by a founder (ops.setting actions_enabled = false)",
-  claim_busy: "another executor run holds the lease — wait for it to finish, then retry",
+  claim_busy: "another executor run is already working on this action — wait for it to finish, then retry",
   approval_missing: "no approved second-founder decision exists for this action",
   approval_stale: "the approval no longer matches the action's terms — a fresh approval is needed",
   terminal: "the action is already in a terminal state — nothing to resume",
@@ -331,8 +331,8 @@ export const ACTION_TYPE_LABELS: Record<string, string> = {
   payout_release: "Release held payout",
   listing_relist: "Relist listing",
   report_resolve: "Resolve report",
-  user_restrict: "Block listing creation",
-  user_unrestrict: "Unblock listing creation",
+  user_restrict: "Restrict user (listing block or suspension)",
+  user_unrestrict: "Lift user restriction (listing block or suspension)",
   refund_execute: "Execute refund",
   job_retry: "Run job now",
   setting_set: "Change setting",
@@ -445,13 +445,13 @@ export function stripeModeOf(payment: Record<string, unknown> | null | undefined
     return {
       mode: "not_provided",
       label: "Unclassified (not provided by the server)",
-      note: `ops.order_detail returned no stripe_livemode, so the console can't tell live from test. Treat it as unclassified: ${STRIPE_MODE_STOP}`,
+      note: `The server did not say whether this payment is live or test (no stripe_livemode). Treat it as unclassified: ${STRIPE_MODE_STOP}`,
     };
   }
   return {
     mode: "unrecognised",
     label: "Unclassified (unrecognised value)",
-    note: `ops.order_detail returned a stripe_livemode that is not true, false or null, so the console can't tell live from test. Treat it as unclassified: ${STRIPE_MODE_STOP}`,
+    note: `The server sent a stripe_livemode value that is not true, false or null, so the console cannot tell live from test. Treat it as unclassified: ${STRIPE_MODE_STOP}`,
   };
 }
 

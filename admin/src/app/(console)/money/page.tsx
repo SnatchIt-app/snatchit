@@ -136,7 +136,7 @@ export default async function MoneyPage({ searchParams }: { searchParams: Promis
           ) : (
             <ReconTable rows={recon} searchParams={sp} nextCursor={reconPage?.next_cursor} />
           )}
-          <p className="mt-3 text-[0.6875rem] text-dim">Money facts that disagree. Investigate before any money action; the console never repairs money state — escalate with the ids.</p>
+          <p className="mt-3 text-[0.6875rem] text-dim">Money facts that disagree. Check them before any money action. The console never repairs money records; escalate with the ids.</p>
         </Panel>
       </div>
     </>

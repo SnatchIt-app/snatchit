@@ -77,7 +77,7 @@ export function EvidenceList({ items, publicBase }: { items: EvidenceItem[]; pub
           </div>
         ))}
       </dl>
-      <p className="mt-2 text-[0.6875rem] text-dim">Opening a private file is recorded in the audit log (evidence.viewed) with your identity; the link expires within minutes.</p>
+      <p className="mt-2 text-[0.6875rem] text-dim">Opening a private file writes an audit log entry with your name (evidence.viewed). The link expires within minutes.</p>
     </div>
   );
 }
