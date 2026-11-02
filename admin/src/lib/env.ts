@@ -5,8 +5,18 @@
  * Every read and mutation the console performs is an `ops.*` RPC executed
  * with the operator's own JWT; the database re-checks role + aal2 itself.
  */
+import { anonKeyProblem, productionSiteUrlProblem, sampleDataLabel } from "@/lib/env-policy";
+
 export const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? null;
 export const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? null;
+
+// In every environment: this value is inlined into the browser bundle, so a
+// service_role JWT or an sb_secret_ key here would be published. Refuse to
+// start; the message names the variable and the kind, never the key.
+{
+  const keyProblem = anonKeyProblem(SUPABASE_ANON_KEY);
+  if (keyProblem) throw new Error(`Refusing to start: ${keyProblem}`);
+}
 
 /** Canonical console origin (used for absolute links only; no email flows here). */
 export const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3200";
@@ -18,6 +28,18 @@ export const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:32
  */
 export const ENV_LABEL = (process.env.NEXT_PUBLIC_ENV_LABEL ?? "local").trim() || "local";
 export const IS_PRODUCTION_ENV_LABEL = ENV_LABEL.toLowerCase() === "production";
+
+/**
+ * Label for the "Sample data" notice, or null. Only an explicitly set
+ * NEXT_PUBLIC_ENV_LABEL of exactly harness / rehearsal, with
+ * NEXT_PUBLIC_SUPABASE_URL on localhost / 127.0.0.1 / ::1, and never on a
+ * Vercel production or preview deployment (lib/env-policy.ts).
+ */
+export const SAMPLE_DATA_LABEL = sampleDataLabel({
+  label: process.env.NEXT_PUBLIC_ENV_LABEL,
+  vercelEnv: process.env.NEXT_PUBLIC_VERCEL_ENV,
+  supabaseUrl: SUPABASE_URL,
+});
 
 const IS_PROD = process.env.NODE_ENV === "production";
 
@@ -40,20 +62,10 @@ if (IS_PROD) {
   }
 
   if (process.env.NEXT_PUBLIC_VERCEL_ENV === "production") {
-    const raw = process.env.NEXT_PUBLIC_SITE_URL!;
-    let parsed: URL | null = null;
-    try {
-      parsed = new URL(raw);
-    } catch {
-      parsed = null;
-    }
-    const host = parsed?.hostname ?? "";
-    const isLocal = host === "localhost" || host === "127.0.0.1" || host === "::1" || host.endsWith(".local");
-    if (!parsed || parsed.protocol !== "https:" || isLocal) {
-      throw new Error(
-        `NEXT_PUBLIC_SITE_URL is "${raw}", which cannot be the production origin (must be https:// on a real host).`,
-      );
-    }
+    // The production origin is admin.snatchitapp.com, or snatchit-admin.vercel.app
+    // during the cut-over (PRODUCTION_SITE_HOSTS in lib/env-policy.ts).
+    const siteProblem = productionSiteUrlProblem(process.env.NEXT_PUBLIC_SITE_URL);
+    if (siteProblem) throw new Error(siteProblem);
     if (!IS_PRODUCTION_ENV_LABEL) {
       // A production deploy that says "staging" in the header is a lie the
       // operator will act on. Refuse it.

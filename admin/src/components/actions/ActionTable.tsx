@@ -39,7 +39,7 @@ export function ActionTable({
           ) : (
             labelFor("action_type", a.action_type)
           )}
-          <code className="font-mono text-[10px] text-dim">{a.id}</code>
+          <code className="font-mono text-[0.625rem] text-dim">{a.id}</code>
         </span>
       ),
     },
@@ -51,7 +51,7 @@ export function ActionTable({
             key: "subject",
             header: "Subject",
             render: (a) => (
-              <span className="text-[12px]">
+              <span className="text-[0.75rem]">
                 <span className="text-dim">{a.subject_kind} </span>
                 <IdLink kind={a.subject_kind} id={a.subject_id} subjectRef={a.subject_ref} label={a.subject_label ?? undefined} />
               </span>
@@ -63,12 +63,12 @@ export function ActionTable({
       header: "Requester",
       render: (a) => <span>{a.requested_by === meId ? "me" : a.requested_by_label ?? a.requested_by?.slice(0, 8) ?? "—"}</span>,
     },
-    { key: "reason", header: "Reason", render: (a) => <span className="line-clamp-2 max-w-[260px] text-[12px] text-muted">{a.reason ?? "—"}</span> },
+    { key: "reason", header: "Reason", render: (a) => <span className="line-clamp-2 max-w-[260px] text-[0.75rem] text-muted">{a.reason ?? "—"}</span> },
     {
       key: "outcome",
       header: "Outcome",
       render: (a) => (
-        <span className="text-[12px] text-muted">
+        <span className="text-[0.75rem] text-muted">
           {a.reject_reason ? `rejected: ${a.reject_reason.replace(/_/g, " ")}` : a.error ? a.error : a.provider_ref ? <code className="font-mono">{a.provider_ref}</code> : "—"}
         </span>
       ),

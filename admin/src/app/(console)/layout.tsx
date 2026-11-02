@@ -4,8 +4,10 @@ import { requireOperator } from "@/lib/auth/session";
 import { callOps } from "@/lib/ops";
 import { toSettings } from "@/lib/types";
 import { Sidebar } from "@/components/shell/Sidebar";
-import { Header } from "@/components/shell/Header";
+import { SidebarFooter, TopBar } from "@/components/shell/Header";
+import { MobileTabBar } from "@/components/shell/MobileNav";
 import { KeyboardShortcuts } from "@/components/shell/KeyboardShortcuts";
+import { PopoverDismiss } from "@/components/ui/PopoverDismiss";
 import { FreshnessProvider } from "@/components/shell/Freshness";
 
 /**
@@ -23,8 +25,11 @@ async function consolePaused(role: string): Promise<boolean> {
 
 function PausedNotice() {
   return (
-    <div role="status" aria-live="polite" className="border-b border-warning bg-card px-4 py-2 text-[13px] text-ink md:px-8">
-      <span className="eyebrow mr-2 text-warning">Actions paused</span>
+    <div role="status" aria-live="polite" className="enter mb-6 rounded-2xl bg-white px-4 py-3 text-[0.8125rem] text-ink shadow-[0_0_0_1px_rgba(154,71,6,0.25)]">
+      <span className="mr-2 inline-flex items-center gap-1.5 font-semibold text-warning">
+        <span aria-hidden="true" className="inline-block h-2 w-2 rounded-full bg-amber-500" />
+        Actions paused
+      </span>
       Actions are paused by a founder — the console is read-only until <code className="font-mono">actions_enabled</code> is set back to true from{" "}
       <Link href="/system#setting-actions_enabled" className="link">
         System → Settings
@@ -43,25 +48,34 @@ export default async function ConsoleLayout({ children }: { children: ReactNode 
     <FreshnessProvider>
       <a
         href="#main"
-        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[110] focus:bg-primary focus:px-4 focus:py-2 focus:text-sm focus:font-bold focus:uppercase focus:tracking-wider focus:text-black"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[110] focus:rounded-[var(--radius-control)] focus:bg-primary-ink focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-white"
       >
         Skip to content
       </a>
-      <div className="flex min-h-dvh">
-        <aside className="hidden w-56 shrink-0 border-r border-line bg-card md:block">
-          <div className="sticky top-0 h-dvh overflow-y-auto">
+      <div className="min-h-dvh">
+        <aside className="glass fixed bottom-4 left-4 top-4 z-40 hidden w-[15.5rem] flex-col rounded-[26px] px-3.5 pb-3.5 pt-6 lg:flex">
+          <Link href="/" className="block rounded-[14px] px-2.5">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/sn-logo.svg" alt="" width={56} height={20} className="h-auto w-14" />
+            <span className="serif mt-2 block text-[1.75rem] leading-none tracking-[-0.02em]">Snatch It</span>
+            <span className="mt-1.5 block text-[0.75rem] text-muted">Operations console</span>
+          </Link>
+          <div className="mt-5 min-h-0 flex-1 overflow-y-auto border-t border-line pt-4">
             <Sidebar />
           </div>
+          <SidebarFooter email={operator.whoami.email_masked ?? operator.email} role={operator.role} />
         </aside>
-        <div className="flex min-w-0 flex-1 flex-col">
-          <Header email={operator.whoami.email_masked ?? operator.email} role={operator.role} />
-          {paused ? <PausedNotice /> : null}
-          <main id="main" className="min-w-0 flex-1 px-4 py-6 md:px-8">
+        <div className="flex min-h-dvh min-w-0 flex-col lg:pl-[17.5rem]">
+          <TopBar email={operator.whoami.email_masked ?? operator.email} role={operator.role} />
+          <main id="main" className="mx-auto w-full min-w-0 max-w-[1440px] flex-1 px-4 pb-32 pt-5 md:px-8 lg:pb-14 lg:pt-2">
+            {paused ? <PausedNotice /> : null}
             {children}
           </main>
         </div>
+        <MobileTabBar />
       </div>
       <KeyboardShortcuts />
+      <PopoverDismiss />
     </FreshnessProvider>
   );
 }

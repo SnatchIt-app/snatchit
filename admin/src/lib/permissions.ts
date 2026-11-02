@@ -36,6 +36,17 @@ export function canSuspend(role: OperatorRole | null | undefined): boolean {
   return role === "platform_admin" || role === "platform_risk";
 }
 
+/**
+ * Recording a manual ticket-order refund (migration 189). `ops.record_primary_refund` asserts
+ * `ops.assert_role(array['platform_admin', 'platform_support'])` (20261027033000:124) — NOT
+ * platform_risk, although risk passes requireOperator and can open the page. Without this the console
+ * offered risk a "type REFUND" button that the server always refuses. UX mirror; the database decides,
+ * and kernel.refund_primary_order re-checks the role again (085:514-517).
+ */
+export function canRecordPrimaryRefund(role: OperatorRole | null | undefined): boolean {
+  return role === "platform_admin" || role === "platform_support";
+}
+
 /** Actions parked for a second founder (ops.action_requires_approval). */
 export function requiresApproval(actionType: string): boolean {
   return actionType === "payout_release" || actionType === "refund_execute";

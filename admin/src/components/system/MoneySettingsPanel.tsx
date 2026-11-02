@@ -47,6 +47,7 @@ export function MoneySettingsPanel({ list, meId }: { list: MoneyConfigList; meId
           </ul>
         </div>
       ) : null}
+      <MoneyKeysOverview keys={list.money_keys} />
       <div className="border-t border-line-neutral pt-4">
         <h3 className="eyebrow text-dim">Request a change</h3>
         <p className="mt-1 text-[12px] text-muted">
@@ -60,6 +61,38 @@ export function MoneySettingsPanel({ list, meId }: { list: MoneyConfigList; meId
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Every money key's live value, always visible (the request form only shows one key at a time). */
+function MoneyKeysOverview({ keys }: { keys: MoneyConfigList["money_keys"] }) {
+  if (keys.length === 0) return null;
+  return (
+    <div className="border-t border-line-neutral pt-4">
+      <table className="w-full text-left text-[0.75rem]">
+        <caption className="eyebrow mb-2 text-left text-dim">Live values ({keys.length} money keys)</caption>
+        <thead>
+          <tr className="border-b border-line-neutral text-dim">
+            <th scope="col" className="py-1 pr-3 font-normal">Key</th>
+            <th scope="col" className="py-1 pr-3 font-normal">Live value</th>
+            <th scope="col" className="py-1 font-normal">Version</th>
+          </tr>
+        </thead>
+        <tbody>
+          {keys.map((k) => (
+            <tr key={k.key} className="border-b border-line-neutral">
+              <td className="py-1 pr-3">
+                <code className="break-all font-mono text-[0.6875rem] text-ink">{k.key}</code>
+              </td>
+              <td className="py-1 pr-3">
+                <code className={`font-mono ${k.value === null ? "text-dim" : "text-ink"}`}>{k.value === null ? "unset" : showValue(k.value)}</code>
+              </td>
+              <td className="py-1 tabular-nums text-dim">{k.version ?? "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

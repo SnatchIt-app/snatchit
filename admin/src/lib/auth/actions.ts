@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { safeInternalPath } from "@/lib/auth/redirect";
+import { signInErrorMessage } from "@/lib/auth/messages";
 
 export type LoginState = { error?: string; values?: { email?: string } };
 
@@ -24,8 +25,9 @@ export async function signInAction(_prev: LoginState, formData: FormData): Promi
   const { error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) {
     // Generic on purpose: never reveal whether the account exists or is an operator.
+    // An outage (no response / 5xx) gets its own fixed line so it does not read as a wrong password.
     console.warn("[auth] signIn failed", { status: error.status, name: error.name });
-    return { error: "Sign-in failed. Check your email and password.", values: { email } };
+    return { error: signInErrorMessage(error.status), values: { email } };
   }
 
   // Password sign-in yields aal1; the console requires aal2 everywhere.

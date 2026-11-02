@@ -1,12 +1,11 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { callOps } from "@/lib/ops";
 import { requireOperator } from "@/lib/auth/session";
 import { newIdempotencyKey } from "@/lib/idempotency";
 import { canRequest } from "@/lib/permissions";
 import { settingFieldName, settingKind } from "@/lib/form-params";
 import { humanize, labelFor, shortId, ACTION_STATE_LABELS, ACTION_TYPE_LABELS } from "@/lib/format";
-import { first, limitOf, list, type SearchParams } from "@/lib/search-params";
+import { first, limitOf, list, selfHref, type SearchParams } from "@/lib/search-params";
 import {
   toActions,
   toApproval,
@@ -32,12 +31,17 @@ import { ConfirmForm } from "@/components/ui/ConfirmForm";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { IdLink } from "@/components/ui/IdLink";
 import { MetricGrid, MetricTile } from "@/components/ui/MetricTile";
+import { FigureMeta } from "@/components/charts/FigureMeta";
 import { FilterField, FilterSelect } from "@/components/ui/FilterField";
 import { ActionTable } from "@/components/actions/ActionTable";
 import { AuditTable } from "@/components/system/AuditTable";
 import { SummaryView } from "@/components/system/SummaryView";
+import { AlertList } from "@/components/system/AlertList";
+import { AlertDeliveryChannel, type SettingsRead } from "@/components/system/AlertChannel";
 import { MoneySettingsPanel } from "@/components/system/MoneySettingsPanel";
+import { OperationalSettingsForm } from "@/components/system/OperationalSettingsForm";
 import { toMoneyConfigList } from "@/lib/money-config";
+import { toOperationalSettings } from "@/lib/operational-config";
 import { ReportFreshness } from "@/components/shell/Freshness";
 
 export const metadata: Metadata = { title: "System" };
@@ -56,6 +60,11 @@ const SETTING_HELP: Record<string, string> = {
   webhook_stuck_minutes: "Age of an unprocessed Stripe webhook that counts as stuck.",
   release_stuck_minutes: "Minutes after a recorded release without a Stripe Transfer before Release stuck fires.",
   approval_ttl_hours: "Hours before a pending second-founder approval expires.",
+  // Owner decisions (A, PR #89 port): the help says so, and never tells an operator to flip them.
+  alert_delivery_enabled:
+    "Owner decision; not changed without the owner. Gate for ops.dispatch_alerts (migration 146): while false nothing is posted. True still sends nothing by itself: 146 schedules no caller, and scheduling one is a separate owner decision.",
+  refund_resolution_detector_enabled:
+    "Owner decision; not changed without the owner. While false the refund_resolution detector is skipped for every trigger, Run now included, so it opens no refund-resolution case (migration 144).",
 };
 
 export default async function SystemPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
@@ -69,11 +78,12 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
   if (stateF) actionFilters.state = stateF;
   if (typeF) actionFilters.action_type = typeF;
 
-  const [healthRes, approvalsRes, settingsRes, moneyRes, auditRes, actionsRes, summaryRes] = await Promise.all([
+  const [healthRes, approvalsRes, settingsRes, moneyRes, operationalRes, auditRes, actionsRes, summaryRes] = await Promise.all([
     callOps<unknown>("job_health"),
     callOps<unknown>("list_approvals", { p_state: "pending" }),
     isAdmin ? callOps<unknown>("settings") : Promise.resolve(null),
     isAdmin ? callOps<unknown>("list_config_approvals", { p_state: "all" }) : Promise.resolve(null),
+    isAdmin ? callOps<unknown>("list_operational_config") : Promise.resolve(null),
     callOps<unknown>("audit_log", { p_cursor: first(sp.audit_cursor) ?? null, p_limit: 25 }),
     callOps<unknown>("list_actions", { p_filters: actionFilters, p_cursor: first(sp.actions_cursor) ?? null, p_limit: limitOf(sp, 25) }),
     callOps<unknown>("latest_summary"),
@@ -82,14 +92,19 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
   const health = healthRes.ok ? toJobHealth(healthRes.data) : null;
   const approvals: Approval[] = approvalsRes.ok ? toListPage(approvalsRes.data).items.map(toApproval).filter((a): a is Approval => a !== null) : [];
   const settings: Setting[] = settingsRes && settingsRes.ok ? toSettings(settingsRes.data) : [];
+  // The Delivery channel block reads the same settings result; it makes no call of its own.
+  const settingsRead: SettingsRead = !isAdmin ? { status: "not_admin" } : settingsRes && settingsRes.ok ? { status: "ok", settings } : { status: "failed" };
   const money = moneyRes && moneyRes.ok ? toMoneyConfigList(moneyRes.data) : null;
   const moneyPending = money ? money.items.filter((r) => r.state === "pending").length : 0;
+  const operational = operationalRes && operationalRes.ok ? toOperationalSettings(operationalRes.data) : null;
   const auditPage = auditRes.ok ? toListPage(auditRes.data) : null;
   const audit: AuditRow[] = auditPage ? auditPage.items.map(toAuditRow).filter((a): a is AuditRow => a !== null) : [];
   const actionsPage = actionsRes.ok ? toListPage(actionsRes.data) : null;
   const actions = actionsPage ? toActions(actionsPage.items) : [];
   const summary = summaryRes.ok ? toDailySummary(summaryRes.data) : null;
 
+  // Time of this read (server render, per request): the metric row is point in time, so its label says when.
+  const readAt = new Date();
   const failingJobs = health?.ops_jobs.filter((j) => (j.consecutive_failures ?? 0) >= 2).length ?? 0;
   const lastSuccess = health?.ops_jobs.reduce<string | null>((acc, j) => (j.last_success_at && (!acc || j.last_success_at > acc) ? j.last_success_at : acc), null) ?? null;
 
@@ -110,19 +125,23 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
         }
       />
 
-      <nav aria-label="System sections" className="mb-6 flex flex-wrap gap-2 text-[12px]">
+      <nav aria-label="System sections" className="mb-6 flex flex-wrap gap-2 text-[0.75rem]">
         {[
           ["#jobs", "Jobs"],
           ["#cron", "Cron"],
           ["#webhooks", "Webhooks"],
           ["#notify", "Notifications"],
           ["#alerts", "Alerts"],
-          ["#approvals", `Approvals (${approvals.length})`],
+          // v2 keeps its own form of this label: a FAILED approvals read shows "—" rather than 0,
+          // which production's `approvals.length` could not distinguish. The money link is production's.
+          ["#approvals", `Approvals (${approvalsRes.ok ? approvals.length : "—"})`],
           ["#money", money ? `Money settings (${moneyPending})` : "Money settings"],
+          ["#operational", "Operational settings"],
           ["#settings", "Settings"],
           ["#actions", "Actions"],
           ["#audit", "Audit log"],
           ["#summary", "Daily summary"],
+          ["/system/test-data", "Test records (restricted)"],
         ].map(([href, label]) => (
           <a key={href} href={href} className="btn btn-ghost btn-sm">
             {label}
@@ -132,7 +151,7 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
 
       <div className="space-y-6">
         {!healthRes.ok ? (
-          <OpsFailureAlert failure={healthRes} fn="job_health" retryHref="/system" />
+          <OpsFailureAlert failure={healthRes} fn="job_health" retryHref={selfHref("/system", sp)} />
         ) : !health ? (
           <Alert state="failed" title="Unrecognised payload from ops.job_health()" />
         ) : (
@@ -140,17 +159,18 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
             <MetricGrid cols={6}>
               <MetricTile label="Ops jobs" value={health.ops_jobs.length} definition="Rows in ops.job_state (detectors + daily summary + metric snapshot)." href="#jobs" />
               <MetricTile label="Jobs failing" value={failingJobs} definition="Enabled ops jobs with 2 or more consecutive failures." href="#jobs" />
-              <MetricTile label="Webhooks unprocessed" value={health.webhook_backlog.unprocessed ?? 0} definition="stripe_webhook_events with processed_at null and no failed_at." href="#webhooks" />
-              <MetricTile label="Webhooks failed" value={health.webhook_backlog.failed ?? 0} definition="stripe_webhook_events with failed_at set and processed_at null." href="#webhooks" />
+              <MetricTile label="Webhooks unprocessed" value={health.webhook_backlog.unprocessed ?? "—"} definition="stripe_webhook_events with processed_at null and no failed_at." href="#webhooks" />
+              <MetricTile label="Webhooks failed" value={health.webhook_backlog.failed ?? "—"} definition="stripe_webhook_events with failed_at set and processed_at null." href="#webhooks" />
               <MetricTile label="Alerts firing" value={health.alerts.length} definition="ops.alert rows in state firing." href="#alerts" />
-              <MetricTile label="Approvals pending" value={approvals.length} definition="Second-founder approvals awaiting a decision." href="#approvals" />
+              <MetricTile label="Approvals pending" value={approvalsRes.ok ? approvals.length : "—"} note={approvalsRes.ok ? null : "Couldn't be loaded"} definition="Second-founder approvals awaiting a decision." href="#approvals" />
             </MetricGrid>
+            <FigureMeta pointInTime computedAt={health.generated_at} readAt={readAt} className="px-1" />
 
-            <Panel eyebrow="ops.job_state" title="Console jobs (detectors)">
+            <Panel eyebrow="Run by the console" title="Console jobs (detectors)">
               <OpsJobTable jobs={health.ops_jobs} canRetry={canRequest(me.role, "job_retry")} />
             </Panel>
 
-            <Panel eyebrow="pg_cron" title="Cron jobs">
+            <Panel eyebrow="Scheduled in the database" title="Cron jobs">
               {!health.cron.available ? (
                 <Alert state="info" title="Run history unavailable." compact>
                   {health.cron.note ?? "cron.job_run_details is not present on this database."}
@@ -162,18 +182,18 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
             </Panel>
 
             <div className="grid gap-6 lg:grid-cols-2">
-              <Panel eyebrow="stripe_webhook_events" title="Webhook backlog">
+              <Panel eyebrow="From Stripe" title="Webhook backlog">
                 <div id="webhooks" />
                 <KeyValue
                   columns={2}
                   items={[
-                    { key: "unprocessed", value: String(health.webhook_backlog.unprocessed ?? 0) },
-                    { key: "failed", value: String(health.webhook_backlog.failed ?? 0) },
+                    { key: "unprocessed", value: health.webhook_backlog.unprocessed ?? null },
+                    { key: "failed", value: health.webhook_backlog.failed ?? null },
                     { key: "oldest_unprocessed_at", value: <DateTime value={health.webhook_backlog.oldest_unprocessed_at} /> },
-                    { key: "oldest_unprocessed_event_id", value: health.webhook_backlog.oldest_unprocessed_event_id ? <code className="font-mono text-[12px]">{health.webhook_backlog.oldest_unprocessed_event_id}</code> : null },
+                    { key: "oldest_unprocessed_event_id", value: health.webhook_backlog.oldest_unprocessed_event_id ? <code className="font-mono text-[0.75rem]">{health.webhook_backlog.oldest_unprocessed_event_id}</code> : null },
                   ]}
                 />
-                <p className="mt-3 text-[11px] text-dim">Stuck or failed events are re-sent from the Stripe Dashboard (Developers → Webhooks → event → Resend). The console does not replay webhooks.</p>
+                <p className="mt-3 text-[0.6875rem] text-dim">Stuck or failed events are re-sent from the Stripe Dashboard (Developers → Webhooks → event → Resend). The console does not replay webhooks.</p>
               </Panel>
 
               <Panel eyebrow="notify.*" title="Notification delivery">
@@ -182,46 +202,22 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
                 <CountList map={health.notify.delivery} />
                 <h3 className="eyebrow mt-3 text-dim">Outbox by state</h3>
                 <CountList map={health.notify.outbox} />
-                {health.notify.note ? <p className="mt-3 text-[11px] text-dim">{health.notify.note}</p> : null}
+                {health.notify.note ? <p className="mt-3 text-[0.6875rem] text-dim">{health.notify.note}</p> : null}
               </Panel>
             </div>
 
             <Panel eyebrow={`${health.alerts.length} firing`} title="Alerts">
               <div id="alerts" />
-              {health.alerts.length === 0 ? (
-                <p className="text-dim">No alerts firing.</p>
-              ) : (
-                <ul className="space-y-2">
-                  {health.alerts.map((a, i) => {
-                    const caseId = typeof a.payload?.case_id === "string" ? a.payload.case_id : null;
-                    const title = typeof a.payload?.title === "string" ? a.payload.title : null;
-                    return (
-                      <li key={a.alert_key ?? i} className="flex flex-wrap items-baseline gap-2 border-l-2 border-warning pl-3 text-[13px]">
-                        <StatusBadge status={a.state} label={a.state ?? "firing"} />
-                        <span className="font-mono text-[12px] text-dim">{a.kind}</span>
-                        {caseId ? (
-                          <Link href={`/cases/${caseId}`} className="link">
-                            {title ?? a.alert_key}
-                          </Link>
-                        ) : (
-                          <span>{title ?? a.alert_key}</span>
-                        )}
-                        <span className="text-[11px] text-dim">
-                          first <TimeAgo value={a.first_fired_at} /> · last <TimeAgo value={a.last_fired_at} /> · ×{a.fire_count ?? 1}
-                        </span>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
+              <AlertDeliveryChannel settings={settingsRead} />
+              <AlertList alerts={health.alerts} meId={me.id} />
             </Panel>
           </>
         )}
 
-        <Panel eyebrow={`${approvals.length} pending`} title="Approvals (second founder)">
+        <Panel eyebrow={approvalsRes.ok ? `${approvals.length} pending` : "—"} title="Approvals (second founder)">
           <div id="approvals" />
           {!approvalsRes.ok ? (
-            <OpsFailureAlert failure={approvalsRes} fn="list_approvals" retryHref="/system" />
+            <OpsFailureAlert failure={approvalsRes} fn="list_approvals" retryHref={selfHref("/system", sp)} />
           ) : approvals.length === 0 ? (
             <p className="text-dim">Nothing awaiting approval.</p>
           ) : (
@@ -231,9 +227,12 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
               ))}
             </div>
           )}
-          <p className="mt-3 text-[11px] text-dim">Approval is bound to the exact action terms; if anything about the request changes it is voided. You cannot approve your own request. Approvals expire after the configured TTL.</p>
+          <p className="mt-3 text-[0.6875rem] text-dim">Approval is bound to the exact action terms; if anything about the request changes it is voided. You cannot approve your own request. Approvals expire after the configured TTL.</p>
         </Panel>
 
+        {/* 196's Money settings panel, carried from production (dddc8e92) with 196's ops reads,
+            guards and copy unchanged. 197 adds one read-only live-values overview below the decided
+            list; its position remains in the v2 /system layout above the console switches. */}
         <Panel eyebrow={money ? `${moneyPending} pending` : "platform_config"} title="Money settings (second founder)">
           <div id="money" />
           {!isAdmin ? (
@@ -246,12 +245,34 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
           <p className="mt-3 text-[11px] text-dim">Money keys (refund, payout, fee, authn, …) change through the kernel&apos;s dual-control flow: you cannot approve your own request, approving needs a fresh aal2 session, and requests expire after 72 hours.</p>
         </Panel>
 
-        <Panel eyebrow="ops.setting" title="Settings">
+        <Panel eyebrow="platform_config · single founder" title="Operational settings">
+          <div id="operational" />
+          {!isAdmin ? (
+            <Alert state="info" title="Operational settings are visible to platform_admin only." compact />
+          ) : operationalRes && !operationalRes.ok ? (
+            operationalRes.kind === "error" && operationalRes.unavailable ? (
+              <Alert state="info" title="Needs registry 197 — operational settings are not available on this server." compact>
+                The server could not provide <code>ops.list_operational_config</code> (the 197 schema/function is unavailable). No value was read or changed, and no write control is shown.
+              </Alert>
+            ) : (
+              <OpsFailureAlert failure={operationalRes} fn="list_operational_config" retryHref="/system#operational" />
+            )
+          ) : operationalRes && operationalRes.ok && operational === null ? (
+            <Alert state="failed" title="Unrecognised payload from ops.list_operational_config" compact>
+              The read did not return an items array. No write control is shown; reload before changing anything.
+            </Alert>
+          ) : operational ? (
+            <OperationalSettingsForm settings={operational} commandKey={newIdempotencyKey()} />
+          ) : null}
+          <p className="mt-3 text-[11px] text-dim">Hold max, hold lifetime and the native issuance / scanning flags are single-founder settings: one platform_admin changes them at once (aal2 on this path). Money keys stay in Money settings, where a second founder decides.</p>
+        </Panel>
+
+        <Panel eyebrow="Console switches" title="Settings">
           <div id="settings" />
           {!isAdmin ? (
             <Alert state="info" title="Settings are visible to platform_admin only." compact />
           ) : settingsRes && !settingsRes.ok ? (
-            <OpsFailureAlert failure={settingsRes} fn="settings" retryHref="/system" />
+            <OpsFailureAlert failure={settingsRes} fn="settings" retryHref={selfHref("/system", sp)} />
           ) : (
             <SettingsList settings={settings} />
           )}
@@ -271,7 +292,7 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
             </button>
           </form>
           {!actionsRes.ok ? (
-            <OpsFailureAlert failure={actionsRes} fn="list_actions" retryHref="/system" />
+            <OpsFailureAlert failure={actionsRes} fn="list_actions" retryHref={selfHref("/system", sp)} />
           ) : (
             <ActionTable rows={actions} basePath="/system" searchParams={sp} nextCursor={actionsPage?.next_cursor} cursorParam="actions_cursor" meId={me.id} />
           )}
@@ -279,13 +300,13 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
 
         <Panel eyebrow="Append-only" title="Audit log">
           <div id="audit" />
-          {!auditRes.ok ? <OpsFailureAlert failure={auditRes} fn="audit_log" retryHref="/system" /> : <AuditTable rows={audit} basePath="/system" searchParams={sp} nextCursor={auditPage?.next_cursor} cursorParam="audit_cursor" meId={me.id} />}
+          {!auditRes.ok ? <OpsFailureAlert failure={auditRes} fn="audit_log" retryHref={selfHref("/system", sp)} /> : <AuditTable rows={audit} basePath="/system" searchParams={sp} nextCursor={auditPage?.next_cursor} cursorParam="audit_cursor" meId={me.id} />}
         </Panel>
 
         <Panel eyebrow="13:00 UTC daily" title="Latest daily summary">
           <div id="summary" />
           {!summaryRes.ok ? (
-            <OpsFailureAlert failure={summaryRes} fn="latest_summary" retryHref="/system" />
+            <OpsFailureAlert failure={summaryRes} fn="latest_summary" retryHref={selfHref("/system", sp)} />
           ) : !summary ? (
             <Alert state="empty" title="No daily summary has been generated yet." compact>
               The daily_summary job writes one row per day at 13:00 UTC; run it now from the jobs table to generate one. Portal only — no delivery channel is configured.
@@ -301,9 +322,9 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
 
 function CountList({ map }: { map: Record<string, number> }) {
   const entries = Object.entries(map);
-  if (entries.length === 0) return <p className="text-[12px] text-dim">no rows</p>;
+  if (entries.length === 0) return <p className="text-[0.75rem] text-dim">no rows</p>;
   return (
-    <ul className="mt-1 flex flex-wrap gap-2 text-[12px]">
+    <ul className="mt-1 flex flex-wrap gap-2 text-[0.75rem]">
       {entries.map(([k, v]) => (
         <li key={k} className="border border-line-neutral px-2 py-0.5">
           <StatusBadge status={k} /> <span className="ml-1 tabular-nums">{v}</span>
@@ -320,7 +341,7 @@ function OpsJobTable({ jobs, canRetry }: { jobs: OpsJob[]; canRetry: boolean }) 
       header: "Job",
       render: (j) => (
         <span id={`job-${j.job_name}`} className="flex flex-col">
-          <code className="font-mono text-[12px] text-ink">{j.job_name}</code>
+          <code className="font-mono text-[0.75rem] text-ink">{j.job_name}</code>
           <StatusBadge status={j.enabled ? "active" : "inactive"} label={j.enabled ? "enabled" : "disabled"} />
         </span>
       ),
@@ -334,7 +355,7 @@ function OpsJobTable({ jobs, canRetry }: { jobs: OpsJob[]; canRetry: boolean }) 
       render: (j) => <span className={`tabular-nums ${(j.consecutive_failures ?? 0) >= 2 ? "font-semibold text-danger" : ""}`}>{j.consecutive_failures ?? 0}</span>,
     },
     { key: "backoff_until", header: "Backoff until", render: (j) => <DateTime value={j.backoff_until} /> },
-    { key: "last_error", header: "Last error", render: (j) => <span className="line-clamp-2 max-w-[260px] text-[12px] text-danger">{j.last_error ?? <span className="text-dim">—</span>}</span> },
+    { key: "last_error", header: "Last error", render: (j) => <span className="line-clamp-2 max-w-[260px] text-[0.75rem] text-danger">{j.last_error ?? <span className="text-dim">—</span>}</span> },
     {
       key: "recent_runs",
       header: "Last 5 runs",
@@ -342,7 +363,7 @@ function OpsJobTable({ jobs, canRetry }: { jobs: OpsJob[]; canRetry: boolean }) 
         j.recent_runs.length === 0 ? (
           <span className="text-dim">no runs</span>
         ) : (
-          <ol className="space-y-0.5 text-[11px]">
+          <ol className="space-y-0.5 text-[0.6875rem]">
             {j.recent_runs.map((r, i) => (
               <li key={r.id ?? i} className="flex flex-wrap items-baseline gap-1">
                 <StatusBadge status={r.status} />
@@ -360,9 +381,9 @@ function OpsJobTable({ jobs, canRetry }: { jobs: OpsJob[]; canRetry: boolean }) 
       header: "Run now",
       render: (j) =>
         canRetry ? (
-          <ConfirmForm idempotencyKey={newIdempotencyKey()} actionType="job_retry" subjectKind="job" subjectRef={j.job_name} params={{ job_name: j.job_name }} label="Run now" className="min-w-[200px]" />
+          <ConfirmForm idempotencyKey={newIdempotencyKey()} actionType="job_retry" subjectKind="job" subjectRef={j.job_name} params={{ job_name: j.job_name }} revalidate="/system" label="Run now" className="min-w-[200px]" />
         ) : (
-          <span className="text-[11px] text-dim">founder only</span>
+          <span className="text-[0.6875rem] text-dim">founder only</span>
         ),
     },
   ];
@@ -371,13 +392,13 @@ function OpsJobTable({ jobs, canRetry }: { jobs: OpsJob[]; canRetry: boolean }) 
 
 function CronTable({ rows, available }: { rows: CronJob[]; available: boolean }) {
   const columns: Column<CronJob>[] = [
-    { key: "jobname", header: "Cron job", render: (c) => <code className="font-mono text-[12px]">{c.jobname ?? c.jobid}</code> },
-    { key: "schedule", header: "Schedule", render: (c) => <code className="font-mono text-[12px]">{c.schedule ?? "—"}</code> },
+    { key: "jobname", header: "Cron job", render: (c) => <code className="font-mono text-[0.75rem]">{c.jobname ?? c.jobid}</code> },
+    { key: "schedule", header: "Schedule", render: (c) => <code className="font-mono text-[0.75rem]">{c.schedule ?? "—"}</code> },
     { key: "active", header: "Active", render: (c) => <StatusBadge status={String(c.active ?? false)} label={c.active ? "active" : "inactive"} /> },
     { key: "last_status", header: "Last status", render: (c) => (available ? <StatusBadge status={c.last_status} /> : <span className="text-dim">unavailable</span>) },
     { key: "last_end", header: "Last end", render: (c) => (available ? <DateTime value={c.last_end} /> : <span className="text-dim">—</span>) },
     { key: "runs_24h", header: "Runs / failures (24 h)", align: "right", render: (c) => (available ? <span className="tabular-nums">{c.runs_24h ?? 0} / {c.failures_24h ?? 0}</span> : <span className="text-dim">—</span>) },
-    { key: "last_message", header: "Last message", render: (c) => <span className="line-clamp-2 max-w-[280px] text-[12px] text-muted">{c.last_message ?? "—"}</span> },
+    { key: "last_message", header: "Last message", render: (c) => <span className="line-clamp-2 max-w-[280px] text-[0.75rem] text-muted">{c.last_message ?? "—"}</span> },
   ];
   return <DataTable id="cron" columns={columns} rows={rows} rowKey={(c, i) => c.jobname ?? `${c.jobid ?? i}`} basePath="/system" emptyText="No cron jobs." caption="Cron jobs" dense />;
 }
@@ -389,13 +410,13 @@ function ApprovalCard({ approval: ap, meId, isAdmin }: { approval: Approval; meI
   return (
     <div className="border border-line-neutral p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className="text-[14px] font-semibold text-ink">
+        <p className="text-[0.875rem] font-semibold text-ink">
           {labelFor("action_type", a?.action_type)}{" "}
           <span className="text-dim">
             on {a?.subject_kind} <IdLink kind={a?.subject_kind} id={a?.subject_id} subjectRef={a?.subject_ref} label={a?.subject_label ?? undefined} />
           </span>
         </p>
-        <span className="text-[12px] text-dim">
+        <span className="text-[0.75rem] text-dim">
           requested by {mine ? "me" : ap.requested_by_label ?? shortId(ap.requested_by)} <TimeAgo value={ap.created_at} /> · expires <TimeAgo value={ap.expires_at} />
         </span>
       </div>
@@ -403,8 +424,8 @@ function ApprovalCard({ approval: ap, meId, isAdmin }: { approval: Approval; meI
         columns={3}
         items={[
           { key: "reason", label: "Requester's reason", value: a?.reason },
-          { key: "params", label: "Terms (params)", value: <code className="whitespace-pre-wrap break-words font-mono text-[11px]">{JSON.stringify(a?.params ?? {})}</code> },
-          { key: "expected", label: "Expected state", value: <code className="whitespace-pre-wrap break-words font-mono text-[11px]">{JSON.stringify(a?.expected ?? {})}</code> },
+          { key: "params", label: "Terms (params)", value: <code className="whitespace-pre-wrap break-words font-mono text-[0.6875rem]">{JSON.stringify(a?.params ?? {})}</code> },
+          { key: "expected", label: "Expected state", value: <code className="whitespace-pre-wrap break-words font-mono text-[0.6875rem]">{JSON.stringify(a?.expected ?? {})}</code> },
           { key: "action", value: actionId ? <IdLink kind="action" id={actionId} full /> : null },
           { key: "terms", label: "Terms unchanged", value: ap.hash_current === false ? <StatusBadge status="stale" label="changed — will be voided" /> : <StatusBadge status="ok" label="yes" /> },
         ]}
@@ -434,22 +455,23 @@ function SettingsList({ settings }: { settings: Setting[] }) {
       {settings.map((s) => {
         const kind = settingKind(s.value);
         const field = settingFieldName(s.value);
-        const inputId = `setting-${s.key}`;
+        // The <li> carries the #setting-<key> anchor; the control needs its own id, or its <label> resolves to the <li>.
+        const inputId = `setting-${s.key}-value`;
         return (
           <li key={s.key} id={`setting-${s.key}`} className="grid gap-3 py-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
             <div>
-              <p className="text-[13px] font-semibold text-ink">
+              <p className="text-[0.8125rem] font-semibold text-ink">
                 <code className="font-mono">{s.key}</code>
               </p>
-              <p className="mt-1 text-[12px] text-muted">{SETTING_HELP[s.key] ?? humanize(s.key)}</p>
-              <p className="mt-2 text-[12px]">
+              <p className="mt-1 text-[0.75rem] text-muted">{SETTING_HELP[s.key] ?? humanize(s.key)}</p>
+              <p className="mt-2 text-[0.75rem]">
                 Current: <code className="font-mono text-ink">{JSON.stringify(s.value)}</code> <span className="text-dim">({kind})</span>
               </p>
-              <p className="mt-1 text-[11px] text-dim">
+              <p className="mt-1 text-[0.6875rem] text-dim">
                 Last changed <DateTime value={s.updated_at} /> {s.updated_by_label ? `by ${s.updated_by_label}` : s.updated_by ? `by ${shortId(s.updated_by)}` : "(seed)"}
               </p>
             </div>
-            <ConfirmForm idempotencyKey={newIdempotencyKey()} actionType="setting_set" subjectKind="setting" subjectRef={s.key} label="Save setting" danger={s.key === "refund_execute_enabled" || s.key === "actions_enabled"}>
+            <ConfirmForm idempotencyKey={newIdempotencyKey()} actionType="setting_set" subjectKind="setting" subjectRef={s.key} revalidate="/system" label="Save setting" danger={s.key === "refund_execute_enabled" || s.key === "actions_enabled"}>
               <label htmlFor={inputId} className="eyebrow block text-dim">
                 New value ({kind})
               </label>
@@ -463,7 +485,7 @@ function SettingsList({ settings }: { settings: Setting[] }) {
               ) : kind === "string" ? (
                 <input id={inputId} name={field} type="text" defaultValue={String(s.value)} required className="field mt-1" />
               ) : (
-                <textarea id={inputId} name={field} rows={2} defaultValue={JSON.stringify(s.value)} required className="field mt-1 font-mono text-[12px]" />
+                <textarea id={inputId} name={field} rows={2} defaultValue={JSON.stringify(s.value)} required className="field mt-1 font-mono text-[0.75rem]" />
               )}
             </ConfirmForm>
           </li>

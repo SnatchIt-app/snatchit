@@ -27,7 +27,7 @@ export function IdLink({
   const href = subjectHref(kind, id, subjectRef);
   const text = label ?? (full ? id ?? subjectRef : shortId(id ?? subjectRef));
   const inner = (
-    <code className={`font-mono text-[12px] ${className}`} title={id ?? subjectRef ?? undefined}>
+    <code className={`font-mono text-[0.75rem] ${className}`} title={id ?? subjectRef ?? undefined}>
       {text}
     </code>
   );
@@ -59,7 +59,7 @@ export function PartyLink({
       <Link href={`/users/${id}`} className="link" title={id}>
         {label}
       </Link>
-      {emailMasked ? <span className="text-[11px] text-dim">{emailMasked}</span> : null}
+      {emailMasked ? <span className="text-[0.6875rem] text-dim">{emailMasked}</span> : null}
     </span>
   );
 }

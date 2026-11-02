@@ -11,9 +11,13 @@ import { Panel } from "@/components/ui/Panel";
 import { Alert, OpsFailureAlert } from "@/components/ui/Alert";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { TestDataFooter, TestRecordBadge } from "@/components/ui/HiddenTestRowsNotice";
 
 export const metadata: Metadata = { title: "Search" };
 export const dynamic = "force-dynamic";
+
+/** A Stripe dispute has no page of its own; its subject link is a search for it — here, that would link to itself. */
+const resultHref = (kind: string | undefined, id: string | undefined) => (kind === "dispute" ? null : subjectHref(kind, id));
 
 const KIND_ORDER = ["payment", "transfer", "listing", "user", "dispute", "case", "action"];
 const KIND_TITLES: Record<string, string> = {
@@ -62,7 +66,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
   });
 
   // One exact hit → the operator almost certainly wants that page.
-  const only = hits.length === 1 ? subjectHref(hits[0].kind, hits[0].id) : null;
+  const only = hits.length === 1 ? resultHref(hits[0].kind, hits[0].id) : null;
 
   return (
     <>
@@ -106,20 +110,25 @@ function HitTable({ rows, kind, q }: { rows: SearchHit[]; kind: string; q: strin
       key: "label",
       header: "Match",
       render: (h) => {
-        const href = subjectHref(h.kind, h.id);
+        const href = resultHref(h.kind, h.id);
         const text = h.label ?? h.id ?? "—";
-        return href ? (
-          <Link href={href} className="link font-medium">
-            {text}
-          </Link>
-        ) : (
-          <span>{text}</span>
+        return (
+          <span className="flex flex-wrap items-center gap-2">
+            {href ? (
+              <Link href={href} className="link font-medium">
+                {text}
+              </Link>
+            ) : (
+              <span>{text}</span>
+            )}
+            <TestRecordBadge isTest={h.is_test} />
+          </span>
         );
       },
     },
     { key: "sub", header: "Detail", render: (h) => <span className="text-muted">{h.sub ?? "—"}</span> },
     { key: "status", header: "Status", render: (h) => <StatusBadge status={h.status} /> },
-    { key: "id", header: "ID", render: (h) => <code className="font-mono text-[11px] text-dim">{h.id ?? "—"}</code> },
+    { key: "id", header: "ID", render: (h) => <code className="font-mono text-[0.6875rem] text-dim">{h.id ?? "—"}</code> },
   ];
-  return <DataTable columns={columns} rows={rows} rowKey={(h, i) => `${kind}-${h.id ?? i}`} basePath="/search" searchParams={{ q }} emptyText="No matches." caption={`${kind} results`} dense />;
+  return <DataTable notice={<TestDataFooter rows={rows} />} columns={columns} rows={rows} rowKey={(h, i) => `${kind}-${h.id ?? i}`} basePath="/search" searchParams={{ q }} emptyText="No matches." caption={`${kind} results`} dense />;
 }

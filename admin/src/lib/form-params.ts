@@ -6,9 +6,22 @@
  * jsonb-typed setting (boolean / number) or a cents amount arrives with the
  * right JSON type. Pure and unit-tested.
  */
-export type ParamType = "string" | "number" | "integer" | "boolean" | "json";
+export type ParamType = "string" | "number" | "integer" | "boolean" | "json" | "optional" | "utc";
 
-export const PARAM_TYPES: ParamType[] = ["string", "number", "integer", "boolean", "json"];
+/**
+ * `optional` is a string field whose empty value means "no change": it is left
+ * out of `p_params` entirely instead of being sent as null, which every other
+ * type uses to mean "clear" (unassign, clear the due date).
+ *
+ * `utc` is a `<input type="datetime-local">` the form labels UTC: the posted
+ * wall clock gets an explicit `Z`, because a zone-less timestamptz literal is
+ * read in the database session's TimeZone. A value that already states its
+ * zone (`Z` or `±HH:MM`) is kept as is.
+ */
+export const PARAM_TYPES: ParamType[] = ["string", "number", "integer", "boolean", "json", "optional", "utc"];
+
+const WALL_CLOCK = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?$/;
+const ZONED = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?(Z|[+-]\d{2}:\d{2})$/;
 
 export function parseParamField(name: string): { key: string; type: ParamType } | null {
   if (!name.startsWith("param.")) return null;
@@ -23,12 +36,16 @@ export function parseParamField(name: string): { key: string; type: ParamType } 
 
 export type Coerced = { ok: true; value: unknown } | { ok: false; error: string };
 
-/** Empty string → null for every type ("clear" semantics), else coerce. */
+/**
+ * Empty string → null for every type ("clear" semantics), except `optional`,
+ * whose empty value is undefined: the caller leaves the key out. Else coerce.
+ */
 export function coerceParam(type: ParamType, raw: string): Coerced {
   const s = raw.trim();
-  if (s === "") return { ok: true, value: null };
+  if (s === "") return { ok: true, value: type === "optional" ? undefined : null };
   switch (type) {
     case "string":
+    case "optional":
       return { ok: true, value: raw };
     case "boolean":
       if (s === "true" || s === "1" || s === "on" || s === "yes") return { ok: true, value: true };
@@ -51,6 +68,10 @@ export function coerceParam(type: ParamType, raw: string): Coerced {
       } catch {
         return { ok: false, error: `"${raw}" is not valid JSON` };
       }
+    case "utc":
+      if (WALL_CLOCK.test(s)) return { ok: true, value: `${s}Z` };
+      if (ZONED.test(s)) return { ok: true, value: s };
+      return { ok: false, error: `"${raw}" is not a date-time (YYYY-MM-DDTHH:MM, UTC)` };
   }
 }
 

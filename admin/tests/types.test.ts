@@ -27,6 +27,20 @@ describe("contract guards", () => {
     expect(toActionOutcome({ status: "weird" })).toBeNull();
   });
 
+  it("a null or empty earlier field never hides a later reason, message, error or action id (E-L2)", () => {
+    // pick() stops at the first key PRESENT, even one that is null; the first non-empty string wins instead.
+    expect(toActionOutcome({ status: "rejected", reject_reason: null, code: "duplicate_unsettled", message: null, detail: "An unsettled payout_release already exists" })).toMatchObject({
+      status: "rejected",
+      reason: "duplicate_unsettled",
+      message: "An unsettled payout_release already exists",
+    });
+    expect(toActionOutcome({ status: "rejected", reject_reason: "", reason: null, rejection: "stale_state", message: "", error: "changed since you loaded it" })).toMatchObject({ reason: "stale_state", message: "changed since you loaded it" });
+    expect(toActionOutcome({ status: "rejected", reject_reason: null })).toMatchObject({ reason: "precondition" });
+    expect(toActionOutcome({ status: "rejected", reject_reason: null })).not.toHaveProperty("message", expect.anything());
+    expect(toActionOutcome({ status: "failed", error: null, message: "Stripe refused the refund" })).toMatchObject({ status: "failed", error: "Stripe refused the refund" });
+    expect(toActionOutcome({ status: "succeeded", action_id: null, id: "a" })).toMatchObject({ status: "succeeded", action_id: "a" });
+  });
+
   it("tolerates a case_detail with or without a nested case object", () => {
     const nested = toCaseDetail({ case: { id: "c", version: 3, status: "open" }, notes: [{ body: "hi" }], operators: [{ user_id: "o1" }] });
     expect(nested?.case?.version).toBe(3);

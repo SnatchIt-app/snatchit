@@ -63,7 +63,7 @@ export function EvidenceList({ items, publicBase }: { items: EvidenceItem[]; pub
     <div>
       <dl className="grid grid-cols-1 gap-y-2">
         {shown.map((e) => (
-          <div key={e.key} className="flex flex-wrap items-baseline gap-x-3 border-b border-line-neutral pb-2 text-[13px]">
+          <div key={e.key} className="flex flex-wrap items-baseline gap-x-3 border-b border-line-neutral pb-2 text-[0.8125rem]">
             <dt className="eyebrow text-dim">{humanize(e.key.replace(/_path$/, ""))}</dt>
             <dd>
               {e.kind === "audited" ? (
@@ -77,7 +77,7 @@ export function EvidenceList({ items, publicBase }: { items: EvidenceItem[]; pub
           </div>
         ))}
       </dl>
-      <p className="mt-2 text-[11px] text-dim">Opening a private file is recorded in the audit log (evidence.viewed) with your identity; the link expires within minutes.</p>
+      <p className="mt-2 text-[0.6875rem] text-dim">Opening a private file is recorded in the audit log (evidence.viewed) with your identity; the link expires within minutes.</p>
     </div>
   );
 }

@@ -6,6 +6,8 @@
  * degrades to "—" rather than crashing when a field is renamed or absent.
  */
 
+import { listingDollarsToCents } from "@/lib/listing-money";
+
 export type Json = string | number | boolean | null | Json[] | { [k: string]: Json };
 export type JsonRecord = Record<string, unknown>;
 
@@ -37,6 +39,18 @@ export function pick(r: JsonRecord | null | undefined, ...keys: string[]): unkno
   for (const k of keys) if (k in r && r[k] !== undefined) return r[k];
   return undefined;
 }
+/**
+ * The first of `keys` holding a non-empty string. Not pick(): that stops at
+ * the first key PRESENT, even one that is null, so {reject_reason: null,
+ * code: "x"} would lose "x". An empty string quotes nothing and is skipped too.
+ */
+export function firstText(r: JsonRecord | null | undefined, ...keys: string[]): string | null {
+  for (const k of keys) {
+    const v = str(r?.[k]);
+    if (v) return v;
+  }
+  return null;
+}
 
 // ---------- §3.1 / §3.3 whoami ----------
 
@@ -48,6 +62,11 @@ export type Whoami = {
   aal?: "aal1" | "aal2" | string;
   email_masked?: string;
 };
+
+/** `true`/`false` as the server sent it; anything else (absent on a pre-180 server) is null, never a guess. */
+export function boolOrNull(v: unknown): boolean | null {
+  return v === true ? true : v === false ? false : null;
+}
 
 export function toWhoami(v: unknown): Whoami | null {
   if (!isRecord(v)) return null;
@@ -73,6 +92,8 @@ export type SearchHitKind =
   | (string & {});
 
 export type SearchHit = {
+  /** DC-1 (180): the server's classification; null on a server without it. Never computed here. */
+  is_test?: boolean | null;
   kind?: SearchHitKind;
   id?: string;
   label?: string;
@@ -83,6 +104,7 @@ export type SearchHit = {
 export function toSearchHits(v: unknown): SearchHit[] {
   const arr = isRecord(v) ? asArray(pick(v, "hits", "items", "results")) : asArray(v);
   return arr.filter(isRecord).map((h) => ({
+    is_test: boolOrNull(h.is_test),
     kind: str(h.kind) ?? undefined,
     id: str(h.id) ?? undefined,
     label: str(h.label) ?? undefined,
@@ -110,6 +132,8 @@ export const CASE_STATUSES: CaseStatus[] = ["open", "in_progress", "waiting", "r
 export const CASE_PRIORITIES: CasePriority[] = ["p1", "p2", "p3", "p4"];
 
 export type OpsCase = {
+  /** DC-1 (180): the server's classification; null on a server without it. Never computed here. */
+  is_test?: boolean | null;
   id?: string;
   case_type?: string;
   subject_kind?: string;
@@ -141,6 +165,7 @@ export type OpsCase = {
 export function toCase(v: unknown): OpsCase | null {
   if (!isRecord(v)) return null;
   return {
+    is_test: boolOrNull(v.is_test),
     id: str(v.id) ?? undefined,
     case_type: str(v.case_type) ?? undefined,
     subject_kind: str(v.subject_kind) ?? undefined,
@@ -189,6 +214,8 @@ export type CaseEvent = {
 export type Operator = { user_id?: string; role?: string; email_masked?: string; display?: string };
 
 export type CaseDetail = {
+  /** DC-1 (180): the server's classification of the subject; null on a server without it. */
+  is_test?: boolean | null;
   case: OpsCase | null;
   notes: CaseNote[];
   events: CaseEvent[];
@@ -202,6 +229,7 @@ export function toCaseDetail(v: unknown): CaseDetail | null {
   if (!isRecord(v)) return null;
   const caseRec = isRecord(v.case) ? v.case : v;
   return {
+    is_test: boolOrNull(v.is_test),
     case: toCase(caseRec),
     notes: asRecords(pick(v, "notes", "case_notes")).map((n) => ({
       id: str(n.id) ?? undefined,
@@ -244,8 +272,25 @@ export type TodayPayload = {
   attention: OpsCase[];
   metrics: MetricTile[];
   computed_at: string | null;
+  /** DC-1 (180): what the server hid from this payload, by kind; null on a server without it. */
+  test_excluded: TestExcluded | null;
   raw: JsonRecord;
 };
+
+export type TestExcluded = { open_cases: number; payments: number; transfers: number; listings: number; reports: number };
+
+/** The five counts, all present and numeric, or nothing: a partial object is not a count. */
+export function toTestExcluded(v: unknown): TestExcluded | null {
+  if (!isRecord(v)) return null;
+  const keys = ["open_cases", "payments", "transfers", "listings", "reports"] as const;
+  const out = {} as Record<(typeof keys)[number], number>;
+  for (const k of keys) {
+    const n = v[k];
+    if (typeof n !== "number" || !Number.isInteger(n) || n < 0) return null;
+    out[k] = n;
+  }
+  return out;
+}
 
 export function toToday(v: unknown): TodayPayload | null {
   if (!isRecord(v)) return null;
@@ -286,7 +331,7 @@ export function toToday(v: unknown): TodayPayload | null {
   const computed_at =
     str(pick(v, "computed_at", "as_of")) ??
     (isRecord(freshness) ? str(pick(freshness, "generated_at", "snapshot_computed_at", "computed_at")) : str(freshness));
-  return { attention, metrics, computed_at, raw: v };
+  return { attention, metrics, computed_at, test_excluded: toTestExcluded(v.test_excluded), raw: v };
 }
 
 // ---------- §3.4 mutation results ----------
@@ -307,7 +352,10 @@ export type ActionType =
   | "job_retry"
   | "setting_set"
   | "approval_decide"
-  | "case_create";
+  | "case_create"
+  // migration 144 — classifying a refund-resolution case is not closing it
+  | "case_refund_classify"
+  | "case_refund_obligation";
 
 export type RejectionReason = "stale_state" | "precondition" | "not_allowed" | "disabled" | "not_supported" | (string & {});
 
@@ -384,7 +432,8 @@ export type ActionOutcome =
 export function toActionOutcome(v: unknown): ActionOutcome | null {
   if (!isRecord(v)) return null;
   const status = str(v.status);
-  const action_id = str(pick(v, "action_id", "id")) ?? undefined;
+  // firstText, not pick: a null in an earlier field must not hide the value in a later one (E-L2).
+  const action_id = firstText(v, "action_id", "id") ?? undefined;
   switch (status) {
     case "succeeded":
       return { status, action_id, result: v.result, raw: v };
@@ -395,12 +444,12 @@ export function toActionOutcome(v: unknown): ActionOutcome | null {
     case "rejected":
       return {
         status,
-        reason: (str(pick(v, "reject_reason", "reason", "code", "rejection")) ?? "precondition") as RejectionReason,
-        message: str(pick(v, "message", "detail", "error")) ?? undefined,
+        reason: (firstText(v, "reject_reason", "reason", "code", "rejection") ?? "precondition") as RejectionReason,
+        message: firstText(v, "message", "detail", "error") ?? undefined,
         raw: v,
       };
     case "failed":
-      return { status, action_id, error: str(pick(v, "error", "message")) ?? undefined, raw: v };
+      return { status, action_id, error: firstText(v, "error", "message") ?? undefined, raw: v };
     case "processing":
       return { status, action_id, raw: v };
     default:
@@ -467,6 +516,8 @@ export function toUserSummary(v: unknown): UserSummary | null {
 // ---------- §3.3 list_orders / ops.order_row ----------
 
 export type OrderRow = {
+  /** DC-1 (180): the server's classification; null on a server without it. Never computed here. */
+  is_test?: boolean | null;
   payment_id?: string;
   created_at?: string;
   payment_status?: string;
@@ -512,6 +563,7 @@ function party(v: unknown): { id?: string; display_name?: string | null } | unde
 export function toOrderRow(v: unknown): OrderRow | null {
   if (!isRecord(v)) return null;
   return {
+    is_test: boolOrNull(v.is_test),
     payment_id: str(pick(v, "payment_id", "id")) ?? undefined,
     created_at: str(v.created_at) ?? undefined,
     payment_status: str(v.payment_status) ?? undefined,
@@ -675,6 +727,8 @@ export function toTransfer(v: unknown): Transfer | null {
 }
 
 export type ListingSummary = {
+  /** DC-1 (180): the server's classification; null on a server without it. Never computed here. */
+  is_test?: boolean | null;
   id?: string;
   event_name?: string | null;
   venue?: string | null;
@@ -691,12 +745,16 @@ export type ListingSummary = {
   seller_id?: string | null;
   seller_display_name?: string | null;
   buy_now_enabled?: boolean | null;
-  buy_now_price?: number | null;
-  starting_bid?: number | null;
-  current_bid?: number | null;
+  /**
+   * Integer cents. The server sends buy_now_price / starting_bid / current_bid /
+   * winning_bid_amount in whole dollars; toListingSummary converts them (lib/listing-money.ts).
+   */
+  buy_now_price_cents?: number | null;
+  starting_bid_cents?: number | null;
+  current_bid_cents?: number | null;
   bid_count?: number | null;
   winner_user_id?: string | null;
-  winning_bid_amount?: number | null;
+  winning_bid_cents?: number | null;
   ends_at?: string | null;
   sold_at?: string | null;
   created_at?: string | null;
@@ -710,6 +768,7 @@ export type ListingSummary = {
 export function toListingSummary(v: unknown): ListingSummary | null {
   if (!isRecord(v)) return null;
   return {
+    is_test: boolOrNull(v.is_test),
     id: str(v.id) ?? undefined,
     event_name: str(v.event_name),
     venue: str(v.venue),
@@ -726,12 +785,12 @@ export function toListingSummary(v: unknown): ListingSummary | null {
     seller_id: str(v.seller_id),
     seller_display_name: str(v.seller_display_name),
     buy_now_enabled: bool(v.buy_now_enabled),
-    buy_now_price: num(v.buy_now_price),
-    starting_bid: num(v.starting_bid),
-    current_bid: num(v.current_bid),
+    buy_now_price_cents: listingDollarsToCents(v.buy_now_price),
+    starting_bid_cents: listingDollarsToCents(v.starting_bid),
+    current_bid_cents: listingDollarsToCents(v.current_bid),
     bid_count: num(v.bid_count),
     winner_user_id: str(v.winner_user_id),
-    winning_bid_amount: num(v.winning_bid_amount),
+    winning_bid_cents: listingDollarsToCents(v.winning_bid_amount),
     ends_at: str(v.ends_at),
     sold_at: str(v.sold_at),
     created_at: str(v.created_at),
@@ -810,6 +869,8 @@ export type RefundFacts = {
 };
 
 export type OrderDetail = {
+  /** DC-1 (180): the server's classification of the subject; null on a server without it. */
+  is_test?: boolean | null;
   payment: Payment | null;
   transfer: Transfer | null;
   listing: ListingSummary | null;
@@ -832,6 +893,7 @@ export function toOrderDetail(v: unknown): OrderDetail | null {
   const refund = isRecord(v.refund) ? v.refund : {};
   const bank = isRecord(v.bank_payout) ? v.bank_payout : {};
   return {
+    is_test: boolOrNull(v.is_test),
     payment: toPayment(v.payment),
     transfer: toTransfer(v.transfer),
     listing: toListingSummary(v.listing),
@@ -1036,6 +1098,8 @@ export function toUserListItem(v: unknown): UserListItem | null {
 }
 
 export type Report = {
+  /** DC-1 (180): the server's classification; null on a server without it. Never computed here. */
+  is_test?: boolean | null;
   id?: string;
   reporter_id?: string | null;
   reporter_label?: string | null;
@@ -1053,6 +1117,7 @@ export type Report = {
 export function toReport(v: unknown): Report | null {
   if (!isRecord(v)) return null;
   return {
+    is_test: boolOrNull(v.is_test),
     id: str(v.id) ?? undefined,
     reporter_id: str(v.reporter_id),
     reporter_label: str(v.reporter_label),
@@ -1156,14 +1221,18 @@ export function toUserDetail(v: unknown): UserDetail | null {
 
 // ---------- §3.3 listing_detail ----------
 
-export type Bid = { id?: string; amount?: number | null; bidder_id?: string | null; bidder_display_name?: string | null; created_at?: string | null };
+/** amount_cents: integer cents, converted from the server's whole-dollar bids.amount. */
+export type Bid = { id?: string; amount_cents?: number | null; bidder_id?: string | null; bidder_display_name?: string | null; created_at?: string | null };
 
 export type ListingDetail = {
+  /** DC-1 (180): the server's classification of the subject; null on a server without it. */
+  is_test?: boolean | null;
   listing: ListingSummary | null;
   seller: UserSummary | null;
   payments: OrderRow[];
   transfer: Transfer | null;
-  bids: { count: number | null; highest: number | null; highest_bidder_id: string | null; recent: Bid[] };
+  /** highest_cents: integer cents, converted from the server's whole-dollar max(bids.amount). */
+  bids: { count: number | null; highest_cents: number | null; highest_bidder_id: string | null; recent: Bid[] };
   reports: Report[];
   seller_flags: JsonRecord[];
   cases: OpsCase[];
@@ -1176,17 +1245,18 @@ export function toListingDetail(v: unknown): ListingDetail | null {
   if (!isRecord(v)) return null;
   const bids = isRecord(v.bids) ? v.bids : {};
   return {
+    is_test: boolOrNull(v.is_test),
     listing: toListingSummary(v.listing),
     seller: toUserSummary(v.seller),
     payments: toOrderRows(v.payments),
     transfer: toTransfer(v.transfer),
     bids: {
       count: num(bids.count),
-      highest: num(bids.highest),
+      highest_cents: listingDollarsToCents(bids.highest),
       highest_bidder_id: str(bids.highest_bidder_id),
       recent: asRecords(bids.recent).map((b) => ({
         id: str(b.id) ?? undefined,
-        amount: num(b.amount),
+        amount_cents: listingDollarsToCents(b.amount),
         bidder_id: str(b.bidder_id),
         bidder_display_name: str(b.bidder_display_name),
         created_at: str(b.created_at),
@@ -1229,6 +1299,9 @@ export type MoneyOverview = {
   metrics: MoneyMetric[];
   snapshot: { key: string; value: unknown; computed_at: string | null }[];
   snapshot_computed_at: string | null;
+  /** DC-1 (180): whether test captures are in these figures, and how many the server hid in the window; null on a server without it. */
+  includes_test: boolean | null;
+  test_excluded: number | null;
   raw: JsonRecord;
 };
 
@@ -1279,6 +1352,8 @@ export function toMoneyOverview(v: unknown): MoneyOverview | null {
     metrics,
     snapshot: asRecords(v.snapshot).map((s) => ({ key: str(s.key) ?? "", value: s.value, computed_at: str(s.computed_at) })),
     snapshot_computed_at: str(v.snapshot_computed_at),
+    includes_test: boolOrNull(v.includes_test),
+    test_excluded: typeof v.test_excluded === "number" && Number.isInteger(v.test_excluded) && v.test_excluded >= 0 ? v.test_excluded : null,
     raw: v,
   };
 }
@@ -1379,6 +1454,19 @@ export type OpsAlert = {
   first_fired_at?: string | null;
   last_fired_at?: string | null;
   fire_count?: number | null;
+  // migration 146. queued is NOT delivered: queued_at means pg_net accepted the
+  // post and nothing more, delivered_at means notify-report answered 2xx AND
+  // reported that it delivered something. acknowledged_at is the only field
+  // that records a PERSON, and only because one pressed the button.
+  queued_at?: string | null;
+  delivered_at?: string | null;
+  delivery_status?: number | null;
+  notify_attempts?: number | null;
+  last_notify_error?: string | null;
+  acknowledged_at?: string | null;
+  acknowledged_by?: string | null;
+  /** Bumped when the condition cleared and came back: a NEW incident, needing its own acknowledgement. */
+  incident_seq?: number | null;
 };
 
 export type JobHealth = {
@@ -1463,6 +1551,14 @@ export function toJobHealth(v: unknown): JobHealth | null {
       first_fired_at: str(a.first_fired_at),
       last_fired_at: str(a.last_fired_at),
       fire_count: num(a.fire_count),
+      queued_at: str(a.queued_at),
+      delivered_at: str(a.delivered_at),
+      delivery_status: num(a.delivery_status),
+      notify_attempts: num(a.notify_attempts),
+      last_notify_error: str(a.last_notify_error),
+      acknowledged_at: str(a.acknowledged_at),
+      acknowledged_by: str(a.acknowledged_by),
+      incident_seq: num(a.incident_seq),
     })),
     raw: v,
   };

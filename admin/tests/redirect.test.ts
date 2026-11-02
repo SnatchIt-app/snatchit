@@ -40,3 +40,49 @@ describe("safeInternalPath", () => {
     expect(safeInternalPath("/loginaudit", "/")).toBe("/loginaudit");
   });
 });
+
+/**
+ * E-L4 — dot segments and empty segments. "/.//evil.com" passes the
+ * single-leading-slash check, yet after dot-segment removal its path is
+ * "//evil.com"; a consumer that normalises before resolving reads it as
+ * protocol-relative. Any "." or ".." segment, and any empty segment that is
+ * not a trailing slash, is refused (fallback, never rewritten). WHATWG URL
+ * treats "%2e" as "." in a segment, so the encoded forms are refused too. The
+ * query string and fragment are not path segments and are left alone.
+ */
+describe("safeInternalPath — dot and empty segments (E-L4)", () => {
+  it("refuses /./, /../ and // segments anywhere in the path, including %2e-encoded dots and a trailing /. or /..", () => {
+    for (const bad of [
+      "/.//evil.com",
+      "/./evil.com",
+      "/./",
+      "/.",
+      "/..",
+      "/../x",
+      "/a/./b",
+      "/a/../b",
+      "/a//b",
+      "/a//",
+      "/a///b",
+      "/orders/..",
+      "/orders/.",
+      "/orders/./",
+      "/%2e%2e/x",
+      "/%2E/x",
+      "/%2e//evil.com",
+      "/a/.%2e/b",
+      "/a/%2E./b",
+      "/a/%2e%2E",
+      "/.//evil.com?next=/",
+      "/a/../b#frag",
+    ]) {
+      expect(safeInternalPath(bad, "/fallback"), bad).toBe("/fallback");
+    }
+  });
+
+  it("still accepts dots inside names, hidden files, a trailing slash, and dot or double-slash sequences in the query or fragment", () => {
+    for (const ok of ["/a.b", "/x/..y", "/x/y..", "/x/.hidden", "/orders/", "/orders/x.json", "/cases?q=a//b", "/a?x=/./y", "/a?next=%2F..%2Fb", "/a#/../b", "/orders/9a900000-0000-4000-8000-0000000000f1"]) {
+      expect(safeInternalPath(ok, "/fallback"), ok).toBe(ok);
+    }
+  });
+});

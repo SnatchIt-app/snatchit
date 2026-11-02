@@ -11,6 +11,7 @@ import { humanize } from "@/lib/format";
 import { callOps } from "@/lib/ops";
 import { isRecord, str, type JsonRecord } from "@/lib/types";
 import { subjectHref } from "@/lib/routes";
+import { LISTING_DOLLAR_KEYS, listingDollarsToCents } from "@/lib/listing-money";
 import Link from "next/link";
 
 const MONEY_KEYS = /(_cents|amount|total|fee|volume|price|refunded|captured)$/i;
@@ -20,6 +21,17 @@ const STATUS_KEYS = /(status|state|priority|kind|type|role|decision)$/i;
 /** Route a (kind,id) pair to its detail page, when one exists (alias of subjectHref). */
 export function hrefFor(kind: string | null | undefined, id: string | null | undefined): string | null {
   return subjectHref(kind, id);
+}
+
+/**
+ * One field of an ops.subject_summary snapshot. A listing snapshot is ops.listing_summary, whose
+ * prices are whole dollars, so those keys convert to cents here; every other field goes to renderValue.
+ */
+export function renderSubjectValue(kind: string | null | undefined, key: string, v: unknown): ReactNode {
+  if (kind === "listing" && LISTING_DOLLAR_KEYS.has(key)) {
+    return v === null || v === undefined || v === "" ? <span className="text-dim">—</span> : <Money cents={listingDollarsToCents(v)} />;
+  }
+  return renderValue(key, v, 1);
 }
 
 /** Best-effort renderer for a single jsonb scalar/collection. */
@@ -38,7 +50,7 @@ export function renderValue(key: string, v: unknown, depth = 0): ReactNode {
     if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)) {
       const kind = key.replace(/_id$/, "");
       const href = hrefFor(kind, v);
-      const short = <code className="font-mono text-[12px]">{v}</code>;
+      const short = <code className="font-mono text-[0.75rem]">{v}</code>;
       return href ? (
         <Link href={href} className="link">
           {short}
@@ -53,11 +65,20 @@ export function renderValue(key: string, v: unknown, depth = 0): ReactNode {
   if (Array.isArray(v)) {
     if (v.length === 0) return <span className="text-dim">[] (empty)</span>;
     if (v.every((x) => typeof x === "string" || typeof x === "number")) return v.join(", ");
-    if (depth >= 1) return <code className="font-mono text-[11px]">{JSON.stringify(v).slice(0, 200)}</code>;
+    if (depth >= 1) return <code className="font-mono text-[0.6875rem]">{JSON.stringify(v).slice(0, 200)}</code>;
     return <GenericTable rows={v.filter(isRecord)} basePath="" />;
   }
   if (isRecord(v)) {
-    if (depth >= 1) return <code className="whitespace-pre-wrap font-mono text-[11px]">{JSON.stringify(v, null, 1).slice(0, 400)}</code>;
+    // A person ({ id, display_name }) is shown as their name, linked to their page — never as JSON.
+    if (typeof v.id === "string" && ("display_name" in v || "email_masked" in v) && Object.keys(v).length <= 4) {
+      const name = typeof v.display_name === "string" && v.display_name ? v.display_name : null;
+      return (
+        <Link href={`/users/${v.id}`} className="link" title={v.id}>
+          {name ?? <code className="font-mono text-[0.75rem]">{v.id.slice(0, 8)}</code>}
+        </Link>
+      );
+    }
+    if (depth >= 1) return <code className="whitespace-pre-wrap font-mono text-[0.6875rem]">{JSON.stringify(v, null, 1).slice(0, 400)}</code>;
     return <KeyValue columns={1} items={Object.entries(v).map(([k, val]) => ({ key: k, value: renderValue(k, val, depth + 1) }))} />;
   }
   return String(v);
@@ -167,7 +188,7 @@ export async function GenericRpc({
   if (!res.ok) return <OpsFailureAlert failure={res} fn={fn} retryHref={basePath} />;
   return (
     <>
-      <p className="mb-3 font-mono text-[11px] text-dim">ops.{fn}()</p>
+      <p className="mb-3 font-mono text-[0.6875rem] text-dim">ops.{fn}()</p>
       <GenericPayload data={res.data} basePath={basePath} searchParams={searchParams} />
     </>
   );

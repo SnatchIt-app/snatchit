@@ -13,8 +13,18 @@
 // Fidelity limits (read before trusting anything):
 //   * Passwords are plain text in ops_harness.accounts (fixtures.sql). Nothing
 //     here is a credential store. Emails are *.example.test.
-//   * MFA: every TOTP challenge is satisfied by the fixed code 123456
-//     (HARNESS_MFA_CODE). No real TOTP. The QR "image" is a placeholder SVG.
+//   * MFA: by default a TOTP challenge is satisfied by the fixed code 123456
+//     (HARNESS_MFA_CODE) OR by a real RFC 6238 code (SHA1, 6 digits, 30 s,
+//     skew 1 — GoTrue's ValidateCustom options) for the factor's secret.
+//     HARNESS_MFA_MODE=totp accepts only the real code; =fixed only 123456.
+//     Each factor's secret is derived from its id and HARNESS_JWT_SECRET
+//     (20 bytes, base32 without padding — the pquerna/otp default GoTrue uses),
+//     so nothing secret is stored. The enrolment URI follows GoTrue's shape.
+//   * QR: with HARNESS_QR_ENCODER pointing at a QR encoder module (Kazuhiko
+//     Arase's QRCode API, e.g. the copy vendored in qrcode-terminal), the
+//     enrolment returns GoTrue's qr_code shape — raw SVGo markup of
+//     "fill:black"/"fill:white" rects, block size 3, error correction H —
+//     encoding the otpauth URI. Without it, a placeholder SVG (not a QR code).
 //   * Sessions are stateless HS256 JWTs. Logout revocation and challenges live
 //     in this process's memory only, so a restart forgets revocations (tokens
 //     stay valid until exp) and pending challenges.
@@ -37,10 +47,12 @@
 //      HARNESS_PGHOST=127.0.0.1 HARNESS_PGPORT=5432 HARNESS_PGUSER=postgres
 //      HARNESS_PGDATABASE=snatchit_rehearsal_admin HARNESS_PSQL=psql
 //      HARNESS_JWT_TTL=3600 HARNESS_MFA_CODE=123456
+//      HARNESS_MFA_MODE=either|totp|fixed  HARNESS_QR_ENCODER=<path to module>
 // ============================================================================
 import http from 'node:http';
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
 
 // ---------------------------------------------------------------------------
 // Config + safety preamble
@@ -58,6 +70,8 @@ const CFG = {
   psql: env.HARNESS_PSQL || 'psql',
   ttl: Number(env.HARNESS_JWT_TTL || 3600),
   mfaCode: env.HARNESS_MFA_CODE || '123456',
+  mfaMode: env.HARNESS_MFA_MODE || 'either',
+  qrEncoder: env.HARNESS_QR_ENCODER || '',
 };
 
 function die(msg) {
@@ -68,6 +82,7 @@ function isLoopbackHost(h) {
   return ['127.0.0.1', 'localhost', '::1', '[::1]'].includes(h);
 }
 if (CFG.secret.length < 32) die('HARNESS_JWT_SECRET must be at least 32 characters');
+if (!['either', 'totp', 'fixed'].includes(CFG.mfaMode)) die('HARNESS_MFA_MODE must be either, totp or fixed');
 if (!isLoopbackHost(CFG.pgHost)) die(`HARNESS_PGHOST='${CFG.pgHost}' is not loopback`);
 if (!/rehears/.test(CFG.pgDb)) die(`HARNESS_PGDATABASE='${CFG.pgDb}' must contain 'rehears'`);
 if (!/^[a-z0-9_]+$/.test(CFG.pgDb)) die('HARNESS_PGDATABASE must be [a-z0-9_]');
@@ -357,12 +372,95 @@ function proxyRest(req, res, url) {
 // ---------------------------------------------------------------------------
 // /auth/v1 routes
 // ---------------------------------------------------------------------------
+// Named colours only: supabase-js turns qr_code into
+// `data:image/svg+xml;utf-8,<svg…>`, where a '#' would start a URL fragment
+// and cut the image short. (GoTrue's own markup uses named colours too.)
 const PLACEHOLDER_QR = (label) =>
   `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">` +
-  `<rect width="200" height="200" fill="#fff"/><rect x="10" y="10" width="180" height="180" fill="none" stroke="#000" stroke-width="4"/>` +
+  `<rect width="200" height="200" fill="white"/><rect x="10" y="10" width="180" height="180" fill="none" stroke="black" stroke-width="4"/>` +
   `<text x="100" y="80" font-family="monospace" font-size="14" text-anchor="middle">TEST HARNESS</text>` +
-  `<text x="100" y="105" font-family="monospace" font-size="12" text-anchor="middle">${label}</text>` +
-  `<text x="100" y="135" font-family="monospace" font-size="16" text-anchor="middle">code: ${CFG.mfaCode}</text></svg>`;
+  `<text x="100" y="105" font-family="monospace" font-size="12" text-anchor="middle">${label.replace(/[<>&"]/g, '')}</text>` +
+  (CFG.mfaMode === 'totp' ? '' : `<text x="100" y="135" font-family="monospace" font-size="16" text-anchor="middle">code: ${CFG.mfaCode}</text>`) +
+  `</svg>`;
+
+// ---- TOTP (RFC 6238 / RFC 4226) ---------------------------------------------
+const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+export function base32(buf) {
+  let bits = 0, value = 0, out = '';
+  for (const byte of buf) {
+    value = (value << 8) | byte; bits += 8;
+    while (bits >= 5) { out += B32[(value >>> (bits - 5)) & 31]; bits -= 5; }
+  }
+  if (bits > 0) out += B32[(value << (5 - bits)) & 31];
+  return out;
+}
+export function unbase32(s) {
+  const clean = String(s).toUpperCase().replace(/=+$/, '');
+  let bits = 0, value = 0; const out = [];
+  for (const ch of clean) {
+    const i = B32.indexOf(ch); if (i < 0) throw new Error('bad base32');
+    value = (value << 5) | i; bits += 5;
+    if (bits >= 8) { out.push((value >>> (bits - 8)) & 255); bits -= 8; }
+  }
+  return Buffer.from(out);
+}
+export function hotp(key, counter, digits = 6) {
+  const msg = Buffer.alloc(8);
+  msg.writeBigUInt64BE(BigInt(counter));
+  const h = crypto.createHmac('sha1', key).update(msg).digest();
+  const o = h[h.length - 1] & 15;
+  const bin = ((h[o] & 127) << 24) | (h[o + 1] << 16) | (h[o + 2] << 8) | h[o + 3];
+  return String(bin % 10 ** digits).padStart(digits, '0');
+}
+export function totpAt(secretB32, unixSeconds, period = 30) {
+  return hotp(unbase32(secretB32), Math.floor(unixSeconds / period));
+}
+// GoTrue: totp.ValidateCustom(code, secret, now, {Period: 30, Skew: 1, Digits: 6, Algorithm: SHA1}).
+export function totpValid(secretB32, code, unixSeconds = Math.floor(Date.now() / 1000)) {
+  if (!/^\d{6}$/.test(String(code))) return false;
+  const got = Buffer.from(String(code));
+  return [-1, 0, 1].some((d) => {
+    const want = Buffer.from(totpAt(secretB32, unixSeconds + d * 30));
+    return want.length === got.length && crypto.timingSafeEqual(want, got);
+  });
+}
+// 20 bytes per factor, derived — the harness stores no secrets.
+const factorSecret = (factorId) => base32(crypto.createHmac('sha256', CFG.secret).update(`harness-totp:${factorId}`).digest().subarray(0, 20));
+// pquerna/otp key.URL(): label "Issuer:Account", query keys sorted.
+const otpauthUri = (issuer, account, secret) =>
+  `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(account)}?algorithm=SHA1&digits=6&issuer=${encodeURIComponent(issuer)}&period=30&secret=${secret}`;
+
+// ---- QR (GoTrue shape: qr.Encode(uri, qr.H, qr.Auto) -> goqrsvg, block 3 -> SVGo) ----
+let qrLib = null;
+function loadQr() {
+  if (!CFG.qrEncoder) return null;
+  if (!qrLib) {
+    const req = createRequire(import.meta.url);
+    const QRCode = req(CFG.qrEncoder);
+    let H = 2;
+    try { H = req(`${CFG.qrEncoder.replace(/\/(index\.js)?$/, '')}/QRErrorCorrectLevel`).H; } catch { /* Arase's value for H */ }
+    qrLib = { QRCode, H };
+  }
+  return qrLib;
+}
+export function qrSvg(text) {
+  const lib = loadQr();
+  if (!lib) return null;
+  const qr = new lib.QRCode(-1, lib.H);
+  qr.addData(text);
+  qr.make();
+  const n = qr.getModuleCount();
+  const bs = 3;
+  const width = n * bs + bs * 8;
+  const off = bs * 4; // quiet zone of four modules (the image's white container adds more)
+  let out = `<?xml version="1.0"?>\n<!-- Generated by SVGo -->\n<svg width="${width}" height="${width}"\n     xmlns="http://www.w3.org/2000/svg"\n     xmlns:xlink="http://www.w3.org/1999/xlink">\n`;
+  for (let x = 0; x < n; x++) {
+    for (let y = 0; y < n; y++) {
+      out += `<rect x="${off + x * bs}" y="${off + y * bs}" width="${bs}" height="${bs}" style="fill:${qr.isDark(y, x) ? 'black' : 'white'};stroke:none" />\n`;
+    }
+  }
+  return out + '</svg>\n';
+}
 
 async function handleAuth(req, res, url) {
   const p = url.pathname.replace(/^\/auth\/v1/, '') || '/';
@@ -441,15 +539,13 @@ async function handleAuth(req, res, url) {
     const f = { id: crypto.randomUUID(), user_id: u.acct.user_id, friendly_name: friendly };
     await factorInsert(f);
     const issuer = body.issuer || 'Snatch It (TEST HARNESS)';
-    const secret = 'HARNESSTESTSECRET234567';
-    log(`mfa enroll ${u.acct.email} factor=${f.id}`);
+    const secret = factorSecret(f.id);
+    const uri = otpauthUri(issuer, u.acct.email, secret);
+    const qr = qrSvg(uri);
+    log(`mfa enroll ${u.acct.email} factor=${f.id} qr=${qr ? 'encoded' : 'placeholder'}`);
     return json(res, 200, {
       id: f.id, type: 'totp', friendly_name: friendly,
-      totp: {
-        qr_code: PLACEHOLDER_QR(friendly),
-        secret,
-        uri: `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(u.acct.email)}?secret=${secret}&issuer=${encodeURIComponent(issuer)}`,
-      },
+      totp: { qr_code: qr ?? PLACEHOLDER_QR(friendly), secret, uri },
     });
   }
   let fm;
@@ -476,7 +572,14 @@ async function handleAuth(req, res, url) {
       return authError(res, 422, 'mfa_challenge_expired', 'challenge not found (expired, wrong factor, or the stub was restarted)');
     }
     if (ch.exp < now()) { challenges.delete(body.challenge_id); return authError(res, 422, 'mfa_challenge_expired', 'MFA challenge expired'); }
-    if (String(body.code || '') !== CFG.mfaCode) return authError(res, 422, 'mfa_verification_failed', `Invalid TOTP code entered (harness accepts ${CFG.mfaCode})`);
+    const code = String(body.code || '');
+    const viaFixed = CFG.mfaMode !== 'totp' && code === CFG.mfaCode;
+    const viaTotp = CFG.mfaMode !== 'fixed' && totpValid(factorSecret(fm[1]), code);
+    if (!viaFixed && !viaTotp) {
+      const hint = CFG.mfaMode === 'totp' ? 'a current code for this factor' : CFG.mfaMode === 'fixed' ? CFG.mfaCode : `${CFG.mfaCode} or a current code`;
+      return authError(res, 422, 'mfa_verification_failed', `Invalid TOTP code entered (harness accepts ${hint})`);
+    }
+    log(`mfa code accepted via ${viaTotp ? 'totp' : 'fixed'} for factor=${fm[1]}`);
     challenges.delete(body.challenge_id);
     await factorVerify(fm[1]);
     // Mint an aal2 session carrying the original session_id (GoTrue keeps the
@@ -518,7 +621,7 @@ async function serve() {
       if (url.pathname.startsWith('/rest/v1')) return proxyRest(req, res, url);
       if (url.pathname.startsWith('/auth/v1')) return await handleAuth(req, res, url);
       if (url.pathname === '/' || url.pathname === '/health') {
-        return json(res, 200, { harness: 'TEST HARNESS', synthetic: true, rest: `${CFG.publicUrl}/rest/v1 -> ${CFG.postgrestUrl}`, auth: `${CFG.publicUrl}/auth/v1 (stub)`, mfa_code: CFG.mfaCode });
+        return json(res, 200, { harness: 'TEST HARNESS', synthetic: true, rest: `${CFG.publicUrl}/rest/v1 -> ${CFG.postgrestUrl}`, auth: `${CFG.publicUrl}/auth/v1 (stub)`, mfa_mode: CFG.mfaMode, ...(CFG.mfaMode === 'totp' ? {} : { mfa_code: CFG.mfaCode }), qr: CFG.qrEncoder ? 'encoded' : 'placeholder' });
       }
       return json(res, 501, { code: 'HARNESS_NOT_EMULATED', message: `TEST HARNESS: ${url.pathname} (storage/functions/realtime/graphql) is not emulated` });
     } catch (e) {
@@ -529,14 +632,31 @@ async function serve() {
   });
   server.listen(CFG.port, '127.0.0.1', () => {
     log(`TEST HARNESS auth-stub listening on http://127.0.0.1:${CFG.port} (public ${CFG.publicUrl})`);
-    log(`proxy /rest/v1 -> ${CFG.postgrestUrl}; db ${CFG.pgUser}@${CFG.pgHost}:${CFG.pgPort}/${CFG.pgDb}; mfa code ${CFG.mfaCode}; jwt ttl ${CFG.ttl}s`);
+    log(`proxy /rest/v1 -> ${CFG.postgrestUrl}; db ${CFG.pgUser}@${CFG.pgHost}:${CFG.pgPort}/${CFG.pgDb}; mfa ${CFG.mfaMode}${CFG.mfaMode === 'totp' ? '' : ` (fixed ${CFG.mfaCode})`}; qr ${CFG.qrEncoder ? 'encoded' : 'placeholder'}; jwt ttl ${CFG.ttl}s`);
   });
   for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { log(`${sig} — shutting down`); server.close(() => process.exit(0)); setTimeout(() => process.exit(0), 1000).unref(); });
 }
 
 // ---------------------------------------------------------------------------
 const argv = process.argv.slice(2);
-if (argv[0] === '--mint') {
+if (argv[0] === '--selftest') {
+  // RFC 6238 Appendix B (SHA1, 8 digits -> last 6) and RFC 4226 Appendix D vectors,
+  // plus the base32 round trip and, when an encoder is configured, the QR markup.
+  const rfcKey = Buffer.from('12345678901234567890');
+  const k32 = base32(rfcKey);
+  const cases = [[59, '287082'], [1111111109, '081804'], [1111111111, '050471'], [1234567890, '005924'], [2000000000, '279037'], [20000000000, '353130']];
+  const hotpCases = ['755224', '287082', '359152', '969429', '338314', '254676', '287922', '162583', '399871', '520489'];
+  const fails = [];
+  if (unbase32(k32).toString() !== '12345678901234567890') fails.push('base32 round trip');
+  cases.forEach(([t, want]) => { const got = totpAt(k32, t); if (got !== want) fails.push(`totp t=${t} got ${got} want ${want}`); });
+  hotpCases.forEach((want, c) => { const got = hotp(rfcKey, c); if (got !== want) fails.push(`hotp c=${c} got ${got} want ${want}`); });
+  if (!totpValid(k32, '287082', 59) || !totpValid(k32, '287082', 59 + 30) || totpValid(k32, '287082', 59 + 61)) fails.push('skew window');
+  if (factorSecret('00000000-0000-4000-8000-000000000000').length !== 32) fails.push('factor secret length');
+  const svg = qrSvg('otpauth://totp/x:y?secret=AAAA');
+  if (CFG.qrEncoder && (!svg || svg.includes('#') || !svg.includes('style="fill:black;stroke:none"'))) fails.push('qr markup');
+  process.stdout.write(fails.length ? `SELFTEST FAIL\n${fails.join('\n')}\n` : `SELFTEST OK totp=${cases.length} hotp=${hotpCases.length} qr=${svg ? 'encoded' : 'skipped (no HARNESS_QR_ENCODER)'}\n`);
+  process.exit(fails.length ? 1 : 0);
+} else if (argv[0] === '--mint') {
   const what = argv[1];
   if (what === 'anon' || what === 'service_role') {
     process.stdout.write(mintApiKey(what) + '\n');
