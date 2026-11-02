@@ -72,14 +72,17 @@ import {
   classifyArm,
   classifyStateSyncError,
   classifyStripeRefundError,
+  executorHoldOf,
   httpStatusForRpcError,
   isMoneyDenial,
   isUuid,
   planClaimedBatch,
+  planPark,
   planReconcile,
   planRefund,
   planStateSync,
   type ClaimedRefund,
+  type ExecutorHold,
   type RefundExecutionContext,
   type RefundExecutionMode,
 } from './executor.ts';
@@ -108,6 +111,18 @@ const INTERNAL_CRON_SECRET = Deno.env.get('INTERNAL_CRON_SECRET') ?? '';
  * 1:1 with the repo and this train applies nothing).
  */
 const CONTEXT_RPC = 'get_refund_execution_context';
+
+/**
+ * Who may drive `action: execute`: platform_admin ONLY (least privilege; A's
+ * decision). It is the only role ops-refund-execute/index.ts:211-212 accepts,
+ * and the admin console executes through that function
+ * (admin/src/lib/actions.ts:255), so one human role holds the hand-driven
+ * POST /v1/refunds wherever it is reached. platform_risk and platform_support
+ * are operators `ops.whoami()` reports (115:63-71) but get 403 here; rows they
+ * record are still drained by the sweep, which needs no human. Strict match,
+ * so an unexpected role string fails closed.
+ */
+const PLATFORM_OPERATOR_ROLES = ['platform_admin'];
 
 const ALLOWED_ORIGINS = ['https://snatchitapp.com', 'https://www.snatchitapp.com'];
 
@@ -207,11 +222,22 @@ async function recordMoneyDenial(
 
 type ContextResult =
   | { ok: true; ctx: RefundExecutionContext }
-  | { ok: false; status: number; code: string; detail: string };
+  | { ok: false; status: number; code: string; detail: string; hold?: ExecutorHold };
 
 async function loadContext(service: SupabaseClient, refundId: string): Promise<ContextResult> {
   const { data, error } = await service.rpc(CONTEXT_RPC, { p_refund_id: refundId });
   if (error) {
+    // A HELD ROW (registry 199, DESIGN-199-FINAL §3.4, §5.3). The context now
+    // raises `executor_hold manual_record|parked` for a pending/submitted row
+    // the executor must never touch: a manual-rail record (refunds-2; the
+    // owner may already have refunded it in the Dashboard, and that re_ carries
+    // no metadata.refund_id, so reconcile's search could not see it) or a
+    // parked row (refunds-7). Without this it already fails closed as
+    // context_read_failed 409; naming it lets executeOne mark it non-retryable
+    // and page only what a human must act on. Every Stripe call in this file
+    // sits behind this read (executeOne, :598), sweep and execute alike.
+    const hold = executorHoldOf(error.message);
+    if (hold) return { ok: false, status: 409, code: 'executor_hold', detail: hold, hold };
     // PGRST202 = function not found in the exposed schema cache.
     const missing = error.code === 'PGRST202' || /could not find the function|does not exist/i.test(error.message);
     return {
@@ -309,6 +335,59 @@ async function applyStateSync(
         });
       }
       if (verdict.kind === 'converged') {
+        // "Same key, so the same `re_…`" holds only inside Stripe's 24h window.
+        // After it, a replay of `refund_<id>` is a NEW refund, and
+        // mark_refund_state reports that second `re_…` as refund_state_backwards
+        // because it checks direction BEFORE its write-once ref (085:1761-1769)
+        // — so a double refund would land here as a quiet no-op (refunds-1).
+        // Re-read the row: converged only if the recorded ref IS ours.
+        const reread = await loadContext(service, refundId);
+        const recordedRef = reread.ok ? (reread.ctx.stripe_refund_ref ?? null) : null;
+        if (recordedRef === null) {
+          // The re-read failed (or names no ref), so it proves NEITHER a
+          // converged race NOR a second refund. Calling it a double refund on
+          // a transient DB blip pages a false money alarm and parks the row
+          // non-retryable. Unknown: page that the check could not be made. No
+          // automatic retry re-runs this comparison: refund_state_backwards means
+          // the row already moved past our step, so the next execute or sweep
+          // reads a submitted/terminal row and never reaches here again. The page
+          // (which carries stripe_refund_ref) is the only signal, and a human
+          // must compare that ref with the row's recorded ref. `?? null` above
+          // also treats an omitted key as unknown (093 always returns it today).
+          // The true conflict (a recorded ref that differs) is the branch below.
+          const why = reread.ok ? 'row names no recorded ref' : `re-read failed: ${reread.code}: ${reread.detail}`;
+          await captureException('refund-execute:state-sync', new Error(`refund_state_backwards for ${step.stripe_refund_ref}; the re-read could not verify the recorded ref (${why})`), {
+            refund_id: refundId,
+            payment_id: ctx.payment_id,
+            stripe_refund_ref: step.stripe_refund_ref,
+          });
+          return {
+            refund_id: refundId,
+            outcome: 'state_sync_deferred',
+            code: 'state_sync_unverified',
+            detail: `${error.message}; ${why}`,
+            stripe_refund_ref: step.stripe_refund_ref,
+            retryable: true,
+            http: 503,
+          };
+        }
+        if (recordedRef !== step.stripe_refund_ref) {
+          await captureException('refund-execute:state-sync', new Error(`second Stripe refund on one refund row: ${step.stripe_refund_ref} vs recorded ${String(recordedRef)}`), {
+            refund_id: refundId,
+            payment_id: ctx.payment_id,
+            stripe_refund_ref: step.stripe_refund_ref,
+            recorded_stripe_refund_ref: recordedRef,
+          });
+          return {
+            refund_id: refundId,
+            outcome: 'state_sync_deferred',
+            code: 'state_sync_conflict',
+            detail: error.message,
+            stripe_refund_ref: step.stripe_refund_ref,
+            retryable: false,
+            http: 500,
+          };
+        }
         // A concurrent worker already advanced this row past us with the same
         // deterministic key, so the same `re_…`. Nothing to do and nothing to
         // retry — treating this as a failure is how a healthy race becomes a
@@ -345,6 +424,51 @@ async function applyStateSync(
 }
 
 /**
+ * A non-2xx answer to POST /v1/refunds — ONE handler for both create legs
+ * (executeOne's, and reconcileOne's search_then_create, which `action:
+ * execute` runs since refunds-1) so they cannot drift. They did: reconcileOne
+ * carried its own copy that never paged and dropped Stripe's message, so an
+ * operator execute that hit charge_already_refunded, or idempotency_error (the
+ * wrong-refund guard tripping at Stripe, executor.ts:464-468), reached nobody.
+ * There is no `re_…` on this branch, so nothing is written
+ * (`verdict.writesState` is always false, executor.ts:441-449).
+ */
+async function stripeCreateFailure(
+  refundId: string,
+  ctx: RefundExecutionContext,
+  res: { status: number; data: unknown },
+  leg: 'create' | 'list' = 'create',
+): Promise<ExecuteOutcome> {
+  const verdict = classifyStripeRefundError({
+    status: res.status,
+    error: (res.data as { error?: { type?: string; code?: string; message?: string } })?.error,
+  });
+  const stripeErr = (res.data as { error?: { code?: string; message?: string } })?.error;
+  console.error(`[refund-execute] Stripe refund ${leg} failed:`, {
+    refund_id: refundId,
+    status: res.status,
+    class: verdict.class,
+    code: stripeErr?.code,
+    retryable: verdict.retryable,
+  });
+  if (verdict.page) {
+    await captureException('refund-execute:stripe', new Error(`${verdict.class}: ${stripeErr?.message ?? res.status}`), {
+      refund_id: refundId,
+      payment_id: ctx.payment_id,
+      stripe_code: stripeErr?.code ?? '',
+    });
+  }
+  return {
+    refund_id: refundId,
+    outcome: 'stripe_error',
+    code: verdict.class,
+    detail: stripeErr?.message ?? `HTTP ${res.status}`,
+    retryable: verdict.retryable,
+    http: verdict.retryable ? 503 : 409,
+  };
+}
+
+/**
  * Establish, then act. Never create before establishing.
  *
  * Two shapes, both decided by `planReconcile`:
@@ -366,8 +490,9 @@ async function reconcileOne(
   refundId: string,
   commandKey: string,
   ctx: RefundExecutionContext,
+  expected: { order_id?: string | null } = {},
 ): Promise<ExecuteOutcome> {
-  const plan = planReconcile(ctx);
+  const plan = planReconcile(ctx, expected);
 
   if (plan.kind === 'refuse') {
     await captureException('refund-execute:reconcile-refusal', new Error(`${plan.code}: ${plan.detail}`), {
@@ -405,7 +530,13 @@ async function reconcileOne(
     return { refund_id: refundId, outcome: 'stripe_error', code: 'network', detail: String(err), retryable: true, http: 502 };
   }
   if (!list.ok) {
-    return { refund_id: refundId, outcome: 'stripe_error', code: 'api_error', detail: `HTTP ${list.status}`, retryable: true, http: 503 };
+    // Classified and paged exactly like a create error. Since action:execute
+    // reconciles first, this list is now execute's FIRST Stripe call: a 401 bad
+    // key, a 403 restricted key or a 400 "No such payment_intent" (a key-mode or
+    // binding fault) used to page from the create leg and here answered 503
+    // retryable with no page, retrying forever in silence (refund-execute
+    // review of 3d488382, probe LIST). 5xx / 429 stay retryable and unpaged.
+    return await stripeCreateFailure(refundId, ctx, list, 'list');
   }
 
   const body = list.data as { data?: Array<{ id?: string; status?: string; failure_reason?: string; metadata?: Record<string, string> }>; has_more?: boolean };
@@ -418,9 +549,12 @@ async function reconcileOne(
     });
     return await applyStateSync(service, refundId, commandKey, ctx, match);
   }
-  if (body?.has_more === true) {
-    // We did not see the whole set, so "not found" is not established.
-    await captureException('refund-execute:reconcile-ambiguous', new Error(`>100 refunds on ${plan.payment_intent}; existence not established`), {
+  if (body?.has_more !== false) {
+    // We did not see the whole set, so "not found" is not established. Only an
+    // explicit `false` proves the list was exhausted: an absent has_more must
+    // never fall through to a create, whose failure direction is a duplicate
+    // real refund (E review of c2864a87, LOW-2; pinned by tests M1-M3).
+    await captureException('refund-execute:reconcile-ambiguous', new Error(`refund list on ${plan.payment_intent} is not proven exhausted (has_more ${body?.has_more === undefined ? 'absent' : String(body?.has_more)}); existence not established`), {
       refund_id: refundId, payment_id: ctx.payment_id,
     });
     return { refund_id: refundId, outcome: 'refused', code: 'reconcile_ambiguous', detail: 'more refunds on this PaymentIntent than one page — human reconciliation required', retryable: false, http: 409 };
@@ -436,13 +570,7 @@ async function reconcileOne(
     const verdict = classifyStripeRefundError(err instanceof Error ? err : new Error(String(err)));
     return { refund_id: refundId, outcome: 'stripe_error', code: verdict.class, detail: String(err), retryable: verdict.retryable, http: 502 };
   }
-  if (!res.ok) {
-    const verdict = classifyStripeRefundError({
-      status: res.status,
-      error: (res.data as { error?: { type?: string; code?: string; message?: string } })?.error,
-    });
-    return { refund_id: refundId, outcome: 'stripe_error', code: verdict.class, detail: `HTTP ${res.status}`, retryable: verdict.retryable, http: verdict.retryable ? 503 : 409 };
-  }
+  if (!res.ok) return await stripeCreateFailure(refundId, ctx, res);
   return await applyStateSync(service, refundId, commandKey, ctx, res.data);
 }
 
@@ -455,10 +583,13 @@ async function executeOne(
    * DB-ISSUED, never worker-chosen (093 slice 10i). 'create' means the row's
    * Stripe idempotency key is still a valid dedup token; 'reconcile' means it
    * is not, and the worker must establish what exists at Stripe before it may
-   * create anything. `action: execute` defaults to 'create' because a
-   * hand-driven single execution is, by construction, the key's first use.
+   * create anything. `action: execute` has no DB-issued mode, so it runs
+   * 'reconcile' (refunds-1): a hand-driven execution is NOT the key's first
+   * use when it is a retry, and a retry after Stripe's 24h retention would
+   * POST `refund_<id>` as a brand-new key and mint a second, real refund.
+   * The default is the safe mode for the same reason.
    */
-  mode: RefundExecutionMode = 'create',
+  mode: RefundExecutionMode = 'reconcile',
 ): Promise<ExecuteOutcome> {
   if (!isUuid(refundId)) {
     return { refund_id: refundId, outcome: 'refused', code: 'malformed_refund_id', detail: refundId, http: 400 };
@@ -466,6 +597,20 @@ async function executeOne(
 
   const loaded = await loadContext(service, refundId);
   if (!loaded.ok) {
+    if (loaded.hold) {
+      // Non-retryable: the hold is a durable DB fact, and only a human verb
+      // clears one (parked → kernel.rearm_refund_execution; manual_record has
+      // no exit, 199 §1 I-E2). A manual row is a known, decided state, so it
+      // does not page. A parked row was already paged when it was parked
+      // (199 §5.2); reaching one again here means a human called execute on it
+      // or a sweep raced the park, so it pages once more, by refund id only.
+      if (loaded.hold === 'parked') {
+        await captureException('refund-execute:executor-hold', new Error('executor_hold parked: refund-execute will not touch this refund until a human re-arms it (kernel.rearm_refund_execution)'), {
+          refund_id: refundId,
+        });
+      }
+      return { refund_id: refundId, outcome: 'refused', code: loaded.code, detail: loaded.detail, retryable: false, http: loaded.status };
+    }
     return { refund_id: refundId, outcome: 'refused', code: loaded.code, detail: loaded.detail, http: loaded.status };
   }
   const ctx = loaded.ctx;
@@ -478,7 +623,7 @@ async function executeOne(
   // database decides which side of the window a row is on; this branch is
   // what the worker runs when the answer is "not safe to create blind".
   if (mode === 'reconcile') {
-    return await reconcileOne(service, refundId, commandKey, ctx);
+    return await reconcileOne(service, refundId, commandKey, ctx, expected);
   }
 
   // ── The binding gate. Nothing reaches Stripe without passing this. ───────
@@ -550,39 +695,40 @@ async function executeOne(
     };
   }
 
-  if (!res.ok) {
-    const verdict = classifyStripeRefundError({
-      status: res.status,
-      error: (res.data as { error?: { type?: string; code?: string; message?: string } })?.error,
-    });
-    const stripeErr = (res.data as { error?: { code?: string; message?: string } })?.error;
-    console.error('[refund-execute] Stripe refund create failed:', {
-      refund_id: refundId,
-      status: res.status,
-      class: verdict.class,
-      code: stripeErr?.code,
-      retryable: verdict.retryable,
-    });
-    if (verdict.page) {
-      await captureException('refund-execute:stripe', new Error(`${verdict.class}: ${stripeErr?.message ?? res.status}`), {
-        refund_id: refundId,
-        payment_id: ctx.payment_id,
-        stripe_code: stripeErr?.code ?? '',
-      });
-    }
-    // verdict.writesState is always false — see executor.ts.
-    return {
-      refund_id: refundId,
-      outcome: 'stripe_error',
-      code: verdict.class,
-      detail: stripeErr?.message ?? `HTTP ${res.status}`,
-      retryable: verdict.retryable,
-      http: verdict.retryable ? 503 : 409,
-    };
-  }
+  if (!res.ok) return await stripeCreateFailure(refundId, ctx, res);
 
   // ── The callback. From here on money HAS moved. ──────────────────────────
   return await applyStateSync(service, refundId, commandKey, ctx, res.data);
+}
+
+/**
+ * Park a claimed row whose outcome a retry cannot change (registry 199,
+ * refunds-7, DESIGN-199-FINAL §3.6, §5.2), so the claim stops handing it out
+ * (§3.3) and it stops paging every tick. `planPark` decides whether; the verb
+ * decides whether it still may: `not_parked` (terminal / stale_attempt /
+ * status_moved, §6 R2, R3) and `noop_replay` (already held) are logged, not
+ * paged. No page on success either: the outcome that earned the park already
+ * paged in executeOne (every non-retryable outcome does), and 199 §6's
+ * refunds-7 scenario is ONE page. A fault pages once and never fails the
+ * batch; the unparked row is simply claimed again next tick, as before 199.
+ */
+async function parkIfTerminal(service: SupabaseClient, row: ClaimedRefund, res: ExecuteOutcome): Promise<void> {
+  const park = planPark(row, res);
+  if (!park) return;
+  try {
+    const { data, error } = await service.rpc('park_refund_execution', park);
+    if (error) {
+      console.error('[refund-execute] park_refund_execution did not apply:', { refund_id: row.refund_id, attempt: row.attempt, error: error.message });
+      await captureException('refund-execute:park', new Error(`park_refund_execution(${park.p_outcome}, ${park.p_reason_code}): ${error.message}`), {
+        refund_id: row.refund_id,
+      });
+      return;
+    }
+    const answer = (data ?? {}) as { status?: string; reason?: string; hold?: string };
+    console.log('[refund-execute] park:', { refund_id: row.refund_id, attempt: row.attempt, reason_code: park.p_reason_code, status: answer.status, reason: answer.reason ?? answer.hold });
+  } catch (err) {
+    await captureException('refund-execute:park', err, { refund_id: row.refund_id });
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -659,16 +805,20 @@ serve(async (req: Request) => {
       const results: ExecuteOutcome[] = [];
       // One failure NEVER blocks the batch (the enforce-transfer-expiry rule).
       for (const row of claimed) {
+        let res: ExecuteOutcome;
         try {
           // The command key is the DATABASE's (`refund.execute:<uuid>`, 42
           // chars — inside the 64-char audit budget with no truncation).
           // Truncating or minting one would collapse two different refunds
           // onto one audit identity.
-          results.push(await executeOne(service, row.refund_id, row.command_key, {}, row.execution_mode));
+          res = await executeOne(service, row.refund_id, row.command_key, {}, row.execution_mode);
         } catch (err) {
           await captureException('refund-execute:sweep', err, { refund_id: row.refund_id });
-          results.push({ refund_id: row.refund_id, outcome: 'stripe_error', code: 'unhandled', detail: String(err), retryable: true });
+          res = { refund_id: row.refund_id, outcome: 'stripe_error', code: 'unhandled', detail: String(err), retryable: true };
         }
+        results.push(res);
+        // 199 §5.2: after each executeOne, never instead of it. Sweep only.
+        await parkIfTerminal(service, row, res);
       }
       const counts = results.reduce<Record<string, number>>((acc, r) => {
         acc[r.outcome] = (acc[r.outcome] ?? 0) + 1;
@@ -822,13 +972,45 @@ serve(async (req: Request) => {
 
     // ── action: execute — the money leg ────────────────────────────────────
     if (action === 'execute') {
+      // OPERATOR GATE, decided IN THE DATABASE as the caller (refunds-3). The
+      // checks above prove only a live session; this leg runs on the SERVICE
+      // client and POSTs /v1/refunds, so without it any session holding a
+      // refund id (org_owner/org_finance list them, 085:1487-1515) could drive
+      // it and read back order ids, amounts and Stripe refs. E4 §2 names a
+      // platform JWT for `execute`. Same gate as ops-refund-execute/index.ts:203-216:
+      // ops.whoami() run AS the caller, its user must be the token's, its role
+      // platform_admin (PLATFORM_OPERATOR_ROLES), and the session aal2. The
+      // refusal names no refund, order or amount.
+      const { data: who, error: whoErr } = await caller.schema('ops').rpc('whoami');
+      const identity = (who ?? {}) as { user_id?: string; role?: string; aal?: string };
+      if (whoErr || identity.user_id !== user.id || !PLATFORM_OPERATOR_ROLES.includes(identity.role ?? '')) {
+        return json({ error: 'forbidden', detail: 'platform_admin required' }, 403, headers);
+      }
+      if (identity.aal !== 'aal2') {
+        return json({ error: 'forbidden', detail: 'step_up_required: aal2 session required' }, 403, headers);
+      }
+
       const refundId = typeof body.refund_id === 'string' ? body.refund_id : '';
       if (!isUuid(refundId)) return json({ error: 'invalid_input', detail: 'refund_id must be a uuid' }, 400, headers);
       // `expected_order_id` is the caller's ASSERTION, used only to refuse a
       // mismatch. It never selects the payment.
       const expectedOrderId = typeof body.expected_order_id === 'string' ? body.expected_order_id : null;
 
-      const outcome = await executeOne(service, refundId, commandKey, { order_id: expectedOrderId });
+      // 'reconcile', never 'create': list the PaymentIntent's refunds for
+      // metadata.refund_id before any POST (refunds-1). The prior outcome of
+      // an earlier execute is unknown here — a lost response leaves the row
+      // `pending` with `retryable: true` — and no claim row records its use.
+      //
+      // What execute therefore does, per row status (planReconcile):
+      //   pending   GET /refunds?payment_intent=…; a match is recorded, and
+      //             only a confirmed absence is POSTed (refund_<refund_id>).
+      //   submitted GET /refunds/<recorded re_…> and sync it, which may ADVANCE
+      //             the row to succeeded/failed via mark_refund_state.
+      //   terminal  noop_replay, no Stripe call.
+      // The `submitted` line SUPERSEDES E4_refund_executor.md:187 (§5 case 4,
+      // "a direct re-execute is noop_replay"), pending a doc update that A
+      // records; the architecture doc is deliberately not edited here.
+      const outcome = await executeOne(service, refundId, commandKey, { order_id: expectedOrderId }, 'reconcile');
       const status = outcome.http ?? (outcome.outcome === 'refused' ? 409 : 200);
       return json({ status: outcome.outcome, ...outcome }, status, headers);
     }
