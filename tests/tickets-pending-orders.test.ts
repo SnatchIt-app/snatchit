@@ -13,7 +13,8 @@
  *     no route.
  *
  * Negative controls (run by hand, each must FAIL): keep settled sessions (PO2); read PGRST202 as failed
- * (PO6); replace shown items on a failed refresh (PO7); put the amount on an item (PO5).
+ * (PO6); replace shown items on a failed refresh (PO7); put the amount on an item (PO5); let an older
+ * abandoned pending order outrank a newer paid one (PO10).
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
@@ -93,6 +94,19 @@ describe('pendingOrderItems', () => {
     expect(pendingOrderItems([row({ event_session_id: null }), row({ event_session_id: 'fixture-s1' }), { nope: 1 }, null])).toEqual([]);
     expect(pendingOrderItems([row({ title: '  ' })])[0].title).toBe(PENDING_ORDERS_COPY.untitled);
     expect(pendingOrderItems([row({ title: null })])[0].title).toBe(PENDING_ORDERS_COPY.untitled);
+  });
+
+  it('PO10: an older abandoned pending order under a newer paid (or partly refunded) one has no item; a pending order newer than every paid one keeps its item (D10, D15)', () => {
+    expect(pendingOrderItems([
+      row({ event_session_id: S1, status: 'paid', atoms_issued: 2, payment_state: 'succeeded', created_at: '2026-10-27T00:00:00Z' }),
+      row({ event_session_id: S1, created_at: '2026-10-20T00:00:00Z' }),
+      row({ event_session_id: S2, status: 'partially_refunded', atoms_issued: 1, payment_state: 'succeeded', created_at: '2026-10-27T00:00:00Z' }),
+      row({ event_session_id: S2, created_at: '2026-10-20T00:00:00Z' }),
+    ])).toEqual([]);
+    expect(pendingOrderItems([
+      row({ event_session_id: S3, created_at: '2026-10-28T00:00:00Z' }),
+      row({ event_session_id: S3, status: 'paid', atoms_issued: 1, payment_state: 'succeeded', created_at: '2026-10-20T00:00:00Z' }),
+    ])).toEqual([{ sessionId: S3, title: 'Lantern Night', status: ORDER_COPY.awaiting.title, hint: 'awaiting_confirmation' }]);
   });
 
   it('PO5: no item carries an amount — not the charge (NULL until finalize), not face value', () => {

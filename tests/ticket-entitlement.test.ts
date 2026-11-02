@@ -9,7 +9,8 @@
  *
  * Negative controls (run by hand, each must FAIL): return 'ready' for a `listed` atom (D3);
  * map a failed load to 'empty' (S2); skip the owner check in `readAtoms` (C2); let `cardDisplay`
- * keep 'ready' under a not_owner / atom_terminal refusal (W2).
+ * keep 'ready' under a not_owner / atom_terminal refusal (W2); map 'read_failed' or 'unknown' with
+ * no atoms to 'empty' (S4).
  */
 import { describe, expect, it } from 'vitest';
 
@@ -118,14 +119,20 @@ describe('detailState — a failed or inconsistent read is never "no tickets"', 
 
   it('S3b: atoms on screen win over any order hint — an order never hides or replaces an atom', () => {
     const a = [atom()];
-    for (const h of ['awaiting_confirmation', 'payment_failed', 'issued', 'unknown'] as const) {
+    for (const h of ['awaiting_confirmation', 'payment_failed', 'issued', 'unknown', 'read_failed'] as const) {
       expect(detailState({ kind: 'ready', atoms: a }, h, 1), h).toEqual({ kind: 'atoms', atoms: a });
     }
   });
 
-  it('S4: empty only when nothing is expected and nothing is pending', () => {
+  it('S4: empty only when the orders were read, say nothing is in flight, and nothing is expected (D7)', () => {
     expect(detailState({ kind: 'ready', atoms: [] }, 'none', 0)).toEqual({ kind: 'empty' });
-    expect(detailState({ kind: 'ready', atoms: [] }, 'unknown', 0)).toEqual({ kind: 'empty' });
+    expect(detailState({ kind: 'ready', atoms: [] }, 'none', 2)).toEqual({ kind: 'inconsistent' });
+    // a failed orders read, or a status the client does not know, is never "no tickets"
+    for (const h of ['read_failed', 'unknown'] as const) {
+      expect(detailState({ kind: 'ready', atoms: [] }, h, 0), h).toEqual({ kind: 'inconsistent' });
+      expect(detailState({ kind: 'ready', atoms: [] }, h, 2), h).toEqual({ kind: 'inconsistent' });
+    }
+    expect(`${DETAIL_COPY.inconsistent.title} ${DETAIL_COPY.inconsistent.body}`.toLowerCase()).not.toMatch(/no tickets/);
   });
 });
 

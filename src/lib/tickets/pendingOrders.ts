@@ -14,6 +14,8 @@
  * Rules held here:
  *   - the words are the ticket page's: `issuanceHint` over the session's orders, ORDER_COPY titles;
  *     settled sessions (`issued` / `none`) have no item, an unknown status is "Status unavailable";
+ *     an older abandoned pending order under a newer paid one is settled (`issuanceHint`, RES-1);
+ *   - a failed read is this load's `failed`, never an item: `read_failed` cannot come from rows;
  *   - no amount, ever (A, 2026-10-26): `charge_total_minor` is NULL until finalize and `total_minor` is
  *     face value; nothing is derived from the tier price or carried from the checkout response;
  *   - PGRST202 (167 not applied) shows nothing; a failed read is `failed`, never an empty list, and a
@@ -27,7 +29,7 @@ import { issuanceHint, ORDER_COPY, type IssuanceHint, type PrimaryOrderRow } fro
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const AUTH_CODES: ReadonlySet<string> = new Set(['42501', '28000', 'PGRST301']);
 
-export type InFlightHint = Exclude<IssuanceHint, 'issued' | 'none'>;
+export type InFlightHint = Exclude<IssuanceHint, 'issued' | 'none' | 'read_failed'>;
 
 export interface PendingOrderItem {
   sessionId: string;

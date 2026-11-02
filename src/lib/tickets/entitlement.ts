@@ -97,8 +97,10 @@ export type DetailState =
 /**
  * `expectedQuantity` is the group row's quantity from get_my_tickets (what the person was told they
  * own). A per-atom read of zero against an expectation above zero is a contradiction between two
- * server reads, shown as such — never as "no tickets". With atoms on screen the orders add only
- * their own line (the order list); they never hide an atom or invent one.
+ * server reads, shown as such — never as "no tickets". So is no atoms beside an orders read that
+ * failed (`read_failed`) or carried an unknown status: "empty" needs the orders to say `none`.
+ * With atoms on screen the orders add only their own line (the order list); they never hide an
+ * atom or invent one.
  */
 export function detailState(load: AtomsLoad, issuance: IssuanceHint, expectedQuantity: number): DetailState {
   if (load.kind === 'loading') return { kind: 'loading' };
@@ -110,6 +112,9 @@ export function detailState(load: AtomsLoad, issuance: IssuanceHint, expectedQua
     case 'paid_pending': return { kind: 'pending_issuance' };
     case 'payment_failed': return { kind: 'payment_failed' };
     case 'issued': return { kind: 'not_on_account' };
+    // The orders were not read, or said something the client does not know: never "no tickets".
+    case 'read_failed':
+    case 'unknown': return { kind: 'inconsistent' };
     default: break;
   }
   if (expectedQuantity > 0) return { kind: 'inconsistent' };

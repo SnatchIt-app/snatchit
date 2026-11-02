@@ -12,11 +12,13 @@
  *     never pass as a credential;
  *   - a code the server withdrew is forgotten by the cache and the page re-reads once; the card
  *     claims nothing ready beside a not_owner / atom_terminal refusal (D2, D3a);
- *   - the complete set of readAll() call sites — no read on a timer (D16).
+ *   - the complete set of readAll() call sites — no read on a timer (D16);
+ *   - a failed orders re-read keeps the last orders answer; with none yet the hint is read_failed,
+ *     which is never "no tickets" (D7).
  *
  * Negative controls (run by hand, each must FAIL): drop the dropCredential call (W5); drop the
  * withdrawal re-read (W5, W6); put readAll() in the setInterval callback (W6); show the ready body
- * beside a refusal (W8).
+ * beside a refusal (W8); set the hint from a failed orders read, or drop the per-account reset (O1).
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
@@ -208,6 +210,23 @@ describe('withdrawal and read call sites — a withdrawn code is forgotten, one 
     expect(card).not.toMatch(/ENTITLEMENT_COPY\[display\]|TONE\[display\]|ENTITLEMENT_COPY\.ready/);
     expect(card).toContain('refusesTicket(credential.reason)');
     expect(card).not.toMatch(/'not_owner'|'atom_terminal'/);
+  });
+});
+
+describe('orders hint — a failed orders re-read keeps the last answer; none yet is read_failed (D7)', () => {
+  const route = src('app/ticket/[session].tsx');
+
+  it('O1: the hint and order lines are written only from a successful orders read, or reset per account/session before its first read', () => {
+    expect(route).toContain("const [hint, setHint] = useState<IssuanceHint>('read_failed');");
+    expect(route.match(/\bsetHint\(/g)).toHaveLength(2);
+    expect(route.match(/\bsetOrders\(/g)).toHaveLength(2);
+    expect(route).toMatch(/if \(orderRows\) \{\s*setHint\(issuanceHint\(orderRows\)\);\s*setOrders\(orderRows\.map\(orderStatusLine\)\);\s*\}/);
+    const mount = route.match(/useEffect\(\(\) => \{\n    if \(authLoading\) return;([\s\S]*?)\n  \}, \[([^\]]*)\]\);/);
+    expect(mount).not.toBeNull();
+    const body = mount![1];
+    expect(body).toContain("setHint('read_failed');");
+    expect(body).toContain('setOrders([]);');
+    expect(body.indexOf("setHint('read_failed');")).toBeLessThan(body.indexOf('void readAll();'));
   });
 });
 

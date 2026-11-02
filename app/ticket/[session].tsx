@@ -19,6 +19,7 @@
  *     the cache forgets it and the page re-reads once (`withdrawsCode`);
  *   - reads happen on mount, focus, pull and that one withdrawal re-read — never on a timer;
  *   - a failed re-read keeps what is on screen; a first failure is the failure screen, never "no tickets";
+ *     a failed orders read keeps the last orders answer, and with none yet the hint is read_failed;
  *   - nothing is written to disk.
  */
 import { useFocusEffect } from '@react-navigation/native';
@@ -89,7 +90,8 @@ export default function TicketDetailRoute() {
   // useFocusEffect re-ran it while focused — a continuous re-read loop (C33 device log, 2026-10-29).
   const loadRef = useRef<AtomsLoad>({ kind: 'loading' });
   useEffect(() => { loadRef.current = load; }, [load]);
-  const [hint, setHint] = useState<IssuanceHint>('unknown');
+  // No orders answer yet is read_failed — never `none`, so never "no tickets" before the server said so.
+  const [hint, setHint] = useState<IssuanceHint>('read_failed');
   const [orders, setOrders] = useState<OrderLine[]>([]);
   const [credentials, setCredentials] = useState<Credentials>({});
   const [refreshing, setRefreshing] = useState<Record<string, boolean>>({});
@@ -146,8 +148,11 @@ export default function TicketDetailRoute() {
       setExpected(mine.reduce((n, r) => n + (r.quantity ?? 0), 0));
     }
     if (sessionFacts) setFacts(sessionFacts);
-    setHint(issuanceHint(orderRows));
-    if (orderRows) setOrders(orderRows.map(orderStatusLine));
+    // A failed orders re-read keeps the last answer: a correct hint is never downgraded by a failure.
+    if (orderRows) {
+      setHint(issuanceHint(orderRows));
+      setOrders(orderRows.map(orderStatusLine));
+    }
     if (atomsLoad.kind === 'ready') {
       storeAtoms(userId, sessionId, atomsLoad.atoms);
       sweepStale(atomsLoad.atoms);
@@ -191,6 +196,9 @@ export default function TicketDetailRoute() {
     setCredentials({});
     setNotes({});
     setRefreshing({});
+    // The last orders answer belongs to the previous account or session: none yet for this one.
+    setHint('read_failed');
+    setOrders([]);
     mintingRef.current.clear();
     if (!userId) { setLoad({ kind: 'failed', failure: 'signed_out' }); return; }
     if (!sessionId) { setLoad({ kind: 'failed', failure: 'unavailable' }); return; }
