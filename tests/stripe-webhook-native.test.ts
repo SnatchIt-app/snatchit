@@ -19,6 +19,7 @@
  *       property of the migrations, not of the classifier. The classifier is
  *       tested against the EXACT strings 082/085/093 raise, quoted inline.
  */
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   CANCEL_REASON_PAYMENT_FAILED,
@@ -369,6 +370,20 @@ describe('finalize_primary_order error classification (085:1881-2082)', () => {
   ];
   /** The substring every RETRY arm matches on (the transient arm keys on the SQLSTATE, not text). */
   const RETRY_ARM_SUBSTRINGS = ['insufficient_privilege', 'permission denied', 'no_active_signing_key', 'feature_disabled'];
+
+  it('the ACK substring list is COMPLETE: every ack:true arm in the source is refund_required or listed (E review of #216)', () => {
+    // A hand-kept list proves precedence only for the arms it names. Read the
+    // classifier's own source and require that its ack:true arms are exactly
+    // refund_required plus ACK_ARM_SUBSTRINGS, so a new ACK arm added without
+    // updating the list fails here instead of silently escaping the precedence pins.
+    const src = readFileSync(new URL('../supabase/functions/stripe-webhook/native.ts', import.meta.url), 'utf8');
+    const start = src.indexOf('export function classifyFinalizeError');
+    const body = src.slice(start, src.indexOf('\n}\n', start));
+    const ackArms = [...body.matchAll(/message\.includes\('([^']+)'\)\)\s*\{\s*return \{ ack: true/g)].map((m) => m[1]);
+    expect(ackArms.length).toBeGreaterThan(0);
+    expect(new Set(ackArms)).toEqual(new Set(['refund_required', ...ACK_ARM_SUBSTRINGS]));
+    expect(ackArms.length).toBe(ACK_ARM_SUBSTRINGS.length + 1);
+  });
 
   it('ACKs and alerts refund_required (198 K3) — no redelivery creates capacity; a human refunds the charge', () => {
     expect(classifyFinalizeError({ message: REFUND_REQUIRED_198, code: 'P0001' }))
