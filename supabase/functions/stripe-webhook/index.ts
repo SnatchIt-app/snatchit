@@ -26,6 +26,7 @@ import {
   isConnectAccountRef,
   isTerminalPaymentIntent,
   latestChargeId,
+  nativeReviewRef,
   observedAtIso,
   type OrgArmOutcome,
   readNativeMetadata,
@@ -486,12 +487,12 @@ serve(async (req: Request) => {
      * in the external-rail-only deletion blockers ('unresolved_review',
      * 20260906120000), which review round 2 (MAJOR-1) scoped away from it. The
      * `rpc_name` keeps the row out of the refund sweep (see
-     * NATIVE_REVIEW_RPC_NAME). Returns the write's error message, or null.
+     * NATIVE_REVIEW_RPC_NAME). The identifier rule is native.ts nativeReviewRef
+     * (unit-pinned); 198 A-5 widens it to order + payment + PI for
+     * finalize_refund_required only. Returns the write's error message, or null.
      */
     async function recordNativeReview(reason: string, body: Record<string, unknown>): Promise<string | null> {
-      const ref = ['order_id', 'pi_id', 'dispute_id', 'stripe_transfer_ref', 'account_id', 'payment_id']
-        .map((k) => body[k])
-        .find((v): v is string => typeof v === 'string' && v.length > 0) ?? 'none';
+      const ref = nativeReviewRef(reason, body);
       const { error: reviewErr } = await supabase.from('webhook_retries').insert({
         payment_id:    null,
         listing_id:    null,
@@ -986,6 +987,10 @@ serve(async (req: Request) => {
         });
 
         if (finalizeErr) {
+          // 198 A-5 (DESIGN-198-FINAL §4.2): `refund_required` ACKs here with an
+          // alert and a review row naming order_id, payment_id and pi_id from the
+          // body below; if that row cannot be written finishDecision answers 500
+          // and Stripe redelivers. Nothing here refunds — refunds are manual.
           const decision = classifyFinalizeError(finalizeErr);
           console.error('Webhook: finalize_primary_order failed', {
             order_id: ref.orderId, payment_id: paymentRow.id, pi_id: piId,
