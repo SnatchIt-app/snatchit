@@ -1090,6 +1090,12 @@ serve(async (req: Request) => {
           // C2: a requires_capture PI's cancel was already attempted; the alert
           // carries whether its authorization was released or may still be
           // held (also in `detail`), and the answer is 409 either way.
+          // NOT once-per-order, unlike primary-lapse-canceller's anomaly alert
+          // (its webhook_retries marker): that job re-meets the same order
+          // every 1-2 minutes, so it needs one. This alert fires only when a
+          // buyer replays this same command_key against the lapsed order —
+          // rare and buyer-driven, one alert per tap, never a schedule — so
+          // each one stays loud, and checkout takes no marker read/write.
           await captureException(
             'primary-checkout',
             new Error(`lapsed replay anomaly: ${lapse.detail}`),

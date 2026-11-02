@@ -68,6 +68,9 @@ async function world(opts: WorldOpts = {}) {
   const rows: PayRow[] = [];
   const pis = new Map<string, Pi>();
   const reviews: ReviewRow[] = [];
+  /** null → marker reads work; 'error' → the read answers an error; 'throw' → it rejects */
+  let markerReads: null | 'error' | 'throw' = null;
+  const setMarkerReads = (mode: null | 'error' | 'throw') => { markerReads = mode; };
 
   /** a PI minted for order n (metadata exactly as primary-checkout writes it) and its payments row */
   const addPi = (n: number, piStatus: string, o: { rowStatus?: string; session?: string; metaOrder?: string; face?: number } = {}) => {
@@ -117,6 +120,8 @@ async function world(opts: WorldOpts = {}) {
       webhook_retries: (q: QueryCall) => {
         if (q.op === 'insert') { reviews.push(q.body as ReviewRow); return { data: null }; }
         if (q.op === 'select') {
+          if (markerReads === 'error') return { error: { message: 'webhook_retries fake: read refused', code: '57014' } };
+          if (markerReads === 'throw') throw new Error('webhook_retries fake: connection reset');
           const out = reviews.filter((r) => q.filters.every((f) => matches(r as unknown as Record<string, unknown>, f)));
           return { data: (q.limit !== null ? out.slice(0, q.limit) : out).map(() => ({ id: 'wr_1' })) };
         }
@@ -161,7 +166,7 @@ async function world(opts: WorldOpts = {}) {
   const orderCancels = () => sb.rpcs.filter((r) => r.name === 'cancel_pending_order');
   const alerts = (needle: string) => edge.sentry.filter((s) => String((s.error as Error).message ?? s.error).includes(needle));
 
-  return { run, addPi, pis, rows, reviews, sb, stripe, edge, piCancels, orderCancels, alerts };
+  return { run, addPi, pis, rows, reviews, sb, stripe, edge, piCancels, orderCancels, alerts, setMarkerReads };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -442,5 +447,102 @@ describe('A-6 steps 2-3 — per lapsed order, act on the PaymentIntent\'s status
       { order_id: orderUuid(1), outcome: 'cancel_requested' },
       { order_id: orderUuid(2), outcome: 'no_pi' },
     ]);
+  });
+});
+
+// Reviewer E + the round-3 review: an anomaly order stays pending and stays in
+// the report on EVERY run (every 1-2 minutes), and Stripe replays a refused
+// cancel's cached result for the same Idempotency-Key for ~24h — so an
+// unmarked anomaly alert is a pager loop. It gets the paid alert's durable
+// once-per-order marker, under its OWN error_message prefix.
+describe('A-6 anomaly alert — once per order, the paid alert\'s marker idiom, a distinct marker', () => {
+  const anomalyMarker = (n: number) => `lapsed_order_anomaly:${orderUuid(n)}`;
+  const paidMarker = (n: number) => `lapsed_order_paid:${orderUuid(n)}`;
+  const review = (error_message: string): ReviewRow => ({
+    payment_id: null, listing_id: null, rpc_name: 'primary-lapse-canceller', error_message, resolved: false,
+  });
+
+  it('two consecutive runs over the same anomaly order (requires_capture, cancel refused and replayed under one key) alert EXACTLY ONCE; the outcome is still reported on both runs', async () => {
+    const w = await world({ report: [lapsed(1)], cancelFails: { pi_test_lapse_1: 400 } });
+    expect(w.addPi(1, 'requires_capture')).toBe('pi_test_lapse_1');
+    const r1 = await w.run();
+    const r2 = await w.run();
+    // The premise: the same cancel, under the same key, both runs.
+    expect(w.piCancels().map((c) => c.idempotencyKey)).toEqual(['pi_lapse_cancel_pi_test_lapse_1', 'pi_lapse_cancel_pi_test_lapse_1']);
+    expect(r1.body.results).toEqual([{ order_id: orderUuid(1), outcome: 'anomaly' }]);
+    expect(r2.body.results).toEqual([{ order_id: orderUuid(1), outcome: 'anomaly' }]);
+    const alerts = w.alerts('anomaly');
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].ctx).toEqual({ order_id: orderUuid(1), pi_id: 'pi_test_lapse_1', authorization: 'may_still_be_held' });
+    expect(w.reviews).toEqual([review(anomalyMarker(1))]);
+  });
+
+  it('a session-mismatch anomaly (nothing touched at all) is alerted once across three runs as well', async () => {
+    const w = await world({ report: [lapsed(1)] });
+    w.addPi(1, 'requires_payment_method', { session: OTHER_SESSION });
+    await w.run();
+    await w.run();
+    await w.run();
+    expect(w.piCancels()).toEqual([]);
+    expect(w.alerts('anomaly')).toHaveLength(1);
+    expect(w.reviews).toEqual([review(anomalyMarker(1))]);
+  });
+
+  it('a paid alert and an anomaly alert for DIFFERENT orders each fire once across runs', async () => {
+    const w = await world({
+      report: [lapsed(1), lapsed(2, { total_minor: FACE + 500 })], cancelFails: { pi_test_lapse_1: 400 },
+    });
+    expect(w.addPi(1, 'requires_capture')).toBe('pi_test_lapse_1');
+    const won = w.addPi(2, 'succeeded', { face: FACE + 500 });
+    for (let i = 0; i < 3; i++) {
+      const r = await w.run();
+      expect(r.body.results).toEqual([
+        { order_id: orderUuid(1), outcome: 'anomaly' },
+        { order_id: orderUuid(2), outcome: 'paid' },
+      ]);
+    }
+    const anomaly = w.alerts('anomaly');
+    const paid = w.alerts('lapsed_order_paid');
+    expect(anomaly).toHaveLength(1);
+    expect(anomaly[0].ctx).toMatchObject({ order_id: orderUuid(1), pi_id: 'pi_test_lapse_1' });
+    expect(paid).toHaveLength(1);
+    expect(paid[0].ctx).toMatchObject({ order_id: orderUuid(2), pi_ids: [won] });
+    expect(w.reviews).toEqual([review(anomalyMarker(1)), review(paidMarker(2))]);
+  });
+
+  it('the SAME order: an anomaly, then (a sibling succeeds) a paid alert — neither marker suppresses the other, each fires once', async () => {
+    const w = await world({ report: [lapsed(1)], cancelFails: { pi_test_lapse_1: 400 } });
+    expect(w.addPi(1, 'requires_capture')).toBe('pi_test_lapse_1');
+    const sib = w.addPi(1, 'requires_payment_method');
+    const r1 = await w.run();
+    expect(r1.body.results).toEqual([{ order_id: orderUuid(1), outcome: 'anomaly' }]);
+    // The buyer's sheet confirms the sibling after the lapse (R9).
+    w.pis.get(sib)!.status = 'succeeded';
+    w.rows.find((r) => r.stripe_payment_intent_id === sib)!.status = 'succeeded';
+    const r2 = await w.run();
+    const r3 = await w.run();
+    expect(r2.body.results).toEqual([{ order_id: orderUuid(1), outcome: 'paid' }]);
+    expect(r3.body.results).toEqual([{ order_id: orderUuid(1), outcome: 'paid' }]);
+    expect(w.alerts('anomaly')).toHaveLength(1);
+    expect(w.alerts('lapsed_order_paid')).toHaveLength(1);
+    expect(w.reviews).toEqual([review(anomalyMarker(1)), review(paidMarker(1))]);
+  });
+
+  it.each([
+    ['anomaly', 'error'],
+    ['anomaly', 'throw'],
+    ['lapsed_order_paid', 'error'],
+    ['lapsed_order_paid', 'throw'],
+  ] as const)('%s: a marker that cannot be read (read %s) → the alert fires anyway, even though a marker row exists (never silent)', async (needle, mode) => {
+    const w = await world({ report: [lapsed(1)], cancelFails: { pi_test_lapse_1: 400 } });
+    w.addPi(1, needle === 'anomaly' ? 'requires_capture' : 'succeeded');
+    await w.run();
+    expect(w.alerts(needle)).toHaveLength(1);
+    expect(w.reviews).toHaveLength(1); // the marker IS there …
+    w.setMarkerReads(mode);
+    const r = await w.run(); // … but this run cannot see it
+    expect(r.res.status).toBe(200);
+    expect(r.body.results).toEqual([{ order_id: orderUuid(1), outcome: needle === 'anomaly' ? 'anomaly' : 'paid' }]);
+    expect(w.alerts(needle)).toHaveLength(2);
   });
 });

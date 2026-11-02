@@ -37,7 +37,7 @@
  *      leave it. requires_capture (an anomaly: this rail is automatic-
  *      capture) is cancelled with the same key to release the buyer's
  *      authorization unless a sibling is succeeded or processing, then
- *      alerted (D's C2).
+ *      alerted, once per order (D's C2; below).
  *      THREE DEVIATIONS from "steps 2-3 exactly", A's and sent to D for
  *      ratification, each with its reason in that function's header:
  *        D1 candidate statuses widened from pending|failed to pending|
@@ -72,6 +72,21 @@
  * leaves a record an operator can resolve: an alert alone can be lost. If the
  * marker cannot be read the alert fires anyway — never silent.
  *
+ * THE ANOMALY ALERT IS ONCE PER ORDER TOO (reviewer E, round-3 review). An
+ * anomaly order also stays pending and in the report on every run, and a
+ * requires_capture cancel Stripe refused is REPLAYED, refusal and all, for the
+ * same Idempotency-Key (pi_lapse_cancel_{pi}) for ~24h, so an unmarked alert
+ * re-fires every 1-2 minutes: a pager loop from one anomaly. It takes the same
+ * marker idiom (`alertOncePerOrder`, shared) under its own error_message
+ * prefix, `lapsed_order_anomaly:` beside `lapsed_order_paid:`, so the two never
+ * suppress each other for one order. The per-run log line and the response
+ * still report `anomaly` on every run; only the alert is once. A later,
+ * different anomaly detail for the same order (e.g. the authorization released
+ * once the key expires) is therefore NOT re-alerted; the unresolved review row
+ * is the standing record. The checkout path's anomaly alert is deliberately
+ * NOT marked (primary-checkout/index.ts, A-2): it fires only on a buyer's own
+ * same-key replay, not on a schedule.
+ *
  * ── HOW IT IS INVOKED (deploy-time; NOT scheduled by this change) ──────────
  *   POST, empty JSON body, every 1-2 minutes (§4.2 A-6), from pg_cron + pg_net
  *   in the 032 pattern (032_pre_testflight_blocker_fixes.sql:97-115):
@@ -100,7 +115,7 @@ const INTERNAL_CRON_SECRET      = Deno.env.get('INTERNAL_CRON_SECRET') ?? '';
 
 const FN = 'primary-lapse-canceller';
 
-/** `public.webhook_retries.rpc_name` for the once-per-order marker (see header). */
+/** `public.webhook_retries.rpc_name` for the once-per-order markers (see header). */
 const REVIEW_RPC_NAME = FN;
 
 // Any-version uuid: buyer ids are auth.users ids, order/session ids are ours.
@@ -140,15 +155,27 @@ function publicService() {
 }
 
 /**
- * Alert `lapsed_order_paid` for this order unless a marker says it already was
- * (see the header). Returns whether it alerted.
+ * `public.webhook_retries.error_message` prefixes of the once-per-order markers
+ * (see the header). ONE PER ALERT, so a paid alert and an anomaly alert for the
+ * same order never suppress each other: the read is an exact match on the
+ * whole `<prefix><order_id>` string.
  */
-async function alertPaidOnce(
+const PAID_MARKER_PREFIX    = 'lapsed_order_paid:';
+const ANOMALY_MARKER_PREFIX = 'lapsed_order_anomaly:';
+
+/**
+ * Send `alert` + `ctx` to Sentry unless `marker` says it already was sent for
+ * this order (see the header), then leave the marker. Returns whether it
+ * alerted. The paid and the anomaly alert both go through here, so the two
+ * cannot drift apart.
+ */
+async function alertOncePerOrder(
   pub: ReturnType<typeof publicService>,
   orderId: string,
-  piIds: string[],
+  marker: string,
+  alert: Error,
+  ctx: Record<string, unknown>,
 ): Promise<boolean> {
-  const marker = `lapsed_order_paid:${orderId}`;
   try {
     const { data, error } = await pub
       .from('webhook_retries')
@@ -162,10 +189,7 @@ async function alertPaidOnce(
     // Cannot prove it was alerted before → alert (never silent).
     logLine({ order_id: orderId, marker_read_failed: err instanceof Error ? err.message : String(err) });
   }
-  await captureException(FN, new Error('lapsed_order_paid'), {
-    order_id: orderId, pi_ids: piIds,
-    note: 'a lapsed order\'s PaymentIntent succeeded; finalize decides (ticket, or refund_required). DESIGN-198-FINAL §4.2 A-6, O13.',
-  });
+  await captureException(FN, alert, ctx);
   try {
     const { error } = await pub.from('webhook_retries').insert({
       payment_id:    null,
@@ -260,13 +284,17 @@ serve(async (req: Request) => {
       });
 
       if (outcome.kind === 'paid') {
-        await alertPaidOnce(pub, orderId, outcome.piIds);
+        await alertOncePerOrder(pub, orderId, `${PAID_MARKER_PREFIX}${orderId}`, new Error('lapsed_order_paid'), {
+          order_id: orderId, pi_ids: outcome.piIds,
+          note: 'a lapsed order\'s PaymentIntent succeeded; finalize decides (ticket, or refund_required). DESIGN-198-FINAL §4.2 A-6, O13.',
+        });
       } else if (outcome.kind === 'anomaly') {
         // A state this rail never produces (a PI naming another session, a
         // status no automatic-capture PI reaches). Nothing was touched, except
         // a requires_capture PI's cancel (C2): `authorization` says whether
-        // the buyer's hold was released or may still be held.
-        await captureException(FN, new Error(`lapsed order anomaly: ${outcome.detail}`), {
+        // the buyer's hold was released or may still be held. ONCE per order,
+        // like the paid alert (see the header): it recurs on every run.
+        await alertOncePerOrder(pub, orderId, `${ANOMALY_MARKER_PREFIX}${orderId}`, new Error(`lapsed order anomaly: ${outcome.detail}`), {
           order_id: orderId, pi_id: outcome.piId,
           ...(outcome.authorization ? { authorization: outcome.authorization } : {}),
         });
