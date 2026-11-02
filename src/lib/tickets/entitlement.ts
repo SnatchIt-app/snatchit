@@ -223,11 +223,33 @@ export function credentialStale(state: CredentialState, nowMs: number, versionNo
   return nowMs - state.receivedAtMs >= state.credential.ttl_seconds * 1000;
 }
 
+/** Refusals of the TICKET itself (terminal, not theirs): no retry helps, and nothing may say it is ready. */
+const REFUSES_TICKET: ReadonlySet<CredentialRefusal> = new Set(['not_owner', 'atom_terminal']);
+
 /**
  * Refusals that say the CODE ITSELF is no longer good for this person: the server refused the
- * ticket (terminal, not theirs) or the session (signed out). A code on screen is withdrawn.
+ * ticket (terminal, not theirs) or the session (signed out). A code on screen is withdrawn, the
+ * cached one is forgotten, and the screen re-reads once (app/ticket/[session].tsx `mint`).
  */
-const WITHDRAWS_CODE: ReadonlySet<CredentialRefusal> = new Set(['not_owner', 'atom_terminal', 'signed_out']);
+const WITHDRAWS_CODE: ReadonlySet<CredentialRefusal> = new Set([...REFUSES_TICKET, 'signed_out']);
+
+export function refusesTicket(reason: CredentialRefusal): boolean {
+  return REFUSES_TICKET.has(reason);
+}
+
+export function withdrawsCode(reason: CredentialRefusal): boolean {
+  return WITHDRAWS_CODE.has(reason);
+}
+
+/**
+ * What the card may say for an atom, given its latest credential answer. A ticket refusal contradicts
+ * a ready atom read, so the card claims nothing ready (badge, tone, label, body) — it is `unknown`
+ * until a re-read settles it. Every other answer leaves the atom's own display.
+ */
+export function cardDisplay(display: EntitlementDisplay, credential: CredentialState): EntitlementDisplay {
+  if (display === 'ready' && credential.kind === 'refused' && refusesTicket(credential.reason)) return 'unknown';
+  return display;
+}
 
 /**
  * C-R4 (E, 2026-10-26): the state after a mint answers. A refresh that is refused for a transient
@@ -242,7 +264,7 @@ export function afterMint(
   versionNow: number,
 ): { state: CredentialState; note: string | null } {
   if (result.ok) return { state: { kind: 'ready', credential: result.credential, receivedAtMs: nowMs }, note: null };
-  if (prev.kind === 'ready' && !WITHDRAWS_CODE.has(result.reason) && !credentialStale(prev, nowMs, versionNow)) {
+  if (prev.kind === 'ready' && !withdrawsCode(result.reason) && !credentialStale(prev, nowMs, versionNow)) {
     return { state: prev, note: REFRESH_KEPT_NOTE };
   }
   return { state: { kind: 'refused', reason: result.reason }, note: null };

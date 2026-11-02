@@ -15,7 +15,9 @@
  *   - a code is minted on arrival for each ready atom, again when the server TTL has elapsed on a
  *     MONOTONIC clock or the atom's credential_version moved on; the device wall clock never decides;
  *   - C-R4: a refresh keeps the code on screen while it runs, and a transient refusal keeps it
- *     (`afterMint`); only the server's not_owner / atom_terminal / signed_out withdraw it;
+ *     (`afterMint`); only the server's not_owner / atom_terminal / signed_out withdraw it — and then
+ *     the cache forgets it and the page re-reads once (`withdrawsCode`);
+ *   - reads happen on mount, focus, pull and that one withdrawal re-read — never on a timer;
  *   - a failed re-read keeps what is on screen; a first failure is the failure screen, never "no tickets";
  *   - nothing is written to disk.
  */
@@ -31,6 +33,7 @@ import {
   credentialStale,
   detailState,
   entitlementDisplay,
+  withdrawsCode,
   type AtomsLoad,
   type CredentialState,
   type MyTicketAtom,
@@ -49,6 +52,7 @@ import {
 } from '@/src/lib/tickets/entitlementReads';
 import {
   bindEntitlementOwner,
+  dropCredential,
   entitlementGeneration,
   readAtoms,
   readCredential,
@@ -103,27 +107,6 @@ export default function TicketDetailRoute() {
   useEffect(() => { watchEntitlementSignOut(); }, []);
   useEffect(() => { if (!authLoading) bindEntitlementOwner(userId); }, [authLoading, userId]);
 
-  const mint = useCallback(async (atomId: string) => {
-    if (!userId || mintingRef.current.has(atomId)) return;
-    mintingRef.current.add(atomId);
-    const gen = entitlementGeneration();
-    const before = credentialsRef.current[atomId] ?? { kind: 'idle' as const };
-    // C-R4: a code already on screen stays while the refresh runs.
-    if (before.kind === 'ready') setRefreshing((p) => ({ ...p, [atomId]: true }));
-    else setCredentials((p) => ({ ...p, [atomId]: { kind: 'minting' } }));
-    const r = await mintCredential(supabaseInvoker, atomId);
-    mintingRef.current.delete(atomId);
-    setRefreshing((p) => ({ ...p, [atomId]: false }));
-    // The account changed while the edge answered: the answer belongs to nobody on screen.
-    if (gen !== entitlementGeneration()) return;
-    const now = monotonicMs();
-    const latest = credentialsRef.current[atomId] ?? before;
-    const { state, note } = afterMint(latest, r, now, versionsRef.current[atomId] ?? -1);
-    if (r.ok) storeCredential(userId, atomId, r.credential, now);
-    setCredentials((p) => ({ ...p, [atomId]: state }));
-    setNotes((p) => ({ ...p, [atomId]: note }));
-  }, [userId]);
-
   /** Drops credentials the TTL or a version change has made stale; the arrival effect re-mints. */
   const sweepStale = useCallback((atoms: MyTicketAtom[]) => {
     const now = monotonicMs();
@@ -174,6 +157,33 @@ export default function TicketDetailRoute() {
       setLoad((prev) => (prev.kind === 'ready' ? prev : atomsLoad));
     }
   }, [userId, sessionId, sweepStale]);
+
+  const mint = useCallback(async (atomId: string) => {
+    if (!userId || mintingRef.current.has(atomId)) return;
+    mintingRef.current.add(atomId);
+    const gen = entitlementGeneration();
+    const before = credentialsRef.current[atomId] ?? { kind: 'idle' as const };
+    // C-R4: a code already on screen stays while the refresh runs.
+    if (before.kind === 'ready') setRefreshing((p) => ({ ...p, [atomId]: true }));
+    else setCredentials((p) => ({ ...p, [atomId]: { kind: 'minting' } }));
+    const r = await mintCredential(supabaseInvoker, atomId);
+    mintingRef.current.delete(atomId);
+    setRefreshing((p) => ({ ...p, [atomId]: false }));
+    // The account changed while the edge answered: the answer belongs to nobody on screen.
+    if (gen !== entitlementGeneration()) return;
+    const now = monotonicMs();
+    const latest = credentialsRef.current[atomId] ?? before;
+    const { state, note } = afterMint(latest, r, now, versionsRef.current[atomId] ?? -1);
+    if (r.ok) storeCredential(userId, atomId, r.credential, now);
+    setCredentials((p) => ({ ...p, [atomId]: state }));
+    setNotes((p) => ({ ...p, [atomId]: note }));
+    // The server withdrew the code: the cache forgets it (a reopen must not prime it as ready), and the page
+    // re-reads once to say what the server now says. Arrival never re-mints an atom that has a state: no loop.
+    if (!r.ok && withdrawsCode(r.reason)) {
+      dropCredential(userId, atomId);
+      void readAll();
+    }
+  }, [userId, readAll]);
 
   // First read per account: paint from this account's in-memory cache first, then read.
   useEffect(() => {
