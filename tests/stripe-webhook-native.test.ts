@@ -383,6 +383,9 @@ describe('finalize_primary_order error classification (085:1881-2082)', () => {
     expect(ackArms.length).toBeGreaterThan(0);
     expect(new Set(ackArms)).toEqual(new Set(['refund_required', ...ACK_ARM_SUBSTRINGS]));
     expect(ackArms.length).toBe(ACK_ARM_SUBSTRINGS.length + 1);
+    // An ACK arm of ANY shape (e.g. keyed on the SQLSTATE alone) must be counted too,
+    // or a code-only arm escapes this test and every precedence pin (E review of d9cd501b).
+    expect((body.match(/return \{ ack: true/g) ?? []).length).toBe(ACK_ARM_SUBSTRINGS.length + 1);
   });
 
   it('ACKs and alerts refund_required (198 K3) — no redelivery creates capacity; a human refunds the charge', () => {
