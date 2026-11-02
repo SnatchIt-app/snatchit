@@ -53,6 +53,7 @@ import { useDockClearance, useTopInset } from '@/src/lib/nav/navInsets';
 import { BidCard, BID_ROW_ART_H, BID_ROW_ART_W } from '@/src/components/bids/BidCard';
 import { MEDIA_RADIUS } from '@/src/lib/design/featureMetrics';
 import { BIDS_REFRESH_FAILED_COPY, bidPresentation, bidGroupOf, bidStatusOf, compareBidRows, endingSoonLabel, type BidGroup } from '@/src/lib/bids/bidState';
+import { easternParts } from '@/src/lib/time/eastern';
 import { textStyle } from '@/src/theme/typography';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
@@ -113,11 +114,17 @@ function coverPath(row: BidRow): string | null {
   return (row.listing as { cover_image_path?: string | null } | null)?.cover_image_path ?? null;
 }
 
-function whenLabel(iso: string | undefined): string {
+const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
+
+/**
+ * The auction's end as New York's month and day — "Nov 2" — spoken in the row's accessibility label (BidCard).
+ * Eastern, not the phone's zone (owner, 2026-11-02): an auction ending 9:14 PM EST on Mon 2 Nov is "Nov 2" on a UTC
+ * phone too. A date with no clock, so no EST / EDT label. '' for no date or an unreadable one.
+ */
+export function whenLabel(iso: string | undefined): string {
   if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const p = easternParts(Date.parse(iso));
+  return p ? `${MONTH_SHORT[p.month - 1]} ${p.day}` : '';
 }
 
 // ─── Screen ─────────────────────────────────────────────────────────────────
