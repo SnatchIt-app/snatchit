@@ -105,11 +105,11 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
               columns={3}
               items={[
                 { key: "seller", value: <PartyLink id={l.seller_id} displayName={d.seller?.display_name} emailMasked={d.seller?.email_masked} meId={me.id} /> },
-                { key: "buy_now_price", value: l.buy_now_enabled ? <Money cents={l.buy_now_price} /> : <span className="text-dim">buy now disabled</span> },
-                { key: "starting_bid", value: <Money cents={l.starting_bid} /> },
-                { key: "current_bid", value: <Money cents={l.current_bid} /> },
+                { key: "buy_now_price", value: l.buy_now_enabled ? <Money cents={l.buy_now_price_cents} /> : <span className="text-dim">buy now disabled</span> },
+                { key: "starting_bid", value: <Money cents={l.starting_bid_cents} /> },
+                { key: "current_bid", value: <Money cents={l.current_bid_cents} /> },
                 { key: "bid_count", value: String(l.bid_count ?? 0) },
-                { key: "winning_bid_amount", value: <Money cents={l.winning_bid_amount} /> },
+                { key: "winning_bid_amount", value: <Money cents={l.winning_bid_cents} /> },
                 { key: "winner_user_id", label: "Winner", value: l.winner_user_id ? <IdLink kind="user" id={l.winner_user_id} /> : null },
                 { key: "created_at", value: <DateTime value={l.created_at} /> },
                 { key: "starts_at", value: <DateTime value={raw.starts_at} /> },
@@ -157,7 +157,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
               columns={3}
               items={[
                 { key: "count", value: String(d.bids.count ?? 0) },
-                { key: "highest", value: <Money cents={d.bids.highest} /> },
+                { key: "highest", value: <Money cents={d.bids.highest_cents} /> },
                 { key: "highest_bidder_id", label: "Highest bidder", value: d.bids.highest_bidder_id ? <IdLink kind="user" id={d.bids.highest_bidder_id} /> : null },
               ]}
             />
@@ -255,7 +255,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
 function BidTable({ rows, basePath }: { rows: Bid[]; basePath: string }) {
   const columns: Column<Bid>[] = [
     { key: "created_at", header: "Placed", render: (b) => <DateTime value={b.created_at} /> },
-    { key: "amount", header: "Amount", align: "right", render: (b) => <Money cents={b.amount} /> },
+    { key: "amount", header: "Amount", align: "right", render: (b) => <Money cents={b.amount_cents} /> },
     { key: "bidder", header: "Bidder", render: (b) => <PartyLink id={b.bidder_id} displayName={b.bidder_display_name} /> },
   ];
   return <DataTable columns={columns} rows={rows} rowKey={(b, i) => b.id ?? `${i}`} basePath={basePath} emptyText="No bids." caption="Recent bids" dense />;

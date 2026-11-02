@@ -19,7 +19,7 @@ import { IdLink } from "@/components/ui/IdLink";
 import { CaseTable } from "@/components/cases/CaseTable";
 import { ResumeRefundForm } from "@/components/actions/ResumeRefundForm";
 import { AuditTable } from "@/components/system/AuditTable";
-import { renderValue } from "@/components/generic/GenericRpc";
+import { renderSubjectValue, renderValue } from "@/components/generic/GenericRpc";
 
 export const metadata: Metadata = { title: "Action" };
 export const dynamic = "force-dynamic";
@@ -191,7 +191,7 @@ export default async function ActionPage({ params }: { params: Promise<{ id: str
                 items={Object.entries(d.subject)
                   .filter(([k]) => !["open_cases"].includes(k))
                   .slice(0, 24)
-                  .map(([k, v]) => ({ key: k, value: renderValue(k, v, 1) }))}
+                  .map(([k, v]) => ({ key: k, value: renderSubjectValue(a.subject_kind, k, v) }))}
               />
             </Panel>
           ) : null}

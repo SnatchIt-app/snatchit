@@ -8,8 +8,8 @@ import { PartyLink } from "@/components/ui/IdLink";
 import { labelFor } from "@/lib/format";
 import type { ListingSummary } from "@/lib/types";
 
-/** The price the row leads with: the buy-now price when enabled, else the current (or starting) bid. Integer cents. */
-const leadPrice = (l: ListingSummary): number | null => (l.buy_now_enabled ? (l.buy_now_price ?? null) : (l.current_bid ?? l.starting_bid ?? null));
+/** The price the row leads with: the buy-now price when enabled, else the current (or starting) bid. Integer cents (converted in toListingSummary). */
+const leadPrice = (l: ListingSummary): number | null => (l.buy_now_enabled ? (l.buy_now_price_cents ?? null) : (l.current_bid_cents ?? l.starting_bid_cents ?? null));
 
 /** What the page filter matches on a listing row. */
 export function listingFilterText(l: ListingSummary): string {
@@ -76,9 +76,9 @@ export function ListingTable({
       align: "right",
       render: (l) => (
         <span className="flex flex-col items-end text-[0.75rem]">
-          {l.buy_now_enabled ? <Money cents={l.buy_now_price} /> : <span className="text-dim">no buy now</span>}
+          {l.buy_now_enabled ? <Money cents={l.buy_now_price_cents} /> : <span className="text-dim">no buy now</span>}
           <span className="text-dim">
-            bid <Money cents={l.current_bid ?? l.starting_bid} /> ({l.bid_count ?? 0})
+            bid <Money cents={l.current_bid_cents ?? l.starting_bid_cents} /> ({l.bid_count ?? 0})
           </span>
         </span>
       ),

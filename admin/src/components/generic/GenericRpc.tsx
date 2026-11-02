@@ -11,6 +11,7 @@ import { humanize } from "@/lib/format";
 import { callOps } from "@/lib/ops";
 import { isRecord, str, type JsonRecord } from "@/lib/types";
 import { subjectHref } from "@/lib/routes";
+import { LISTING_DOLLAR_KEYS, listingDollarsToCents } from "@/lib/listing-money";
 import Link from "next/link";
 
 const MONEY_KEYS = /(_cents|amount|total|fee|volume|price|refunded|captured)$/i;
@@ -20,6 +21,17 @@ const STATUS_KEYS = /(status|state|priority|kind|type|role|decision)$/i;
 /** Route a (kind,id) pair to its detail page, when one exists (alias of subjectHref). */
 export function hrefFor(kind: string | null | undefined, id: string | null | undefined): string | null {
   return subjectHref(kind, id);
+}
+
+/**
+ * One field of an ops.subject_summary snapshot. A listing snapshot is ops.listing_summary, whose
+ * prices are whole dollars, so those keys convert to cents here; every other field goes to renderValue.
+ */
+export function renderSubjectValue(kind: string | null | undefined, key: string, v: unknown): ReactNode {
+  if (kind === "listing" && LISTING_DOLLAR_KEYS.has(key)) {
+    return v === null || v === undefined || v === "" ? <span className="text-dim">—</span> : <Money cents={listingDollarsToCents(v)} />;
+  }
+  return renderValue(key, v, 1);
 }
 
 /** Best-effort renderer for a single jsonb scalar/collection. */
