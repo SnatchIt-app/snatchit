@@ -6,53 +6,75 @@
  *     `doors_at_local` ('YYYY-MM-DD HH24:MI', already in the venue zone) and the IANA `timezone`.
  *     The date and clock come from the string's own parts, so the device zone never moves them;
  *     the zone is only used to NAME it ("EST").
- *   - `whenLine` — fallback when only an instant is known (get_my_tickets): formatted in the given
- *     zone, or the device's when none is known, and always naming the zone it used.
+ *   - `whenLine` — fallback when only an instant is known (get_my_tickets): formatted in the venue's
+ *     zone when one is given and Intl can use it, and naming it as Intl does. Otherwise — no zone, or
+ *     an invalid IANA name — America/New_York, labelled EST / EDT from eastern.ts (owner, 2026-11-02:
+ *     Snatch It operates in Eastern Time). Never the device zone: a buyer's phone zone must not move it.
  * Display only; nothing here decides whether doors are open.
  */
+import { easternClock12, easternParts, easternZoneLabel } from '@/src/lib/time/eastern';
 
 export interface WhenLine {
   /** "Mon, Nov 30" */
   date: string;
   /** "Doors 10:00 PM · 11:00 PM EST" (doors only when known) */
   times: string;
-  /** "EST" / "GMT-5" — whatever Intl names the zone; '' when it cannot be resolved */
+  /** A venue zone as Intl names it ("CST", or "GMT-5"); "EST" / "EDT" from eastern.ts for the New York fallback; '' when it cannot be resolved */
   zone: string;
 }
 
 const WEEKDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
 const MONTH = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
 
-function fmt(d: Date, opts: Intl.DateTimeFormatOptions, timeZone?: string): string {
-  try {
-    return new Intl.DateTimeFormat('en-US', { ...opts, ...(timeZone ? { timeZone } : {}) }).format(d);
-  } catch {
-    return new Intl.DateTimeFormat('en-US', opts).format(d);
-  }
-}
-
-function zoneName(d: Date, timeZone?: string): string {
+function zoneName(d: Date, timeZone: string): string {
   if (Number.isNaN(d.getTime())) return '';
   try {
-    const parts = new Intl.DateTimeFormat('en-US', { timeZoneName: 'short', ...(timeZone ? { timeZone } : {}) }).formatToParts(d);
+    const parts = new Intl.DateTimeFormat('en-US', { timeZoneName: 'short', timeZone }).formatToParts(d);
     return parts.find((p) => p.type === 'timeZoneName')?.value ?? '';
   } catch {
     return '';
   }
 }
 
-export function whenLine(startsAt: string, doorsAt: string | null | undefined, timeZone?: string): WhenLine | null {
-  const start = new Date(startsAt);
-  if (Number.isNaN(start.getTime())) return null;
-  const time = (d: Date) => fmt(d, { hour: 'numeric', minute: '2-digit' }, timeZone);
+/** On the venue's clock (venue contract, unchanged). Null when Intl cannot use the zone, so the caller falls back to New York. */
+function inVenueZone(start: Date, doors: Date | null, timeZone: string): WhenLine | null {
+  let day: Intl.DateTimeFormat;
+  let clock: Intl.DateTimeFormat;
+  try {
+    day = new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone });
+    clock = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', timeZone });
+  } catch {
+    return null;
+  }
   const zone = zoneName(start, timeZone);
-  const doors = doorsAt ? new Date(doorsAt) : null;
-  const doorsText = doors && !Number.isNaN(doors.getTime()) ? `Doors ${time(doors)} · ` : '';
+  const doorsText = doors ? `Doors ${clock.format(doors)} · ` : '';
   return {
-    date: fmt(start, { weekday: 'short', month: 'short', day: 'numeric' }, timeZone),
-    times: `${doorsText}${time(start)}${zone ? ` ${zone}` : ''}`,
+    date: day.format(start),
+    times: `${doorsText}${clock.format(start)}${zone ? ` ${zone}` : ''}`,
     zone,
   };
+}
+
+/** On New York's clock, labelled EST / EDT — the fallback when no usable venue zone is known (never the device's). */
+function inEastern(start: Date, doors: Date | null): WhenLine | null {
+  const ms = start.getTime();
+  const p = easternParts(ms);
+  if (!p) return null;
+  const zone = easternZoneLabel(ms);
+  const doorsText = doors ? `Doors ${easternClock12(doors.getTime())} · ` : '';
+  return {
+    date: `${WEEKDAY[p.weekday]}, ${MONTH[p.month - 1]} ${p.day}`,
+    times: `${doorsText}${easternClock12(ms)}${zone ? ` ${zone}` : ''}`,
+    zone,
+  };
+}
+
+export function whenLine(startsAt: string, doorsAt: string | null | undefined, timeZone?: string | null): WhenLine | null {
+  const start = new Date(startsAt);
+  if (Number.isNaN(start.getTime())) return null;
+  const parsedDoors = doorsAt ? new Date(doorsAt) : null;
+  const doors = parsedDoors && !Number.isNaN(parsedDoors.getTime()) ? parsedDoors : null;
+  return (timeZone ? inVenueZone(start, doors, timeZone) : null) ?? inEastern(start, doors);
 }
 
 const LOCAL = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/;

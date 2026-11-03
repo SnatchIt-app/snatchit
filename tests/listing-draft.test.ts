@@ -12,8 +12,10 @@
  *  - a draft whose event date has passed is refused — but only a date the seller picked: the date row
  *    starts at today, and that default is not the seller's choice (review LD-R2).
  *
- * The event's day and clock time are written as the device shows them, not as instants, so a draft
- * saved in one time zone and opened in another keeps the seller's day (review LD-R7, LD7).
+ * The event's day and clock time are written as the form shows them, not as instants, so a draft
+ * saved in one time zone and opened in another keeps the seller's day (review LD-R7, LD7). They are New
+ * York wall clock, and "today" for expiry and for an unpicked date is New York's day (owner 2026-11-02,
+ * A: the sell form is Eastern; LD8).
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -25,6 +27,7 @@ import {
   emptyListingDraftFields,
   isListingDraftEmpty,
   isListingDraftExpired,
+  isListingDraftFieldsExpired,
   isPickerCacheUri,
   LISTING_DRAFT_COPY,
   LISTING_DRAFT_FIELD_KEYS,
@@ -37,7 +40,7 @@ import {
 } from '@/src/lib/sell/listingDraft';
 import { REPO_ROOT } from './helpers/nav-stack-harness';
 
-const NOW = new Date(2026, 9, 21, 12, 0, 0);            // 21 Oct 2026, noon, device-local
+const NOW = new Date('2026-10-21T16:00:00Z');   // 21 Oct 2026 // noon in New York (EDT) as an INSTANT, so the machine's zone cannot move New York's "today" (review of ebbadf51)
 const IOS_COVER = 'file:///var/mobile/Containers/Data/Application/0A1B2C3D/Library/Caches/ImagePicker/5E6F7A8B.jpeg';
 const ANDROID_COVER = 'file:///data/user/0/com.snatchit.app/cache/ImagePicker/0c1d2e3f.jpg';
 
@@ -285,7 +288,10 @@ describe('LD5 · a draft for an event that has passed is refused — when the se
 
   it('LD5b: today’s event is not — it may be tonight — and neither is a later one', () => {
     expect(isListingDraftExpired(at(new Date(2026, 9, 21, 0, 0)), NOW)).toBe(false);
-    expect(isListingDraftExpired(at(new Date(2026, 9, 21, 23, 59)), new Date(2026, 9, 21, 23, 59, 59))).toBe(false);
+    // The last second of the 21st in NEW YORK (23:59:59 EDT), not on the phone: "today" is New York's day
+    // (owner 2026-11-02). It was the phone's 23:59:59, which on a Los Angeles phone is already the 22nd in
+    // New York — LD8 runs this boundary under three phone zones.
+    expect(isListingDraftExpired(at(new Date(2026, 9, 21, 23, 59)), new Date('2026-10-22T03:59:59Z'))).toBe(false);
     expect(isListingDraftExpired(at(new Date(2026, 9, 22)), NOW)).toBe(false);
     expect(isListingDraftExpired(at(new Date(2027, 5, 1)), NOW)).toBe(false);
   });
@@ -313,7 +319,7 @@ describe('LD6 · the offer', () => {
   });
 
   it('LD6a2 (LD-R2): a date the seller never picked comes back as the day of the offer; a picked one comes back as picked', () => {
-    const later = new Date(2026, 9, 28, 9, 15);
+    const later = new Date('2026-10-28T13:15:00Z');   // 28 Oct, 9:15 in New York (EDT) — an instant
     const unpicked = listingDraftOffer(draft({ eventDate: new Date(2026, 9, 21), dateChosen: false }), true, later);
     expect(unpicked.fields.eventDate.getTime()).toBe(new Date(2026, 9, 28).getTime());
     expect(unpicked.fields.dateChosen).toBe(false);
@@ -374,5 +380,60 @@ describe('LD7 · a draft keeps the seller’s day and time when the device chang
     const d = parseListingDraft(raw)!;
     expect([d.fields.eventDate.getFullYear(), d.fields.eventDate.getMonth(), d.fields.eventDate.getDate()]).toEqual([2026, 9, 25]);
     expect([d.fields.eventTime.getHours(), d.fields.eventTime.getMinutes()]).toEqual([23, 45]);
+  });
+});
+
+describe('LD8 · "today" is New York’s day, whatever the phone says (owner 2026-11-02; A: the sell form is Eastern)', () => {
+  // An expired draft is DELETED (listingDraftStore load, useListingDraft Continue), so a phone-calendar "today"
+  // either deleted a seller's draft for tonight early (a UTC phone after 19:00 EST) or kept a past one (a Los
+  // Angeles phone until 03:00 New York). Each case runs under three phone zones and must not move; the witnesses
+  // show the phone's own day differs at every anchor.
+  const ZONES = ['UTC', 'America/Los_Angeles', 'America/New_York'] as const;
+  const tz = process.env.TZ;
+  afterEach(() => { if (tz === undefined) delete process.env.TZ; else process.env.TZ = tz; });
+  function underEveryZone<T>(fn: () => T): T {
+    const answers = ZONES.map((z) => { process.env.TZ = z; return fn(); });
+    for (const a of answers) expect(a).toEqual(answers[0]);
+    return answers[0];
+  }
+  const local = (d: Date) => [d.getFullYear(), d.getMonth() + 1, d.getDate(), d.getHours(), d.getMinutes()];
+  const deviceDay = (iso: string, zone: string) => { process.env.TZ = zone; const d = new Date(iso); return [d.getMonth() + 1, d.getDate()]; };
+  /** A picked event day (as the date row's carrier holds it) checked at an instant. */
+  const expired = (y: number, m: number, d: number, iso: string) =>
+    isListingDraftFieldsExpired({ dateChosen: true, eventDate: new Date(y, m - 1, d) }, new Date(iso));
+
+  it('LD8a: a picked date expires when New York’s day is over — 05:00Z in EST, 04:00Z in EDT — never at the phone’s midnight', () => {
+    expect(underEveryZone(() => [expired(2026, 11, 1, '2026-11-02T04:59:59Z'), expired(2026, 11, 1, '2026-11-02T05:00:00Z')])).toEqual([false, true]);
+    expect(underEveryZone(() => [expired(2026, 10, 31, '2026-11-01T03:59:59Z'), expired(2026, 10, 31, '2026-11-01T04:00:00Z')])).toEqual([false, true]);
+    expect(underEveryZone(() => [expired(2026, 11, 2, '2026-11-03T02:14:00Z'), expired(2026, 11, 1, '2026-11-03T02:14:00Z')])).toEqual([false, true]);
+    expect(underEveryZone(() => expired(2026, 11, 1, '2026-11-01T06:30:00Z'))).toBe(false);      // 01:30 EST, the 25-hour day's repeat
+    expect(underEveryZone(() => [expired(2026, 3, 8, '2026-03-09T03:59:59Z'), expired(2026, 3, 8, '2026-03-09T04:00:00Z')])).toEqual([false, true]);
+    expect(underEveryZone(() => expired(2026, 11, 3, '2026-11-03T02:14:00Z'))).toBe(false);      // a later day never
+    // Witnesses: the phone's own day at those instants.
+    expect(deviceDay('2026-11-02T04:59:59Z', 'UTC')).toEqual([11, 2]);
+    expect(deviceDay('2026-11-02T05:00:00Z', 'America/Los_Angeles')).toEqual([11, 1]);
+    expect(deviceDay('2026-11-01T03:59:59Z', 'UTC')).toEqual([11, 1]);
+    expect(deviceDay('2026-11-01T04:00:00Z', 'America/Los_Angeles')).toEqual([10, 31]);
+    expect(deviceDay('2026-11-03T02:14:00Z', 'UTC')).toEqual([11, 3]);
+    expect(deviceDay('2026-03-09T03:59:59Z', 'UTC')).toEqual([3, 9]);
+  });
+
+  it('LD8b: an untouched form starts at New York’s today and New York’s next whole hour', () => {
+    const start = (iso: string) => { const f = emptyListingDraftFields(new Date(iso)); return [local(f.eventDate), local(f.eventTime).slice(3)]; };
+    expect(underEveryZone(() => start('2026-11-03T02:14:00Z'))).toEqual([[2026, 11, 2, 0, 0], [22, 0]]);
+    expect(underEveryZone(() => start('2026-11-02T04:59:59Z'))).toEqual([[2026, 11, 1, 0, 0], [0, 0]]);
+    expect(underEveryZone(() => start('2026-11-01T05:30:00Z'))).toEqual([[2026, 11, 1, 0, 0], [1, 0]]);   // 01:30 EDT → 01:00 EST
+    expect(underEveryZone(() => start('2026-03-08T06:30:00Z'))).toEqual([[2026, 3, 8, 0, 0], [3, 0]]);    // never the skipped 02:00
+    expect(deviceDay('2026-11-03T02:14:00Z', 'UTC')).toEqual([11, 3]);
+  });
+
+  it('LD8c: a draft whose date was never picked comes back dated New York’s today; a picked one as picked', () => {
+    const offerAt = (iso: string, dateChosen: boolean) =>
+      local(listingDraftOffer({ version: 1, savedAt: NOW, fields: filled({ eventDate: new Date(2026, 9, 21), dateChosen }) }, true, new Date(iso)).fields.eventDate);
+    expect(underEveryZone(() => offerAt('2026-11-03T02:14:00Z', false))).toEqual([2026, 11, 2, 0, 0]);
+    expect(underEveryZone(() => offerAt('2026-11-02T04:59:59Z', false))).toEqual([2026, 11, 1, 0, 0]);
+    expect(underEveryZone(() => offerAt('2026-11-02T05:00:00Z', false))).toEqual([2026, 11, 2, 0, 0]);
+    expect(underEveryZone(() => offerAt('2026-11-03T02:14:00Z', true))).toEqual([2026, 10, 21, 0, 0]);
+    expect(deviceDay('2026-11-02T05:00:00Z', 'America/Los_Angeles')).toEqual([11, 1]);
   });
 });

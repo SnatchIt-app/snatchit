@@ -50,6 +50,7 @@ import {
   buildPrimaryReturnURL,
   chooseAttempt,
   holdCommandKey,
+  holdExpiryClock,
   parsePrimaryCheckoutParams,
   reservePrimaryTier,
   type DrawnAttempt,
@@ -62,13 +63,6 @@ function randomBytes(n: number): Uint8Array {
   const out = new Uint8Array(n);
   globalThis.crypto.getRandomValues(out);   // react-native-get-random-values
   return out;
-}
-
-function clockText(iso: string | null): string | null {
-  if (!iso) return null;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
-  return new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' }).format(d);
 }
 
 export default function PrimaryCheckoutNative() {
@@ -237,7 +231,7 @@ export default function PrimaryCheckoutNative() {
     if (!live(run)) return;
     if (!hold.ok) { setState({ kind: 'hold_refused', reason: hold.reason }); return; }
     holdIdRef.current = hold.holdId;
-    setHeldUntil(clockText(hold.expiresAt));
+    setHeldUntil(holdExpiryClock(hold.expiresAt));
     await quoteAndPrepare(null);
   }, [ok, sessionId, ticketTypeId, quantity, attemptId, userId, quoteAndPrepare, live]);
 

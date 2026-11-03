@@ -27,6 +27,7 @@ import { Badge, Button, EmptyState, Spinner } from '@/src/components/ui';
 import { AccountSection } from '@/src/components/account/AccountSection';
 import { SettingsHeader } from '@/src/components/account/SettingsHeader';
 import { deriveReputation, reputationTone } from '@/src/lib/profile/reputation';
+import { easternParts } from '@/src/lib/time/eastern';
 import { identityStacks } from '@/src/lib/design/featureMetrics';
 import { AMOUNT_MIN_FONT_SCALE, MAX_DISPLAY_FONT_SCALE, textStyle } from '@/src/theme/typography';
 import { useTheme } from '@/src/theme/appearance';
@@ -52,9 +53,17 @@ function getInitials(name: string | null): string {
   return name.trim().split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? '').join('');
 }
 
-function memberSince(iso: string | null): string {
+const MONTH_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'] as const;
+
+/**
+ * "October 2026" — the month and year the account joined, on New York's calendar (owner, 2026-11-02), so a phone in
+ * another zone cannot move a join at the turn of a month. A date with no clock, so no EST / EDT label. The dash for
+ * no date or an unreadable one.
+ */
+export function memberSince(iso: string | null): string {
   if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const p = easternParts(Date.parse(iso));
+  return p ? `${MONTH_LONG[p.month - 1]} ${p.year}` : '—';
 }
 
 function ActiveListingRow({ listing, s }: { listing: Listing; s: Styles }) {

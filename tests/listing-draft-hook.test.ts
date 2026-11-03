@@ -86,7 +86,7 @@ vi.mock('@/src/theme/appearance', async () => {
 vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}) }));
 vi.mock('@/src/components/ui', () => ({ Button: 'Button' }));
 
-const NOW = new Date(2026, 9, 21, 12, 0, 0);
+const NOW = new Date('2026-10-21T16:00:00Z');   // noon in New York (EDT) as an INSTANT, so the machine's zone cannot move New York's "today" (review of ebbadf51)
 const COVER = 'file:///var/mobile/Containers/Data/Application/0A1B/Library/Caches/ImagePicker/5E6F.jpeg';
 const KEY = listingDraftKey('u-1');
 
@@ -216,12 +216,14 @@ describe('UH1 · a stored draft is offered, and nothing overwrites it until the 
 });
 
 describe('UH1g · Continue re-checks the picked date (E, D-2.4 L1)', () => {
+  // Midnight is NEW YORK's (owner 2026-11-02; A: the sell form is Eastern): 23:59 / 00:01 / 23:00 EDT as instants.
+  // They were the phone's local 23:59 / 00:01 / 23:00, which on a UTC or Los Angeles phone is not New York's midnight.
   it('UH1g: an offer held open past midnight whose picked event day has passed is removed, not restored', async () => {
-    vi.setSystemTime(new Date(2026, 9, 21, 23, 59));
+    vi.setSystemTime(new Date('2026-10-22T03:59:00Z'));             // 23:59 EDT, 21 Oct
     h.mem.set(KEY, serializeListingDraft(draft({ eventDate: new Date(2026, 9, 21), dateChosen: true }), new Date(2026, 9, 21, 22)));
     const { state, restored, step } = await mountHook();
     expect(state.ret!.offer?.eventName).toBe('Weekend pool party');   // today's event: offered
-    vi.setSystemTime(new Date(2026, 9, 22, 0, 1));                   // the offer sits across midnight
+    vi.setSystemTime(new Date('2026-10-22T04:01:00Z'));             // 00:01 EDT, 22 Oct: the offer sits across midnight
     state.ret!.accept();
     await step();
     expect(restored).toEqual([]);                 // a past event date never reaches the form
@@ -230,7 +232,7 @@ describe('UH1g · Continue re-checks the picked date (E, D-2.4 L1)', () => {
   });
 
   it('UH1g2: the same offer accepted before midnight restores as usual (the check is not a blanket refusal)', async () => {
-    vi.setSystemTime(new Date(2026, 9, 21, 23, 0));
+    vi.setSystemTime(new Date('2026-10-22T03:00:00Z'));             // 23:00 EDT, 21 Oct
     h.mem.set(KEY, serializeListingDraft(draft({ eventDate: new Date(2026, 9, 21), dateChosen: true }), new Date(2026, 9, 21, 22)));
     const { state, restored, step } = await mountHook();
     state.ret!.accept();

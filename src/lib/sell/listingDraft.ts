@@ -1,9 +1,9 @@
 /**
  * src/lib/sell/listingDraft.ts — the sell-form draft, as data (CFT-608, checklist item 36).
  *
- * Pure and dependency-free apart from the form's own value lists, so every decision about a draft
- * is unit-tested (tests/listing-draft.test.ts). Where it is stored, and when it is purged, is
- * src/lib/sell/listingDraftStore.ts; the debounce and the restore are src/hooks/useListingDraft.ts.
+ * Pure and dependency-free apart from the form's own value lists and the Eastern-time helpers, so every
+ * decision about a draft is unit-tested (tests/listing-draft.test.ts). Where it is stored, and when it is
+ * purged, is src/lib/sell/listingDraftStore.ts; the debounce and the restore are src/hooks/useListingDraft.ts.
  *
  * WHAT A DRAFT HOLDS — only the sell form's own inputs, copied key by key from an allowlist
  * (`LISTING_DRAFT_FIELD_KEYS`), never spread, so state that sits beside the form cannot leak in:
@@ -19,21 +19,27 @@
  * READING ONE BACK — a draft is versioned (`v: 1`). Another version, or anything that does not
  * match the schema field for field, is discarded whole rather than half-restored or migrated.
  *
- * THE EVENT DATE AND TIME are written as the form uses them — a device-local calendar day
- * ('2026-10-25') and clock time ('22:30') — never as instants. The screen publishes the date row's
- * day and the time row's clock time, so an instant saved in Miami and read in Los Angeles would move
+ * THE EVENT DATE AND TIME are written as the form uses them — the calendar day ('2026-10-25') and clock
+ * time ('22:30') the date and time rows show — never as instants. Those are New York wall clock (owner,
+ * 2026-11-02; A: the sell form is Eastern): the form's Dates are wall-clock carriers whose local parts are
+ * the New York day and time on any phone (src/lib/sell/eventWallClock.ts). The screen publishes the date
+ * row's day and the time row's clock time, so an instant saved in Miami and read in Los Angeles would move
  * the date back a day; a day and a clock time read back as the same day and time anywhere.
  *
  * EXPIRY — a draft whose event date has passed is refused (default put to the owner), but only a date
- * the seller picked (`dateChosen`). The date row starts at today, so an unpicked date is only the
- * screen's default for the day the seller typed: it never expires a draft, and it comes back as the
- * day the draft is offered, as a new form's would.
+ * the seller picked (`dateChosen`). "Passed" is New York's calendar: the picked day is before New York's
+ * today (easternDayKey), never the phone's — an expired draft is DELETED, so a phone calendar would delete
+ * a draft for tonight early east of New York and keep a past one west of it. The date row starts at New
+ * York's today, so an unpicked date is only the screen's default for the day the seller typed: it never
+ * expires a draft, and it comes back as New York's today when the draft is offered, as a new form's would.
  */
 
 import { CATEGORIES } from '@/src/constants/categories';
 import { NEIGHBORHOODS } from '@/src/constants/neighborhoods';
 import { TICKET_PLATFORMS } from '@/src/lib/listing/ticketPlatforms';
 import { DURATION_OPTIONS } from '@/src/lib/sell/durations';
+import { easternNextHourTime, easternTodayDate, eventDayString } from '@/src/lib/sell/eventWallClock';
+import { dayKeyDiff, easternDayKey } from '@/src/lib/time/eastern';
 import type {
   DurationHours,
   EventCategory,
@@ -91,10 +97,10 @@ const DEFAULT_CATEGORY: EventCategory = 'nightlife';
 const DEFAULT_PLATFORM: TicketPlatform = 'other';
 const DEFAULT_QUANTITY = 1;
 
-/** An untouched form, as the screen starts it. Date and time always carry a value. */
+/** An untouched form, as the screen starts it: New York's today and its next whole hour. Date and time always carry a value. */
 export function emptyListingDraftFields(now: Date = new Date()): ListingDraftFields {
-  const date = new Date(now); date.setHours(0, 0, 0, 0);
-  const time = new Date(now); time.setHours(time.getHours() + 1, 0, 0, 0);
+  const date = easternTodayDate(now);
+  const time = easternNextHourTime(now);
   return {
     eventName: '', venue: '', neighborhood: null, category: DEFAULT_CATEGORY,
     eventDate: date, eventTime: time, dateChosen: false,
@@ -127,12 +133,10 @@ type WireFields = Record<(typeof LISTING_DRAFT_FIELD_KEYS)[number], unknown>;
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
 
-/** The device-local calendar day, as the date row shows it: '2026-10-25'. */
-function toLocalDay(d: Date): string {
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-}
+/** The carrier's calendar day, as the date row shows it: '2026-10-25' (New York's day, read from local parts). */
+const toLocalDay = eventDayString;
 
-/** The device-local clock time, as the time row shows it: '22:30'. */
+/** The carrier's clock time, as the time row shows it: '22:30'. */
 function toLocalClock(d: Date): string {
   return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
@@ -269,12 +273,11 @@ export function isListingDraftEmpty(f: ListingDraftFields): boolean {
     && !isPickerCacheUri(f.coverUri);
 }
 
-const startOfLocalDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
-
 /**
- * The seller picked the event date and its calendar day (device-local, as the date row shows it) is
- * before today. Today is not expired. An unpicked date is the screen's default, not the seller's
- * choice, so it never expires a draft.
+ * The seller picked the event date and its calendar day (as the date row shows it — a New York day) is
+ * before New York's today. Today is not expired: it may be tonight, until New York's midnight. An unpicked
+ * date is the screen's default, not the seller's choice, so it never expires a draft. When either day
+ * cannot be read, nothing is expired — an expired draft is deleted, and doubt deletes nothing.
  */
 export function isListingDraftExpired(draft: ListingDraft, now: Date): boolean {
   return isListingDraftFieldsExpired(draft.fields, now);
@@ -282,7 +285,10 @@ export function isListingDraftExpired(draft: ListingDraft, now: Date): boolean {
 
 /** The same rule on the fields an offer carries — re-checked when Continue is tapped (E, D-2.4 L1). */
 export function isListingDraftFieldsExpired(fields: Pick<ListingDraftFields, 'dateChosen' | 'eventDate'>, now: Date): boolean {
-  return fields.dateChosen && startOfLocalDay(fields.eventDate).getTime() < startOfLocalDay(now).getTime();
+  if (!fields.dateChosen) return false;
+  const today = easternDayKey(now.getTime());
+  const behind = today ? dayKeyDiff(today, toLocalDay(fields.eventDate)) : null;
+  return behind !== null && behind < 0;
 }
 
 // ─── The offer ─────────────────────────────────────────────────────────────────
@@ -302,8 +308,8 @@ export function listingDraftOffer(draft: ListingDraft, coverStillThere: boolean,
     fields: {
       ...draft.fields,
       // An unpicked date was only the screen's default on the day the seller typed: it comes back as
-      // today, as a new form's would, never as a day that may have passed.
-      eventDate: draft.fields.dateChosen ? draft.fields.eventDate : startOfLocalDay(now),
+      // New York's today, as a new form's would, never as a day that may have passed.
+      eventDate: draft.fields.dateChosen ? draft.fields.eventDate : easternTodayDate(now),
       coverUri: coverKept ? draft.fields.coverUri : null,
     },
     eventName: draft.fields.eventName.trim(),

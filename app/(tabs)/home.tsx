@@ -70,6 +70,7 @@ import { EmptyState } from '@/src/components/ui';
 import { useDockScroll } from '@/src/components/nav/dockContext';
 import { useDockClearance } from '@/src/lib/nav/navInsets';
 import { groupByEventDate } from '@/src/lib/home/sections';
+import { easternDayKey } from '@/src/lib/time/eastern';
 import { ROW_GUTTER } from '@/src/lib/design/featureMetrics';
 import {
   DEFAULT_FILTERS,
@@ -500,16 +501,14 @@ export default function HomeScreen({ fixture: rawFixture }: HomeScreenProps = {}
 
   // ── Sections (V3) ─────────────────────────────────────────────────────────
   // The bucket an event falls in changes once a DAY, not once a second, so the grouping is keyed
-  // to local midnight rather than to the ticker — otherwise every countdown tick would rebuild
-  // the whole feed. `sectionFor` normalises to the same midnight, so this is the exact basis.
-  const todayStart = useMemo(() => {
-    const d = new Date(now);
-    d.setHours(0, 0, 0, 0);
-    return d.getTime();
-  }, [now]);
+  // to New York's calendar day rather than to the ticker — otherwise every countdown tick would
+  // rebuild the whole feed. The key is a string that only changes at New York midnight (owner,
+  // 2026-11-02: Snatch It operates in Eastern Time; never the phone's midnight), and it is the exact
+  // "today" `sectionFor` compares each event_date with.
+  const todayKey = easternDayKey(now);
 
   const { ordered, headingFor, dividerAfter } = useMemo(() => {
-    const sections = groupByEventDate(filteredListings, (l) => l.event_date, todayStart);
+    const sections = groupByEventDate(filteredListings, (l) => l.event_date, todayKey);
     const flat = sections.flatMap((s) => s.items);
     // A heading belongs to the FIRST row of its section. A section whose bucket cannot be named
     // (anything already past — the whole of the sold and ended datasets) gets none.
@@ -524,7 +523,7 @@ export default function HomeScreen({ fixture: rawFixture }: HomeScreenProps = {}
       if (!heading.has(flat[i + 1].id)) divider.add(flat[i].id);
     }
     return { ordered: flat, headingFor: heading, dividerAfter: divider };
-  }, [filteredListings, todayStart]);
+  }, [filteredListings, todayKey]);
 
   function onFiltersApply(next: {
     chip: QuickChip; neighborhoods: Set<string>; categories: Set<string>; priceMin: string; priceMax: string;

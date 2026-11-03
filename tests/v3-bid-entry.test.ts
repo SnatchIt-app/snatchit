@@ -98,7 +98,7 @@ describe('identity and the market price, in the bid\'s own units (R-1)', () => {
     const host = await mount(listing());
     const name = findElement(host.output, (el) => (el.props as { token?: string }).token === 'nameOrder');
     expect(name?.props.children).toBe('Neon Choir');
-    expect(byText(host, 'Sat 26 Sep · 19:30 · Lantern Room')).toBeDefined();
+    expect(byText(host, 'Sat 26 Sep · 19:30 EDT · Lantern Room')).toBeDefined();
     expect(byText(host, '2 × GA · sold together')).toBeDefined();
   });
 

@@ -4,7 +4,8 @@
  *
  * Row: (order_id, status, total_minor, currency, created_at, atoms_issued, payment_state), newest
  * first, `buyer_id = auth.uid()` only. `status` is the raw `venue.order` status (pending | paid |
- * partially_refunded | cancelled | expired | refunded — 082's check; 182 returns it as stored).
+ * partially_refunded | cancelled | refunded — 082's check; 182 returns it as stored. There is no 'expired':
+ * D's trace CHK-3 — anything else is unknown).
  * `payment_state` comes from the order↔payment link that
  * `finalize_primary_order` writes; before finalize there is no link, so a PENDING order reads
  * `none` today — "unpaid" and "paid, awaiting the webhook" are indistinguishable (A's ruling).
@@ -21,7 +22,7 @@
  *     flight only while it is newer than every paid order.
  */
 
-export type OrderStatus = 'pending' | 'paid' | 'partially_refunded' | 'cancelled' | 'expired' | 'refunded';
+export type OrderStatus = 'pending' | 'paid' | 'partially_refunded' | 'cancelled' | 'refunded';
 export type PaymentState = 'none' | 'processing' | 'succeeded' | 'failed';
 
 export interface PrimaryOrderRow {
@@ -36,7 +37,7 @@ export interface PrimaryOrderRow {
   charge_total_minor?: number | null;
 }
 
-const ORDER_STATUSES: ReadonlySet<string> = new Set<OrderStatus>(['pending', 'paid', 'partially_refunded', 'cancelled', 'expired', 'refunded']);
+const ORDER_STATUSES: ReadonlySet<string> = new Set<OrderStatus>(['pending', 'paid', 'partially_refunded', 'cancelled', 'refunded']);
 /** Paid, whole or with part of it refunded: the order settled, and issued whatever atoms it says. */
 const PAID_STATUSES: ReadonlySet<string> = new Set<OrderStatus>(['paid', 'partially_refunded']);
 
@@ -81,7 +82,7 @@ export function issuanceHint(orders: readonly PrimaryOrderRow[] | null): Issuanc
   if (orders === null) return 'read_failed';
   if (orders.some((o) => !ORDER_STATUSES.has(o.status))) return 'unknown';
   // Newest first: a pending order is in flight only while nothing newer has settled — an order paid, refunded,
-  // cancelled or expired after it means the buyer moved on, and an abandoned checkout stays pending (RES-1).
+  // or cancelled after it means the buyer moved on, and an abandoned checkout stays pending (RES-1).
   for (const o of orders) {
     if (o.status !== 'pending') break;
     return pendingHint(o);
@@ -152,9 +153,6 @@ export function orderStatusLine(o: PrimaryOrderRow): OrderLine {
       break;
     case 'cancelled':
       status = o.atoms_issued === 0 ? 'Cancelled · no tickets issued' : 'Cancelled';
-      break;
-    case 'expired':
-      status = o.atoms_issued === 0 ? 'Expired · no tickets issued' : 'Expired';
       break;
     default:
       status = 'Status unavailable';

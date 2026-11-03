@@ -58,7 +58,7 @@ describe('OrderIdentity — one block, each fact once', () => {
     const host = await mountIdentity();
     const name = findElement(host.output, (el) => (el.props as { token?: string }).token === 'nameOrder');
     expect(name?.props.children).toBe('Neon Choir');
-    expect(byText(host, 'Sat 26 Sep · 19:30 · Lantern Room')).toBeDefined();
+    expect(byText(host, 'Sat 26 Sep · 19:30 EDT · Lantern Room')).toBeDefined();
     expect(byText(host, '2 × GA · sold together')).toBeDefined();
     const art = findElement(host.output, (el) => el.type === 'EventMedia');
     expect(art?.props.slot).toBe('CHECKOUT_THUMBNAIL');

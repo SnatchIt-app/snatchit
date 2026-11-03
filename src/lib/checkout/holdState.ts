@@ -18,6 +18,7 @@
  */
 
 import { formatCents } from '../money';
+import { easternClock12, easternZoneLabel } from '../time/eastern';
 
 export type NotHeldReason = 'released_by_us' | 'ran_out' | 'unknown';
 
@@ -63,16 +64,14 @@ export function notHeldCopy(reason: NotHeldReason): NotHeldCopy {
 }
 
 /**
- * "Held for you until 9:14 PM" — the actual deadline, next to the countdown.
- * Uses the device locale; falls back to the countdown alone when the time
- * cannot be formatted.
+ * "Held for you until 9:14 PM EST" — the actual deadline, next to the countdown. New York time with its EST/EDT
+ * label (owner, 2026-11-02: everything in EST; the phone's zone and locale never change it — src/lib/time/eastern.ts).
+ * Null when the time cannot be formatted, and the row falls back to the countdown alone.
  */
-export function fmtHoldUntil(reservedUntilMs: number, locale?: string): string | null {
-  try {
-    return new Intl.DateTimeFormat(locale, { hour: 'numeric', minute: '2-digit' }).format(new Date(reservedUntilMs));
-  } catch {
-    return null;
-  }
+export function fmtHoldUntil(reservedUntilMs: number): string | null {
+  const clock = easternClock12(reservedUntilMs);
+  const zone = easternZoneLabel(reservedUntilMs);
+  return clock && zone ? `${clock} ${zone}` : null;
 }
 
 /**

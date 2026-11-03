@@ -14,7 +14,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { EventMedia } from '@/src/components/media/EventMedia';
 import { NameText } from '@/src/components/NameText';
-import { rowWhenLabel } from '@/src/lib/listing/feedRowState';
+import { listingWhenLabel } from '@/src/lib/listing/feedRowState';
 import { textStyle } from '@/src/theme/typography';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
@@ -42,7 +42,8 @@ export function OrderIdentity({
 }: OrderIdentityProps) {
   const { palette } = useTheme();
   const s = useMemo(() => makeStyles(palette), [palette]);
-  const dated = eventDate ? rowWhenLabel(eventDate, eventTime ?? '') : '';
+  // The stored date and time, labelled EST / EDT, never converted (listingWhenLabel).
+  const dated = eventDate ? listingWhenLabel(eventDate, eventTime ?? '') : '';
   const whenWhere = dated && venue ? `${dated} · ${venue}` : dated || venue || '';
 
   const count =

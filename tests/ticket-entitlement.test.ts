@@ -143,6 +143,12 @@ describe('parseCredentialResponse — only a well-formed server token becomes a 
     expect(r).toEqual({ ok: true, credential: { token: t, credential_version: 3, signing_key_id: 'k', not_after: '2026-11-30T05:00:00Z', ttl_seconds: 900 } });
   });
 
+  it('P2b: the KMS signing failures (credential-sign kms_unavailable / kms_security_error / kms_unconfigured) are signing_unavailable, not generic (D trace CHK-8)', () => {
+    for (const [status, code] of [[503, 'kms_unavailable'], [500, 'kms_security_error'], [500, 'kms_unconfigured'], [502, 'kms_unavailable']] as const) {
+      expect(parseCredentialResponse(status, { error: 'x', code }), code).toEqual({ ok: false, reason: 'signing_unavailable' });
+    }
+  });
+
   it('P2: the documented refusals map to their reasons; raw server text is never surfaced', () => {
     expect(parseCredentialResponse(403, { error: 'You do not own this ticket.', code: 'not_owner' })).toEqual({ ok: false, reason: 'not_owner' });
     expect(parseCredentialResponse(409, { error: 'x', code: 'atom_terminal' })).toEqual({ ok: false, reason: 'atom_terminal' });

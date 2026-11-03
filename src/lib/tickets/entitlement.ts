@@ -175,6 +175,10 @@ const SIGNING_CODES: ReadonlySet<string> = new Set([
   'signing_key_unavailable',
   'signing_context_unrecognized',
   'signing_unhealthy',
+  // credential-sign's KMS failures (index.ts §6: transient / security / unconfigured) — D's trace CHK-8
+  'kms_unavailable',
+  'kms_security_error',
+  'kms_unconfigured',
 ]);
 
 /**

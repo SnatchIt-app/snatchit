@@ -4,7 +4,7 @@
  *
  * THE DEFECT (B, 2026-10-05). The Home harness assigned the feature's artwork to `rows[0]` and
  * assumed that row was the feature. The screen does not render rows in fixture order: it buckets
- * them by event date (`groupByEventDate`, keyed to local midnight), flattens the sections, and
+ * them by event date (`groupByEventDate`, keyed to New York's day), flattens the sections, and
  * features `index === 0` of THAT order. So `rows[0]` is the feature only when the fixture's first
  * row happens to fall in the earliest bucket.
  *
@@ -28,6 +28,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { groupByEventDate } from '../src/lib/home/sections';
+import { easternDayKey } from '../src/lib/time/eastern';
 import { DEV_POSTER_NAMES, DEV_POSTER_PREFIX } from '../src/lib/media/devPosters';
 
 const root = resolve(__dirname, '..');
@@ -36,21 +37,20 @@ const code = (rel: string) =>
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/(^|[^:])\/\/.*$/gm, '$1');
 
-const MIDNIGHT = (() => {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
-})();
+const NOW = Date.now();
 
 // D-RC-4 (D, 2026-10-12): `toISOString()` renders LOCAL midnight as a UTC instant, so in any UTC+
 // zone `iso(0)` was yesterday's date and the "today" row failed to feature — green on the UTC runner
-// and on UTC-4 Macs, red in Europe/Berlin. sections.ts parses `${eventDate}T00:00:00` as LOCAL
-// midnight, so the test must write the LOCAL calendar date. Same shape as the ML7 fix.
+// and on UTC-4 Macs, red in Europe/Berlin. Same shape as the ML7 fix.
+// Eastern time (owner, 2026-11-02): sections.ts now buckets on NEW YORK's calendar, whatever the
+// device zone, so the fixture writes New York's dates — counted from its day key as UTC dates, which
+// no zone or DST change can move. The device-midnight anchor this used before is New York's day only
+// on a machine whose midnight falls on New York's same date (New York, LA); on the UTC runner it is
+// New York's previous evening, so `iso(0)` read as tomorrow and "tonight" never featured.
+const TODAY = easternDayKey(NOW) as string;
 const iso = (daysAhead: number) => {
-  const d = new Date(MIDNIGHT);
-  d.setDate(d.getDate() + daysAhead);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const [y, m, d] = TODAY.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + daysAhead)).toISOString().slice(0, 10);
 };
 
 type Row = {
@@ -63,12 +63,23 @@ type Row = {
 
 /** The row the SCREEN will feature: first of the date-bucketed order, if it is eligible. */
 function screenFeatured(rows: Row[]): Row | null {
-  const ordered = groupByEventDate(rows, (l) => l.event_date, MIDNIGHT).flatMap((s) => s.items);
+  const ordered = groupByEventDate(rows, (l) => l.event_date, NOW).flatMap((s) => s.items);
   const first = ordered[0];
   if (!first) return null;
   const eligible = first.status !== 'sold' && (first.auction_status ?? 'active') !== 'ended';
   return eligible ? first : null;
 };
+
+describe('Home harness — its day is New York\u2019s, the basis the screen buckets on (review of b7d190e0)', () => {
+  const harness = readFileSync(resolve(__dirname, '../app/_dev/v3-home.tsx'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+
+  it('HD1: no device-day arithmetic is left: fixture dates and the feature pick both start from easternDayKey / Date.now()', () => {
+    expect(harness).not.toMatch(/\.setHours\(|\.setDate\(|\.getDate\(\)|\.getMonth\(\)|\.getFullYear\(\)/);
+    expect(harness).toContain('easternDayKey(Date.now())');
+    expect(harness).toMatch(/withArt\(withLongAmounts\(base\.rows, amounts\), art, Date\.now\(\)\)/);
+  });
+});
 
 describe('Home — the feature artwork reaches the FEATURE', () => {
   it('HA1: with a fixture whose first row is NOT the earliest, the poster still lands on the feature', async () => {
@@ -86,7 +97,7 @@ describe('Home — the feature artwork reaches the FEATURE', () => {
     const featured = screenFeatured(rows);
     expect(featured?.id, 'the screen features the earliest bucket, not rows[0]').toBe('tonight');
 
-    const painted = withArt(rows as never, 'flyer', MIDNIGHT) as unknown as Row[];
+    const painted = withArt(rows as never, 'flyer', NOW) as unknown as Row[];
     const byId = Object.fromEntries(painted.map((r) => [r.id, r.cover_image_path]));
     expect(byId.tonight, 'the feature carries the flyer').toBe(`${DEV_POSTER_PREFIX}flyer-dense-4x5`);
 
@@ -112,7 +123,7 @@ describe('Home — the feature artwork reaches the FEATURE', () => {
     expect(featured?.id).toBe('tonight');
 
     for (const key of ART_KEYS as string[]) {
-      const painted = withArt(rows as never, key, MIDNIGHT) as unknown as Row[];
+      const painted = withArt(rows as never, key, NOW) as unknown as Row[];
       const onFeature = painted.find((r) => r.id === featured!.id)!.cover_image_path;
       if (key === 'missing') {
         expect(onFeature, `${key} leaves the plate`).toBeNull();
@@ -134,7 +145,7 @@ describe('Home — the feature artwork reaches the FEATURE', () => {
     ] as Row[];
     expect(screenFeatured(rows)).toBeNull();
 
-    const painted = withArt(rows as never, 'flyer', MIDNIGHT) as unknown as Row[];
+    const painted = withArt(rows as never, 'flyer', NOW) as unknown as Row[];
     for (const r of painted) {
       expect(r.cover_image_path, `${r.id} takes row artwork, not the feature's`)
         .not.toBe(`${DEV_POSTER_PREFIX}flyer-dense-4x5`);

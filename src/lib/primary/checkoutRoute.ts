@@ -21,6 +21,7 @@
  */
 import { attemptCommandKey, PRIMARY_CHECKOUT_COPY } from '@/src/lib/primary/checkout';
 import { supabase } from '@/src/lib/supabase';
+import { easternClock12, easternZoneLabel } from '@/src/lib/time/eastern';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ATTEMPT_RE = /^[A-Za-z0-9-]{6,64}$/;
@@ -126,6 +127,19 @@ export function parseHoldReply(res: HoldRpcResult): HoldResult {
   return { ok: true, holdId: r.hold_id, expiresAt: typeof r.expires_at === 'string' ? r.expires_at : null, quantity };
 }
 
+/**
+ * The hold's server expiry as the review step says it ("Held for you until 8:15 PM EST"): New York's clock,
+ * labelled EST / EDT (owner, 2026-11-02: Snatch It operates in Eastern Time) — never the device zone, so a
+ * buyer's phone zone cannot move it. Display only: whether the hold is still live is the server's call. Null
+ * when there is no expiry or it is not an instant, which hides the line.
+ */
+export function holdExpiryClock(expiresAt: string | null): string | null {
+  if (!expiresAt) return null;
+  const ms = Date.parse(expiresAt);
+  if (!Number.isFinite(ms)) return null;
+  return [easternClock12(ms), easternZoneLabel(ms)].filter(Boolean).join(' ');
+}
+
 export type HoldReserver = (req: { sessionId: string; ticketTypeId: string; quantity: number; commandKey: string }) => Promise<HoldResult>;
 
 /** The 167 call. Thrown transport errors are offline; everything else goes through `parseHoldReply`. */
@@ -144,7 +158,8 @@ export const reservePrimaryTier: HoldReserver = async (req) => {
 };
 
 export const HOLD_COPY: Record<HoldRefusal, string> = {
-  sold_out: 'There aren’t enough tickets left for that quantity.',
+  // 167's oversell count includes other buyers' holds (no held/sold split, E-29): never "left" or "sold out".
+  sold_out: 'There aren’t enough tickets available for that quantity right now. Some may be held by other buyers — try again in a few minutes.',
   not_on_sale: 'These tickets aren’t on sale right now.',
   not_public: 'These tickets aren’t available for public sale. Choose different tickets.',
   hold_limit: 'You can’t hold more tickets right now. If you have a hold open, finish that purchase or wait for it to end.',

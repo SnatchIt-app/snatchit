@@ -71,6 +71,7 @@ function listFixture(variant: string | undefined): DiscoveryLoad {
     rows: [{
       eventId: 'sample-event', sessionId: SESSION, title: 'Sample pop-up (not a real event)', venueName: 'Venue to be announced',
       neighborhood: 'Wynwood', startsAt: '2026-12-01T04:00:00Z', doorsAt: '2026-12-01T03:00:00Z', ageRestriction: '21_plus', status: 'on_sale',
+      timezone: 'America/New_York', startsAtLocal: '2026-11-30 23:00', doorsAtLocal: '2026-11-30 22:00',
     }],
   };
 }
