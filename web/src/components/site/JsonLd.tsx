@@ -1,10 +1,12 @@
+import { serializeJsonLd } from "@/lib/json-ld";
+
 /** Renders sanitized JSON-LD structured data. */
 export function JsonLd({ data }: { data: Record<string, unknown> }) {
   return (
     <script
       type="application/ld+json"
       dangerouslySetInnerHTML={{
-        __html: JSON.stringify(data).replace(/</g, "\\u003c"),
+        __html: serializeJsonLd(data),
       }}
     />
   );

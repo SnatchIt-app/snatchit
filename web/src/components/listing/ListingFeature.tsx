@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { WebListing } from "@/lib/listings";
-import { clockState, eventWhen, priceState, quantityLine } from "@/lib/listing-display";
+import { clockState, eventAtVenue, eventWhen, priceState, quantityLine } from "@/lib/listing-display";
 import { PriceDisplay } from "@/components/ui/PriceDisplay";
 import { Poster } from "@/components/listing/Poster";
 
@@ -16,7 +16,7 @@ export function ListingFeature({ listing, now }: { listing: WebListing; now?: Da
     <Link href={`/listing/${listing.id}`} className="group grid gap-5 md:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] md:items-center md:gap-10">
       <Poster
         path={listing.cover_image_path}
-        alt={`${listing.event_name} at ${listing.venue}`}
+        alt={eventAtVenue(listing.event_name, listing.venue)}
         sizes="(min-width: 1200px) 520px, (min-width: 768px) 45vw, 100vw"
         priority
         rounded="rounded-none sm:rounded-card"

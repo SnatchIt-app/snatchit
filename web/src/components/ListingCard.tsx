@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { WebListing } from "@/lib/listings";
 import { listingCardStatus } from "@/lib/format";
-import { clockState, eventWhen, priceState } from "@/lib/listing-display";
+import { clockState, eventAtVenue, eventWhen, priceState } from "@/lib/listing-display";
 import { Badge } from "@/components/ui/Badge";
 import { PriceDisplay } from "@/components/ui/PriceDisplay";
 import { SaveButton } from "@/components/SaveButton";
@@ -30,7 +30,7 @@ export function ListingCard({
       <div className="relative">
         <Poster
           path={listing.cover_image_path}
-          alt={`${listing.event_name} at ${listing.venue}`}
+          alt={eventAtVenue(listing.event_name, listing.venue)}
           sizes="(min-width: 1200px) 270px, (min-width: 768px) 30vw, 50vw"
           priority={priority}
         />
@@ -55,7 +55,7 @@ export function ListingCard({
           <span className="t-body-sm text-muted">{price.label.toLowerCase()}, all-in</span>
         </p>
       </div>
-      <Link href={`/listing/${listing.id}`} className="absolute inset-0 z-[5] rounded-panel" aria-label={`${listing.event_name} at ${listing.venue}`} />
+      <Link href={`/listing/${listing.id}`} className="absolute inset-0 z-[5] rounded-panel" aria-label={eventAtVenue(listing.event_name, listing.venue)} />
     </article>
   );
 }
