@@ -35,18 +35,29 @@ export function OutbidToast({ visible, message }: { visible: boolean; message: s
 
   useEffect(() => {
     // Reduce motion: no movement at all. Snap rather than animate — a spring has no
-    // duration to collapse to zero, and `setValue` flushes straight to the native node.
+    // duration to collapse to zero. `setValue` is safe mid-flight because it STOPS the
+    // running animation first (AnimatedValue.js:196-199) and only then updates the value.
     if (reduceMotion) {
       progress.setValue(visible ? 1 : 0);
       return;
     }
     // A spring rather than a timing, so an interruption mid-flight RE-TARGETS from the
-    // current position instead of restarting a fixed 180 ms run. Verified in RN 0.81.5:
-    // `AnimatedValue.animate()` stops the previous animation and calls
-    // `animation.start(this._value, …)` (AnimatedValue.js:319-323), and
-    // `SpringAnimation.start()` sets `_startPosition = fromValue` (SpringAnimation.js:210)
-    // with `x0 = _toValue - _startPosition` (:292) — so there is no position jump.
-    // Velocity continuity across an interruption is NOT claimed; see B's status doc.
+    // current position instead of restarting a fixed 180 ms run. Verified in RN 0.81.5 on the
+    // path that actually EXECUTES under `useNativeDriver: true`: `AnimatedValue.animate()`
+    // stops the previous animation and starts the new one against the SAME native node,
+    // passing `this._value` (AnimatedValue.js:319-322) — so the node keeps its position and
+    // the native spring begins there. No position jump.
+    //
+    // Deliberately NOT cited: `SpringAnimation.js:292`'s `x0 = _toValue - _startPosition`.
+    // That lives inside `onUpdate()`, the JS solver, and `:227-230` skips `onUpdate()` whenever
+    // `__startAnimationIfNative` returns true — so it never runs for this component. (E found
+    // the earlier version of this comment citing it; the conclusion held, the mechanism did not.)
+    //
+    // Velocity: on the JS side the carried velocity is provably 0. `_lastVelocity` starts at 0
+    // (`:116`) and is only ever advanced inside `onUpdate()` (`:326`, `:354`), which does not run
+    // here, so the carry from a previous spring (`:220`) copies 0 and `:193` forwards
+    // `initialVelocity: 0`. Whether the NATIVE solver keeps its own velocity across a re-target
+    // is unproven in EITHER direction — the native module was not read. See B's status doc.
     Animated.spring(progress, {
       toValue: visible ? 1 : 0,
       ...v2.motion.bannerSpring,
