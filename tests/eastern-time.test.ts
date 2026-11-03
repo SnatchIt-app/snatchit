@@ -206,6 +206,84 @@ describe('ET7 — a formatter that does not actually answer in Eastern is discar
     expect(b.easternZoneLabel(JAN)).toBe('EST');
   });
 
+  /**
+   * The real Intl, captured BEFORE any stub, so a fake can delegate to it for the fields it is
+   * meant to get right and still be wrong about the ones under test.
+   */
+  const realEastern = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', hourCycle: 'h23', weekday: 'short',
+    year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric',
+  });
+  const realPart = (d: Date, type: string) => realEastern.formatToParts(d).find((p) => p.type === type)!.value;
+  const utcParts = (d: Date) => partsFrom(d, 0);
+
+  it('ET7e: the probe constants are what a FULL-ICU Intl actually answers — not anyone’s arithmetic', () => {
+    // A's instruction: derive the expectations independently rather than trusting E's or A's numbers.
+    // Node has full ICU, so it is the oracle here. If a constant in eastern.ts is wrong, this fails.
+    const cases = [
+      { ms: Date.UTC(2026, 0, 15, 2, 34), want: { year: 2026, month: 1, day: 14, hour: 21, minute: 34, weekday: 'Wed' } },
+      { ms: Date.UTC(2026, 6, 15, 2, 7), want: { year: 2026, month: 7, day: 14, hour: 22, minute: 7, weekday: 'Tue' } },
+    ];
+    for (const { ms: at, want } of cases) {
+      const d = new Date(at);
+      expect(Number(realPart(d, 'year'))).toBe(want.year);
+      expect(Number(realPart(d, 'month'))).toBe(want.month);
+      expect(Number(realPart(d, 'day'))).toBe(want.day);
+      expect(Number(realPart(d, 'hour'))).toBe(want.hour);
+      expect(Number(realPart(d, 'minute'))).toBe(want.minute);
+      expect(realPart(d, 'weekday')).toBe(want.weekday);
+      // and the point of choosing them: Eastern is on the PREVIOUS day, so UTC disagrees
+      expect(d.getUTCDate()).not.toBe(want.day);
+      expect(['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getUTCDay()]).not.toBe(want.weekday);
+      // and the minutes are non-zero and differ between the two instants
+      expect(want.minute).not.toBe(0);
+    }
+    expect(cases[0].want.minute).not.toBe(cases[1].want.minute);
+  });
+
+  it('ET7f: a UTC-DATED engine — right Eastern hour, UTC day and weekday — is discarded', async () => {
+    // This is the gap E found: the old probe checked hour and minute only, so this engine passed and
+    // then fed easternDayKey / dayKeyDiff the wrong calendar day.
+    const utcDatedIntl = {
+      DateTimeFormat: class {
+        formatToParts(d: Date) {
+          const u = utcParts(d);
+          return [
+            { type: 'weekday', value: u.find((p) => p.type === 'weekday')!.value },
+            { type: 'year', value: u.find((p) => p.type === 'year')!.value },
+            { type: 'month', value: u.find((p) => p.type === 'month')!.value },
+            { type: 'day', value: u.find((p) => p.type === 'day')!.value },
+            { type: 'hour', value: realPart(d, 'hour') },
+            { type: 'minute', value: realPart(d, 'minute') },
+          ];
+        }
+      },
+    };
+    const m = await freshEastern(utcDatedIntl);
+    expect(m.easternParts(JAN)).toEqual(m.easternPartsByRule(JAN));
+    expect(m.easternDayKey(Date.UTC(2026, 0, 15, 2, 34))).toBe('2026-01-14');
+  });
+
+  it('ET7g: an engine whose minutes are always :00 is discarded', async () => {
+    const minuteZeroIntl = {
+      DateTimeFormat: class {
+        formatToParts(d: Date) {
+          return [
+            { type: 'weekday', value: realPart(d, 'weekday') },
+            { type: 'year', value: realPart(d, 'year') },
+            { type: 'month', value: realPart(d, 'month') },
+            { type: 'day', value: realPart(d, 'day') },
+            { type: 'hour', value: realPart(d, 'hour') },
+            { type: 'minute', value: '0' },
+          ];
+        }
+      },
+    };
+    const m = await freshEastern(minuteZeroIntl);
+    expect(m.easternParts(Date.UTC(2026, 0, 15, 2, 34))?.minute).toBe(34);
+    expect(m.easternParts(JAN)).toEqual(m.easternPartsByRule(JAN));
+  });
+
   it('ET7d: CONTROL — on a real zone-aware Intl the formatter is kept and Intl is what answers', async () => {
     const spy = vi.spyOn(Intl.DateTimeFormat.prototype, 'formatToParts');
     const m = await freshEastern();            // no stub: the real Intl

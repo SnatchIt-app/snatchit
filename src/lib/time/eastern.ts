@@ -29,33 +29,53 @@ const WEEKDAY_INDEX: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, 
 const pad2 = (n: number) => String(n).padStart(2, '0');
 
 /**
- * Two instants that pin the formatter to Eastern, one in each offset.
- * 2026-01-15T12:00Z is 07:00 EST; 2026-07-15T12:00Z is 08:00 EDT.
+ * Two instants that pin the formatter to Eastern, one in each offset, checked on ALL SIX fields
+ * `partsByIntl` returns. Values verified against a full-ICU Intl in `tests/eastern-time.test.ts`
+ * (ET7e) rather than taken from anyone's arithmetic.
+ *
+ *   2026-01-15T02:34Z → 2026-01-14 21:34 EST, Wed   (UTC says the 15th, Thu)
+ *   2026-07-15T02:07Z → 2026-07-14 22:07 EDT, Tue   (UTC says the 15th, Wed)
+ *
+ * Why these, and not two instants at :00 on a shared calendar date:
+ *  - BOTH OFFSETS, so a formatter pinned to a fixed −05:00 passes January and fails July;
+ *  - EASTERN IS ON THE PREVIOUS DAY, so the year/month/day/weekday are different in UTC than in
+ *    Eastern. A formatter that gets the hour right but dates in UTC is caught — and those are exactly
+ *    the fields `easternDayKey` and `dayKeyDiff` read;
+ *  - NON-ZERO AND DIFFERENT MINUTES (34, 07), so an engine that always answers :00, or one that
+ *    returns a constant, is caught.
  *
  * Constructing `Intl.DateTimeFormat` with a `timeZone` does NOT prove the engine honours it: a build
- * without full ICU can accept the option and then format in the DEVICE zone, and the old code cached
- * that formatter as valid — so every reader saw device-zone times and `easternZoneLabel` returned ''
- * because the offset was neither -300 nor -240. Needing BOTH instants is what makes the probe sharp:
- * a zone-blind formatter fails January, and one pinned to a fixed -05:00 passes January and fails July.
+ * without full ICU can accept the option and then format in the DEVICE zone, and the pre-probe code
+ * cached that formatter as valid — so every reader saw device-zone times and `easternZoneLabel`
+ * returned '' because the offset was neither -300 nor -240.
  */
-const EASTERN_PROBE: readonly (readonly [ms: number, hour: number])[] = [
-  [Date.UTC(2026, 0, 15, 12), 7],
-  [Date.UTC(2026, 6, 15, 12), 8],
+const EASTERN_PROBE: readonly (readonly [ms: number, expected: EasternParts])[] = [
+  [Date.UTC(2026, 0, 15, 2, 34), { year: 2026, month: 1, day: 14, hour: 21, minute: 34, weekday: 3 }],
+  [Date.UTC(2026, 6, 15, 2, 7), { year: 2026, month: 7, day: 14, hour: 22, minute: 7, weekday: 2 }],
 ];
+
+/** The six fields, read off one formatter. Shared so the probe and the hot path cannot drift apart. */
+function partsFrom(f: Intl.DateTimeFormat, ms: number): EasternParts | null {
+  try {
+    const parts = f.formatToParts(new Date(ms));
+    const num = (type: string) => Number(parts.find((p) => p.type === type)?.value);
+    const weekday = WEEKDAY_INDEX[parts.find((p) => p.type === 'weekday')?.value ?? ''];
+    const out = { year: num('year'), month: num('month'), day: num('day'), hour: num('hour') % 24, minute: num('minute'), weekday };
+    return Object.values(out).every((v) => Number.isInteger(v)) ? out : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Does this formatter actually answer in Eastern? Called once, on the formatter it is given. */
 function formatsEastern(f: Intl.DateTimeFormat): boolean {
-  try {
-    for (const [instant, hour] of EASTERN_PROBE) {
-      const parts = f.formatToParts(new Date(instant));
-      const h = Number(parts.find((p) => p.type === 'hour')?.value);
-      const minute = Number(parts.find((p) => p.type === 'minute')?.value);
-      if (h % 24 !== hour || minute !== 0) return false;
-    }
-    return true;
-  } catch {
-    return false;
+  for (const [instant, expected] of EASTERN_PROBE) {
+    const got = partsFrom(f, instant);
+    if (!got) return false;
+    if (got.year !== expected.year || got.month !== expected.month || got.day !== expected.day
+      || got.hour !== expected.hour || got.minute !== expected.minute || got.weekday !== expected.weekday) return false;
   }
+  return true;
 }
 
 let formatter: Intl.DateTimeFormat | null | undefined;
@@ -76,16 +96,7 @@ function intlFormatter(): Intl.DateTimeFormat | null {
 
 function partsByIntl(ms: number): EasternParts | null {
   const f = intlFormatter();
-  if (!f) return null;
-  try {
-    const parts = f.formatToParts(new Date(ms));
-    const num = (type: string) => Number(parts.find((p) => p.type === type)?.value);
-    const weekday = WEEKDAY_INDEX[parts.find((p) => p.type === 'weekday')?.value ?? ''];
-    const out = { year: num('year'), month: num('month'), day: num('day'), hour: num('hour') % 24, minute: num('minute'), weekday };
-    return Object.values(out).every((v) => Number.isInteger(v)) ? out : null;
-  } catch {
-    return null;
-  }
+  return f ? partsFrom(f, ms) : null;
 }
 
 /** Day of the month of the nth Sunday (n ≥ 1) of a month, in the proleptic UTC calendar. */
