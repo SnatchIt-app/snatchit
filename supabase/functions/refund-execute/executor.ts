@@ -350,7 +350,10 @@ export type ReconcilePlan =
  * the answer is `reconcile`, and it NEVER creates before it has established
  * what already exists at Stripe.
  */
-export function planReconcile(ctx: RefundExecutionContext): ReconcilePlan {
+export function planReconcile(
+  ctx: RefundExecutionContext,
+  expected: { order_id?: string | null } = {},
+): ReconcilePlan {
   if (!isUuid(ctx.refund_id)) return { kind: 'refuse', code: 'malformed_refund_id', detail: `refund_id=${String(ctx.refund_id)}`, retryable: false };
   if (!isUuid(ctx.payment_id)) return { kind: 'refuse', code: 'malformed_payment_id', detail: `payment_id=${String(ctx.payment_id)}`, retryable: false };
 
@@ -363,6 +366,18 @@ export function planReconcile(ctx: RefundExecutionContext): ReconcilePlan {
       kind: 'refuse',
       code: 'binding_subject_ambiguous',
       detail: `payment ${ctx.payment_id} resolves to order=${String(ctx.order_id)} sale=${String(ctx.sale_id)}`,
+      retryable: false,
+    };
+  }
+  // The caller's order assertion, refused exactly where planRefund refuses it
+  // (binding before state, :220-225) and before any Stripe read. `action:
+  // execute` runs THIS plan since refunds-1, so dropping it here would drop
+  // the operator's wrong-refund-id guard. The sweep passes none.
+  if (expected.order_id != null && expected.order_id !== ctx.order_id) {
+    return {
+      kind: 'refuse',
+      code: 'binding_order_mismatch',
+      detail: `caller asserted order ${expected.order_id}; refund ${ctx.refund_id} binds to order ${String(ctx.order_id)}`,
       retryable: false,
     };
   }
@@ -387,7 +402,7 @@ export function planReconcile(ctx: RefundExecutionContext): ReconcilePlan {
 
   // No ref: everything the create path requires must still hold, and the create
   // plan it returns is what we fall through to IF the search finds nothing.
-  const create = planRefund(ctx);
+  const create = planRefund(ctx, expected);
   if (create.kind === 'refuse') return create;
   if (create.kind !== 'stripe_create') {
     return { kind: 'refuse', code: 'unknown_refund_status', detail: `unexpected plan ${create.kind}`, retryable: false };
