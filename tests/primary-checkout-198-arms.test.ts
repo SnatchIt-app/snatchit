@@ -298,6 +298,44 @@ describe('A-1 — feature_disabled is 503 sales_paused (§4.2 A-1, §5 scenario 
   });
 });
 
+// 201 (D, #239) and 093/198's organization gate: two refusals a buyer cannot fix.
+// They used to reach the generic arm, which relays the RPC's own text, and
+// org_not_active's text names the organization's INTERNAL status. Both now answer
+// one stable buyer-safe code (OC-201-CLIENT-REFUSAL-TRACE-1; E's #239 review).
+const SALES_UNAVAILABLE = { error: 'Ticket sales aren’t available for this event.', code: 'sales_unavailable' };
+describe('201 — venue not approved / organization not active are 409 sales_unavailable, never the server phrase', () => {
+  it('venue is not approved (reserve and checkout share the literal) → 409 sales_unavailable, nothing minted', async () => {
+    const w = await world({ rpcError: { code: 'P0001', message: 'precondition_failed: venue is not approved' } });
+    const r = await w.run('cmd-venue-unapproved');
+    expect(r.res.status).toBe(409);
+    expect(r.body).toEqual(SALES_UNAVAILABLE);
+    expect(w.stripe.calls).toEqual([]);
+    expect(w.rows).toHaveLength(0);
+    expect(w.blockerAlerts()).toEqual([]);
+  });
+
+  it.each(['applied', 'suspended', 'closed', 'missing'])('org_not_active (%s) → the same code, and the internal status never reaches the buyer', async (status) => {
+    const w = await world({ rpcError: { code: 'P0001', message: `precondition_failed: org_not_active — a ${status} organization may not sell` } });
+    const r = await w.run(`cmd-org-${status}`);
+    expect(r.res.status).toBe(409);
+    expect(r.body).toEqual(SALES_UNAVAILABLE);
+    expect(JSON.stringify(r.body)).not.toContain(status);
+    expect(JSON.stringify(r.body)).not.toContain('org_not_active');
+    expect(w.stripe.calls).toEqual([]);
+  });
+
+  it('control: another precondition still takes the generic arm, and feature_disabled is still 503 sales_paused', async () => {
+    const other = await world({ rpcError: { code: 'P0001', message: 'precondition_failed: bad_item (quantity)' } });
+    const ro = await other.run('cmd-other');
+    expect(ro.res.status).toBe(409);
+    expect(ro.body).toEqual({ error: 'bad_item (quantity)', code: 'precondition_failed' });
+    const paused = await world({ rpcError: { code: 'P0001', message: 'precondition_failed: feature_disabled' } });
+    const rp = await paused.run('cmd-paused-2');
+    expect(rp.res.status).toBe(503);
+    expect(rp.body.code).toBe('sales_paused');
+  });
+});
+
 describe('A-2 — the replay rule on order_status / holds_live (§4.2 A-2, §4.1, O1, O17)', () => {
   it('order_status=paid → the existing already_paid answer, before any Stripe call', async () => {
     const w = await world();
