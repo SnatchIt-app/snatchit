@@ -146,6 +146,16 @@ import { stripeFetch, stripeFetchRaw, STRIPE_MOBILE_API_VERSION } from '../_shar
 // ONLY the rail-neutral guard. See the A5 block above: the fee RATES in that
 // module belong to the resale rail and must not leak onto this one.
 import { totalMismatch } from '../_shared/money.ts';
+// Registry 198 (DESIGN-198-FINAL §4.2): the order→PaymentIntent search shared
+// with primary-lapse-canceller, the lapse canceller A-2 reuses, and the A-3
+// abort key. Import-free, so tests bind the REAL module (edge-vm sibling rule).
+import {
+  cancelLapsedOrderPaymentIntents,
+  CANCEL_REASON_PAYMENT_FAILED,
+  edgeAbortCommandKey,
+  REPLAY_CANDIDATE_STATUSES,
+  searchOrderPaymentIntents,
+} from './order-pis.ts';
 
 const SUPABASE_URL              = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_ANON_KEY         = Deno.env.get('SUPABASE_ANON_KEY')!;
@@ -299,6 +309,11 @@ function json(body: unknown, status: number, headers: Record<string, string>): R
 //                          (082:§20.7.9): 'payment_failed' is the ONLY accepted
 //                          value, so this verb must not be reused to clean up
 //                          anything that is not a payment failure.
+//                          ONE RATIFIED EXCEPTION (DESIGN-198-FINAL §4.2 A-3,
+//                          G13): THIS function cancels the order it just created
+//                          when it refuses before handing back a PaymentIntent,
+//                          under `edge_abort:<order_id>` — the payment failed to
+//                          start. Widening the reason set is O13's follow-up.
 //
 // This function writes the `public.payments` row itself, pre-charge and
 // `pending`, so the webhook never has to synthesize one.
@@ -506,6 +521,14 @@ function parseBody(body: unknown): { ok: true; value: ParsedBody } | { ok: false
  * unrecognized error becomes a generic 500 so an unexpected Postgres message
  * can never be reflected to a client.
  */
+// The one "your holds are gone, start again" answer. Shared by the RPC's own
+// `holds do not cover` refusal and by the A-2 replay rule (§4.2 A-2), so the
+// client sees one shape for one meaning.
+const HOLD_INVALID_BODY = {
+  error: 'Your ticket hold expired or no longer covers this order. Please start again.',
+  code:  'hold_invalid',
+} as const;
+
 function mapRpcError(
   error: { message?: string; code?: string },
 ): { status: number; body: Record<string, unknown>; blocker?: boolean } {
@@ -530,10 +553,7 @@ function mapRpcError(
     return { status: 409, body: { error: 'This event has ended or was cancelled.', code: 'session_terminal' } };
   }
   if (/holds do not cover/.test(msg)) {
-    return {
-      status: 409,
-      body: { error: 'Your ticket hold expired or no longer covers this order. Please start again.', code: 'hold_invalid' },
-    };
+    return { status: 409, body: { ...HOLD_INVALID_BODY } };
   }
   if (/^not_found|not_found:/.test(msg)) {
     return { status: 404, body: { error: 'Event or ticket type not found.', code: 'not_found' } };
@@ -570,6 +590,30 @@ function mapRpcError(
       body:   { error: 'Ticket sales are not available yet for this event.', code: 'org_not_eligible' },
     };
   }
+  // ── A-1 (DESIGN-198-FINAL §4.2 A-1, §4.1 row 3, §5 scenario 2). 198's
+  // BLOCK F raises `precondition_failed: feature_disabled` when the newest
+  // `feature.native_issuance_enabled` is not true: the owner paused sales. It
+  // MUST sit above the generic arm below, which would surface it as a 409
+  // `precondition_failed` the client cannot tell from a bad basket. 503: the
+  // service is deliberately unavailable, nothing the buyer can fix. NO
+  // Retry-After (a pause has no known end) and NO blocker flag (a pause is an
+  // owner decision, not an activation fault). It still reaches Sentry through
+  // the existing `status >= 500` rule at the call site, tagged
+  // `activation_blocker: false`.
+  if (/feature_disabled/.test(msg)) {
+    return { status: 503, body: { error: 'Ticket sales are paused for this event.', code: 'sales_paused' } };
+  }
+  // 201's venue-approval gate and the organization gate (093/198): the venue is
+  // not approved, or the organization is applied / suspended / closed / missing.
+  // The buyer can fix neither, and org_not_active's text names the
+  // organization's INTERNAL status, so neither may reach the generic arm below,
+  // which relays the RPC's own words. One stable code, 409, terminal: unlike
+  // `sales_paused` (503, a pause) this is not "try again later". 201 raises the
+  // token `venue_not_approved` ahead of its prose, and the token is what is
+  // matched; the prose alternative only covers a 201 body without the token.
+  if (/venue_not_approved|venue is not approved|org_not_active/.test(msg)) {
+    return { status: 409, body: { error: 'Ticket sales aren’t available for this event.', code: 'sales_unavailable' } };
+  }
   if (/precondition_failed|invalid_input/.test(msg)) {
     // Includes 093's organization readiness gate and any future precondition.
     // The RPC's own text is the most accurate thing we can say, and it is
@@ -588,6 +632,30 @@ serve(async (req: Request) => {
   }
 
   const H = getResponseHeaders(req);
+
+  // ── A-3 — THE ORDER THIS REQUEST CREATED, until a PaymentIntent is handed
+  // back (DESIGN-198-FINAL §4.2 A-3, §5 scenario 12, §10 risk 5, G13).
+  //
+  // After 198, `create_primary_checkout` BINDS the named holds to the order it
+  // creates (§3.1 BLOCK B), and a hold bound to a pending order is not
+  // bindable by another (I1, O6). So every refusal between the RPC's `ok` and
+  // the 200 below — total_mismatch, quote_incoherent, a non-USD order, a
+  // missing org_id, a Stripe Customer or PI failure, a payments insert failure
+  // — used to strand the buyer's holds on an order nobody can pay: a retry
+  // with a new key answered hold_invalid until the 10-minute TTL.
+  //
+  // Set ONLY on a fresh `ok` (never on a replay: only the request that created
+  // the order runs this path, so no client holds a client_secret for it, which
+  // is what makes the cancel safe). Cleared on every path that hands a PI
+  // back or reports the order paid — a paid order must never be cancelled.
+  // `abortFreshOrder` runs on each explicit refusal and, as a backstop, in the
+  // top-level catch (a thrown Customer step lands there).
+  let a3OrderId: string | null = null;
+  const abortFreshOrder = async (stage: string): Promise<void> => {
+    const id = a3OrderId;
+    a3OrderId = null;
+    if (id !== null) await cancelJustCreatedOrder(id, stage);
+  };
 
   try {
     // ── 1. Authentication (C35: the actor is server-derived, never a body field)
@@ -740,7 +808,11 @@ serve(async (req: Request) => {
     });
 
     if (rpcErr) {
-      logStage('rpc-refused', { code: rpcErr.code ?? null, message: rpcErr.message });
+      // `details` (§4.2 A-1, §4.1 row 4): 198's BLOCK B refusal keeps the 188
+      // message and adds a USING DETAIL with `bound_to_pending_order_units` /
+      // `other_batch_units` — the only way to tell "bound to your other order"
+      // from "split across batches" (G3). Logged here; never put in a body.
+      logStage('rpc-refused', { code: rpcErr.code ?? null, message: rpcErr.message, details: rpcErr.details ?? null });
       const mapped = mapRpcError(rpcErr);
       // Activation blockers go to Sentry too: they silently stop EVERY direct
       // sale, and an operator must not have to read edge logs to find out.
@@ -783,6 +855,10 @@ serve(async (req: Request) => {
       // OWNER-OWED (E2-RT-A-6): slice 30 must add this to the SUCCESS return.
       // Needed only for `metadata[org_id]`; absent ⇒ fail closed at §9.
       org_id?:             string;
+      // 198 (§3.1 BLOCKS P1/P3, §4.1 row 2, O17): on BOTH replay returns only.
+      // `holds_live` is NULL when the order has no bound hold. Read at §9c.
+      order_status?:       string;
+      holds_live?:         boolean | null;
     };
     const order = rpcData as CheckoutResult | null;
     if (!order?.order_id || typeof order.total_minor !== 'number') {
@@ -796,12 +872,16 @@ serve(async (req: Request) => {
     logStage('order', {
       order_id: orderId, rpc_status: order.status ?? null, face_minor: faceMinor, replay: isReplay,
     });
+    // A-3: armed only on PROOF this request created the order (`ok`), never on
+    // a replay and never on a status this function does not recognise.
+    if (order.status === 'ok') a3OrderId = orderId;
 
     // Only USD is supported by the charge path below. A non-USD order is a
     // refusal, not an assumption — an unhandled currency would otherwise be
     // charged in the wrong denomination.
     if (currency !== 'USD') {
       await captureException('primary-checkout', new Error(`unsupported order currency ${currency}`), { order_id: orderId });
+      await abortFreshOrder('unsupported-currency');
       return json({ error: 'This event cannot be checked out yet.', code: 'unsupported_currency' }, 409, H);
     }
 
@@ -864,6 +944,10 @@ serve(async (req: Request) => {
         new Error('create_primary_checkout returned no org_id — slice 30 must add it to the success return (E2-RT-A-6)'),
         { order_id: orderId, activation_blocker: true },
       );
+      // A-3: not in §4.2 A-3's list of cases, but it is a refusal after `ok`
+      // and before any PI — the rule the list illustrates — so it releases
+      // the holds the same way.
+      await abortFreshOrder('org-id-missing');
       return json(
         { error: 'Ticket sales are not available yet for this event.', code: 'org_id_unavailable' },
         503,
@@ -895,6 +979,150 @@ serve(async (req: Request) => {
     //
     // DO NOT "restore" this check by granting the service key table access.
     // That trades a real roster exposure for a redundant assertion.
+
+    // ── 9c. A-2 — THE REPLAY RULE (DESIGN-198-FINAL §4.2 A-2, §4.1 row 2) ──
+    //
+    // 198 puts the flag gate AFTER the replay (O1), so a replay still answers
+    // while sales are paused, and it adds `order_status` + `holds_live` to both
+    // replay returns (G5, O17) precisely so this function can stop handing a
+    // PaymentIntent back for an order that has lapsed or been cancelled
+    // (§5 scenario 11). Decided from the RPC's answer alone, BEFORE the Stripe
+    // Customer step: a refusal mints no ephemeral key.
+    //
+    // §4.2 A-2 as written:
+    //   paid                          → already_paid (the existing answer)
+    //   cancelled                     → 409 hold_invalid ("start again")
+    //   pending, holds_live not true  → 409 hold_invalid + best-effort cancel of
+    //                                   the order's live PI (the A-6 canceller)
+    //   otherwise                     → the existing recoverReplayQuote path
+    //
+    // REFINEMENTS — A's (release integration), RATIFIED by D (the SQL owner)
+    // as an amendment to DESIGN-198-FINAL §4.2 A-2, with D's changes C1 (R2)
+    // and C2 (R5 anomaly). Each is pinned in
+    // tests/primary-checkout-198-arms.test.ts.
+    //
+    //   R1. NO `order_status` KEY (the pre-198 replay shape) is the literal
+    //       "otherwise": recoverReplayQuote, exactly the pre-198 behaviour. A
+    //       198 rollback with this edge still deployed therefore keeps
+    //       double-tap recovery working instead of 503-ing every replay.
+    //   R2. `order_status` PRESENT but not one of the five values
+    //       venue."order".status is CHECK-constrained to (pending, paid,
+    //       partially_refunded, refunded, cancelled) — including NULL: 198 is
+    //       deployed and answered something this edge cannot read, so
+    //       liveness is unknowable. D's C1: TERMINAL 409
+    //       replay_state_unavailable, no Retry-After — the same key can never
+    //       read differently, so a retryable 503 only taught clients to loop on
+    //       it — plus the activation-blocker alert. No client_secret leaves on
+    //       an unproven order.
+    //   R3. `refunded` / `partially_refunded` are a paid order later refunded:
+    //       already_paid, never a client_secret (C1: pinned, never R2).
+    //   R4. "holds_live is not true" is literal: false, NULL (no bound hold)
+    //       and a missing key all refuse.
+    //   R5. A lapsed pending order's answer follows what the best-effort cancel
+    //       found, because "start again" while the first PI can still take
+    //       money invites a second purchase:
+    //         • a PI already SUCCEEDED (finalize in flight — §5 scenario 4
+    //           still mints a ticket for it) → already_paid. A paid order
+    //           always speaks first; the mobile app depends on it.
+    //         • TRANSIENT — a PI processing, our cancel refused (R9), or Stripe
+    //           / the candidate read could not be read (`in_flight` / `error`)
+    //           → 503 replay_recovery_failed + Retry-After 10, retry the SAME
+    //           key: the next attempt sees the settled state.
+    //         • ANOMALY — a PI state that is permanent for this rail (e.g.
+    //           requires_capture: every PI here is automatic-capture) or that
+    //           the canceller cannot classify as transient → 409 hold_invalid
+    //           plus an alert (activation_blocker false) naming the order and
+    //           the PI. Never a 503: the state will not change, so a same-key
+    //           retry would answer 503 forever. D's C2: a requires_capture PI
+    //           is first CANCELLED (pi_lapse_cancel_{pi}) to release the
+    //           buyer's authorization, unless a sibling PI is succeeded or
+    //           processing (D3); a refused cancel still answers 409, and the
+    //           alert says the authorization may still be held. Nothing else
+    //           is touched (order-pis.ts, precedence step 3).
+    //         • otherwise (`cancel_requested` / `order_cancelled` / `no_pi`)
+    //           → 409 hold_invalid after the best-effort cancel: the design's
+    //           literal rule.
+    if (isReplay && !('order_status' in order)) {
+      // R1: the pre-198 shape. Straight to §10/§11, as before 198.
+      logStage('replay-pre-198-shape', { order_id: orderId });
+    } else if (isReplay) {
+      const replayStatus = order.order_status;
+      if (replayStatus === 'paid' || replayStatus === 'partially_refunded' || replayStatus === 'refunded') {
+        logStage('replay-paid', { order_id: orderId, order_status: replayStatus });
+        return json({ error: 'Payment already completed for this order.', code: 'already_paid' }, 409, H);
+      }
+      if (replayStatus === 'cancelled') {
+        logStage('replay-cancelled', { order_id: orderId });
+        return json({ ...HOLD_INVALID_BODY }, 409, H);
+      }
+      if (replayStatus !== 'pending') {
+        // R2 (C1): present, but not one of the CHECK set's five. TERMINAL —
+        // 409, no Retry-After — so no client loops on the same key.
+        logStage('replay-state-unavailable', { order_id: orderId, order_status: replayStatus ?? null });
+        await captureException(
+          'primary-checkout',
+          new Error(`idempotency_replay carried an unrecognised order_status (${String(replayStatus)}) — DESIGN-198-FINAL §4.1 row 2 names paid / cancelled / pending`),
+          { order_id: orderId, activation_blocker: true },
+        );
+        return json(
+          { error: 'This order cannot be resumed. Please contact support.', code: 'replay_state_unavailable' },
+          409,
+          H,
+        );
+      }
+      if (order.holds_live !== true) {
+        const lapse = await cancelLapsedOrderPaymentIntents(
+          { service, venueService: venueServiceClient, stripeFetchRaw },
+          // sessionId null: only the REQUEST's session is known here, and a
+          // command_key replayed across sessions (C16) makes it differ from
+          // the order's. The RPC's order id is the authority.
+          { orderId, buyerId, faceMinor, sessionId: null },
+        );
+        logStage('replay-lapsed', {
+          order_id: orderId, holds_live: order.holds_live ?? null, outcome: lapse.kind,
+          pi_ids: 'piIds' in lapse ? lapse.piIds : 'piId' in lapse ? [lapse.piId] : [],
+        });
+        if (lapse.kind === 'paid') {
+          return json({ error: 'Payment already completed for this order.', code: 'already_paid' }, 409, H);
+        }
+        if (lapse.kind === 'in_flight' || lapse.kind === 'error') {
+          // R5 transient: the same key will see the settled state.
+          if (lapse.kind === 'error') {
+            await captureException('primary-checkout', new Error(`lapsed replay: ${lapse.detail}`), { order_id: orderId });
+          }
+          return json(
+            { error: 'Service temporarily unavailable. Please try again shortly.', code: 'replay_recovery_failed' },
+            503,
+            { ...H, 'Retry-After': '10' },
+          );
+        }
+        if (lapse.kind === 'anomaly') {
+          // R5 anomaly: permanent, so never a 503 — alert, then "start again".
+          // C2: a requires_capture PI's cancel was already attempted; the alert
+          // carries whether its authorization was released or may still be
+          // held (also in `detail`), and the answer is 409 either way.
+          // NOT once-per-order, unlike primary-lapse-canceller's anomaly alert
+          // (its webhook_retries marker): that job re-meets the same order
+          // every 1-2 minutes, so it needs one. This alert fires only when a
+          // buyer replays this same command_key against the lapsed order —
+          // rare and buyer-driven, one alert per tap, never a schedule — so
+          // each one stays loud, and checkout takes no marker read/write.
+          await captureException(
+            'primary-checkout',
+            new Error(`lapsed replay anomaly: ${lapse.detail}`),
+            {
+              order_id: orderId, pi_id: lapse.piId, activation_blocker: false,
+              ...(lapse.authorization ? { authorization: lapse.authorization } : {}),
+            },
+          );
+          return json({ ...HOLD_INVALID_BODY }, 409, H);
+        }
+        // cancel_requested | order_cancelled | no_pi — no PI of this order can
+        // still be confirmed.
+        return json({ ...HOLD_INVALID_BODY }, 409, H);
+      }
+      // pending + holds_live true: fall through to §10/§11, unchanged.
+    }
 
     // ── 10. Stripe Customer + ephemeral key (PaymentSheet needs both) ──────
     const customerCtx = await ensureStripeCustomerAndEphemeralKey(service, buyerId, user.email ?? null);
@@ -942,14 +1170,28 @@ serve(async (req: Request) => {
         // and the RPC will not re-derive it for a replay. Inventing one here is
         // exactly the failure this branch exists to prevent.
         //
-        // So: refuse, and tell the client to start a fresh checkout with a NEW
-        // command_key, which takes the success path and gets a real quote. The
-        // stranded order stays `pending` and its capacity returns via the 081
-        // hold-TTL sweep. Documented as RES-1.
+        // So: refuse. Documented as RES-1.
+        //
+        // A-4 (DESIGN-198-FINAL §4.2 A-4, §5 scenario 13, §10 risk 6). Before
+        // 198 the way out was a NEW command_key on the same holds. After 198
+        // that is refused: the holds are BOUND to this stranded pending order
+        // (§3.1 BLOCK B, O6) until their TTL. So the client is told to restart
+        // from TICKET SELECTION with a new reserve. The response contract is
+        // kept exactly — 409, `code: 'quote_unavailable'`, no Retry-After, the
+        // same two keys — and only the human text changes to say where to
+        // restart; the client keys on `code`.
+        //
+        // A-4's OPTION (cancel the stranded order after a Stripe search proves
+        // no PI exists) is deliberately NOT taken: the only exact search we
+        // have is the capped candidate read above, Stripe's search API was
+        // rejected as eventually consistent, and §10 risk 6 calls
+        // cancel-after-proof unsafe without an authoritative one. The order
+        // stays `pending`; its holds return at TTL and A-6 leaves a PI-less
+        // lapsed order alone (order-pis.ts `no_pi`).
         logStage('replay-no-quote', { order_id: orderId });
         return json(
           {
-            error: 'This checkout expired. Please start again.',
+            error: 'This checkout expired. Please select your tickets again.',
             code:  'quote_unavailable',
           },
           409,
@@ -1064,6 +1306,7 @@ serve(async (req: Request) => {
         ),
         { order_id: orderId },
       );
+      await abortFreshOrder('quote-incoherent');
       return json({ error: 'Checkout could not be completed. Please try again.', code: 'quote_incoherent' }, 500, H);
     }
     logStage('quote', { order_id: orderId, face: faceMinor, fee: feeMinor, charge: totalMinor });
@@ -1074,6 +1317,10 @@ serve(async (req: Request) => {
     // charges the RPC's number either way.
     if (totalMismatch(expected_total_cents, totalMinor)) {
       logStage('total-mismatch', { order_id: orderId, server_total_cents: totalMinor });
+      // A-3: §5 scenario 12 — the case that found the duty. The client will
+      // retry with a new key once it has shown the new total; without this the
+      // retry is refused hold_invalid until the TTL.
+      await abortFreshOrder('total-mismatch');
       return json(
         {
           error:              'Price changed. Please review the updated total and try again.',
@@ -1113,7 +1360,18 @@ serve(async (req: Request) => {
     const piBody: Record<string, string> = {
       'amount':                             String(totalMinor),
       'currency':                           'usd',
-      'automatic_payment_methods[enabled]': 'true',
+      // ── A-7 (DESIGN-198-FINAL §4.2 A-7, O12, §5 scenario 19) — CARD ONLY.
+      // 198 binds a hold for 10 minutes and A-6 cancels the PI of a lapsed
+      // order; a payment method that settles days later (ACH, SEPA, …) would
+      // sit `processing` past every lapse and land as `refund_required`.
+      // `automatic_payment_methods[enabled]` offers whatever the Dashboard has
+      // switched on, which no code here can see, so it cannot be PROVEN
+      // immediate-only — it is pinned instead. `card` settles synchronously,
+      // and Apple Pay / Google Pay are card wallets, so PaymentSheet keeps
+      // them. Stripe refuses the two parameters together, so `automatic_*` is
+      // gone, not just shadowed. (The idempotency key is unchanged: a fresh
+      // order is minted once, and a replay re-reads rather than re-POSTs.)
+      'payment_method_types[0]':            'card',
       'customer':                           customerCtx.customerId,
       // 'on_session': the buyer is present; the card is saved for their next
       // checkout. Never 'off_session' — we initiate no merchant-side charges.
@@ -1159,6 +1417,9 @@ serve(async (req: Request) => {
       const detail = stripeErr instanceof Error ? stripeErr.message : String(stripeErr);
       logStage('pi-create-failed', { order_id: orderId, error: detail });
       await captureException('primary-checkout', stripeErr, { order_id: orderId, stage: 'pi-create' });
+      // A-3. Even if Stripe DID create a PI behind a lost response, its
+      // client_secret never left this function, so nothing can confirm it.
+      await abortFreshOrder('pi-create');
       return json({ error: 'Failed to create payment intent' }, 500, H);
     }
 
@@ -1166,6 +1427,8 @@ serve(async (req: Request) => {
       // The idempotent replay handed back an already-paid PI. The webhook owns
       // issuance from here; handing PaymentSheet a spent client_secret would
       // only produce a confusing client error.
+      // A-3: disarmed — money won; cancelling would strand that payment.
+      a3OrderId = null;
       logStage('pi-already-succeeded', { order_id: orderId, pi_id: pi.id });
       return json({ error: 'Payment already completed for this order.', code: 'already_paid' }, 409, H);
     }
@@ -1212,9 +1475,12 @@ serve(async (req: Request) => {
         await captureException('primary-checkout', new Error('payments row for this PI belongs to another buyer'), {
           order_id: orderId, pi_id: pi.id,
         });
+        // A-3: the PI's client_secret has not left this function.
+        await abortFreshOrder('payments-row-foreign');
         return json({ error: 'Checkout could not be completed. Please try again.' }, 500, H);
       }
       if (ep.status === 'succeeded') {
+        a3OrderId = null; // A-3: disarmed — money won
         return json({ error: 'Payment already completed for this order.', code: 'already_paid' }, 409, H);
       }
       logStage('payments-row-reused', { order_id: orderId, pi_id: pi.id, status: ep.status });
@@ -1257,6 +1523,7 @@ serve(async (req: Request) => {
               order_id: orderId, pi_id: pi.id,
             });
             await cancelOrphanPi(pi.id);
+            await abortFreshOrder('payments-insert-race'); // A-3, after cancelOrphanPi (§4.2 A-3)
             return json({ error: 'Failed to record payment. Please try again.' }, 500, H);
           }
         } else {
@@ -1271,6 +1538,7 @@ serve(async (req: Request) => {
             { order_id: orderId, pi_id: pi.id, activation_blocker: isShapeWall },
           );
           await cancelOrphanPi(pi.id);
+          await abortFreshOrder('payments-insert'); // A-3, after cancelOrphanPi (§4.2 A-3)
           return json(
             isShapeWall
               ? { error: 'Ticket sales are not available yet for this event.', code: 'payments_shape_unmigrated' }
@@ -1296,6 +1564,7 @@ serve(async (req: Request) => {
     // the order total as the whole charge, which A5 made false.) `amount` and
     // `buyer_fee` exist to itemize the total on a receipt, never to be displayed
     // as "the price".
+    a3OrderId = null; // A-3: the PI is handed back — the order is no longer this request's to abort
     return json(
       {
         order_id:                   orderId,
@@ -1313,6 +1582,10 @@ serve(async (req: Request) => {
       H,
     );
   } catch (err) {
+    // A-3 backstop: a throw after a fresh `ok` (the Stripe Customer step throws
+    // here by design) still releases the order's holds. The answer below is
+    // exactly what it was before 198.
+    await abortFreshOrder('unhandled');
     const message = err instanceof Error ? err.message : '';
     const isAuthError = /authorization|token/i.test(message);
     if (isAuthError) {
@@ -1348,25 +1621,16 @@ serve(async (req: Request) => {
  * where it holds USAGE at most (RT-A-6). Stripe is an external API. Nothing here
  * touches a Phase-2 table.
  *
- * HOW THE ROW IS FOUND, GIVEN THERE IS NO `payments.order_id`. There is no such
- * column and there never will be (EDGE_FUNCTION_SPEC §9 recon #1), and
- * `kernel.payment_native` is not written until finalize, so no order→payment
- * link exists at checkout time. The lookup is therefore two-stage:
- *
- *   1. CANDIDATES — a narrow selector on facts known at replay:
- *      (buyer_id, mode='native_primary', amount=faceMinor, non-terminal status).
- *      This is a FILTER, NOT an identification: two pending orders for the same
- *      buyer at the same face total would both match.
- *   2. CONFIRMATION — each candidate's PaymentIntent is retrieved and its
- *      `metadata.order_id` must equal this order, and `metadata.rail` must be
- *      `native_primary`. **The PI metadata is the authority**; the DB selector
- *      only narrows the search. That is what makes this exact rather than
- *      heuristic.
- *
- * Stripe's PaymentIntent *search* API was rejected for this: it is eventually
- * consistent (~a minute), and the dominant replay case is a double-tap seconds
- * apart, which search would miss — producing a spurious "no quote" exactly when
- * the buyer is most likely to be looking at the sheet.
+ * HOW THE ROW IS FOUND, GIVEN THERE IS NO `payments.order_id`: the two-stage
+ * search (a capped candidate FILTER on public.payments, then each candidate's
+ * PI metadata as the AUTHORITY) now lives in `./order-pis.ts`
+ * `searchOrderPaymentIntents`, unchanged in behaviour. It was extracted, not
+ * copied, because DESIGN-198-FINAL §4.2 A-6 step 2 has the lapse canceller
+ * "find the PaymentIntent using recoverReplayQuote's search"; one search means
+ * the replay path and the canceller can never disagree about which PI is this
+ * order's. This function keeps what is replay-specific: its candidate statuses
+ * (REPLAY_CANDIDATE_STATUSES, unchanged), the in-flight re-read, and the
+ * reusable / paid / none / ambiguous classification.
  *
  * `sessionId` rides back out of the PI's own metadata so the caller can catch a
  * `command_key` replayed against a different session. See the C16 note in §11.
@@ -1406,16 +1670,6 @@ async function recoverReplayQuote(
   faceMinor: number,
   buyerId: string,
 ): Promise<ReplayRecovery> {
-  type Row = {
-    amount: number; buyer_fee: number; total: number;
-    status: string; stripe_payment_intent_id: string | null;
-  };
-
-  type Confirmed = {
-    row: Row; piId: string; status: string; clientSecret: string | null; sessionId: string | null;
-  };
-  type Look = { kind: 'error'; detail: string } | { kind: 'looked'; confirmed: Confirmed[] };
-
   // PI ids a look has already shown cannot be this order's: Stripe answered
   // 404, or the PI's own metadata names another order or rail. Neither can
   // change (we never edit metadata after the mint), so the re-read below does
@@ -1423,78 +1677,11 @@ async function recoverReplayQuote(
   // exactly these.
   const ruledOut = new Set<string>();
 
-  const look = async (): Promise<Look> => {
-    let candidates: Row[];
-    try {
-      const { data, error } = await service
-        .from('payments')
-        .select('amount, buyer_fee, total, status, stripe_payment_intent_id')
-        .eq('buyer_id', buyerId)
-        .eq('mode', PAYMENTS_MODE_NATIVE_PRIMARY)
-        .eq('amount', faceMinor)
-        .in('status', ['pending', 'processing', 'succeeded'])
-        // NEWEST FIRST, BEFORE THE CAP (primary-checkout-4a). `succeeded` rows
-        // accumulate for good, so a repeat buyer at one price point (a weekly
-        // $25 GA ticket) can hold 10+ historic matches; with no ORDER BY the cap
-        // could return only those and leave this order's row out, answering a
-        // live PI 409 quote_unavailable. A replay is for a recent attempt, so
-        // its row is among the newest.
-        .order('created_at', { ascending: false })
-        // Bounded: this drives one Stripe GET per candidate. A buyer with more
-        // than a handful of concurrent same-priced native orders is pathological.
-        .limit(10);
-      if (error) return { kind: 'error', detail: error.message };
-      candidates = (data ?? []) as Row[];
-    } catch (err) {
-      return { kind: 'error', detail: err instanceof Error ? err.message : String(err) };
-    }
-
-    const confirmed: Confirmed[] = [];
-
-    for (const row of candidates) {
-      const rowPiId = row.stripe_payment_intent_id;
-      if (!rowPiId || ruledOut.has(rowPiId)) continue;
-      // A probe that THROWS (network failure, timeout) is "could not look" too,
-      // the same as a 5xx below. Uncaught, it escaped to the top-level catch: a
-      // bare 500 'Internal server error' instead of the retryable 503
-      // replay_recovery_failed + Retry-After that keeps the client on the SAME
-      // key.
-      let probe: Awaited<ReturnType<typeof stripeFetchRaw>>;
-      try {
-        probe = await stripeFetchRaw(`/payment_intents/${rowPiId}`);
-      } catch (err) {
-        return {
-          kind:   'error',
-          detail: `stripe GET payment_intent ${rowPiId} threw: ${err instanceof Error ? err.message : String(err)}`,
-        };
-      }
-      // 404: Stripe has no such PI, so it cannot confirm anything — skip it.
-      // ANY OTHER failure (429, 5xx, auth) means "could not look", not "not
-      // ours" (primary-checkout-4b). Skipping it would turn a transient Stripe
-      // fault into `none` → 409 quote_unavailable, which sends the client to a
-      // NEW command_key: a second order and a second PI on the same holds.
-      // `error` → 503 replay_recovery_failed + Retry-After, and the retry with
-      // the SAME key finds the same PI.
-      if (probe.status === 404) { ruledOut.add(rowPiId); continue; }
-      if (!probe.ok) {
-        return { kind: 'error', detail: `stripe GET payment_intent ${rowPiId} answered ${probe.status}` };
-      }
-      const pi = probe.data as {
-        id?: string; status?: string; client_secret?: string; metadata?: Record<string, string>;
-      };
-      // THE AUTHORITATIVE CHECK. Both must match: the order this PI was minted
-      // for, and the rail that minted it.
-      if (pi.metadata?.order_id !== orderId || pi.metadata?.rail !== RAIL_NATIVE_PRIMARY || !pi.id) {
-        ruledOut.add(rowPiId);
-        continue;
-      }
-      confirmed.push({
-        row, piId: pi.id, status: pi.status ?? 'unknown', clientSecret: pi.client_secret ?? null,
-        sessionId: pi.metadata?.session_id ?? null,
-      });
-    }
-    return { kind: 'looked', confirmed };
-  };
+  const look = () => searchOrderPaymentIntents(
+    { service, stripeFetchRaw },
+    { orderId, faceMinor, buyerId, statuses: REPLAY_CANDIDATE_STATUSES },
+    ruledOut,
+  );
 
   let found = await look();
   if (found.kind === 'error') return found;
@@ -1560,5 +1747,59 @@ async function cancelOrphanPi(piId: string): Promise<void> {
     logStage('orphan-pi-canceled', { pi_id: piId });
   } catch (cancelErr) {
     console.warn('primary-checkout: PI cancel after failed record:', cancelErr);
+  }
+}
+
+/**
+ * A service_role client bound to the `venue` schema, for the two venue verbs
+ * this function calls as the machine (never as the buyer, EA-1):
+ * `cancel_pending_order` (A-3, and A-2 through the lapse canceller). PFA-15
+ * opened `venue` to service_role for exactly this verb (085:2088-2091); it is
+ * the same client stripe-webhook builds for it (stripe-webhook/index.ts:550-553).
+ */
+function venueServiceClient(): ReturnType<typeof createClient> {
+  return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+    auth: { autoRefreshToken: false, persistSession: false },
+    db:   { schema: 'venue' },
+  });
+}
+
+/**
+ * A-3 (DESIGN-198-FINAL §4.2 A-3): cancel the order THIS request created,
+ * because it is refusing before any PaymentIntent reached the client.
+ *
+ *   venue.cancel_pending_order(order, 'payment_failed', 'edge_abort:'||order)
+ *
+ * 'payment_failed' is the closed reason set of one (082:§20.7.9). The key is
+ * deterministic in the order, so a repeat is `noop_replay`. 'cancelled' is
+ * terminal and releases no hold (§3.4), which is exactly what makes the holds
+ * rebindable at once (I1: bindable when unbound OR bound to a cancelled order).
+ *
+ * Best-effort and NON-FATAL, like cancelOrphanPi: the request is already being
+ * refused and its answer must not change. A failure leaves today's behaviour
+ * (holds return at TTL; the order lapses and A-6 finds no PI) and is reported.
+ */
+async function cancelJustCreatedOrder(orderId: string, stage: string): Promise<void> {
+  try {
+    const { data, error } = await venueServiceClient().rpc('cancel_pending_order', {
+      p_order_id:    orderId,
+      p_reason_code: CANCEL_REASON_PAYMENT_FAILED,
+      p_command_key: edgeAbortCommandKey(orderId),
+    });
+    if (error) {
+      logStage('abort-order-cancel-failed', { order_id: orderId, abort_at: stage, code: error.code ?? null, message: error.message });
+      await captureException('primary-checkout', new Error(`edge_abort cancel_pending_order failed: ${error.message}`), {
+        order_id: orderId, abort_at: stage,
+      });
+      return;
+    }
+    // `abort_at`, not `stage`: logStage spreads the detail AFTER its own
+    // `stage`, so a `stage` key here would overwrite the line's stage name.
+    logStage('abort-order-cancelled', {
+      order_id: orderId, abort_at: stage, status: (data as { status?: string } | null)?.status ?? null,
+    });
+  } catch (err) {
+    logStage('abort-order-cancel-failed', { order_id: orderId, abort_at: stage, message: err instanceof Error ? err.message : String(err) });
+    await captureException('primary-checkout', err, { order_id: orderId, stage: `edge_abort:${stage}` });
   }
 }

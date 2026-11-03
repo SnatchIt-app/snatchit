@@ -42,7 +42,8 @@
  *     the first request has written its payments row re-reads ONCE after a
  *     short wait (PRIMARY_CHECKOUT_REPLAY_REREAD_MS, default 2000; '0' here so
  *     the suite does not sleep) and finds that row. If it still finds nothing,
- *     the answer is today's 409 quote_unavailable, unchanged.
+ *     the answer is today's 409 quote_unavailable (since 198's A-4 its text
+ *     sends the buyer back to ticket selection; status and code unchanged).
  */
 import { describe, expect, it } from 'vitest';
 import { authedJsonRequest, json, loadEdgeHandler, mockStripe, mockSupabase, type QueryCall, type StripeCall } from './helpers/edge-vm';
@@ -149,8 +150,21 @@ async function world(opts: WorldOpts = {}) {
         const k = `${BUYER}|${String(params.p_command_key)}`;
         const existing = orders.get(k);
         // 20261027031000:190-191 (and the unique_violation loser, :496-497):
-        // status/order_id/total_minor/currency ONLY — no org_id, no fee fields.
-        if (existing) return { data: { status: 'idempotency_replay', order_id: existing, total_minor: FACE, currency: 'USD' } };
+        // status/order_id/total_minor/currency — no org_id, no fee fields.
+        // Registry 198 (DESIGN-198-FINAL §3.1 BLOCKS P1/P3, §4.1) adds
+        // order_status + holds_live to both; this suite is about the replay
+        // path proper, so its order is always pending with live holds — one
+        // of the two shapes A-2 lets through to recoverReplayQuote (the other
+        // is a replay with no order_status key at all, the pre-198 shape). A-2's
+        // other arms are pinned in primary-checkout-198-arms.test.ts.
+        if (existing) {
+          return {
+            data: {
+              status: 'idempotency_replay', order_id: existing, total_minor: FACE, currency: 'USD',
+              order_status: 'pending', holds_live: true,
+            },
+          };
+        }
         const orderId = orderUuid(orders.size + 1);
         orders.set(k, orderId);
         // :515-519 — the success return, the ONLY one carrying org_id.
@@ -161,6 +175,11 @@ async function world(opts: WorldOpts = {}) {
           },
         };
       }
+      // cancel_pending_order is DELIBERATELY unmodelled: it answers this error,
+      // so A-3's abort-cancel (DESIGN-198-FINAL §4.2 A-3) fails and a dead
+      // attempt's order stays pending — the RES-1 state this suite needs (a
+      // process that died outside any catch, or whose abort-cancel failed).
+      // The successful abort is pinned in primary-checkout-198-arms.test.ts.
       return { error: { message: `unmocked rpc ${name}` } };
     },
     tables: {
@@ -467,7 +486,8 @@ describe('review follow-up — the in-flight same-key race: ONE re-read before a
 
   it('if the re-read still finds nothing, the answer is today\'s 409 quote_unavailable, unchanged, after exactly one re-read', async () => {
     const w = await world();
-    // the first attempt dies before any PI: an order exists, no PI, no row
+    // the first attempt dies before any PI (and its A-3 abort-cancel fails,
+    // see the rpc fake): an order exists, pending, no PI, no row
     const first = await w.run('cmd-dead', { expected_total_cents: CHARGE + 1 });
     expect(first.res.status).toBe(409);
     expect(first.body.code).toBe('total_mismatch');
@@ -475,7 +495,8 @@ describe('review follow-up — the in-flight same-key race: ONE re-read before a
 
     const retry = await w.run('cmd-dead');
     expect(retry.res.status).toBe(409);
-    expect(retry.body).toEqual({ error: 'This checkout expired. Please start again.', code: 'quote_unavailable' });
+    // A-4 (§4.2 A-4): same status and code; the text now says where to restart
+    expect(retry.body).toEqual({ error: 'This checkout expired. Please select your tickets again.', code: 'quote_unavailable' });
     expect(retry.res.headers.get('Retry-After')).toBeNull();
     expect(w.candidateReadAt).toHaveLength(2);
     expect(w.piMints()).toHaveLength(0);
