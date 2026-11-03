@@ -60,6 +60,8 @@ function harness(opts: {
   env?: Record<string, string>;
   /** The secret the delivery is signed with (default SECRET). */
   signWith?: string;
+  /** stripeFetchRaw route (default: every call fails 500). */
+  stripe?: (path: string) => { ok: boolean; status: number; data: unknown };
 } = {}) {
   const rpc: RpcHandler = (name, params, schema) => {
     const scripted = opts.rpc?.[name];
@@ -85,7 +87,7 @@ function harness(opts: {
       supabase: sb,
       env: opts.env ?? ENV,
       fetch: opts.fetch ?? ((async () => new Response('{}', { status: 200 })) as unknown as typeof fetch),
-      provide: { stripeFetchRaw: async () => ({ ok: false, status: 500, data: {} }), AbortSignal },
+      provide: { stripeFetchRaw: async (path: string) => (opts.stripe ? opts.stripe(path) : { ok: false, status: 500, data: {} }), AbortSignal },
     });
     const res = await edge.handler(signedStripeWebhookRequest(opts.signWith ?? SECRET, event));
     return { res, body: await json(res), edge };
@@ -330,6 +332,17 @@ describe('account.updated — the organization arm', () => {
     expect(h.rpcNames()).toEqual(['claim_stripe_webhook_event', 'complete_stripe_webhook_event']);
     expect(h.sb.clients).toHaveLength(1);
   });
+
+  // webhook-ingress-2: the seller-plane profile write failing used to release
+  // the lease and still answer 200, so Stripe never redelivered and a lost
+  // capability stayed `true` on the profile (listing guard 072, payout policy).
+  it('webhook-ingress-2 a seller account whose profile write FAILS is retried (500, lease released), never ACKed', async () => {
+    const h = harness({ profiles: () => ({ error: { message: 'canceling statement due to statement timeout' } }) });
+    const { res } = await h.deliver(orgAccount({ metadata: { user_id: 'user-1' }, capabilities: undefined, charges_enabled: false, payouts_enabled: false }));
+    expect(res.status).toBe(500);
+    expect(h.rpcNames()).toEqual(['claim_stripe_webhook_event', 'fail_stripe_webhook_event']);
+    expect(h.rpcNames()).not.toContain('complete_stripe_webhook_event');
+  });
 });
 
 describe('native disputes and reversals (R-40: the dispute substrate before any issuance flag)', () => {
@@ -461,7 +474,13 @@ describe('marketplace (P2P) paths take exactly their pre-restore path through th
   });
 
   it('charge.refunded: one record_refund_state per refund, one client, body unchanged', async () => {
-    const h = harness({ rpc: { record_refund_state: () => ({ data: { recorded: true } }) } });
+    // refunds-6: the embedded refund is re-read; Stripe serves its current state.
+    const h = harness({
+      rpc: { record_refund_state: () => ({ data: { recorded: true } }) },
+      stripe: (path) => (path === '/refunds/re_m2'
+        ? { ok: true, status: 200, data: { id: 're_m2', status: 'succeeded', amount: 22000, payment_intent: 'pi_m2' } }
+        : { ok: false, status: 404, data: {} }),
+    });
     const { res, body } = await h.deliver({
       id: 'evt_m2', type: 'charge.refunded', created: created(),
       data: { object: {
@@ -580,6 +599,27 @@ describe('account.application.deauthorized — a disconnected payout destination
     expect(res.status).toBe(200);
     expect(body).toMatchObject({ reason: 'org_deauthorized_not_applied', status: 'noop_replay' });
     expect(h.reviewRows()).toHaveLength(1);
+  });
+
+  // connect-3: noop_replay comes back from TWO SQL arms (093:3559-3564 the
+  // out-of-order guard, 3570-3576 the heartbeat). Only the returned
+  // connect_transfers_active says whether the org is still payable.
+  it('connect-3 noop_replay with connect_transfers_active=false (already inactive, or a redelivery of an applied deauth) is labelled org_deauthorized, still loud', async () => {
+    const h = harness({ rpc: { sync_org_connect_state: () => ({ data: { status: 'noop_replay', org_id: ORG, connect_transfers_active: false } }) } });
+    const { res, body, edge } = await h.deliver(deauth());
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({ reason: 'org_deauthorized', status: 'noop_replay' });
+    expect(edge.sentry).toHaveLength(1);
+    expect(h.reviewRows()).toHaveLength(1);
+    expect(h.reviewRows()[0].error_message).toBe(`org_deauthorized:account.application.deauthorized:evt_d1:${ACCT}`);
+  });
+
+  it('connect-3 noop_replay with connect_transfers_active=true (the org is STILL payable) keeps org_deauthorized_not_applied', async () => {
+    const h = harness({ rpc: { sync_org_connect_state: () => ({ data: { status: 'noop_replay', org_id: ORG, connect_transfers_active: true } }) } });
+    const { res, body } = await h.deliver(deauth());
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({ reason: 'org_deauthorized_not_applied', status: 'noop_replay' });
+    expect(h.reviewRows()[0].error_message).toBe(`org_deauthorized_not_applied:account.application.deauthorized:evt_d1:${ACCT}`);
   });
 
   it('an account no organization holds (a seller or never-bound account) is ACKed with an alert, nothing written', async () => {

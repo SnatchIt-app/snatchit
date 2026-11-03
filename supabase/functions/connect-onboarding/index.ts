@@ -98,7 +98,7 @@
  */
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
+import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
 import { captureException } from '../_shared/sentry.ts';
 import { stripeFetch, stripeFetchRaw } from '../_shared/stripe.ts';
 import { isSafeRedirect as isSafeRedirectFor, redirectHosts } from './redirect.ts';
@@ -216,7 +216,7 @@ type RateLimitResult = 'allowed' | 'over_limit' | 'error';
  * direction for a money-binding endpoint.
  */
 async function checkRateLimit(
-  service: ReturnType<typeof createClient>,
+  service: SupabaseClient,
   userId: string,
 ): Promise<RateLimitResult> {
   try {
@@ -295,7 +295,9 @@ function parseBody(raw: unknown): ParsedBody {
 // passes the org id; the RPC decides").
 // ─────────────────────────────────────────────────────────────────────────────
 
-type KernelClient = ReturnType<typeof createClient>;
+// Not ReturnType<typeof createClient>: on the generic createClient that collapses
+// the schema parameter to never, so `db: { schema: 'kernel' }` fails deno check.
+type KernelClient = SupabaseClient<any, 'kernel', any>;
 
 function callerClient(authHeader: string): KernelClient {
   // Anon key + the caller's Authorization: PostgREST runs this as
