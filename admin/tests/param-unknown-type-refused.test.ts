@@ -9,6 +9,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * the next admin release posts `param.due_at:et`; after a rollback to this release, a tab still showing the
  * newer form would clear a due date while the operator thinks they set one. This guard must ship BEFORE that
  * release, so a revert of that release cannot remove it.
+ *
+ * In the combined admin release head, #218 (bb5c5779) ships with this guard, so `:et` is a type this console
+ * reads. The guard is unchanged; the type refused here is now one no release reads yet (`:pt`), and `:et` is
+ * asserted to go out with its Eastern offset, never dropped.
  */
 const calls: { fn: string; args: Record<string, unknown> }[] = [];
 vi.mock("@/lib/ops", () => ({
@@ -42,13 +46,20 @@ beforeEach(() => {
 });
 
 describe("a param.* field with a type this console does not read", () => {
-  it("a newer release's `param.due_at:et` is refused before anything is sent, so the due date cannot be cleared", async () => {
-    const state = await submitActionForm({}, dueForm({ "param.due_at:et": "2026-11-01T23:59" }));
+  it("a newer release's `param.due_at:pt` is refused before anything is sent, so the due date cannot be cleared", async () => {
+    const state = await submitActionForm({}, dueForm({ "param.due_at:pt": "2026-11-01T23:59" }));
     expect(calls).toHaveLength(0);
     expect(state.invalid).toContain("This form is out of date");
-    expect(state.invalid).toContain("param.due_at:et");
+    expect(state.invalid).toContain("param.due_at:pt");
     expect(state.invalid).toContain("Nothing was changed.");
     expect(state.outcome).toBeUndefined();
+  });
+
+  it("`param.due_at:et` is read by this release (#218): it goes out with its Eastern offset, never dropped", async () => {
+    const state = await submitActionForm({}, dueForm({ "param.due_at:et": "2026-11-01T23:59" }));
+    expect(state.invalid).toBeUndefined();
+    const exec = calls.find((c) => c.fn === "execute_action");
+    expect(exec?.args.p_params).toEqual({ due_at: "2026-11-01T23:59:00-05:00" });
   });
 
   it("any unreadable param.* name is refused: an unknown type, or an empty key", async () => {

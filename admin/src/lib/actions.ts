@@ -139,7 +139,7 @@ export async function submitActionForm(_prev: ActionFormState, formData: FormDat
     // that key, and some actions read a missing key as "clear": case_due writes
     // nullif(a.params ->> 'due_at','')::timestamptz, so a dropped due_at sets the due date to NULL (A read the
     // production body of ops.action_dispatch, 2026-11-02). The case that lands here: a tab rendered by a newer
-    // release (e.g. a `param.due_at:et` field) posting to this server after a rollback.
+    // release (a `param.<key>:<type>` whose type this release does not read) posting to this server after a rollback.
     if (!field) return forSubject({ submitted: true, invalid: `This form is out of date (it sent ${k}, which this console does not read). Reload the page, then try again. Nothing was changed.` });
     // Same rule for a value that is not text (a file input under a param.* name): refuse, never drop.
     if (typeof v !== "string") return forSubject({ submitted: true, invalid: `This form sent a file in ${k}, which this console does not accept. Nothing was changed.` });
