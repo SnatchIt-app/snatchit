@@ -314,6 +314,21 @@ describe('201 — venue not approved / organization not active are 409 sales_una
     expect(w.blockerAlerts()).toEqual([]);
   });
 
+  // E review of c78788d9: match 201's TOKEN, not only its prose. 201 will raise
+  // `precondition_failed: venue_not_approved — venue is not approved` (a token
+  // ahead of the house wording), so a later reword of the sentence cannot silently
+  // fall through to the generic arm. Both forms map, so this edge is correct
+  // against 201 before and after that change.
+  it('the venue_not_approved TOKEN maps too, with or without the prose after it', async () => {
+    for (const message of ['precondition_failed: venue_not_approved — venue is not approved', 'precondition_failed: venue_not_approved']) {
+      const w = await world({ rpcError: { code: 'P0001', message } });
+      const r = await w.run(`cmd-token-${message.length}`);
+      expect(r.res.status).toBe(409);
+      expect(r.body).toEqual(SALES_UNAVAILABLE);
+      expect(JSON.stringify(r.body)).not.toContain('venue_not_approved');
+    }
+  });
+
   it.each(['applied', 'suspended', 'closed', 'missing'])('org_not_active (%s) → the same code, and the internal status never reaches the buyer', async (status) => {
     const w = await world({ rpcError: { code: 'P0001', message: `precondition_failed: org_not_active — a ${status} organization may not sell` } });
     const r = await w.run(`cmd-org-${status}`);

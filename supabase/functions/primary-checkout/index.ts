@@ -608,8 +608,10 @@ function mapRpcError(
   // The buyer can fix neither, and org_not_active's text names the
   // organization's INTERNAL status, so neither may reach the generic arm below,
   // which relays the RPC's own words. One stable code, 409, terminal: unlike
-  // `sales_paused` (503, a pause) this is not "try again later".
-  if (/venue is not approved|org_not_active/.test(msg)) {
+  // `sales_paused` (503, a pause) this is not "try again later". 201 raises the
+  // token `venue_not_approved` ahead of its prose, and the token is what is
+  // matched; the prose alternative only covers a 201 body without the token.
+  if (/venue_not_approved|venue is not approved|org_not_active/.test(msg)) {
     return { status: 409, body: { error: 'Ticket sales aren’t available for this event.', code: 'sales_unavailable' } };
   }
   if (/precondition_failed|invalid_input/.test(msg)) {
