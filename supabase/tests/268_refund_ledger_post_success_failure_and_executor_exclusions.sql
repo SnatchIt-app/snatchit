@@ -27,7 +27,12 @@
 --      itself in pg_locks). S29-S34 (revision after review of 45708aec): a ref without the re_ prefix, stored by the
 --      column's only writer kernel.mark_refund_state, converges through the verb on both arms — succeeded -> failed with
 --      the audit row and the settlement-review residue (S29-S32), submitted -> failed on a canceled refund (S33) — and
---      a NULL, empty or blank ref is still refused (S34).
+--      a NULL, empty or blank ref is still refused (S34). S35-S38 (revision after review of 25e0df05): mark_refund_state
+--      refuses an empty or blank ref on every transition that requires one — pending -> submitted (S35), and on a
+--      submitted row ahead of the write-once check, for succeeded and for failed (S36) — with its invalid_input text,
+--      leaving the row and the audit untouched; two refunds carrying one ref (a fixture state 085's partial unique index
+--      forbids, built by dropping that index inside this transaction) make the verb refuse conflict_locked duplicate
+--      stripe_refund_ref (2 refunds) with no write and no audit (S37); the index is restored before section E (S38).
 --   E  refunds-5: ops.executor_claim on refunded payments — unresolved, previously-sent admitted, Stripe-confirmed
 --      acknowledgement, legacy unobserved, charged back (whole and split with a succeeded refund), the unchanged plain
 --      claim, a failed payment, the empty-claims session, a previously-sent action whose payment later gained an
@@ -48,17 +53,20 @@
 -- Section order matters: M's claim leases its rows before P's fixtures exist; P parks Rq/Ru/Rm/Rps/Rv1-Rv3 before P4's
 -- claim; W's rows are written after P's last claim; S and E write no claim.
 --
--- RED (main without 199), predicted before the run: the file runs to the end; 99 emitted = 25 ok + 74 not ok.
---   ok: A6 A7 A8 A10 · F1 F2 · M1 M4 M5 M8 M10 M11 · W2 · S1 S2 S4 S5 S12 S24 S29 · E2 E4 E7 E8 E9.
+-- RED (main without 199), predicted before the run: the file runs to the end; 103 emitted = 26 ok + 77 not ok.
+--   ok: A6 A7 A8 A10 · F1 F2 · M1 M4 M5 M8 M10 M11 · W2 · S1 S2 S4 S5 S12 S24 S29 S38 · E2 E4 E7 E8 E9.
 --   A8 is vacuous on RED (only the four replaced bodies resolve); W2 is the window's positive control (true before
---   and after); S29 is the Rp setup (the 085 mark_refund_state already stores any non-null ref); the rest are
---   behaviour 199 must preserve. Every other assertion is not ok (M12 P20-P26 S26-S28 S30-S34 E11 E12 included).
--- GREEN: 99/99. Mutant predictions: planning/2026-10-26-launch/D/s15-199/delta-regex/mut/PREDICTIONS.txt, run by
--- delta-regex/run_199d.sh (each mutant is a create-or-replace of one function, or one grant, after the GREEN apply;
--- MU38a restores the ref shape check of 45708aec and must turn S30-S34 red).
+--   and after); S29 is the Rp setup (the 085 mark_refund_state already stores any non-null ref); S38 is the fixture
+--   restore (the index exists on main); the rest are behaviour 199 must preserve. Every other assertion is not ok
+--   (M12 P20-P26 S26-S28 S30-S37 E11 E12 included).
+-- GREEN: 103/103. Mutant predictions: planning/2026-10-26-launch/D/s15-199/delta2-ref-integrity/mut/PREDICTIONS.txt,
+-- run by delta2-ref-integrity/run_199e.sh (each mutant is a create-or-replace of one function, or one grant, after the
+-- GREEN apply). MU38a is the 45708aec verb body and must turn S30-S34 and S37 red; MU40 is the 25e0df05 mark_refund_state
+-- body (no blank refusal) and must turn S35 S36 red; MU41 is the 25e0df05 verb body (first matching row) and must turn
+-- S37 red.
 -- ============================================================================
 BEGIN;
-SELECT plan(99);
+SELECT plan(103);
 
 -- ── helpers ──────────────────────────────────────────────────────────────────
 CREATE TABLE tap.memo_268 (k text PRIMARY KEY, v text);
@@ -128,6 +136,27 @@ begin
                              idempotency_key, created_at, updated_at)
   values (v_id, p_payment, p_reason, p_amount, p_status, p_ref, p_key, now() - p_age, now() - p_age);
   return v_id::text;
+end $f$;
+-- the duplicate-ref fixture (S37; a state 085:96-97's partial unique index kernel.refund_stripe_ref_uq forbids): store
+-- that index's definition, drop it inside this file's transaction, and write two SUCCEEDED rows carrying p_ref directly
+-- (158's shape; mark_refund_state is not involved). _undupref268 deletes the two rows and re-creates the index.
+CREATE FUNCTION tap._dupref268(p_payment uuid, p_ref text) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $f$
+begin
+  perform tap._st268('dup_idx', pg_get_indexdef(to_regclass('kernel.refund_stripe_ref_uq')));
+  if to_regclass('kernel.refund_stripe_ref_uq') is not null then
+    execute 'drop index kernel.refund_stripe_ref_uq';
+  end if;
+  perform tap._st268('rd1', tap._mkrefund268(p_payment, 1000, 'succeeded', p_ref, interval '3 hours', 'ck268-s-d1'));
+  perform tap._st268('rd2', tap._mkrefund268(p_payment, 1000, 'succeeded', p_ref, interval '2 hours', 'ck268-s-d2'));
+end $f$;
+CREATE FUNCTION tap._undupref268() RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $f$
+begin
+  delete from kernel.refund where refund_id in (tap._id268('rd1'), tap._id268('rd2'));
+  if tap._fe268('dup_idx') is not null and to_regclass('kernel.refund_stripe_ref_uq') is null then
+    execute tap._fe268('dup_idx');
+  end if;
 end $f$;
 -- a back-dated claim row, shaped exactly as the claim writes it (before {status, stripe_refund_ref}, after {...})
 CREATE FUNCTION tap._mkclaim268(p_refund uuid, p_age interval, p_status text, p_attempt int) RETURNS void
@@ -322,8 +351,8 @@ SELECT is(ARRAY[tap._md5268('kernel.refund_executor_hold(uuid)'),
                 tap._md5268('kernel.park_refund_execution(uuid,integer,text,text,text)'),
                 tap._md5268('kernel.rearm_refund_execution(uuid,text,text)'),
                 tap._md5268('ops.executor_claim(uuid,integer)')],
-          ARRAY['31d6705d651d04ef82191faec528ad27', 'a14aafa2040db639a18f64aa30e5b6f1', '3664f28dc744d274ff8813309edf9fd0',
-                '8aede0fc7dbdb0bc37a53d53c0eda51e', '8a443bd8ee3444ba11b6097eeda6fd9a', '822d2d2fd0cfd3e39f8fe6f1f0baec74',
+          ARRAY['31d6705d651d04ef82191faec528ad27', 'ab215b7b939c8843376161b2a35dadd3', '3664f28dc744d274ff8813309edf9fd0',
+                '8aede0fc7dbdb0bc37a53d53c0eda51e', '3e7b649b80286f4be2c459dde43ace59', '822d2d2fd0cfd3e39f8fe6f1f0baec74',
                 '977edd52c3d535a36f7431ea008a2bb9', '2d658f3406ea6e774fd8f6dcb163a27f'],
   'A5: md5(pg_get_functiondef) of the eight = the values 199 declares');
 SELECT is(ARRAY[tap._md5268('kernel.refund_primary_order(uuid,integer,text,text)'),
@@ -837,6 +866,49 @@ SELECT is(ARRAY[tap._fe268('s34a'), tap._fe268('s34b'), tap._fe268('s34c'), ((SE
           ARRAY['ERROR P0001|invalid_input: stripe_refund_ref is mandatory', 'ERROR P0001|invalid_input: stripe_refund_ref is mandatory',
                 'ERROR P0001|invalid_input: stripe_refund_ref is mandatory', '0'],
   'S34: a NULL, empty or blank ref is still refused (invalid_input) and nothing is written');
+-- Rbl1/Rbl2: direct pending rows (158's shape) on PS; Rbs: a direct pending row moved to submitted by mark_refund_state
+-- with re_268bs. Each transition below requires a ref and is given an empty or blank one
+SELECT tap._st268('rbl' || x, tap._mkrefund268('a2680000-0000-4000-a000-000000000711', 1000, 'pending', NULL, interval '2 hours', 'ck268-s-bl' || x))
+  FROM unnest(ARRAY['1', '2']) x;
+SELECT tap._st268('rbs', tap._mkrefund268('a2680000-0000-4000-a000-000000000711', 1000, 'pending', NULL, interval '2 hours', 'ck268-s-bs'));
+SELECT tap._st268('s35s', tap._mark268(tap._id268('rbs'), 'submitted', 're_268bs', NULL));
+SELECT tap._st268('s35n', (SELECT count(*)::text FROM kernel.admin_audit WHERE subject_id IN (tap._id268('rbl1'), tap._id268('rbl2'), tap._id268('rbs'))));
+SELECT tap._st268('s35a', tap._mark268(tap._id268('rbl1'), 'submitted', '', NULL));
+SELECT tap._st268('s35b', tap._mark268(tap._id268('rbl2'), 'submitted', '   ', NULL));
+SELECT tap._st268('s36a', tap._mark268(tap._id268('rbs'), 'succeeded', '', NULL));
+SELECT tap._st268('s36b', tap._mark268(tap._id268('rbs'), 'failed', '   ', 'card_declined'));
+SELECT is(ARRAY[tap._fe268('s35a'), tap._fe268('s35b'),
+                (SELECT status || '|' || coalesce(stripe_refund_ref, '<null>') FROM kernel.refund WHERE refund_id = tap._id268('rbl1')),
+                (SELECT status || '|' || coalesce(stripe_refund_ref, '<null>') FROM kernel.refund WHERE refund_id = tap._id268('rbl2'))],
+          ARRAY['ERROR P0001|invalid_input: stripe_refund_ref is mandatory (non-pending rows carry it)',
+                'ERROR P0001|invalid_input: stripe_refund_ref is mandatory (non-pending rows carry it)', 'pending|<null>', 'pending|<null>'],
+  'S35: mark_refund_state refuses pending -> submitted with an empty or a blank ref (invalid_input, the ref-mandatory text); both rows stay pending with no ref');
+SELECT is(ARRAY[tap._fj268('s35s') ->> 'status', tap._fe268('s36a'), tap._fe268('s36b'),
+                (SELECT status || '|' || stripe_refund_ref FROM kernel.refund WHERE refund_id = tap._id268('rbs')),
+                ((SELECT count(*) FROM kernel.admin_audit WHERE subject_id IN (tap._id268('rbl1'), tap._id268('rbl2'), tap._id268('rbs')))
+                 - tap._fe268('s35n')::bigint)::text],
+          ARRAY['ok', 'ERROR P0001|invalid_input: stripe_refund_ref is mandatory (non-pending rows carry it)',
+                'ERROR P0001|invalid_input: stripe_refund_ref is mandatory (non-pending rows carry it)', 'submitted|re_268bs', '0'],
+  'S36: on a submitted row an empty (succeeded) or blank (failed) ref is refused by the ref-mandatory check ahead of the write-once check (invalid_input, not conflict_locked); the row stays submitted with its ref; the four refused calls write no audit row');
+-- Rd1/Rd2: two SUCCEEDED rows on PS carrying re_268dup (tap._dupref268; the index it drops is restored below). Stripe
+-- records the ref failed, so a first-matching-row lookup would converge one of them with the settlement-review residue
+SELECT tap._dupref268('a2680000-0000-4000-a000-000000000711', 're_268dup');
+SELECT tap._st268('s37r', tap._rrs268('pi_268_s', 're_268dup', 'failed', 1000, 'expired_or_canceled_card'));
+SELECT tap._st268('s37n', (SELECT count(*)::text FROM kernel.admin_audit));
+SELECT tap._st268('s37', tap._verb268('re_268dup', 'webhook:evt_268_dup'));
+SELECT is(ARRAY[tap._fj268('s37r') ->> 'recorded', tap._fe268('s37'),
+                (SELECT status || '|' || stripe_refund_ref FROM kernel.refund WHERE refund_id = tap._id268('rd1')),
+                (SELECT status || '|' || stripe_refund_ref FROM kernel.refund WHERE refund_id = tap._id268('rd2')),
+                (SELECT count(*)::text FROM kernel.admin_audit
+                  WHERE action = 'refund.failed_after_success' AND subject_id IN (tap._id268('rd1'), tap._id268('rd2'))),
+                ((SELECT count(*) FROM kernel.admin_audit) - tap._fe268('s37n')::bigint)::text],
+          ARRAY['true', 'ERROR P0001|conflict_locked: duplicate stripe_refund_ref (2 refunds)', 'succeeded|re_268dup', 'succeeded|re_268dup', '0', '0'],
+  'S37: two refunds carrying one ref, recorded failed at Stripe -> conflict_locked duplicate stripe_refund_ref (2 refunds); neither row moves, no refund.failed_after_success row, no audit row of any kind');
+SELECT tap._undupref268();
+SELECT is(ARRAY[coalesce(pg_get_indexdef(to_regclass('kernel.refund_stripe_ref_uq')), '<absent>'),
+                (SELECT count(*)::text FROM kernel.refund WHERE stripe_refund_ref = 're_268dup')],
+          ARRAY['CREATE UNIQUE INDEX refund_stripe_ref_uq ON kernel.refund USING btree (stripe_refund_ref) WHERE (stripe_refund_ref IS NOT NULL)', '0'],
+  'S38: fixture restored before section E — 085''s partial unique index on kernel.refund.stripe_refund_ref is back with its definition and the two S37 rows are gone');
 
 -- ── Section E — ops.executor_claim on refunded payments (refunds-5) ──────────
 SELECT tap._st268('e1p', tap._rrs268('pi_268_e5', 're_268e5', 'pending', 11000, NULL));
