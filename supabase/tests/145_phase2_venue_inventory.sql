@@ -34,6 +34,13 @@ CREATE FUNCTION tap._shardsum(b uuid) RETURNS int LANGUAGE sql SECURITY DEFINER 
 $m$ SELECT coalesce(sum(capacity),0)::int FROM venue.inventory_batch_shard WHERE batch_id = b $m$;
 GRANT EXECUTE ON FUNCTION tap._cap(uuid), tap._held(uuid), tap._rem(uuid),
   tap._shardcnt(uuid), tap._shardsum(uuid) TO authenticated;
+-- registry 201: EXECUTE on venue.reserve_primary_inventory is revoked from authenticated (buyers reach it through
+-- public.reserve_primary_tier); the buyer's direct calls below run in owner context instead — this SECURITY
+-- DEFINER helper calls the engine with the buyer's request.jwt.claims still set, so auth.uid() resolves the buyer
+-- and every assertion is unchanged.
+CREATE FUNCTION tap._eng145(p_batch uuid, p_qty integer, p_key text) RETURNS jsonb LANGUAGE sql SECURITY DEFINER AS
+$m$ SELECT venue.reserve_primary_inventory(p_batch, p_qty, p_key) $m$;
+GRANT EXECUTE ON FUNCTION tap._eng145(uuid, integer, text) TO authenticated;
 
 -- ============================================================================
 -- SECTION A — THE 081 CLOSED WORLD
@@ -147,9 +154,9 @@ SELECT ok(NOT has_table_privilege('authenticated','venue.inventory_movement','SE
 
 -- EXEC classes
 SELECT ok(has_function_privilege('authenticated','venue.create_ticket_type(uuid, text, text, integer, text, text)','EXECUTE')
-       AND has_function_privilege('authenticated','venue.reserve_primary_inventory(uuid, integer, text)','EXECUTE')
+       AND NOT has_function_privilege('authenticated','venue.reserve_primary_inventory(uuid, integer, text)','EXECUTE')
        AND has_function_privilege('authenticated','catalog.publish_event(uuid, text, text)','EXECUTE'),
-  'A28: the caller-authorized RPCs are authenticated');
+  'A28: the caller-authorized RPCs are authenticated; the buyer hold engine is not (registry 201: buyers reach it through public.reserve_primary_tier)');
 SELECT ok(has_function_privilege('service_role','venue.sweep_expired_inventory_holds(int)','EXECUTE')
        AND NOT has_function_privilege('authenticated','venue.sweep_expired_inventory_holds(int)','EXECUTE')
        AND NOT has_function_privilege('anon','venue.sweep_expired_inventory_holds(int)','EXECUTE'),
@@ -283,7 +290,7 @@ SELECT is((SELECT count(*)::int FROM venue.inventory_batch_shard), 0,
 -- reserve refuses while native issuance is DARK (feature_disabled), so the
 -- substrate provably cannot draw. This is the §7 requirement.
 SELECT tap.login(tap.buyer());
-SELECT throws_ok(format($$SELECT venue.reserve_primary_inventory(%L, 1, 'ck-r-1')$$, tap._fetch145('batch')),
+SELECT throws_ok(format($$SELECT tap._eng145(%L, 1, 'ck-r-1')$$, tap._fetch145('batch')),
   NULL, NULL, 'D1: reserve refuses feature_disabled while native issuance is dark — no counter draw is reachable');
 SELECT tap.logout();
 
@@ -406,7 +413,7 @@ SELECT tap.logout();
 -- now native issuance is on_sale — but the FLAG is still false, so reserve
 -- STILL refuses feature_disabled (the flag, not the lifecycle, is the dark gate)
 SELECT tap.login(tap.buyer());
-SELECT throws_ok(format($$SELECT venue.reserve_primary_inventory(%L, 1, 'ck-r-2')$$, tap._fetch145('batch')),
+SELECT throws_ok(format($$SELECT tap._eng145(%L, 1, 'ck-r-2')$$, tap._fetch145('batch')),
   NULL, NULL, 'F8: even on an on_sale event, reserve refuses feature_disabled — the flag is the gate, not the status');
 SELECT tap.logout();
 
@@ -437,7 +444,7 @@ SELECT is((SELECT count(*)::int FROM catalog.platform_config
 -- event must be on_sale for the per-user/TTL path; it is (F6). The per-user cap
 -- is read BEFORE the TTL; unseeded cap => 0 => refuse (fail-to-zero, loud).
 SELECT tap.login(tap.buyer());
-SELECT throws_ok(format($$SELECT venue.reserve_primary_inventory(%L, 1, 'ck-r-3')$$, tap._fetch145('batch')),
+SELECT throws_ok(format($$SELECT tap._eng145(%L, 1, 'ck-r-3')$$, tap._fetch145('batch')),
   NULL, NULL, 'G3: E-28 — with the flag flipped but the cap unseeded, reserve REFUSES (fail-to-zero, never unbounded)');
 SELECT tap.logout();
 -- set the cap, leave the TTL unset => refuse hold_ttl_unset (never invents a TTL).
@@ -447,7 +454,7 @@ SELECT tap.logout();
 INSERT INTO catalog.platform_config (key, version, value, visibility)
 VALUES ('inventory.per_user_active_hold_max', 2, '4'::jsonb, 'restricted');
 SELECT tap.login(tap.buyer());
-SELECT throws_ok(format($$SELECT venue.reserve_primary_inventory(%L, 1, 'ck-r-4')$$, tap._fetch145('batch')),
+SELECT throws_ok(format($$SELECT tap._eng145(%L, 1, 'ck-r-4')$$, tap._fetch145('batch')),
   NULL, NULL, 'G4: E-28 — cap seeded, TTL still unseeded: reserve REFUSES hold_ttl_unset (a TTL is policy, never invented)');
 SELECT tap.logout();
 -- set the TTL => reserve now DRAWS (the oversell choke-point works end-to-end).
@@ -455,16 +462,16 @@ SELECT tap.logout();
 INSERT INTO catalog.platform_config (key, version, value, visibility)
 VALUES ('inventory.hold_ttl_interval', 2, '"15 minutes"'::jsonb, 'restricted');
 SELECT tap.login(tap.buyer());
-SELECT is((venue.reserve_primary_inventory(tap._fetch145('batch')::uuid, 1, 'ck-r-5') ->> 'status'), 'ok',
+SELECT is((tap._eng145(tap._fetch145('batch')::uuid, 1, 'ck-r-5') ->> 'status'), 'ok',
   'G5: with both keys seeded AND the flag on, reserve draws — the choke-point works end to end');
-SELECT ok((venue.reserve_primary_inventory(tap._fetch145('batch')::uuid, 1, 'ck-r-6') ->> 'expires_at') IS NOT NULL,
+SELECT ok((tap._eng145(tap._fetch145('batch')::uuid, 1, 'ck-r-6') ->> 'expires_at') IS NOT NULL,
   'G6: …and returns a server-set expiry');
 -- F-1: a DELETION_PENDING caller cannot acquire
 SELECT tap.logout();
 INSERT INTO kernel.identity_ext (identity_id, deletion_state) VALUES (tap.buyer(),'ACTIVE')
   ON CONFLICT (identity_id) DO UPDATE SET deletion_state='DELETION_PENDING';
 SELECT tap.login(tap.buyer());
-SELECT throws_ok(format($$SELECT venue.reserve_primary_inventory(%L, 1, 'ck-r-7')$$, tap._fetch145('batch')),
+SELECT throws_ok(format($$SELECT tap._eng145(%L, 1, 'ck-r-7')$$, tap._fetch145('batch')),
   NULL, NULL, 'G7: OR-17 F-1 — a DELETION_PENDING caller is refused deletion_pending (may not acquire new inventory)');
 SELECT tap.logout();
 UPDATE kernel.identity_ext SET deletion_state='ACTIVE' WHERE identity_id = tap.buyer();
