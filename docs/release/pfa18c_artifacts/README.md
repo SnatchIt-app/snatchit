@@ -1,19 +1,21 @@
 # PFA-18C bootstrap — reviewable policy/configuration artifacts (NOT APPLIED)
 
+> **Redaction (2026-10-22, owner decision):** the AWS account id and the production KMS key id that this record originally quoted were replaced in place with `[redacted: account id]` / `[redacted: key id]`. Nothing else in the record changed; the unredacted original is preserved in private evidence on the encrypted SSD. The JSON artifacts in `pfa18c_artifacts/` carry the same in-place marker.
+
 Status: **DRAFT FOR REVIEW — nothing here has been applied to AWS.** These files are the concrete,
 read-back-able form of the M1/M2/M3 requirements in `docs/architecture/_governance/PFA_18C_OWNER_RATIFICATION.md`.
 They exist so that (a) the deny-set is code, not prose, and (b) Device 2 (M2) can diff the live AWS
 configuration against these files during read-back. The founder applies them personally, one stage at a
 time, under C18 — Claude never applies them.
 
-Account `652872010073` · region `us-east-1` (pinned by owner confirmation, see readiness report) ·
-audit bucket `snatchit-audit-652872010073` · trail `snatchit-audit-trail`.
+Account `[redacted: account id]` · region `us-east-1` (pinned by owner confirmation, see readiness report) ·
+audit bucket `snatchit-audit-[redacted: account id]` · trail `snatchit-audit-trail`.
 
 | File | Attaches to | Stage |
 |---|---|---|
 | `m1_ceremony_role_trust.json` | IAM role `SnatchIt-KMS-Ceremony` — trust policy (jose-admin, MFA required, fixed session name) | M1 |
 | `m1_ceremony_role_policy.json` | IAM role `SnatchIt-KMS-Ceremony` — inline permissions (CreateKey constrained to ECC_NIST_P256 / SIGN_VERIFY / AWS_KMS / single-region; tag-scoped key access; explicit deny-set) | M1 |
-| `m1_audit_bucket_policy.json` | S3 bucket `snatchit-audit-652872010073` (CloudTrail write w/ `aws:SourceArn`; TLS-only; ceremony/verifier/runtime principals denied all mutation) | M1 |
+| `m1_audit_bucket_policy.json` | S3 bucket `snatchit-audit-[redacted: account id]` (CloudTrail write w/ `aws:SourceArn`; TLS-only; ceremony/verifier/runtime principals denied all mutation) | M1 |
 | `m1_object_lock_configuration.json` | S3 bucket default retention — **COMPLIANCE mode; `Years` is an OWNER DECISION placeholder** | M1 |
 | `m2_verifier_policy.json` | IAM user `snatchit-kms-verifier` — read-only (no `kms:Sign`/`Verify`/admin; explicit deny on all mutation) + needs AWS-managed `SignInLocalDevelopmentAccess` for `aws login` | M2 |
 | `m3_runtime_user_policy.json` | IAM user `snatchit-credential-sign-runtime` — may ONLY `sts:AssumeRole` the runtime role; all direct KMS denied | M3 |
@@ -23,7 +25,7 @@ audit bucket `snatchit-audit-652872010073` · trail `snatchit-audit-trail`.
 | `kms_key_policy_v2_final.json` | Same minus the ceremony `kms:Sign` statement — applied via `PutKeyPolicy` immediately after the binding proof (§24) | post-proof |
 
 **Account-layout caveat (Model A, readiness report §9 E6):** SCPs never bind an Organizations *management* account, so the production key must
-be created in a *member* (workload) account. If the owner adopts that layout, every `652872010073` above becomes the workload member's account id
+be created in a *member* (workload) account. If the owner adopts that layout, every `[redacted: account id]` above becomes the workload member's account id
 — settle this BEFORE CreateKey. Every owner-run AWS command carries `--profile snatchit-admin --region us-east-1` explicitly.
 
 Placeholders that MUST be replaced before use: `<RETENTION_YEARS>`, `<KMS_SIGNER_EXTERNAL_ID>`,

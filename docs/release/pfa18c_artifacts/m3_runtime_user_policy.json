@@ -5,7 +5,7 @@
       "Sid": "RuntimeUserMayOnlyAssumeTheRuntimeRole",
       "Effect": "Allow",
       "Action": "sts:AssumeRole",
-      "Resource": "arn:aws:iam::652872010073:role/SnatchIt-CredentialSign-Runtime"
+      "Resource": "arn:aws:iam::[redacted: account id]:role/SnatchIt-CredentialSign-Runtime"
     },
     {
       "Sid": "DenyAllDirectKms",

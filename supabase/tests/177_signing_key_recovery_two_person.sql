@@ -37,8 +37,8 @@ CREATE FUNCTION tap._pem177_ed() RETURNS text LANGUAGE sql IMMUTABLE AS $f$ SELE
 MCowBQYDK2VwAyEAOXCGAFeE94Hf0fMjmKfqtS+CKCvauv8AZOs8mUiMc7U=
 -----END PUBLIC KEY-----
 $p$ $f$;
-CREATE FUNCTION tap._arn177() RETURNS text LANGUAGE sql IMMUTABLE AS $f$ SELECT 'arn:aws:kms:us-east-1:652872010073:key/1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b' $f$;
-CREATE FUNCTION tap._arn177_b() RETURNS text LANGUAGE sql IMMUTABLE AS $f$ SELECT 'arn:aws:kms:us-east-1:652872010073:key/2c3d4e5f-6071-4829-9bac-1d2e3f4a5b6c' $f$;
+CREATE FUNCTION tap._arn177() RETURNS text LANGUAGE sql IMMUTABLE AS $f$ SELECT 'arn:aws:kms:us-east-1:000000000000:key/1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b' $f$;
+CREATE FUNCTION tap._arn177_b() RETURNS text LANGUAGE sql IMMUTABLE AS $f$ SELECT 'arn:aws:kms:us-east-1:000000000000:key/2c3d4e5f-6071-4829-9bac-1d2e3f4a5b6c' $f$;
 CREATE FUNCTION tap._b0() RETURNS uuid LANGUAGE sql IMMUTABLE AS $f$ SELECT '00000000-0000-0000-0000-0000000000b0'::uuid $f$;
 CREATE FUNCTION tap._b1() RETURNS uuid LANGUAGE sql IMMUTABLE AS $f$ SELECT '00000000-0000-0000-0000-0000000000b1'::uuid $f$;
 -- SECURITY DEFINER: the helper is zero-grant (A9); tests evaluate this wrapper while logged in as `authenticated`.

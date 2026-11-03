@@ -34,7 +34,7 @@ CREATE FUNCTION tap._pem176_ed25519() RETURNS text LANGUAGE sql IMMUTABLE AS $f$
 MCowBQYDK2VwAyEAOXCGAFeE94Hf0fMjmKfqtS+CKCvauv8AZOs8mUiMc7U=
 -----END PUBLIC KEY-----
 $p$ $f$;
-CREATE FUNCTION tap._arn176() RETURNS text LANGUAGE sql IMMUTABLE AS $f$ SELECT 'arn:aws:kms:us-east-1:652872010073:key/1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b' $f$;
+CREATE FUNCTION tap._arn176() RETURNS text LANGUAGE sql IMMUTABLE AS $f$ SELECT 'arn:aws:kms:us-east-1:000000000000:key/1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b' $f$;
 CREATE FUNCTION tap._b0() RETURNS uuid LANGUAGE sql IMMUTABLE AS $f$ SELECT '00000000-0000-0000-0000-0000000000b0'::uuid $f$;
 CREATE FUNCTION tap._b1() RETURNS uuid LANGUAGE sql IMMUTABLE AS $f$ SELECT '00000000-0000-0000-0000-0000000000b1'::uuid $f$;
 
@@ -82,13 +82,13 @@ SELECT throws_like($q$ SELECT tap._ins176_default_alg(tap._b0()) $q$,
   '%algorithm_not_es256%', 'B6: OMITTED algorithm (103 default EdDSA) refused — P1-ALGO-DEFAULT closed');
 SELECT throws_like($q$ SELECT tap._ins176(tap._b0(), 'global', null, null, tap._pem176_p256(), '1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b', 'ES256', 'active') $q$,
   '%kms_handle_not_key_arn%', 'B7: bare key id refused (D4 requires the full ARN)');
-SELECT throws_like($q$ SELECT tap._ins176(tap._b0(), 'global', null, null, tap._pem176_p256(), 'arn:aws:kms:us-east-1:652872010073:alias/snatchit-signer', 'ES256', 'active') $q$,
+SELECT throws_like($q$ SELECT tap._ins176(tap._b0(), 'global', null, null, tap._pem176_p256(), 'arn:aws:kms:us-east-1:000000000000:alias/snatchit-signer', 'ES256', 'active') $q$,
   '%kms_handle_not_key_arn%', 'B8: alias ARN refused');
 SELECT throws_like($q$ SELECT tap._ins176(tap._b0(), 'global', null, null, tap._pem176_p256(), 'arn:aws:kms:us-east-1:65287201007:key/1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b', 'ES256', 'active') $q$,
   '%kms_handle_not_key_arn%', 'B9: 11-digit account refused');
-SELECT throws_like($q$ SELECT tap._ins176(tap._b0(), 'global', null, null, tap._pem176_p256(), 'arn:aws:kms:US-EAST-1:652872010073:key/1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b', 'ES256', 'active') $q$,
+SELECT throws_like($q$ SELECT tap._ins176(tap._b0(), 'global', null, null, tap._pem176_p256(), 'arn:aws:kms:US-EAST-1:000000000000:key/1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b', 'ES256', 'active') $q$,
   '%kms_handle_not_key_arn%', 'B10: malformed region refused');
-SELECT throws_like($q$ SELECT tap._ins176(tap._b0(), 'global', null, null, tap._pem176_p256(), 'arn:aws:kms:us-east-1:652872010073:key/not-a-uuid', 'ES256', 'active') $q$,
+SELECT throws_like($q$ SELECT tap._ins176(tap._b0(), 'global', null, null, tap._pem176_p256(), 'arn:aws:kms:us-east-1:000000000000:key/not-a-uuid', 'ES256', 'active') $q$,
   '%kms_handle_not_key_arn%', 'B11: non-UUID key id refused');
 SELECT throws_like($q$ SELECT tap._ins176(tap._b0(), 'global', null, null, 'PUBKEY-PLACEHOLDER', tap._arn176(), 'ES256', 'active') $q$,
   '%public_key_not_spki_pem%', 'B12: placeholder public_key refused');

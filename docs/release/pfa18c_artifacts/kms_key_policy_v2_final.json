@@ -6,7 +6,7 @@
       "Sid": "AccountMayAdministerButNeverDelegateCryptoOps",
       "Effect": "Allow",
       "Principal": {
-        "AWS": "arn:aws:iam::652872010073:root"
+        "AWS": "arn:aws:iam::[redacted: account id]:root"
       },
       "NotAction": [
         "kms:Sign",
@@ -29,7 +29,7 @@
       "Sid": "RuntimeSignOnly",
       "Effect": "Allow",
       "Principal": {
-        "AWS": "arn:aws:iam::652872010073:role/SnatchIt-CredentialSign-Runtime"
+        "AWS": "arn:aws:iam::[redacted: account id]:role/SnatchIt-CredentialSign-Runtime"
       },
       "Action": "kms:Sign",
       "Resource": "*",
@@ -45,8 +45,8 @@
       "Effect": "Allow",
       "Principal": {
         "AWS": [
-          "arn:aws:iam::652872010073:user/snatchit-kms-verifier",
-          "arn:aws:iam::652872010073:role/SnatchIt-KMS-Ceremony"
+          "arn:aws:iam::[redacted: account id]:user/snatchit-kms-verifier",
+          "arn:aws:iam::[redacted: account id]:role/SnatchIt-KMS-Ceremony"
         ]
       },
       "Action": [

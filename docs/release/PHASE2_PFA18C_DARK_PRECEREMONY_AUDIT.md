@@ -1,5 +1,7 @@
 # PFA-18C — DARK PRE-CEREMONY AUDIT (final)
 
+> **Redaction (2026-10-22, owner decision):** the AWS account id and the production KMS key id that this record originally quoted were replaced in place with `[redacted: account id]` / `[redacted: key id]`. Nothing else in the record changed; the unredacted original is preserved in private evidence on the encrypted SSD. The JSON artifacts in `pfa18c_artifacts/` carry the same in-place marker.
+
 **Date:** 2026-09-05/06 · **Branch:** `feature/venue-native-and-product-v2` · **Audited tree:** commit `1f3fc19` (tests + runbook corrections) on top of `ade9af9`
 **Scope:** migrations 110–114 and their rollbacks, `credential-sign` / `door-session` / `door-manifest` edges, SCANNER-CONTRACT-v1 (`_shared/offline-verify.ts`), the E2 KMS runtime provider (`credential-sign/kms-taxonomy.ts`, `kms.ts`), the production ceremony artifacts (`docs/release/pfa18c_artifacts/`, runbook `docs/phase2/PRODUCTION_SIGNING_KMS_CEREMONY.md`).
 **Standing:** LOCAL / REHEARSAL ONLY. Nothing here was deployed; no production database call, no AWS call or resource, no secret, no billing change, no activation. Production stays at ledger 124 / numeric tip 109 / 0 signing keys / dark (last read-only precheck recorded in the execution record; not re-read for this audit by design).
@@ -137,7 +139,7 @@ Delivered as a single document: `docs/release/PHASE2_PFA18C_OWNER_CEREMONY_RUNBO
 
 ## Unresolved risks
 
-1. **CreateKey is NO-GO in account 652872010073 while the Free plan is kept** (owner decision, P0-FREEPLAN): hard horizon 2027-03-05 + 90-day erase; Object-Lock COMPLIANCE retention ends with account closure. Nothing in this audit changes that.
+1. **CreateKey is NO-GO in account [redacted: account id] while the Free plan is kept** (owner decision, P0-FREEPLAN): hard horizon 2027-03-05 + 90-day erase; Object-Lock COMPLIANCE retention ends with account closure. Nothing in this audit changes that.
 2. **No live KMS / Deno execution locally:** the edge code paths are proven by unit tests, CI type-check, and real-RPC output — not by a live request. M5 live proof remains outstanding (§6).
 3. **Signed M1 bundles deferred** (§7): keyring integrity rests on TLS + auth gates.
 4. **Model A (separate audit account + SCP) required before T3; account layout must be settled BEFORE CreateKey** (SCPs do not bind an Organizations management account).

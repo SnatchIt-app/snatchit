@@ -4,7 +4,7 @@
     {
       "Sid": "FounderAssumesCeremonyRoleWithMFA",
       "Effect": "Allow",
-      "Principal": { "AWS": "arn:aws:iam::652872010073:user/jose-admin" },
+      "Principal": { "AWS": "arn:aws:iam::[redacted: account id]:user/jose-admin" },
       "Action": "sts:AssumeRole",
       "Condition": {
         "Bool": { "aws:MultiFactorAuthPresent": "true" },

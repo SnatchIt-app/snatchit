@@ -5,7 +5,7 @@
       "Sid": "VerifierKmsReadOnly",
       "Effect": "Allow",
       "Action": [ "kms:DescribeKey", "kms:GetPublicKey", "kms:GetKeyPolicy", "kms:ListKeyPolicies", "kms:ListResourceTags" ],
-      "Resource": "arn:aws:kms:us-east-1:652872010073:key/*"
+      "Resource": "arn:aws:kms:us-east-1:[redacted: account id]:key/*"
     },
     {
       "Sid": "VerifierListAndIdentity",
@@ -30,7 +30,7 @@
         "s3:GetObjectLegalHold", "s3:GetBucketObjectLockConfiguration", "s3:GetBucketVersioning",
         "s3:GetEncryptionConfiguration", "s3:GetBucketPolicy", "s3:GetBucketPublicAccessBlock", "s3:GetBucketLocation"
       ],
-      "Resource": [ "arn:aws:s3:::snatchit-audit-652872010073", "arn:aws:s3:::snatchit-audit-652872010073/*" ]
+      "Resource": [ "arn:aws:s3:::snatchit-audit-[redacted: account id]", "arn:aws:s3:::snatchit-audit-[redacted: account id]/*" ]
     },
     {
       "Sid": "VerifierIamDenySetReadBack",

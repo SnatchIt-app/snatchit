@@ -1,5 +1,7 @@
 # PFA-18C — OWNER CEREMONY RUNBOOK (single-founder, C18)
 
+> **Redaction (2026-10-22, owner decision):** the AWS account id and the production KMS key id that this record originally quoted were replaced in place with `[redacted: account id]` / `[redacted: key id]`. Nothing else in the record changed; the unredacted original is preserved in private evidence on the encrypted SSD. The JSON artifacts in `pfa18c_artifacts/` carry the same in-place marker.
+
 **For:** the founder/owner, personally. **Coordinator:** Claude A (read-back verifier only — never runs an AWS or production mutation, never sees a secret).
 **Governs:** the DARK bootstrap of the production ES256 trust root (one AWS KMS key → one `kernel.signing_key` row) and the reads that prove it. It does NOT authorize issuance, scanning, or any migration apply — those are separate owner acts listed in §C.
 **Source documents:** ratification `docs/architecture/_governance/PFA_18C_OWNER_RATIFICATION.md` (the authority) · engineering runbook `docs/phase2/PRODUCTION_SIGNING_KMS_CEREMONY.md` (§6.1 artifact, §5.3 binding proof, §7 verification, §10 rollback; read its 2026-09-05 corrections at §7.3 and §13) · readiness report `docs/release/PHASE2_PFA18C_BOOTSTRAP_READINESS_REPORT.md` · artifacts `docs/release/pfa18c_artifacts/` · audit `docs/release/PHASE2_PFA18C_DARK_PRECEREMONY_AUDIT.md`.
@@ -11,7 +13,7 @@
 
 | # | Condition | Why | Status today |
 |---|---|---|---|
-| NG-1 | Account `652872010073` is still on the **AWS Free plan** and the owner has not authorized a paid-plan upgrade or a paid member account | Free plan closes after 6 months / credit exhaustion (**2027-03-05T17:57:11Z** here), data erased after 90 more days; Object-Lock COMPLIANCE retention would end with account closure; KMS availability on the Free plan is not stated by AWS | **NO-GO** (owner decision: keep Free plan) |
+| NG-1 | Account `[redacted: account id]` is still on the **AWS Free plan** and the owner has not authorized a paid-plan upgrade or a paid member account | Free plan closes after 6 months / credit exhaustion (**2027-03-05T17:57:11Z** here), data erased after 90 more days; Object-Lock COMPLIANCE retention would end with account closure; KMS availability on the Free plan is not stated by AWS | **NO-GO** (owner decision: keep Free plan) |
 | NG-2 | Model A account layout (separate audit account; workload key in a *member* account, not the Organizations management account) not settled | SCPs never bind a management account; every ARN/account id in the artifacts must be final before CreateKey | open owner decision |
 | NG-3 | Production ledger/tip differ from the recorded state (ledger 124, numeric tip 109) or `kernel.signing_key` is not empty | the bootstrap is a once-only act on a known substrate | verify in §A |
 | NG-4 | Any M1/M2/M3 artifact still has a placeholder (`<RETENTION_YEARS>`, `<KMS_SIGNER_EXTERNAL_ID>`, `<PRODUCTION_KMS_KEY_ARN>` except where it is filled after CreateKey) | deny-set must be code, read back by Device 2 | check before §C1 |
@@ -29,7 +31,7 @@ Run each; paste the OUTPUT only.
 aws sts get-caller-identity --profile snatchit-admin --region us-east-1
 aws account get-account-information --profile snatchit-admin --region us-east-1 2>/dev/null || echo "plan: read from console Billing → Free plan card"
 ```
-Expected: account `652872010073`, principal `jose-admin`; plan state as recorded (FREE ⇒ NG-1 stands).
+Expected: account `[redacted: account id]`, principal `jose-admin`; plan state as recorded (FREE ⇒ NG-1 stands).
 
 **A2 AWS baseline unchanged (no trail / bucket / roles / keys yet)**
 ```bash
@@ -126,4 +128,4 @@ Not authorized by anything above: rotation, revocation drills against the produc
 
 ## §F Free-plan no-go — restated for the record
 
-Under the owner's standing decision (keep the AWS Free plan): **C1–C3 are NOT authorized in account `652872010073`.** Anything created there inherits the 2027-03-05 closure horizon and Object-Lock COMPLIANCE would be defeated by account closure. Paths that would lift NG-1 (each an owner decision, none taken): upgrade to a paid plan before CreateKey (≈ $1–2/month: KMS key $1/month prorated, asymmetric Sign $0.15 per 10,000, first CloudTrail management-event copy free); or create the signing workload in a paid member account under the Model-A layout (which must be settled before CreateKey anyway). No billing change is performed or implied by this runbook.
+Under the owner's standing decision (keep the AWS Free plan): **C1–C3 are NOT authorized in account `[redacted: account id]`.** Anything created there inherits the 2027-03-05 closure horizon and Object-Lock COMPLIANCE would be defeated by account closure. Paths that would lift NG-1 (each an owner decision, none taken): upgrade to a paid plan before CreateKey (≈ $1–2/month: KMS key $1/month prorated, asymmetric Sign $0.15 per 10,000, first CloudTrail management-event copy free); or create the signing workload in a paid member account under the Model-A layout (which must be settled before CreateKey anyway). No billing change is performed or implied by this runbook.

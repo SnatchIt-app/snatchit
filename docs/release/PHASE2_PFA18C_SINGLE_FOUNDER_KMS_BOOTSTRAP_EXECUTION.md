@@ -1,5 +1,7 @@
 # PHASE 2 — PFA-18C SINGLE-FOUNDER AWS KMS / ES256 TRUST-ROOT BOOTSTRAP — EXECUTION RECORD
 
+> **Redaction (2026-10-22, owner decision):** the AWS account id and the production KMS key id that this record originally quoted were replaced in place with `[redacted: account id]` / `[redacted: key id]`. Nothing else in the record changed; the unredacted original is preserved in private evidence on the encrypted SSD. The JSON artifacts in `pfa18c_artifacts/` carry the same in-place marker.
+
 **Status legend:** PREPARATION · CEREMONY · COMPLETED · NOT COMPLETED · ABORTED · PARTIAL STATE
 
 > Interactive, human-executed. The founder runs **every** AWS and production-database mutation.
@@ -13,7 +15,7 @@
 
 ```
 OVERALL:                 PREPARATION — AWS baseline RECEIVED; plan state RECEIVED (FREE, owner keeps it) ⇒ CreateKey
-                         NO-GO in account 652872010073 under current decisions; M1/M2/M3 NOT STARTED;
+                         NO-GO in account [redacted: account id] under current decisions; M1/M2/M3 NOT STARTED;
                          P1-PUBKEY-FORMAT FIXED in repo (deploy pending)
 KMS KEY CREATED:         NO
 SIGNING KEYS IN PROD:    0
@@ -120,8 +122,8 @@ Claude-observed. Independent confirmation is deferred to the M2 second-device re
 
 | Item | Owner-returned value |
 |---|---|
-| Account | `652872010073` |
-| Principal | `arn:aws:iam::652872010073:user/jose-admin` (IAM user; UserId `AIDAZQARUJFMXKFV5U5JY`) |
+| Account | `[redacted: account id]` |
+| Principal | `arn:aws:iam::[redacted: account id]:user/jose-admin` (IAM user; UserId `AIDAZQARUJFMXKFV5U5JY`) |
 | Auth method | `aws login` (browser console session → temporary credentials); verified via `sts get-caller-identity` |
 | CLI / host | AWS CLI 2.36.40, Apple-Silicon Mac; profile `snatchit-admin` |
 | Region | saved `us-east-1`; `AWS_REGION` / `AWS_DEFAULT_REGION` unset |
@@ -182,7 +184,7 @@ appended as each stage completes.)_
 ## SESSION 3 — 2026-09-05 — OWNER PLAN-STATE EVIDENCE + P1-PUBKEY-FORMAT FIX + DESIGN CORRECTIONS
 
 ### Owner-returned evidence (OWNER-RETURNED; not Claude-observed)
-`aws freetier get-account-plan-state` on account `652872010073`: **accountPlanType FREE · accountPlanStatus ACTIVE · $100 remaining ·
+`aws freetier get-account-plan-state` on account `[redacted: account id]`: **accountPlanType FREE · accountPlanStatus ACTIVE · $100 remaining ·
 accountPlanExpirationDate 2027-03-05T17:57:11.079Z.** **Owner decision: KEEP THE AWS FREE PLAN. No billing upgrade authorized.**
 
 ### P0-FREEPLAN — status under that decision
