@@ -28,7 +28,7 @@ import {
   platformLabel,
   deliveryLabel,
 } from "@/lib/format";
-import { eventWhen, proofWaiverNote, quantityLine, sellerVerifiedLabel } from "@/lib/listing-display";
+import { eventWhen, marketMonthYear, proofWaiverNote, quantityLine, sellerVerifiedLabel } from "@/lib/listing-display";
 import { SITE_URL } from "@/lib/env";
 import { Container } from "@/components/ui/Container";
 import { Badge, LiveDot } from "@/components/ui/Badge";
@@ -344,7 +344,7 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
                 </p>
                 <p className="t-body-sm mt-0.5 text-muted">
                   {seller?.created_at
-                    ? `Member since ${new Date(seller.created_at).toLocaleDateString("en-US", { month: "long", year: "numeric" })}`
+                    ? `Member since ${marketMonthYear(seller.created_at)}`
                     : "Marketplace seller"}
                 </p>
                 {proofNote ? (

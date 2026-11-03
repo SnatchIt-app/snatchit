@@ -26,6 +26,8 @@
  * (criterion 8).
  */
 
+import { MARKET_TIME_ZONE } from "@/lib/listing-display";
+
 export type WordingTransferStatus =
   | "pending"
   | "seller_sent"
@@ -50,17 +52,17 @@ export type Line = { text: string; urgent: boolean };
  * server's — so the string is the same wherever it is rendered, and the
  * tests do not depend on TZ.
  */
-const DISPLAY_TIME_ZONE = "America/New_York";
-
 const DATE_TIME = new Intl.DateTimeFormat("en-US", {
-  timeZone: DISPLAY_TIME_ZONE,
+  timeZone: MARKET_TIME_ZONE,
   month: "short",
   day: "numeric",
   hour: "numeric",
   minute: "2-digit",
+  // EST/EDT (A, 2026-11-02): a label only. The ruled wording and its meaning are unchanged, and web and app agree.
+  timeZoneName: "short",
 });
 
-/** "2026-09-24T20:31:03Z" -> "Sep 24, 4:31 PM". Null/unparseable -> null. */
+/** "2026-09-24T20:31:03Z" -> "Sep 24, 4:31 PM EDT". Null/unparseable -> null. */
 export function fmtMoment(iso: string | null | undefined): string | null {
   if (!iso) return null;
   const t = new Date(iso).getTime();

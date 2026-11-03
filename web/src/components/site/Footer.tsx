@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { Container } from "@/components/ui/Container";
+import { marketYear } from "@/lib/listing-display";
 
 const marketplace = [
   { href: "/browse", label: "Browse all" },
@@ -47,7 +48,7 @@ export function Footer() {
           original ticketing platform after purchase, and sellers are paid only after delivery. Snatch It is not
           affiliated with Ticketmaster, AXS, DICE, Posh, or any other ticket issuer.
         </p>
-        <p className="t-body-sm mt-4 text-muted">© {new Date().getFullYear()} Snatch It · JDT LLC · Miami, FL</p>
+        <p className="t-body-sm mt-4 text-muted">© {marketYear(new Date())} Snatch It · JDT LLC · Miami, FL</p>
       </Container>
     </footer>
   );

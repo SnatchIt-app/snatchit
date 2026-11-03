@@ -13,6 +13,7 @@ import {
 import { createListingAction, uploadListingImageAction } from "@/lib/create-listing-actions";
 import { findBannedTerm } from "@/lib/content-moderation";
 import { LISTING_DURATION_HOURS, durationLabel } from "@/lib/listing-durations";
+import { marketDateISO } from "@/lib/listing-display";
 import {
   PROOF_WAIVER_DEFAULT_REASON,
   PROOF_WAIVER_LABEL,
@@ -79,7 +80,8 @@ export function CreateListingForm({
 
   const [attemptedSubmit, setAttemptedSubmit] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  const [minDate] = useState(() => new Date().toISOString().slice(0, 10));
+  // Today in Miami (Eastern), not the UTC date: after 8 PM EDT / 7 PM EST the UTC date is already tomorrow.
+  const [minDate] = useState(() => marketDateISO(new Date()));
 
   const startingBidNum = Number(startingBid);
   const buyNowPriceNum = Number(buyNowPrice);
@@ -225,7 +227,7 @@ export function CreateListingForm({
           <Field label="Event date" htmlFor="eventDate">
             <Input id="eventDate" type="date" min={minDate} value={eventDate} onChange={(e) => setEventDate(e.target.value)} required />
           </Field>
-          <Field label="Event time" htmlFor="eventTime">
+          <Field label="Event time (Eastern Time)" htmlFor="eventTime">
             <Input id="eventTime" type="time" value={eventTime} onChange={(e) => setEventTime(e.target.value)} required />
           </Field>
         </div>

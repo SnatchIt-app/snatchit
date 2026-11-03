@@ -173,7 +173,7 @@ describe("W-5 — \"On hold\" and \"Payout processing\", and the rest of the pre
 
   it("a hold with a stored end names it; without one, no end is implied", () => {
     expect(sellerPayoutLine(seller({ status: "seller_sent", payout_review_status: "held", payout_hold_until: "2026-10-02T23:00:00Z" })).text)
-      .toBe("Payout held until Oct 2, 7:00 PM");
+      .toBe("Payout held until Oct 2, 7:00 PM EDT");
     const noEnd = sellerPayoutLine(seller({ status: "seller_sent", payout_review_status: "held" }));
     expect(noEnd.text).toBe("Payout held");
     expect(noEnd.text).not.toContain("event");
@@ -181,7 +181,7 @@ describe("W-5 — \"On hold\" and \"Payout processing\", and the rest of the pre
 
   it("seller_sent states the scheduled decision time, not a countdown", () => {
     const { text } = sellerPayoutLine(seller({ status: "seller_sent", auto_release_at: "2026-09-27T16:30:00Z" }));
-    expect(text).toBe("Release decision at Sep 27, 12:30 PM");
+    expect(text).toBe("Release decision at Sep 27, 12:30 PM EDT");
     expect(text).not.toMatch(/passed|remaining|left|Expired/i);
   });
 
@@ -276,7 +276,12 @@ describe("acceptance criteria (§2h), over every reachable input", () => {
 
 describe("fmtMoment", () => {
   it("formats in a fixed zone, so the string does not depend on the runner", () => {
-    expect(fmtMoment("2026-09-24T20:31:03Z")).toBe("Sep 24, 4:31 PM");
+    expect(fmtMoment("2026-09-24T20:31:03Z")).toBe("Sep 24, 4:31 PM EDT");
+    // the label tells EST from EDT on both sides of each change (paired anchors around Eastern midnight)
+    expect(fmtMoment("2026-11-02T04:59:59Z")).toBe("Nov 1, 11:59 PM EST");
+    expect(fmtMoment("2026-11-01T03:59:59Z")).toBe("Oct 31, 11:59 PM EDT");
+    expect(fmtMoment("2026-03-08T06:59:00Z")).toBe("Mar 8, 1:59 AM EST");
+    expect(fmtMoment("2026-03-08T07:00:00Z")).toBe("Mar 8, 3:00 AM EDT");
   });
   it("null and unparseable input produce no date, never 'Invalid Date'", () => {
     expect(fmtMoment(null)).toBeNull();
@@ -353,7 +358,7 @@ describe("the panels: no asserted human activity, and no decided dispute shown a
     expect(sellerStateAlert(row({ ...d, payout_review_status: "manual_review" }))?.text)
       .toBe("Resolved in your favour. Payout under review.");
     expect(sellerStateAlert(row({ ...d, payout_review_status: "held", payout_hold_until: "2026-10-02T23:00:00Z" }))?.text)
-      .toBe("Resolved in your favour. Payout held until Oct 2, 7:00 PM.");
+      .toBe("Resolved in your favour. Payout held until Oct 2, 7:00 PM EDT.");
     expect(sellerStateAlert(row({ ...d, payout_review_status: "held" }))?.text)
       .toBe("Resolved in your favour. Payout held.");
   });
@@ -433,7 +438,7 @@ describe("the badge reads the row and the audience, not the status alone", () =>
 describe("the seller payout paragraph (§2e): a scheduled time, never a countdown", () => {
   it("states exactly the scheduled decision, and promises no outcome", () => {
     const t = sellerPayoutParagraph(row({ status: "seller_sent", auto_release_at: "2026-09-27T16:30:00Z" }));
-    expect(t).toBe("Release decision at Sep 27, 12:30 PM.");
+    expect(t).toBe("Release decision at Sep 27, 12:30 PM EDT.");
     // The decision can be a release, a hold or manual review, and a buyer
     // confirmation does not guarantee a payout either (§2e, A 2026-10-05).
     expect(t).not.toMatch(/releases|payout|confirm/i);
@@ -452,7 +457,7 @@ describe("the seller payout paragraph (§2e): a scheduled time, never a countdow
 
   it("a hold names its stored end, or implies none, and does not characterise it", () => {
     expect(sellerPayoutParagraph(row({ payout_review_status: "held", payout_hold_until: "2026-10-02T23:00:00Z" })))
-      .toBe("Your payout is held until Oct 2, 7:00 PM.");
+      .toBe("Your payout is held until Oct 2, 7:00 PM EDT.");
     expect(sellerPayoutParagraph(row({ payout_review_status: "held" }))).toBe("Your payout is held.");
     for (const payout_hold_until of TIMES)
       expect(sellerPayoutParagraph(row({ payout_review_status: "held", payout_hold_until })))
