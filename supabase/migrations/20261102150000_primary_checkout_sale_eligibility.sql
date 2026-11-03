@@ -34,11 +34,13 @@
 --      promoter_hold batches. It sits after 185's sale-window block (a hidden tier keeps answering
 --      tier_not_on_sale) and before the cap lock, the TTL read and every write. Staff holds
 --      (venue.create_inventory_hold) are not touched.
---   5. Venue approval at reserve and checkout (EL-05). Both refuse 'precondition_failed: venue is not approved'
---      (the literal catalog.create_event raises and the venue dashboard maps) unless the venue of the
---      session's event has approval_status = 'approved'. The check sits with the event / session eligibility
---      checks (right after session_terminal), before every write; the idempotency replays above it still
---      answer.
+--   5. Venue approval at reserve and checkout (EL-05). Both refuse 'precondition_failed: venue_not_approved — venue
+--      is not approved' unless the venue of the session's event has approval_status = 'approved'. The text is a
+--      machine token in the house style of 202's fee refusals ('<class>: <token> — <prose>') followed by the
+--      prose of the literal catalog.create_event raises and the venue dashboard maps, so a substring match on
+--      'venue is not approved' still finds it (A's decision after E's mobile-client review; catalog.create_event
+--      is unchanged). The check sits with the event / session eligibility checks (right after session_terminal),
+--      before every write; the idempotency replays above it still answer.
 --   Unchanged on purpose: every signature, SECURITY DEFINER, search_path and owner; the checkout and finalize
 --   ACLs; 198's sweep, release, cancel_pending_order, the mint, public.reserve_primary_tier and the staff hold.
 --   No table, column, function, trigger, view, policy or cron job is created. Nothing in `public` changes, so
@@ -48,21 +50,26 @@
 -- CONTRACT CHANGES (callers)
 --   finalize  new raises 'refund_required: event_cancelled — order …' and 'refund_required: session_cancelled
 --             — order …' (A's refund_required webhook arm).
---   reserve   new refusals 'precondition_failed: venue is not approved' and 'precondition_failed:
---             not_buyer_inventory'; a direct call as authenticated is refused 42501. Buyers use
---             public.reserve_primary_tier, whose not_found filter already hides non-buyer inventory.
---   checkout  new refusal 'precondition_failed: venue is not approved'; the coverage refusal's DETAIL gains
---             non_buyer_kind_units. Holds on a tier hidden mid-sale no longer check out: a hold taken while its
---             tier was public (185's window refuses a new reserve on a hidden tier, so this is the one way such a
---             hold reaches checkout) stops counting toward coverage once the tier is made hidden (or door_only),
---             and checkout refuses with the unchanged coverage text, DETAIL non_buyer_kind_units; under 198 it
---             bound and checked out. An order checked out before the change still finalizes (no re-check).
+--   reserve   new refusals 'precondition_failed: venue_not_approved — venue is not approved' and
+--             'precondition_failed: not_buyer_inventory'; a direct call as authenticated is refused 42501. Buyers
+--             use public.reserve_primary_tier, whose not_found filter already hides non-buyer inventory.
+--   checkout  new refusal 'precondition_failed: venue_not_approved — venue is not approved'; the coverage
+--             refusal's DETAIL gains non_buyer_kind_units. Holds on a tier hidden mid-sale no longer check out: a
+--             hold taken while its tier was public (185's window refuses a new reserve on a hidden tier, so this is
+--             the one way such a hold reaches checkout) stops counting toward coverage once the tier is made hidden
+--             (or door_only), and checkout refuses with the unchanged coverage text, DETAIL non_buyer_kind_units;
+--             under 198 it bound and checked out. An order checked out before the change still finalizes (no
+--             re-check).
 --
 -- MD5 TABLE (md5(pg_get_functiondef(...)) under the default search_path; predecessors measured on a clone of the
 -- CI chain at main c093bada plus registry 198)
---   venue.reserve_primary_inventory(uuid,integer,text)      d30669daef75abe15725aa0b04a107b0 (185) -> 079aa9b5c7185a7acdd969d4afe6d77a
---   venue.create_primary_checkout(uuid,jsonb,uuid[],text)   daf8bffd8a5f4a71fc7229dc11e3494a (198) -> 50ed88e09825c811a0aa155d06b00f32
+--   venue.reserve_primary_inventory(uuid,integer,text)      d30669daef75abe15725aa0b04a107b0 (185) -> 1d759c5dd7aaa19b9366f0195ab5f528
+--   venue.create_primary_checkout(uuid,jsonb,uuid[],text)   daf8bffd8a5f4a71fc7229dc11e3494a (198) -> 0222d6d9f064a3f5d32e87a483872c4b
 --   venue.finalize_primary_order(uuid,uuid,text,text)       7b8007e59e4faf6ed5d69cc3b2690d49 (198) -> 3c359ec14a788be8398d67210828b773
+--   reviewed bodies (branch head 8d56adcd, before the venue_not_approved token; the same bodies with the prose-only
+--   refusal): reserve 079aa9b5c7185a7acdd969d4afe6d77a, checkout 50ed88e09825c811a0aa155d06b00f32, finalize
+--   3c359ec14a788be8398d67210828b773 (unchanged since). The pre-flight accepts that state as well, so a database
+--   that applied the reviewed file re-applies this one; the rollback accepts it too.
 --   pinned, unchanged: venue.sweep_expired_inventory_holds(integer)          d2ed033325aa3972e9c1be48bb8f4e91 (198)
 --                      venue.release_inventory_hold(uuid,text)               b981bef80b10455a0c45a6e908c91aec
 --                      kernel.issue_ticket_atoms(jsonb,text)                 9f559af1202fa0e7d8bae0c44df93ff8
@@ -78,15 +85,16 @@
 -- ROLLBACK: the file of this name plus _rollback under supabase/rollbacks/ restores the three predecessor bodies
 -- verbatim under an inverse md5 guard, grants EXECUTE on the engine back to authenticated (no CASCADE) and
 -- post-checks.
--- PINS MOVED in the same commit (registry 201; each file carries a note): pgTAP 145 (A28), 255 (A3, A10, A11, W12,
--- N1-N5), 258 (A7, A9) and 267 (A5, A6, A8, B2, B6). Suites 145, 146, 255 and 267 called the engine directly as a
--- buyer; they now call it in owner context — a SECURITY DEFINER tap helper with the buyer's request.jwt.claims
--- still set, so auth.uid() resolves the buyer — and keep every assertion.
+-- PINS MOVED with registry 201 (each file carries a note): pgTAP 145 (A28), 255 (A3, A10, A11, W12, N1-N5), 258
+-- (A7, A9) and 267 (A5, A6, A8, B2, B6). Suites 145, 146, 255 and 267 called the engine directly as a buyer; they
+-- now call it in owner context — a SECURITY DEFINER tap helper with the buyer's request.jwt.claims still set, so
+-- auth.uid() resolves the buyer — and keep every assertion. The venue_not_approved token moved the reserve and
+-- checkout md5 pins once more: 255 A10, 258 A7, 267 A5 and A8, 270 A1.
 -- LOCKS: CREATE OR REPLACE of three functions and one REVOKE (catalog rows only; no data read or written);
 -- lock_timeout 3s. A checkout or reserve already running finishes on the body it started with.
 -- VERIFY after apply:
---   select md5(pg_get_functiondef(to_regprocedure('venue.reserve_primary_inventory(uuid, integer, text)')));      -- 079aa9b5c7185a7acdd969d4afe6d77a
---   select md5(pg_get_functiondef(to_regprocedure('venue.create_primary_checkout(uuid, jsonb, uuid[], text)')));  -- 50ed88e09825c811a0aa155d06b00f32
+--   select md5(pg_get_functiondef(to_regprocedure('venue.reserve_primary_inventory(uuid, integer, text)')));      -- 1d759c5dd7aaa19b9366f0195ab5f528
+--   select md5(pg_get_functiondef(to_regprocedure('venue.create_primary_checkout(uuid, jsonb, uuid[], text)')));  -- 0222d6d9f064a3f5d32e87a483872c4b
 --   select md5(pg_get_functiondef(to_regprocedure('venue.finalize_primary_order(uuid, uuid, text, text)')));      -- 3c359ec14a788be8398d67210828b773
 --   select has_function_privilege('authenticated', 'venue.reserve_primary_inventory(uuid, integer, text)', 'EXECUTE');  -- false
 -- ============================================================================
@@ -105,12 +113,14 @@ declare
   v_d3 text := coalesce(md5(pg_get_functiondef(to_regprocedure('venue.cancel_pending_order(uuid, text, text)'))), '<missing>');
   v_d4 text := coalesce(md5(pg_get_functiondef(to_regprocedure('public.reserve_primary_tier(uuid, uuid, integer, text)'))), '<missing>');
   v_d5 text := coalesce(md5(pg_get_functiondef(to_regprocedure('venue.create_inventory_hold(uuid, integer, text, text)'))), '<missing>');
-  v_new boolean;
+  v_rs integer;
+  v_cs integer;
   r record;
 begin
-  if v_r not in ('d30669daef75abe15725aa0b04a107b0', '079aa9b5c7185a7acdd969d4afe6d77a') then
+  -- accepted: the predecessor (re-base), the reviewed 8d56adcd body (prose-only refusal) and this file's body
+  if v_r not in ('d30669daef75abe15725aa0b04a107b0', '079aa9b5c7185a7acdd969d4afe6d77a', '1d759c5dd7aaa19b9366f0195ab5f528') then
     raise exception 'precondition_failed: 201 refuses an unexpected venue.reserve_primary_inventory body (md5 %); nothing changed', v_r; end if;
-  if v_c not in ('daf8bffd8a5f4a71fc7229dc11e3494a', '50ed88e09825c811a0aa155d06b00f32') then
+  if v_c not in ('daf8bffd8a5f4a71fc7229dc11e3494a', '50ed88e09825c811a0aa155d06b00f32', '0222d6d9f064a3f5d32e87a483872c4b') then
     raise exception 'precondition_failed: 201 refuses an unexpected venue.create_primary_checkout body (md5 %); nothing changed', v_c; end if;
   if v_f not in ('7b8007e59e4faf6ed5d69cc3b2690d49', '3c359ec14a788be8398d67210828b773') then
     raise exception 'precondition_failed: 201 refuses an unexpected venue.finalize_primary_order body (md5 %); nothing changed', v_f; end if;
@@ -124,8 +134,11 @@ begin
   if (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
        where (n.nspname, p.proname) in (('venue','reserve_primary_inventory'),('venue','create_primary_checkout'),('venue','finalize_primary_order'))) <> 3 then
     raise exception 'precondition_failed: 201 expects exactly one overload of each replaced function; nothing changed'; end if;
-  v_new := v_r = '079aa9b5c7185a7acdd969d4afe6d77a';
-  if (v_c = '50ed88e09825c811a0aa155d06b00f32') is distinct from v_new or (v_f = '3c359ec14a788be8398d67210828b773') is distinct from v_new then
+  -- three whole states only: all predecessor (0), all reviewed 201 (1) or all this file's 201 (2); finalize is
+  -- 3c359ec1 in both 201 states
+  v_rs := case v_r when 'd30669daef75abe15725aa0b04a107b0' then 0 when '079aa9b5c7185a7acdd969d4afe6d77a' then 1 else 2 end;
+  v_cs := case v_c when 'daf8bffd8a5f4a71fc7229dc11e3494a' then 0 when '50ed88e09825c811a0aa155d06b00f32' then 1 else 2 end;
+  if v_cs <> v_rs or (v_f = '3c359ec14a788be8398d67210828b773') is distinct from (v_rs > 0) then
     raise exception 'precondition_failed: 201 found a partial state (reserve %, checkout %, finalize %); nothing changed', v_r, v_c, v_f; end if;
   -- after the revoke the wrapper is the buyer's only path: it must run as the engine's owner
   if not exists (select 1 from pg_proc w, pg_proc e
@@ -241,7 +254,7 @@ begin
                    join catalog.venue v on v.venue_id = e.venue_id
                   where b.batch_id = p_batch_id
                     and v.approval_status = 'approved') then
-    raise exception 'precondition_failed: venue is not approved';
+    raise exception 'precondition_failed: venue_not_approved — venue is not approved';
   end if;
   -- ── 201 BLOCK V END
   -- ── 185 BLOCK W — tier sale window (A's ruling 2026-10-26, CONTRACTS C2): refuse when the batch's
@@ -477,7 +490,7 @@ begin
                    from catalog.venue v
                   where v.venue_id = v_venue_id
                     and v.approval_status = 'approved') then
-    raise exception 'precondition_failed: venue is not approved';
+    raise exception 'precondition_failed: venue_not_approved — venue is not approved';
   end if;
   -- ── 201 BLOCK V END
 
@@ -1182,8 +1195,8 @@ revoke execute on function venue.reserve_primary_inventory(uuid, integer, text) 
 do $pc$
 declare r record;
 begin
-  if md5(pg_get_functiondef(to_regprocedure('venue.reserve_primary_inventory(uuid, integer, text)'))) is distinct from '079aa9b5c7185a7acdd969d4afe6d77a'
-  or md5(pg_get_functiondef(to_regprocedure('venue.create_primary_checkout(uuid, jsonb, uuid[], text)'))) is distinct from '50ed88e09825c811a0aa155d06b00f32'
+  if md5(pg_get_functiondef(to_regprocedure('venue.reserve_primary_inventory(uuid, integer, text)'))) is distinct from '1d759c5dd7aaa19b9366f0195ab5f528'
+  or md5(pg_get_functiondef(to_regprocedure('venue.create_primary_checkout(uuid, jsonb, uuid[], text)'))) is distinct from '0222d6d9f064a3f5d32e87a483872c4b'
   or md5(pg_get_functiondef(to_regprocedure('venue.finalize_primary_order(uuid, uuid, text, text)'))) is distinct from '3c359ec14a788be8398d67210828b773' then
     raise exception 'precondition_failed: 201 self-check — a written body is not this migration''s; this file was modified'; end if;
   for r in select * from (values ('r', 'venue.reserve_primary_inventory(uuid, integer, text)'),

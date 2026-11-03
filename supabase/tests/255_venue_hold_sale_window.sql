@@ -59,8 +59,9 @@
 --     and R run in owner context: tap._eng255, a SECURITY DEFINER helper, calls the engine with the buyer's
 --     request.jwt.claims still set (tap.login), so auth.uid() still resolves the buyer; A3 expects
 --     authenticated no;
---   * A10 expects 201's reserve md5 (079aa9b5); A11's strip removes the 185 and the 201 blocks (201's are
---     byte-for-byte additions, so the 081 md5 stands);
+--   * A10 expects 201's reserve md5 (1d759c5d; 079aa9b5 before the venue_not_approved token, a line inside 201's
+--     BLOCK V); A11's strip removes the 185 and the 201 blocks (201's are byte-for-byte additions, so the 081 md5
+--     stands);
 --   * a door_only tier is no longer buyer inventory (SW-4): W12 expects 'precondition_failed: not_buyer_inventory',
 --     so b12 joins the refused batches in N1-N3, N4 counts the five allowed batches and N5 six holds.
 -- ============================================================================
@@ -224,8 +225,8 @@ SELECT is(md5(pg_get_functiondef('venue.create_inventory_hold(uuid, integer, tex
   'f177b73fadaa60234a6d416fed558d11',
   'A9: create_inventory_hold is byte-identical to its 081 predecessor (md5(pg_get_functiondef) f177b73f) — 185 does not touch it');
 SELECT is(md5(pg_get_functiondef('venue.reserve_primary_inventory(uuid, integer, text)'::regprocedure)),
-  '079aa9b5c7185a7acdd969d4afe6d77a',
-  'A10: reserve_primary_inventory body = 201''s (md5(pg_get_functiondef) 079aa9b5; 185''s d30669da plus the 201 blocks)');
+  '1d759c5dd7aaa19b9366f0195ab5f528',
+  'A10: reserve_primary_inventory body = 201''s (md5(pg_get_functiondef) 1d759c5d; 185''s d30669da plus the 201 blocks)');
 SELECT is(tap._strip255('venue.reserve_primary_inventory(uuid, integer, text)'), '3538344c0418c7b322accafdee76f0f6',
   'A11: reserve_primary_inventory minus the 185 and 201 blocks = the predecessor byte for byte (081 body; md5 3538344c)');
 SELECT is((SELECT ARRAY[count(*), count(*) FILTER (WHERE pg_get_functiondef(p.oid) !~ 'ticket_type_on_sale|tier_not_on_sale')]::integer[]

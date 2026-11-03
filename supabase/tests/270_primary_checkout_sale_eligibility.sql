@@ -15,9 +15,11 @@
 --       once the tier is hidden mid-sale, so it no longer checks out (198 bound it); nothing is written (C6-C7);
 --   (4) SW-4: reserve refuses door_only tiers and comp / door / presale / promoter_hold batches with
 --       'precondition_failed: not_buyer_inventory', after the replay and before any write (K1-K5);
---   (5) EL-05: reserve and checkout refuse 'precondition_failed: venue is not approved' before any write, for every
---       status that is not approved — pending (V1, V9), draft (V9) and archived (V5, V7) — and the replays still
---       answer (V1-V7, V9-V10); structure and provenance (A1-A8).
+--   (5) EL-05: reserve and checkout refuse 'precondition_failed: venue_not_approved — venue is not approved' before
+--       any write, for every status that is not approved — pending (V1, V9), draft (V9) and archived (V5, V7) — and
+--       the replays still answer (V1-V7, V9-V10); every one of those refusals starts with the venue_not_approved
+--       token and still carries catalog.create_event's prose 'venue is not approved', so a substring matcher on
+--       the old text keeps matching (V11); structure and provenance (A1-A8).
 --
 -- Fixture (synthetic, letter-bearing ids a2010000-…-a000-…, as postgres; everything dies with the ROLLBACK): one
 -- Connect-ready active org; venues VA (approved), VP (pending, draft mid-file), VX (approved, archived mid-file);
@@ -40,7 +42,7 @@
 --   pass (12): A5 R3 K4 K5 V3 V4 V8 H1 H2 E3 L1 L2 — non-regression pins: the dependencies, the wrapper, a public
 --              reserve, the reserve and checkout replays, finalize without a re-check, the happy path, the
 --              paid-order replay and 198's lapse raise (each is told apart from a broken 201 by a mutant below).
---   fail (33): every other assertion. A2 also carries the marker census, so it cannot pass on a block-less body.
+--   fail (34): every other assertion. A2 also carries the marker census, so it cannot pass on a block-less body.
 -- Mutants (each ONE create or replace, grant or alter after 201 applies; kills counted with A1, the md5 pin,
 -- excluded): M01 reserve without the venue gate · M02 reserve without the buyer-inventory gate · M03 / M04 that
 -- gate without its visibility / release_kind term · M05 both reserve gates ahead of the replay · M06 checkout
@@ -53,15 +55,20 @@
 -- M23 reserve's venue gate after the cap lock (A7) · M24 one byte outside the 201 blocks (A2) · M25 checkout's
 -- venue gate refuses only an archived venue · M26 the coverage filter counts a hidden tier (visibility <>
 -- 'door_only') · M27 / M28 checkout's / reserve's venue gate lets a draft venue through. M25 and M26 are the review
--- mutants that the 41-assertion revision of this file let through; V9-V10 and C6-C7 were added for them. All 28
--- are killed (fix/run_201_fix.log). Reconciled with the prediction: C5 does not fail under M07 or M09 — no single
--- batch covers 2, so the refusal fires either way, and BLOCK N computes the DETAIL independently of BLOCK C (C1-C4
--- kill both).
+-- mutants that the 41-assertion revision of this file let through; V9-V10 and C6-C7 were added for them. The
+-- venue_not_approved token added V11 and five text mutants: M29 / M30 reserve's / checkout's refusal back to the
+-- prose-only text (each body is then the reviewed 8d56adcd body, md5 079aa9b5 / 50ed88e0) · M31 / M32 checkout's /
+-- reserve's token without the prose · M33 reserve's separator a hyphen instead of the em dash. All 33 are killed
+-- (delta-venue-token/run_201_delta.log); the whole reviewed 8d56adcd file under this suite fails exactly A1 A7 A8 V1
+-- V5 V7 V9 V11. Reconciled with the prediction: C5 does not fail under M07 or M09 — no single batch covers 2, so
+-- the refusal fires either way, and BLOCK N computes the DETAIL independently of BLOCK C (C1-C4 kill both).
 -- Extras, each explained: V6 under M01 (the archived-venue reserve then lands, so BX holds 3); A2 under M18 (its
--- lines sit outside the 201 blocks); M20 fails every wrapper-driven assertion.
+-- lines sit outside the 201 blocks); M20 fails every wrapper-driven assertion; V11 fails wherever a venue refusal
+-- no longer fires (M01 M06 M20 M25 M27 M28) and passes under M33 (token and prose intact; V1 V7 V9 pin the exact
+-- separator).
 -- ============================================================================
 BEGIN;
-SELECT plan(45);
+SELECT plan(46);
 
 -- ── harness ──────────────────────────────────────────────────────────────────
 CREATE TABLE tap.memo_270 (k text PRIMARY KEY, v text);
@@ -218,8 +225,8 @@ SELECT tap._cfg270('fee.buyer_service_bps', '1000'::jsonb);
 SELECT is(ARRAY[md5(pg_get_functiondef(to_regprocedure('venue.reserve_primary_inventory(uuid, integer, text)'))),
                 md5(pg_get_functiondef(to_regprocedure('venue.create_primary_checkout(uuid, jsonb, uuid[], text)'))),
                 md5(pg_get_functiondef(to_regprocedure('venue.finalize_primary_order(uuid, uuid, text, text)')))],
-          ARRAY['079aa9b5c7185a7acdd969d4afe6d77a', '50ed88e09825c811a0aa155d06b00f32', '3c359ec14a788be8398d67210828b773'],
-  'A1: reserve, checkout and finalize bodies are 201''s (md5(pg_get_functiondef) 079aa9b5 / 50ed88e0 / 3c359ec1)');
+          ARRAY['1d759c5dd7aaa19b9366f0195ab5f528', '0222d6d9f064a3f5d32e87a483872c4b', '3c359ec14a788be8398d67210828b773'],
+  'A1: reserve, checkout and finalize bodies are 201''s (md5(pg_get_functiondef) 1d759c5d / 0222d6d9 / 3c359ec1)');
 SELECT is(ARRAY[tap._strip270('venue.reserve_primary_inventory(uuid, integer, text)'),
                 tap._strip270('venue.create_primary_checkout(uuid, jsonb, uuid[], text)'),
                 tap._strip270('venue.finalize_primary_order(uuid, uuid, text, text)'),
@@ -279,23 +286,23 @@ SELECT ok(tap._pos270('venue.reserve_primary_inventory(uuid, integer, text)', 'c
           AND tap._pos270('venue.reserve_primary_inventory(uuid, integer, text)', 'command_idempotency_key = p_command_key')
             < tap._pos270('venue.reserve_primary_inventory(uuid, integer, text)', '''precondition_failed: session_terminal''')
           AND tap._pos270('venue.reserve_primary_inventory(uuid, integer, text)', '''precondition_failed: session_terminal''')
-            < tap._pos270('venue.reserve_primary_inventory(uuid, integer, text)', '''precondition_failed: venue is not approved''')
-          AND tap._pos270('venue.reserve_primary_inventory(uuid, integer, text)', '''precondition_failed: venue is not approved''')
+            < tap._pos270('venue.reserve_primary_inventory(uuid, integer, text)', '''precondition_failed: venue_not_approved — venue is not approved''')
+          AND tap._pos270('venue.reserve_primary_inventory(uuid, integer, text)', '''precondition_failed: venue_not_approved — venue is not approved''')
             < tap._pos270('venue.reserve_primary_inventory(uuid, integer, text)', '''precondition_failed: tier_not_on_sale''')
           AND tap._pos270('venue.reserve_primary_inventory(uuid, integer, text)', '''precondition_failed: tier_not_on_sale''')
             < tap._pos270('venue.reserve_primary_inventory(uuid, integer, text)', '''precondition_failed: not_buyer_inventory''')
           AND tap._pos270('venue.reserve_primary_inventory(uuid, integer, text)', '''precondition_failed: not_buyer_inventory''')
             < tap._pos270('venue.reserve_primary_inventory(uuid, integer, text)', 'pg_advisory_xact_lock'),
-  'A7: reserve — replay lookup, session_terminal, venue approval, the 185 window, buyer inventory, then the cap lock (and every write after it)');
+  'A7: reserve — replay lookup, session_terminal, venue approval (the venue_not_approved text), the 185 window, buyer inventory, then the cap lock (and every write after it)');
 SELECT ok(tap._pos270('venue.create_primary_checkout(uuid, jsonb, uuid[], text)', 'select order_id, total_minor, currency into v_ex_id') > 0
           AND tap._pos270('venue.create_primary_checkout(uuid, jsonb, uuid[], text)', 'select order_id, total_minor, currency into v_ex_id')
             < tap._pos270('venue.create_primary_checkout(uuid, jsonb, uuid[], text)', '''precondition_failed: session_terminal''')
           AND tap._pos270('venue.create_primary_checkout(uuid, jsonb, uuid[], text)', '''precondition_failed: session_terminal''')
-            < tap._pos270('venue.create_primary_checkout(uuid, jsonb, uuid[], text)', '''precondition_failed: venue is not approved''')
-          AND tap._pos270('venue.create_primary_checkout(uuid, jsonb, uuid[], text)', '''precondition_failed: venue is not approved''')
+            < tap._pos270('venue.create_primary_checkout(uuid, jsonb, uuid[], text)', '''precondition_failed: venue_not_approved — venue is not approved''')
+          AND tap._pos270('venue.create_primary_checkout(uuid, jsonb, uuid[], text)', '''precondition_failed: venue_not_approved — venue is not approved''')
             < tap._pos270('venue.create_primary_checkout(uuid, jsonb, uuid[], text)', 'insert into venue."order"')
           AND tap._pos270('catalog.create_event(uuid, text, jsonb, text)', 'raise exception ''precondition_failed: venue is not approved'';') > 0,
-  'A8: checkout — replay lookup, session_terminal, then venue approval, before the order insert; the literal is catalog.create_event''s own');
+  'A8: checkout — replay lookup, session_terminal, then venue approval (the venue_not_approved text), before the order insert; catalog.create_event keeps its own literal precondition_failed: venue is not approved, whose prose that text carries');
 
 -- ── Section R — the engine is not client-callable; the wrapper still reserves ─
 SELECT tap.login(tap._id270('B1'));
@@ -361,18 +368,18 @@ SELECT tap._run270('v_ck1r', tap._ck270('SX', 'TX', 1, ARRAY['v_hx1'], 'k270-v-c
 SELECT tap._run270('v_ck2', tap._ck270('SX', 'TX', 1, ARRAY['v_hx2'], 'k270-v-ck2'));
 SELECT tap._run270('v_rsv_x', tap._wrap270('SX', 'TX', 1, 'k270-v-x3'));
 SELECT tap.logout();
-SELECT is(tap._get270('v_rsv_p'), 'ERROR P0001|precondition_failed: venue is not approved|',
-  'V1: reserving a session of a pending venue (through the wrapper) is refused precondition_failed: venue is not approved');
+SELECT is(tap._get270('v_rsv_p'), 'ERROR P0001|precondition_failed: venue_not_approved — venue is not approved|',
+  'V1: reserving a session of a pending venue (through the wrapper) is refused precondition_failed: venue_not_approved — venue is not approved');
 SELECT is(tap._nholds270(ARRAY['BPP']), '0|0|0', 'V2: …nothing written on its batch (no hold, held 0, no movement)');
 SELECT is(tap._j270('v_hx1', '{status}') || '|' || tap._j270('v_hx2', '{status}') || '|' || tap._j270('v_ck1', '{status}'), 'ok|ok|ok',
   'V3: while VX is approved, two holds and a checkout on its session succeed');
 SELECT is(tap._j270('v_ck1r', '{status}') || '|' || (tap._j270('v_ck1r', '{order_id}') = tap._j270('v_ck1', '{order_id}')), 'idempotency_replay|true',
   'V4: after VX is archived, replaying that checkout still answers idempotency_replay with the original order');
-SELECT is(tap._get270('v_ck2'), 'ERROR P0001|precondition_failed: venue is not approved|',
-  'V5: a new checkout on the archived venue''s session is refused precondition_failed: venue is not approved');
+SELECT is(tap._get270('v_ck2'), 'ERROR P0001|precondition_failed: venue_not_approved — venue is not approved|',
+  'V5: a new checkout on the archived venue''s session is refused precondition_failed: venue_not_approved — venue is not approved');
 SELECT is(tap._nord270('k270-v-ck2') || '|' || tap._hold270(tap._j270('v_hx2', '{hold_id}')) || '|' || tap._batch270('BX'), '0|active|-|2|0',
   'V6: …no order for that key, the named hold stays active and unbound, BX unchanged (held 2, sold 0)');
-SELECT is(tap._get270('v_rsv_x') || '|' || tap._nholds270(ARRAY['BX']), 'ERROR P0001|precondition_failed: venue is not approved||2|2|2',
+SELECT is(tap._get270('v_rsv_x') || '|' || tap._nholds270(ARRAY['BX']), 'ERROR P0001|precondition_failed: venue_not_approved — venue is not approved||2|2|2',
   'V7: a new reserve on the archived venue''s session is refused the same way and writes nothing (still 2 holds, held 2, 2 movements)');
 -- finalize gains no approval / window / visibility re-check: hide the tier and close its window, then pay
 UPDATE venue.ticket_type SET visibility = 'hidden', sale_ends_at = now() WHERE ticket_type_id = tap._id270('TX');
@@ -394,12 +401,19 @@ SELECT tap._run270('v_ckd', tap._ck270('SP', 'TPP', 1, ARRAY['HPP'], 'k270-v-ckd
 SELECT tap._run270('v_rsv_d', tap._wrap270('SP', 'TPP', 1, 'k270-v-d'));
 SELECT tap.logout();
 SELECT is(ARRAY[tap._get270('v_ckp'), tap._get270('v_ckd'), tap._get270('v_rsv_d')],
-          ARRAY['ERROR P0001|precondition_failed: venue is not approved|', 'ERROR P0001|precondition_failed: venue is not approved|',
-                'ERROR P0001|precondition_failed: venue is not approved|'],
-  'V9: a checkout naming the buyer''s own hold is refused precondition_failed: venue is not approved on a pending venue''s session and again (new key) once the venue is draft; a reserve on the draft venue''s session is refused the same way');
+          ARRAY['ERROR P0001|precondition_failed: venue_not_approved — venue is not approved|', 'ERROR P0001|precondition_failed: venue_not_approved — venue is not approved|',
+                'ERROR P0001|precondition_failed: venue_not_approved — venue is not approved|'],
+  'V9: a checkout naming the buyer''s own hold is refused precondition_failed: venue_not_approved — venue is not approved on a pending venue''s session and again (new key) once the venue is draft; a reserve on the draft venue''s session is refused the same way');
 SELECT is(tap._nord270('k270-v-ckp') || '|' || tap._nord270('k270-v-ckd') || '|' || tap._hold270(tap._id270('HPP')::text) || '|' || tap._nholds270(ARRAY['BPP']),
   '0|0|active|-|1|1|0',
   'V10: …no order for either key, the named hold stays active and unbound, and BPP is unchanged (that one hold, held 1, no movement)');
+SELECT is(ARRAY(SELECT u.k || ' ' || (split_part(coalesce(tap._get270(u.k), '<none>'), '|', 1) = 'ERROR P0001')::text
+                       || ' ' || starts_with(split_part(coalesce(tap._get270(u.k), '<none>'), '|', 2), 'precondition_failed: venue_not_approved')::text
+                       || ' ' || (strpos(split_part(coalesce(tap._get270(u.k), '<none>'), '|', 2), 'venue is not approved') > 0)::text
+                  FROM unnest(ARRAY['v_rsv_p', 'v_rsv_x', 'v_rsv_d', 'v_ck2', 'v_ckp', 'v_ckd']) WITH ORDINALITY AS u(k, o) ORDER BY u.o),
+          ARRAY['v_rsv_p true true true', 'v_rsv_x true true true', 'v_rsv_d true true true',
+                'v_ck2 true true true', 'v_ckp true true true', 'v_ckd true true true'],
+  'V11: every venue-approval refusal above (reserve V1 V7 V9, checkout V5 V9) is P0001, its message starts with the token precondition_failed: venue_not_approved and still contains the prose venue is not approved (a substring matcher on the old text keeps matching)');
 
 -- ── Section C — checkout coverage counts only buyer inventory (DB-4) ─────────
 -- pre-201 / staff-placed holds on non-buyer inventory (a 201 engine refuses them)

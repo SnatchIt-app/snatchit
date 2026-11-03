@@ -3,9 +3,12 @@
 -- (as pg_get_functiondef prints them) — venue.reserve_primary_inventory = 185 (venue_hold_sale_window),
 -- venue.create_primary_checkout = 198 and venue.finalize_primary_order = 198 (primary_checkout_hold_binding) — and
 -- grants EXECUTE on venue.reserve_primary_inventory(uuid, integer, text) back to authenticated. No CASCADE.
--- INVERSE GUARD: each body must be 201's or its predecessor (reserve 079aa9b5c7185a7acdd969d4afe6d77a / d30669daef75abe15725aa0b04a107b0, checkout
--- 50ed88e09825c811a0aa155d06b00f32 / daf8bffd8a5f4a71fc7229dc11e3494a, finalize 3c359ec14a788be8398d67210828b773 / 7b8007e59e4faf6ed5d69cc3b2690d49), and all three
--- must agree (all 201 or all predecessor); anything else refuses with nothing changed.
+-- INVERSE GUARD: each body must be 201's, the reviewed 201 body (branch head 8d56adcd, before the venue_not_approved
+-- token) or its predecessor — reserve 1d759c5dd7aaa19b9366f0195ab5f528 / 079aa9b5c7185a7acdd969d4afe6d77a /
+-- d30669daef75abe15725aa0b04a107b0, checkout 0222d6d9f064a3f5d32e87a483872c4b / 50ed88e09825c811a0aa155d06b00f32 /
+-- daf8bffd8a5f4a71fc7229dc11e3494a, finalize 3c359ec14a788be8398d67210828b773 (both 201 states) /
+-- 7b8007e59e4faf6ed5d69cc3b2690d49 — and all three must agree (all 201, all reviewed 201 or all predecessor);
+-- anything else refuses with nothing changed.
 -- POST-CHECK: the three predecessor md5s; SECURITY DEFINER, search_path, owner as captured; the checkout and
 -- finalize ACLs as captured; the engine's EXECUTE entries = the captured ones plus authenticated's (granted by
 -- the owner), so authenticated can execute it again and anon still cannot.
@@ -22,17 +25,20 @@ declare
   v_r  text := coalesce(md5(pg_get_functiondef(to_regprocedure('venue.reserve_primary_inventory(uuid, integer, text)'))), '<missing>');
   v_c  text := coalesce(md5(pg_get_functiondef(to_regprocedure('venue.create_primary_checkout(uuid, jsonb, uuid[], text)'))), '<missing>');
   v_f  text := coalesce(md5(pg_get_functiondef(to_regprocedure('venue.finalize_primary_order(uuid, uuid, text, text)'))), '<missing>');
-  v_new boolean;
+  v_rs integer;
+  v_cs integer;
   r record;
 begin
-  if v_r not in ('079aa9b5c7185a7acdd969d4afe6d77a', 'd30669daef75abe15725aa0b04a107b0') then
+  if v_r not in ('1d759c5dd7aaa19b9366f0195ab5f528', '079aa9b5c7185a7acdd969d4afe6d77a', 'd30669daef75abe15725aa0b04a107b0') then
     raise exception 'precondition_failed: 201 rollback refuses an unexpected venue.reserve_primary_inventory body (md5 %); nothing changed', v_r; end if;
-  if v_c not in ('50ed88e09825c811a0aa155d06b00f32', 'daf8bffd8a5f4a71fc7229dc11e3494a') then
+  if v_c not in ('0222d6d9f064a3f5d32e87a483872c4b', '50ed88e09825c811a0aa155d06b00f32', 'daf8bffd8a5f4a71fc7229dc11e3494a') then
     raise exception 'precondition_failed: 201 rollback refuses an unexpected venue.create_primary_checkout body (md5 %); nothing changed', v_c; end if;
   if v_f not in ('3c359ec14a788be8398d67210828b773', '7b8007e59e4faf6ed5d69cc3b2690d49') then
     raise exception 'precondition_failed: 201 rollback refuses an unexpected venue.finalize_primary_order body (md5 %); nothing changed', v_f; end if;
-  v_new := v_r = '079aa9b5c7185a7acdd969d4afe6d77a';
-  if (v_c = '50ed88e09825c811a0aa155d06b00f32') is distinct from v_new or (v_f = '3c359ec14a788be8398d67210828b773') is distinct from v_new then
+  -- three whole states only: all predecessor (0), all reviewed 201 (1) or all 201 (2); finalize is 3c359ec1 in both 201 states
+  v_rs := case v_r when 'd30669daef75abe15725aa0b04a107b0' then 0 when '079aa9b5c7185a7acdd969d4afe6d77a' then 1 else 2 end;
+  v_cs := case v_c when 'daf8bffd8a5f4a71fc7229dc11e3494a' then 0 when '50ed88e09825c811a0aa155d06b00f32' then 1 else 2 end;
+  if v_cs <> v_rs or (v_f = '3c359ec14a788be8398d67210828b773') is distinct from (v_rs > 0) then
     raise exception 'precondition_failed: 201 rollback refuses a partial state (reserve %, checkout %, finalize %); nothing changed', v_r, v_c, v_f; end if;
   for r in select * from (values ('r', 'venue.reserve_primary_inventory(uuid, integer, text)'),
                                  ('c', 'venue.create_primary_checkout(uuid, jsonb, uuid[], text)'),
