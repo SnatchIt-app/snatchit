@@ -9,7 +9,7 @@
 
 import React, { useEffect } from 'react';
 import * as Sentry from '@sentry/react-native';
-import Constants from 'expo-constants';
+import * as Device from 'expo-device';
 import * as Linking from 'expo-linking';
 import * as Notifications from 'expo-notifications';
 import { StripeProvider, handleURLCallback } from '@stripe/stripe-react-native';
@@ -27,20 +27,18 @@ import { Alert, NativeModules } from 'react-native';
 import { usePushToken } from '@/src/hooks/usePushToken';
 import { APP_CONFIG } from '@/src/config/app';
 import { looksLikeStripePublishableKey } from '@/src/config/envValue';
+import { sentryEnvironment } from '@/src/lib/observability/sentryIdentity';
 
 // ── Sentry bootstrap (module-level, runs once) ──────────────────────────────
 
-const _version = Constants.expoConfig?.version ?? '1.0.0';
-const _build   = Constants.expoConfig?.ios?.buildNumber
-              ?? Constants.expoConfig?.android?.versionCode?.toString()
-              ?? '1';
-
+// No release and no dist here (S1): the SDK's default nativeReleaseIntegration reports
+// bundleId@CFBundleShortVersionString+CFBundleVersion and the real build number from the native bundle.
+// EAS numbers builds remotely, so the JS-side config only ever said "1" — and init options would override
+// the native values. The environment (S2) is never a silent "production": see sentryIdentity.ts.
 Sentry.init({
   dsn:              process.env.EXPO_PUBLIC_SENTRY_DSN,
   enabled:          !__DEV__,
-  environment:      process.env.EXPO_PUBLIC_APP_ENV ?? 'production',
-  release:          `com.jdt-inc.snatchit@${_version}`,
-  dist:             _build,
+  environment:      sentryEnvironment(process.env.EXPO_PUBLIC_APP_ENV, Device.isDevice),
   tracesSampleRate: __DEV__ ? 0 : 0.1,
   debug:            false,
 });
