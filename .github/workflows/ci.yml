@@ -766,6 +766,13 @@ jobs:
           # (set_operational_config — SECURITY INVOKER — and list_operational_config); nothing in `public`, no table,
           # no grant beyond EXECUTE on those two to authenticated (pinned by pgTAP 266 A1/A2 and 197's post-flight).
           # Read from a local PG17 replay of main 7496fee3 + 197 with the service_role function default revoked:
+          # 2026-11-02 registry 199 (D, refund ledger post-success failure + executor exclusions; DARK, applied nowhere): NO
+          # change to any of the four counters. 199 adds four kernel functions (refund_executor_hold — no grant;
+          # record_refund_stripe_failure, park_refund_execution — service_role; rearm_refund_execution — authenticated,
+          # service_role revoked) and replaces kernel.mark_refund_state, kernel.claim_refunds_for_execution,
+          # kernel.get_refund_execution_context and ops.executor_claim (same signatures/ACLs; pgTAP 268 A2-A5 + 199's
+          # post-flight). Nothing in `public`. Kernel 157 -> 161, five-schema 320 -> 324, 141 F2 69 -> 70, F3 54 -> 56.
+          # Read from a local PG17 replay of main 7496fee3 + 199 with the service_role function default revoked:
           # 35|133|37|49 before and after.
           # 2026-11-02 registry 198 (D, primary checkout and finalize bound to the buyer's holds; DARK, applied
           # nowhere): NO change to any of the four counters. 198 adds one nullable column in schema `venue`
