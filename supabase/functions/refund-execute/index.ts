@@ -517,12 +517,29 @@ async function reconcileOne(
       return { refund_id: refundId, outcome: 'stripe_error', code: 'network', detail: String(err), retryable: true, http: 502 };
     }
     if (!res.ok) {
-      // A ref we hold that Stripe does not know is a reconciliation incident,
-      // not a retry: we must never respond to it by creating a replacement.
-      await captureException('refund-execute:reconcile-fetch', new Error(`GET /refunds/${plan.stripe_refund_ref} → ${res.status}`), {
-        refund_id: refundId, payment_id: ctx.payment_id,
-      });
-      return { refund_id: refundId, outcome: 'stripe_error', code: 'resource_missing', detail: `HTTP ${res.status}`, retryable: false, http: 409 };
+      // A ref we hold that Stripe does not know (404) is a reconciliation
+      // incident, not a retry: we must never respond to it by creating a
+      // replacement. Every other answer is classified like the create and list
+      // legs, so a 429 or 5xx stays retryable and unpaged — and, because the
+      // sweep parks only retryable === false (199 §5.2), is never parked. It
+      // used to be reported as resource_missing and parked on the first blip.
+      const stripeErr = (res.data as { error?: { type?: string; code?: string; message?: string } })?.error;
+      const verdict = res.status === 404
+        ? { class: 'resource_missing' as const, retryable: false, page: true }
+        : classifyStripeRefundError({ status: res.status, error: stripeErr });
+      if (verdict.page) {
+        await captureException('refund-execute:reconcile-fetch', new Error(`GET /refunds/${plan.stripe_refund_ref} → ${res.status} (${verdict.class})`), {
+          refund_id: refundId, payment_id: ctx.payment_id,
+        });
+      }
+      return {
+        refund_id: refundId,
+        outcome: 'stripe_error',
+        code: verdict.class,
+        detail: stripeErr?.message ?? `HTTP ${res.status}`,
+        retryable: verdict.retryable,
+        http: verdict.retryable ? 503 : 409,
+      };
     }
     return await applyStateSync(service, refundId, commandKey, ctx, res.data);
   }

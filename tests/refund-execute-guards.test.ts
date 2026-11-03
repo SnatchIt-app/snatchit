@@ -71,6 +71,8 @@ class StripeWithMemory {
   postError: { status: number; error: Record<string, string> } | null = null;
   /** When set, every GET /refunds?payment_intent=… (the reconcile list) is answered with this Stripe error. */
   listError: { status: number; error: Record<string, string> } | null = null;
+  /** When set, GET /refunds/<id> (the reconcile fetch_ref leg) answers this error. */
+  getError: { status: number; error: Record<string, string> } | null = null;
   /** Overrides has_more on the reconcile list (undefined = omit the field). Default false. */
   listHasMore: boolean | undefined | 'omit' = false;
 
@@ -115,6 +117,7 @@ class StripeWithMemory {
     }
     const one = /^\/refunds\/(re_[A-Za-z0-9]+)$/.exec(c.path);
     if (c.method === 'GET' && one) {
+      if (this.getError) return { ok: false, status: this.getError.status, data: { error: this.getError.error } };
       const r = this.refunds.find((x) => x.id === one[1]);
       return r ? { ok: true, data: r } : { ok: false, status: 404, data: { error: { code: 'resource_missing' } } };
     }
@@ -779,6 +782,52 @@ describe('K: a non-retryable sweep outcome is parked once; nothing else is (199 
     const parkPages = h.edge.sentry.filter((s) => s.tag === 'refund-execute:park');
     expect(parkPages).toHaveLength(1);
     expect(parkPages[0].ctx).toEqual({ refund_id: REFUND });
+  });
+
+  // fetch_ref used to answer ANY non-2xx as resource_missing / retryable:false, so
+  // the sweep parked a submitted row on the first Stripe blip (contract review
+  // wf_a09ba978-0f5, refund-199-port-268-F1). It now classifies like the create
+  // and list legs: a blip is retried, only a ref Stripe does not know is parked.
+  const submittedClaim = (refundId: string, attempt = 3) => ({ ...claimOf(refundId, attempt), status: 'submitted', execution_mode: 'reconcile' });
+  it.each([
+    [503, { type: 'api_error', message: 'synthetic: upstream' }, 'api_error'],
+    [429, { type: 'rate_limit_error', code: 'rate_limit', message: 'synthetic: slow down' }, 'rate_limited'],
+  ] as const)('K8 a submitted row whose GET answers %i is retryable, unpaged and NOT parked', async (status, error, cls) => {
+    const h = await harness({ claim: [submittedClaim(REFUND)] });
+    h.kernel.row = { status: 'submitted', stripe_refund_ref: 're_1' };
+    h.stripe.getError = { status, error: { ...error } };
+    const r = await h.sweep();
+    expect(r.status).toBe(200);
+    const result = (r.body.results as Array<Record<string, unknown>>)[0];
+    expect(result).toMatchObject({ outcome: 'stripe_error', code: cls, retryable: true });
+    expect(h.rpcNames()).not.toContain('park_refund_execution');
+    expect(h.kernel.parks).toEqual([]);
+    expect(h.edge.sentry).toHaveLength(0);
+    expect(h.calls()).toEqual(['GET /refunds/re_1']);            // never a POST: the fetch leg never creates
+    expect(h.kernel.row).toEqual({ status: 'submitted', stripe_refund_ref: 're_1' });
+  });
+
+  it('K9 control: a submitted row whose ref Stripe does not know (404 resource_missing) is still parked once and paged', async () => {
+    const h = await harness({ claim: [submittedClaim(REFUND, 5)] });
+    h.kernel.row = { status: 'submitted', stripe_refund_ref: 're_1' };   // the mock holds no re_1, so the GET is 404 resource_missing
+    const r = await h.sweep();
+    const result = (r.body.results as Array<Record<string, unknown>>)[0];
+    expect(result).toMatchObject({ outcome: 'stripe_error', code: 'resource_missing', retryable: false });
+    expect(h.kernel.parks).toEqual([{
+      p_refund_id: REFUND, p_attempt: 5, p_outcome: 'stripe_error', p_reason_code: 'resource_missing', p_command_key: `refund.execute:${REFUND}`,
+    }]);
+    expect(h.edge.sentry.map((s) => s.tag)).toEqual(['refund-execute:reconcile-fetch']);
+    expect(h.calls()).toEqual(['GET /refunds/re_1']);
+  });
+
+  it('K10 a 404 that carries no Stripe error code is still a ref Stripe does not know: resource_missing, parked', async () => {
+    const h = await harness({ claim: [submittedClaim(REFUND, 2)] });
+    h.kernel.row = { status: 'submitted', stripe_refund_ref: 're_1' };
+    h.stripe.getError = { status: 404, error: { message: 'synthetic: not found, no code' } };
+    const r = await h.sweep();
+    expect((r.body.results as Array<Record<string, unknown>>)[0]).toMatchObject({ code: 'resource_missing', retryable: false });
+    expect(h.kernel.parks).toHaveLength(1);
+    expect(h.kernel.parks[0]).toMatchObject({ p_reason_code: 'resource_missing', p_attempt: 2 });
   });
 
   it.each([
