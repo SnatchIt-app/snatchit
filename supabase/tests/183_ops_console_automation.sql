@@ -285,12 +285,19 @@ SELECT is((SELECT (value #>> '{all_time,cents}')::int FROM ops.metric_snapshot W
 SELECT is(tap._run183('daily_summary') ->> 'status', 'succeeded', 'M4: daily_summary runs through run_job');
 SELECT ok((SELECT body ? 'cases' AND body ? 'money' AND body ? 'deadlines' AND body ? 'jobs' AND body ? 'alerts_firing'
              AND delivery_state = 'portal_only'
-             FROM ops.daily_summary WHERE summary_date = (now() at time zone 'utc')::date),
-  'M5: today''s row written with the documented body sections, portal_only');
-SELECT ok((SELECT (body #>> '{cases,opened_24h}')::int >= 10 AND (body #>> '{money,live_24h,captured_cents}')::int = 22000
+             FROM ops.daily_summary WHERE summary_date = (now() at time zone 'America/New_York')::date - 1),
+  'M5: the previous ET day''s row written with the documented body sections, portal_only (200)');
+-- 200: the default run covers the previous full ET day, so this transaction's cases and payments (stamped now())
+-- fall outside it; M6 pins the window and that the windowed counts are exactly that window's.
+SELECT ok((SELECT (body #>> '{period,from}')::timestamptz = ((now() at time zone 'America/New_York')::date - 1)::timestamp at time zone 'America/New_York'
+             AND (body #>> '{period,to}')::timestamptz = ((now() at time zone 'America/New_York')::date)::timestamp at time zone 'America/New_York'
+             AND (body #>> '{cases,opened_24h}')::int = (SELECT count(*)::int FROM ops."case" c
+                    WHERE c.detected_at >= (body #>> '{period,from}')::timestamptz AND c.detected_at < (body #>> '{period,to}')::timestamptz)
+             AND (body #>> '{money,live_24h,captured_cents}')::bigint = (SELECT coalesce(sum(p.total), 0) FROM public.payments p
+                    WHERE p.status IN ('succeeded', 'refunded') AND p.paid_at >= (body #>> '{period,from}')::timestamptz AND p.paid_at < (body #>> '{period,to}')::timestamptz)
              AND (body #>> '{money,live_24h,refunds_pending_count}')::int = 1
-             FROM ops.daily_summary WHERE summary_date = (now() at time zone 'utc')::date),
-  'M6: summary counts reflect this transaction''s cases and money');
+             FROM ops.daily_summary WHERE summary_date = (now() at time zone 'America/New_York')::date - 1),
+  'M6: the summary covers [ET yesterday 00:00, ET today 00:00) with exactly that window''s counts; the point-in-time refunds_pending_count reflects this transaction (200)');
 
 -- ── Section N — run_all_detectors, grants, registration, seed ───────────────
 SELECT tap.login_service();
