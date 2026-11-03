@@ -71,6 +71,16 @@ const expected = (row: string, short: string) => ({
 });
 
 describe('money deadlines are New York wall clock + EST/EDT, whatever the phone says', () => {
+  it('TD-GL: a phone whose own zone skips that wall-clock hour (Nuuk / Scoresbysund, last Saturday of March) still reads New York\u2019s date (review of dbd6d959)', () => {
+    const iso = '2026-03-29T03:30:00Z';   // Sat 28 Mar 23:30 EDT in New York
+    const zones = ['UTC', 'America/Los_Angeles', 'America/New_York', 'America/Nuuk', 'America/Scoresbysund'];
+    const answers = zones.map((z) => { process.env.TZ = z; return lines(iso); });
+    for (const a of answers) expect(a).toEqual(expected('Sat 28 Mar · 23:30 EDT', 'by Sat 11:30 PM EDT'));
+    // witness: on that phone a LOCAL parse of the same wall clock lands on the next day — the old rowWhenLabel path
+    process.env.TZ = 'America/Nuuk';
+    expect(new Date('2026-03-28T23:30').getDate()).toBe(29);
+  });
+
   it('TD1: evening anchor 2026-11-03T02:14Z is Mon 2 Nov 21:14 EST — an LA phone reads 18:14, a UTC phone Tue 02:14', () => {
     const iso = '2026-11-03T02:14:00Z';
     expect(underEveryZone(() => lines(iso))).toEqual(expected('Mon 2 Nov · 21:14 EST', 'by Mon 09:14 PM EST'));

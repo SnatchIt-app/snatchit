@@ -168,6 +168,15 @@ describe('a listing\'s stored date and time — labelled, never converted (A, 20
     }));
     expect(m).toEqual({ meta1: 'Sat 24 Oct · 19:30 EDT · Lantern Room', meta2: '2 × GA · 3 bids' });
     expect(underEveryZone(() => rowWhenLabel('2026-10-24', '19:30'))).toBe('Sat 24 Oct · 19:30');
+    // a stored wall clock is plain calendar arithmetic: a phone whose OWN zone skips that hour (Nuuk / Scoresbysund,
+    // 23:xx on the last Saturday of March) must not move it to the next day (review of dbd6d959)
+    for (const z of ['America/Nuuk', 'America/Scoresbysund', 'Pacific/Apia', 'UTC']) {
+      process.env.TZ = z;
+      expect(rowWhenLabel('2026-03-28', '23:30'), z).toBe('Sat 28 Mar · 23:30');
+      expect(rowWhenLabel('2026-03-28', '23:30:00'), z).toBe('Sat 28 Mar · 23:30');
+    }
+    expect(rowWhenLabel('2026-02-30', '19:30')).toBe('');
+    expect(rowWhenLabel('2026-10-24', '')).toBe('');
   });
 });
 

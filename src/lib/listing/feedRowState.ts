@@ -44,9 +44,15 @@ function pad(n: number): string {
  * add the instant's own label (`easternZoneLabel`), because a wall clock that happens twice cannot say which it was.
  */
 export function rowWhenLabel(eventDate: string, eventTime: string): string {
-  const d = new Date(`${eventDate}T${eventTime}`);
-  if (Number.isNaN(d.getTime())) return '';
-  return `${WEEKDAY[d.getDay()]} ${d.getDate()} ${MONTH[d.getMonth()]} · ${eventTime.slice(0, 5)}`;
+  // Plain calendar arithmetic on the stated date (UTC fields), never a parse in the phone's zone: on a phone whose
+  // own zone skips that wall-clock hour (Nuuk / Scoresbysund, 23:xx on the last Saturday of March) a local parse
+  // moved the date to the next day — a money deadline read one day late (review of dbd6d959).
+  // A date that does not exist (2026-02-30) is unparseable, not rolled over into the next month.
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(eventDate);
+  if (!m || !/^\d{2}:\d{2}(:\d{2})?$/.test(eventTime)) return '';
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  if (d.getUTCMonth() !== +m[2] - 1 || d.getUTCDate() !== +m[3]) return '';
+  return `${WEEKDAY[d.getUTCDay()]} ${d.getUTCDate()} ${MONTH[d.getUTCMonth()]} · ${eventTime.slice(0, 5)}`;
 }
 
 /** `time` with the stored wall clock's EST / EDT after it, or alone when the wall clock has no single label. */
