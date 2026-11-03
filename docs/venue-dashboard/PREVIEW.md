@@ -46,7 +46,7 @@ denial). Resize to 375px for the mobile-critical surfaces (attendees, inventory,
 ## Database mode (slice 1 — events list + event setup, read side)
 
 `NEXT_PUBLIC_VENUE_DATA_SOURCE=database` switches the events list, event setup and inventory
-pages to authenticated reads through the `venue_api` views (migration `20260910120000`). The
+pages to authenticated reads through the `venue_api` views (migration `20261021120000`, registry 159). The
 banner turns blue and names the host; the role switch then changes display only — the database
 decides what you can read. Attendees, door and the create wizard show "not wired" in this mode;
 sample data is never shown there. Setup and evidence: `docs/venue-dashboard/SLICE1_HANDOFF.md`;

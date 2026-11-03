@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { EventHeader } from "@/components/ui/Event";
 import { RELEASE_LABEL, availability, capacityFloor, doorHoldback, inventoryWarnings, remaining, sessionTotals, warningLabel } from "@/lib/inventory";
 import { usd, venueTime, relative } from "@/lib/format";
@@ -14,7 +15,7 @@ import { PreviewHidden } from "@/components/events/EventSetup";
  * md/sm: read-only status cards with a segmented capacity bar. Holds beside.
  * Counters are staff-scoped; `remaining` is world-readable (note 4).
  */
-export function InventoryOverview({ event, types, batches, holds, ctx, basePath, timeZone, now }: { event: Event; types: TicketType[]; batches: InventoryBatch[]; holds: InventoryHold[]; ctx: PreviewContext; basePath: string; timeZone: string; now: Date }) {
+export function InventoryOverview({ event, types, batches, holds, ctx, basePath, timeZone, now, commandsSlot }: { event: Event; types: TicketType[]; batches: InventoryBatch[]; holds: InventoryHold[]; ctx: PreviewContext; basePath: string; timeZone: string; now: Date; commandsSlot?: ReactNode }) {
   const view = showCounters(ctx.role, ctx) ? "counters" : inventoryView(ctx.role) === "none" ? "none" : "remaining_only";
   const mayRelease = canReleaseHold(ctx.role) && ctx.writesEnabled !== false;
   const session = event.sessions[0];
@@ -24,11 +25,14 @@ export function InventoryOverview({ event, types, batches, holds, ctx, basePath,
   const warnings = inventoryWarnings(batches, types, holds, { liveSessionIds: liveIds, now });
   const hb = session ? doorHoldback(batches, session.sessionId) : { door: 0, total: 0 };
 
+  // A new event has no tiers and no releases, and the commands are precisely what fixes that. Returning
+  // early without the slot left no way to add a first tier from the dashboard at all: a bootstrap dead end.
   if (types.length === 0 || batches.length === 0)
     return (
-      <div>
+      <div className="space-y-6">
         <EventHeader eventTitle={event.title} title="Tickets" />
-        <EmptyState title={types.length === 0 ? "No ticket types yet" : "No releases yet — add one so this type can sell."} />
+        <EmptyState title={types.length === 0 ? "No ticket types yet" : "No releases yet. Buyers can buy only from a Public sale release of a Public ticket type."} />
+        {commandsSlot}
       </div>
     );
 
@@ -39,7 +43,7 @@ export function InventoryOverview({ event, types, batches, holds, ctx, basePath,
         title="Tickets"
         meta={
           <span>
-            What is on sale, how much is left, and what is held back.{session ? ` ${session.label ?? venueTime(session.startsAt, timeZone)}.` : ""} Each night has its own capacity.
+            Each ticket type, what remains in each release, and what is held back.{session ? ` ${session.label ?? venueTime(session.startsAt, timeZone)}.` : ""} Each night has its own capacity.
           </span>
         }
       />
@@ -64,7 +68,7 @@ export function InventoryOverview({ event, types, batches, holds, ctx, basePath,
       {view === "counters" && hb.total > 0 ? (
         <p className="text-sm">
           <strong>Held back for the door: {hb.door} of {hb.total}</strong>
-          <span className="text-muted"> — stock deliberately withheld from online sale so the box office has something to sell at 1 a.m.</span>
+          <span className="text-muted"> — tickets kept back from online sale for the door.</span>
         </p>
       ) : null}
 
@@ -79,7 +83,7 @@ export function InventoryOverview({ event, types, batches, holds, ctx, basePath,
               {releases.map((r) => (
                 <th key={r}>{RELEASE_LABEL[r]}</th>
               ))}
-              <th className="num">{view === "counters" ? "Sold, then remaining" : "Still available"}</th>
+              <th className="num">{view === "counters" ? "Sold / remaining, all releases" : "Remaining, all releases"}</th>
             </tr>
           </thead>
           <tbody>
@@ -104,10 +108,10 @@ export function InventoryOverview({ event, types, batches, holds, ctx, basePath,
                           <>
                             <CapacityBar capacity={b.capacity} held={b.held} sold={b.sold} remaining={rem} />
                             {av === "sold_out" ? <p className="mt-1 text-xs text-danger">Sold out.</p> : null}
-                            {av === "all_held" ? <p className="mt-1 text-xs text-warning">Nothing available — everything is on hold. Release holds to put tickets back on sale.</p> : null}
+                            {av === "all_held" ? <p className="mt-1 text-xs text-warning">Nothing available — everything is on hold. A held ticket comes back only if its hold ends without a sale.</p> : null}
                           </>
                         ) : (
-                          <span className="tabular-nums">{rem} available</span>
+                          <span className="tabular-nums">{rem} remaining</span>
                         )}
                       </td>
                     );
@@ -172,7 +176,7 @@ export function InventoryOverview({ event, types, batches, holds, ctx, basePath,
                 <p className="font-bold">{t.name}</p>
                 <p className="tabular-nums text-muted">{usd(t.priceMinor)}</p>
               </div>
-              {view === "counters" ? <div className="mt-2"><CapacityBar capacity={tot.capacity} held={tot.held} sold={tot.sold} remaining={tot.remaining} /></div> : <p className="mt-2 text-sm">{tot.remaining} available</p>}
+              {view === "counters" ? <div className="mt-2"><CapacityBar capacity={tot.capacity} held={tot.held} sold={tot.sold} remaining={tot.remaining} /></div> : <p className="mt-2 text-sm">{tot.remaining} remaining, all releases</p>}
               {view === "counters" && myWarnings.length > 0 ? (
                 <ul className="mt-2 space-y-1 text-xs">
                   {myWarnings.map((w) => (
@@ -188,8 +192,10 @@ export function InventoryOverview({ event, types, batches, holds, ctx, basePath,
       </ul>
 
       <div className="grid gap-6 [grid-template-columns:repeat(auto-fit,minmax(min(26rem,100%),1fr))]">
-        {view === "counters" ? (
-          <Panel title="Changing capacity" eyebrow="Not available in this demo">
+        {commandsSlot ? (
+          commandsSlot
+        ) : view === "counters" ? (
+          <Panel title="Changing capacity" eyebrow="Not available on this screen">
             <p className="text-sm text-muted">Changes are audited and refused below what is already held or sold. The floor for each release is shown before you type.</p>
             <ul className="mt-2 text-xs text-dim">
               {batches
@@ -200,14 +206,14 @@ export function InventoryOverview({ event, types, batches, holds, ctx, basePath,
                   </li>
                 ))}
             </ul>
-            <p className="mt-2 text-xs text-warning">Not offered in this demo: changing the capacity of a release that is already selling has no safe path built yet. Adding a <em>new</em> release does, so that is the way to put more tickets on sale.</p>
+            <p className="mt-2 text-xs text-warning">Capacity cannot be changed from this view. A venue manager, org owner or org admin can change it when changes are turned on.</p>
           </Panel>
         ) : null}
 
         {canReadHolds(ctx.role) ? (
           <Panel title="Holds" eyebrow="Seats reserved but not sold">
             {ctx.source === "database" ? (
-              <p className="text-sm text-muted">Holds aren&apos;t readable in this mode.</p>
+              <p className="text-sm text-muted">The dashboard does not read holds.</p>
             ) : holds.filter((h) => h.status === "active").length === 0 ? (
               <p className="text-sm text-muted">No active holds</p>
             ) : (
@@ -232,7 +238,7 @@ export function InventoryOverview({ event, types, batches, holds, ctx, basePath,
                           <form method="get" action={self} className="flex items-center gap-2">
                             <input type="hidden" name="did" value="venue.release_inventory_hold" />
                             <PreviewHidden ctx={ctx} />
-                            <button className="btn btn-ghost btn-sm touch-row md:min-h-0" type="submit" title="Releasing this puts the tickets back on sale immediately.">
+                            <button className="btn btn-ghost btn-sm touch-row md:min-h-0" type="submit" title="Releasing this hold adds its tickets back to what remains.">
                               Release
                             </button>
                           </form>
@@ -245,7 +251,7 @@ export function InventoryOverview({ event, types, batches, holds, ctx, basePath,
             {mayRelease ? (
               <div className="mt-3">
                 <AuditNote />
-                <p className="mt-1 text-xs text-dim">Releasing this puts the tickets back on sale immediately. Double-release is a no-op.</p>
+                <p className="mt-1 text-xs text-dim">Releasing a hold adds its tickets back to what remains. Releasing it twice changes nothing.</p>
               </div>
             ) : null}
           </Panel>
@@ -255,7 +261,7 @@ export function InventoryOverview({ event, types, batches, holds, ctx, basePath,
         <a className="link inline-flex min-h-6 items-center" href={withPreview(self, ctx)}>
           Link to this inventory view
         </a>{" "}
-        — safe to send to a colleague: it opens read-only and shows them only what their own role allows.
+        — you can send it to a colleague. They see only what their own role allows.
       </p>
     </div>
   );

@@ -23,6 +23,11 @@ export function availability(b: Pick<InventoryBatch, "capacity" | "held" | "sold
   return b.sold >= b.capacity ? "sold_out" : "all_held";
 }
 
+/** The release kinds 081:63 allows, as a runtime list. Lives here and not in commands.ts: that file is
+ * "use server", and such a file may only export async functions — exporting this from there fails the
+ * production build with "found object" (and only the build catches it; tsc, eslint and vitest do not). */
+export const RELEASE_KINDS: readonly ReleaseKind[] = ["public_sale", "promoter_hold", "comp", "door", "presale"] as const;
+
 export const RELEASE_LABEL: Record<ReleaseKind, string> = {
   public_sale: "Public sale",
   promoter_hold: "Promoter hold",
@@ -44,7 +49,7 @@ export type InventoryWarning = {
 const WARNING_COPY: Record<WarningKind, string> = {
   low: "Low",
   sold_out: "Sold out",
-  all_held: "All held, none sold",
+  all_held: "All held",
   door_untouched: "Door stock untouched",
   holds_expiring: "Holds expiring",
 };
@@ -70,7 +75,7 @@ export function inventoryWarnings(
     const rem = remaining(b);
     const av = availability(b);
     if (av === "sold_out") out.push({ ...base, kind: "sold_out", detail: `${b.sold} of ${b.capacity} sold` });
-    else if (av === "all_held") out.push({ ...base, kind: "all_held", detail: `${b.held} held, ${b.sold} sold — release holds to put tickets back on sale` });
+    else if (av === "all_held") out.push({ ...base, kind: "all_held", detail: `${b.held} held, ${b.sold} sold — a held ticket comes back only if its hold ends without a sale` });
     else if (rem < b.lowThreshold) out.push({ ...base, kind: "low", detail: `${rem} left (threshold ${b.lowThreshold})` });
     if (b.releaseKind === "door" && b.sold === 0 && opts.liveSessionIds.has(b.sessionId)) {
       out.push({ ...base, kind: "door_untouched", detail: `${b.capacity} held back for the door, none sold yet` });

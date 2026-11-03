@@ -73,7 +73,8 @@ export default async function EventsPage({ params, searchParams }: { params: Pro
     }
   }
 
-  const venueName = ctx.source === "database" ? "Venue" : VENUE.name;
+  // Database mode: the venue's own name once entry is granted (never the sample fixture's), else a neutral label.
+  const venueName = ctx.source === "database" ? (p.venueName ?? "Venue") : VENUE.name;
   return (
     <Shell ctx={ctx} event={null} active="events" signedInAs={p.signedInAs}>
       {ctx.source === "fixtures" ? <PreviewOutcome did={p.first("did")} /> : null}

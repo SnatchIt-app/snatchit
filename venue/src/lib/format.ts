@@ -12,6 +12,17 @@ export function usd(minor: number): string {
   return `${sign}$${dollars.toLocaleString("en-US")}.${cents.toString().padStart(2, "0")}`;
 }
 
+/** Snatch It operates in Eastern Time (owner decision, 2026-11-02): the zone for anything not tied to one venue. */
+export const PLATFORM_TIME_ZONE = "America/New_York";
+
+/**
+ * An instant that belongs to no venue (an org's Stripe sync, a Stripe deadline), in Eastern Time with EST/EDT.
+ * A value that is not a date is shown as the server sent it, never hidden.
+ */
+export function platformTime(iso: string): string {
+  return Number.isNaN(new Date(iso).getTime()) ? iso : venueTime(iso, PLATFORM_TIME_ZONE);
+}
+
 export function venueTime(iso: string, timeZone: string, opts: { date?: boolean; zone?: boolean } = { date: true, zone: true }): string {
   const d = new Date(iso);
   const parts: Intl.DateTimeFormatOptions = { hour: "numeric", minute: "2-digit", timeZone };

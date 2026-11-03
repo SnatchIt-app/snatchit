@@ -2,7 +2,7 @@
   "name": "venue",
   "version": "0.1.0",
   "private": true,
-  "description": "Snatch It venue dashboard — owner-reviewable PREVIEW over sample fixtures. No backend, no writes.",
+  "description": "Snatch It venue dashboard. Sample fixtures by default (the demo); database mode reads venue_api server-side as the signed-in user. Read-only: no write path is wired.",
   "scripts": {
     "dev": "next dev --port 3300",
     "build": "next build",
@@ -14,7 +14,8 @@
   "dependencies": {
     "@supabase/ssr": "0.12.6",
     "@supabase/supabase-js": "2.115.0",
-    "next": "16.3.3",
+    "jsqr": "1.4.0",
+    "next": "16.4.1",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "server-only": "0.0.1"
@@ -26,6 +27,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.12",
+    "ignore": "5.3.2",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^4.1.10"

@@ -17,7 +17,7 @@ function checkInText(r: RosterRow, tz: string): { label: string; tone: "success"
     case "already_used":
       return { label: `Already used · first ${venueTime(r.checkIn.firstAt, tz, { date: false, zone: false })}`, tone: "warning" };
     case "refused":
-      return { label: r.checkIn.result === "frozen" ? "Blocked — check-in list is open" : r.checkIn.result === "fraud_review" ? "Needs review" : "Not recognised", tone: "danger" };
+      return { label: r.checkIn.result === "frozen" ? "Blocked — check-in list is open" : r.checkIn.result === "fraud_review" ? "Needs review" : "Not recognized", tone: "danger" };
     default:
       return { label: "Not scanned", tone: "neutral" };
   }

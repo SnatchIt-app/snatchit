@@ -1,0 +1,33 @@
+# Files a `vercel deploy` run from venue/ must never upload. The CLI does not read .gitignore
+# (the 2026-10-06 demo deploy uploaded the gitignored tsconfig.tsbuildinfo and next-env.d.ts).
+# These rules are added to the CLI's built-in list, which covers .git, .next, .vercel,
+# node_modules, .env.local and .env.*.local but NOT .env or .env.<name>. Guarded by
+# tests/vercelignore.test.ts. The platform builds from source, so nothing below is needed.
+
+# Environment files and local credentials, in any directory
+.env
+.env.*
+*.pem
+*.key
+*.p8
+*.p12
+
+# Vercel, Next.js and TypeScript build state
+.vercel
+.next
+/out
+/build
+/coverage
+node_modules
+*.tsbuildinfo
+next-env.d.ts
+
+# Acceptance kit and local harness state: synthetic-user passwords, baselines, evidence, logs
+scripts/acceptance/.runs
+scripts/local/state
+*.log
+
+# Private handoff notes and editor or agent state
+.f-handoff
+.claude
+.DS_Store

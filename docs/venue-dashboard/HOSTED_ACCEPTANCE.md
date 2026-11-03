@@ -46,12 +46,12 @@ Stop if 0.1 shows 076–092 missing or duplicated, or 0.2 shows `views > 0`.
 
 ## 1. Apply the migration — **MUTATION** (owner/Claude A, SQL editor)
 
-Paste `supabase/migrations/20260910120000_venue_api_read_views.sql` verbatim (one transaction),
+Paste `supabase/migrations/20261021120000_venue_api_read_views.sql` (registry 159) verbatim (one transaction),
 then record the ledger row exactly as the repo names it:
 
 ```sql
 insert into supabase_migrations.schema_migrations (version, name, statements)
-values ('20260910120000', 'venue_api_read_views', '{}') on conflict do nothing;
+values ('20261021120000', 'venue_api_read_views', '{}') on conflict do nothing;
 -- verify
 select count(*) from pg_views where schemaname = 'venue_api';                                   -- 8
 select relname from pg_class c join pg_namespace n on n.oid = c.relnamespace
@@ -60,7 +60,7 @@ select relname from pg_class c join pg_namespace n on n.oid = c.relnamespace
 select has_schema_privilege('anon', 'venue_api', 'USAGE');                                        -- f
 ```
 
-Reversal: `supabase/rollbacks/20260910120000_venue_api_read_views_rollback.sql` + delete the ledger row.
+Reversal: `supabase/rollbacks/20261021120000_venue_api_read_views_rollback.sql` + delete the ledger row.
 
 ---
 
@@ -174,8 +174,8 @@ tester; never share tokens in chat.
 1. From §0.5: if `keys` is non-empty the project signs with an asymmetric key and `getClaims()`
    verifies locally against JWKS; if empty (HS256), supabase-js falls back to `GET /auth/v1/user`.
    Record which.
-2. Decode the session cookie's access token header (`sb-<REF>-auth-token`, base64url JSON; read
-   only the `alg`/`kid`, never share the token): record `alg`.
+2. Decode the session cookie's access token header (`sb-venue-auth-token` or its `.0`/`.1`
+   chunks, base64url JSON; read only the `alg`/`kid`, never share the token): record `alg`.
 3. Negative: edit one character of the cookie value in DevTools → reload `A/events` → must render
    **"Sign in to continue"** (tampered token rejected), never data.
 
@@ -212,7 +212,7 @@ q "my_staff_roles" ; q "my_org_roles"                                           
 
 ### 5.6 Logout (H6)
 Signed in as any user: click **Sign out** → lands on `/login`; back-navigate to `A/events` →
-**"Sign in to continue"**; the `sb-<REF>-auth-token` cookie is gone; Authentication → Users shows
+**"Sign in to continue"**; the `sb-venue-auth-token` cookie is gone; Authentication → Users shows
 the session ended (last sign-in unchanged, no active session).
 
 ### 5.7 No cross-user caching (H7)

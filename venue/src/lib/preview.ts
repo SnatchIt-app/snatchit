@@ -21,7 +21,7 @@ export const PREVIEW_STATES = ["live", "loading", "empty", "error", "denied", "n
  * every other surface the control did nothing when you picked it, which makes
  * the demo look broken rather than the state look absent.
  */
-export type Surface = "overview" | "events" | "setup" | "inventory" | "attendees" | "door";
+export type Surface = "overview" | "events" | "setup" | "inventory" | "attendees" | "door" | "scan" | "settings";
 
 const FILTERED_SURFACES: readonly Surface[] = ["events", "attendees"];
 
@@ -43,6 +43,14 @@ export type PreviewContext = {
   writesEnabled?: boolean;
   /** Database mode: true only once `role` was derived from the caller's verified grants at this scope (lib/page.ts). */
   verifiedRole?: boolean;
+  /**
+   * Database mode: whether the caller's GRANTS admit scanning (E-F11). A single derived principal cannot
+   * express this — `derivePrincipal` returns the widest label, so an org_owner who also holds
+   * venue_manager derives "org_owner", and `canScan` is false for it while `canScanGrants` is true. The
+   * scan page gates on the grants; the nav must ask the same question or the page it admits is reachable
+   * only by typing the URL. Undefined in fixtures mode, where the preview role is the only answer there is.
+   */
+  mayScan?: boolean;
   /** Database mode: the route's own org/venue, so navigation never points at the sample fixture ids. */
   scope?: { orgId: string; venueId: string };
 };
@@ -101,12 +109,12 @@ export const DEMO_DATA_SUBLABEL = "Invented venue and events. Nothing here sells
  */
 export const DEMO_ACTION_LABEL: Record<string, string> = {
   "catalog.create_event": "created a draft event",
-  "catalog.set_event_status": "moved this event to its next status",
+  "catalog.publish_event": "moved this event to its next status",
   "catalog.create_event_session": "added a session",
   "catalog.set_resale_policy": "changed the resale rules for this event",
   "venue.create_ticket_type": "added a ticket type",
-  "venue.create_inventory_batch": "put a new release on sale",
-  "venue.release_inventory_hold": "released those held seats back on sale",
+  "venue.create_inventory_batch": "added a new release",
+  "venue.release_inventory_hold": "released that hold",
   "venue.open_door_manifest": "opened the door manifest, freezing transfers for this session",
   "venue.close_door_manifest": "closed this door manifest episode",
   "venue.create_door_pin": "issued a door PIN",

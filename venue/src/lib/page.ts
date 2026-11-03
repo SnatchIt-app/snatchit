@@ -1,4 +1,5 @@
 import { ORG, PREVIEW_NOW, VENUE } from "@/fixtures/venue";
+import { renderTimeZone } from "@/lib/events/zone";
 import { getEvent } from "@/lib/data";
 import { DATA_SOURCE } from "@/lib/env";
 import { readPreviewContext, type PreviewContext, type SearchParams } from "@/lib/preview";
@@ -6,7 +7,7 @@ import { probeSession, type SessionProbe } from "@/lib/auth/session";
 import { dbGetEvent, dbMyGrants, dbVenueScope } from "@/lib/db/adapters";
 import type { ReadFailure } from "@/lib/db/read-result";
 import type { VenueScopeRow } from "@/lib/db/rows";
-import { derivePrincipal, type GrantSet } from "@/lib/roles";
+import { canScanGrants, derivePrincipal, type GrantSet } from "@/lib/roles";
 import type { Event } from "@/lib/types";
 
 export type PageParams = { org: string; venue: string; event?: string };
@@ -71,9 +72,13 @@ export async function readPage(paramsP: Promise<PageParams>, spP: Promise<Search
   };
 
   let session: SessionProbe | null = null;
-  let entry: Entry = { kind: "fixtures" };
+  // Fail closed: in database mode nothing below may leave the entry open by default. A route whose ids
+  // are not UUIDs (scope not ok) is a denial, never the fixture entry.
+  let entry: Entry = ctx.source === "database" ? { kind: "denied" } : { kind: "fixtures" };
   let event: Event | null = null;
   let eventFailure: ReadFailure | null = null;
+  /** Database mode, after entry: the route venue's own name (venue_api.venues.name), for headings only. */
+  let venueName: string | null = null;
 
   if (ctx.source === "database") {
     session = await probeSession();
@@ -90,7 +95,8 @@ export async function readPage(paramsP: Promise<PageParams>, spP: Promise<Search
         if (!principal) entry = { kind: "denied" };
         else {
           entry = { kind: "ok", grants: g.data };
-          ctx = { ...ctx, role: principal, verifiedRole: true };
+          ctx = { ...ctx, role: principal, verifiedRole: true, mayScan: canScanGrants(g.data) };
+          venueName = venue.data?.name?.trim() || null;
           if (params.event && isUuid(params.event)) {
             const r = await dbGetEvent(params.event);
             if (r.ok) event = r.data && eventInScope(r.data, scope) ? r.data : null;
@@ -113,8 +119,19 @@ export async function readPage(paramsP: Promise<PageParams>, spP: Promise<Search
     eventFailure,
     session,
     signedInAs: session?.ok ? (session.user?.email ?? session.user?.id ?? null) : null,
+    venueName,
     first,
     now: ctx.source === "database" ? new Date() : PREVIEW_NOW,
-    timeZone: VENUE.timeZone,
+    /**
+     * The zone every surface converts times with.
+     *
+     * It used to be `VENUE.timeZone` unconditionally — the SAMPLE venue's zone, driving eight
+     * database-mode render sites. That was invisible only because the fixture's zone and the platform
+     * default are both America/New_York; a Phoenix venue would have had every time wrong by hours.
+     *
+     * Database mode now uses the event's own projected zone (162), and the platform default when no
+     * event is in scope. The fixture constant is reachable in FIXTURES mode only.
+     */
+    timeZone: renderTimeZone(ctx.source === "database" ? "database" : "fixtures", event?.timeZone, VENUE.timeZone),
   };
 }

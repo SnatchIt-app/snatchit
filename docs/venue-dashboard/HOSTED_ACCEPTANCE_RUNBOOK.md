@@ -1,16 +1,17 @@
 # Venue slice 1 — hosted acceptance runbook (automated, refreshed 2026-09-14)
 
-Supersedes the manual steps in `HOSTED_ACCEPTANCE.md` (its SQL-editor paste and `'{}'` ledger row are
-replaced by Claude A's reviewed method below) and the scratch run-order/addendum drafts. Nothing here has
-been run against the sandbox except the read-only preflight.
+**Execution is governed by [`SANDBOX_WINDOW_MANIFEST_VENUE.md`](SANDBOX_WINDOW_MANIFEST_VENUE.md)** — the venue
+part of Claude A's single window manifest (project, pinned commits, the one migration, exact fixture writes, the
+one setting change, cleanup, expected before/after state, owner MFA steps, evidence E1–E6). This runbook keeps
+the rationale and the local rehearsal. Nothing here has been run against the sandbox except read-only preflights.
 
 | Item | Value |
 |---|---|
-| Migration under test | `supabase/migrations/20260910120000_venue_api_read_views.sql` (+ rollback), pgTAP `188` — code frozen at `ae2e2ea` |
-| App under test | `venue/read-slice1-fixes` (agreed with Claude A; see *Readiness*) — the frozen app fails eight checks |
-| Kit | `venue/scripts/acceptance/` on `venue/slice1-acceptance-kit` |
+| Migration under test | `supabase/migrations/20261021120000_venue_api_read_views.sql` (registry 159, + rollback), pgTAP `226`. The SQL body is byte-identical to the retired `20260910120000` file and its pgTAP 188 at `ae2e2ea`, which the readiness results below were recorded with |
+| App under test | `venue/production-readiness` (dashboard v2 + this kit, sha pinned in the window manifest). The results below were recorded against `venue/read-slice1-fixes` @ `2665a20` (F1–F4 approved by Claude A); the frozen app fails eight checks |
+| Kit | `venue/scripts/acceptance/` on `venue/production-readiness` (merged from `venue/slice1-acceptance-kit` @ `62ec887d`; `DENIED` marker updated to v2's denial copy) |
 | Target | shared sandbox `ofaidukbieeekqaboscm` only; production ref is refused by the kit |
-| Window | **not scheduled** — the owner names it; Claude A coordinates. Consumer QA closing is not a window. |
+| Window | **not scheduled** — owner authorizes the specific window; Claude A's phases run first, then venue V0–V10, then any C preview. |
 
 ## Readiness
 
@@ -73,6 +74,11 @@ exercises real JWKS verification). Authenticator: `pgrst.db_schemas=public, grap
 Fast lever if anything looks wrong mid-run: remove `venue_api` from exposed schemas (closes the client
 surface, leaves the views). Full reversal: `cleanup`, then the rollback file and the ledger row delete.
 
+**Scope proof (manifest §4):** `preflight` records 24 out-of-scope table counts (native tickets, wallet passes,
+checkout/payments/transfers/bids, refunds/payouts, door/scan, resale policies, profiles) and a
+`catalog.platform_config` digest; `postflight` fails unless every one is back to baseline and
+`db_pre_request` is unchanged. Cleanup deletes by exact id (the manifest's list), not by pattern.
+
 ## Who does what
 
 | Step | Who | Owner time |
@@ -86,7 +92,7 @@ surface, leaves the views). Full reversal: `cleanup`, then the rollback file and
 
 Automated wall time ≈ 8 min (browser phases dominate; the sandbox H3 includes a 12 s reuse-interval wait).
 
-## Commands (from a checkout of `venue/slice1-acceptance-kit`, CLI linked; no `db push`, ever)
+## Commands (from a checkout of `venue/production-readiness`, CLI linked; no `db push`, ever)
 
 ```bash
 export REF=ofaidukbieeekqaboscm
@@ -108,7 +114,7 @@ Build and serve the app under test against the sandbox (keys are public-class; t
 touches a file; `NEXT_PUBLIC_*` is inlined at build):
 
 ```bash
-git worktree add ../venue-under-test venue/read-slice1-fixes && cd ../venue-under-test/venue && npm ci
+git worktree add ../venue-under-test <pinned venue/production-readiness sha> && cd ../venue-under-test/venue && npm ci
 export NEXT_PUBLIC_VENUE_DATA_SOURCE=database NEXT_PUBLIC_ENV_LABEL=sandbox
 export NEXT_PUBLIC_SUPABASE_URL=https://$REF.supabase.co
 export NEXT_PUBLIC_SUPABASE_ANON_KEY="$(supabase projects api-keys --project-ref $REF -o json | python3 -c 'import sys,json;print(next(k["api_key"] for k in json.load(sys.stdin) if k["name"]=="anon"))')"
@@ -151,3 +157,12 @@ LOCAL_STACK_SCHEMAS="public, kernel, ops, venue_api" admin/scripts/local-stack.s
 # app: venue/.env.local with NEXT_PUBLIC_VENUE_DATA_SOURCE=database, URL http://localhost:3202, harness anon key
 node venue/scripts/acceptance/accept.mjs --target local --phase all
 ```
+
+Other ports or database: `LOCAL_STACK_POSTGREST_PORT` / `LOCAL_STACK_AUTH_PORT` for the harness, then
+`--db <name containing rehears> --url http://localhost:<auth port> --app http://localhost:<app port>` for the kit
+(`--url` is local only and must be plain-http loopback; the app's `NEXT_PUBLIC_SUPABASE_URL` is the same URL).
+`--cdp-ports <lo>-<hi>` sets the headless Chrome DevTools port range (default 9400-9799); a port already in use
+is skipped, so the kit never attaches to a browser it did not start.
+`--phase all` does not run `apply`: the local database must already carry the migration (a replay that includes
+it, or `psql -f` of the file on a clone). The kit's `apply` also writes the `supabase_migrations` ledger row,
+which a local replay does not have.

@@ -6,6 +6,7 @@ import {
   SUPABASE_URL,
   keyLooksPrivileged,
 } from "@/lib/env";
+import { sessionCookieOptions } from "@/lib/supabase/cookies";
 
 /**
  * Session refresh for database mode (official @supabase/ssr proxy pattern).
@@ -36,6 +37,8 @@ export async function refreshSession(request: NextRequest) {
       fetch: (input: RequestInfo | URL, init?: RequestInit) =>
         fetch(input, { ...init, cache: "no-store" }),
     },
+    // The same attributes as the server client, so a refresh rewrites the same cookie.
+    cookieOptions: sessionCookieOptions(),
     cookies: {
       getAll() {
         return request.cookies.getAll();

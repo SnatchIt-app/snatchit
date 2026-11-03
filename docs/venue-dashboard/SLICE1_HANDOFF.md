@@ -21,7 +21,7 @@ has_org_role_over_event` exist. **The spec's §0.1 "nothing exists" is stale.**
 
 ## What this slice adds
 
-1. **Migration `supabase/migrations/20260910120000_venue_api_read_views.sql`** (+ rollback in
+1. **Migration `supabase/migrations/20261021120000_venue_api_read_views.sql`** (registry 159; shipped in slice 1 as the since-retired `20260910120000`, same SQL) (+ rollback in
    `supabase/rollbacks/`): schema `venue_api` with eight `security_invoker`, `security_barrier` views
    over the granted columns only — `venues`, `events`, `event_sessions`, `resale_policies`,
    `ticket_types`, `inventory_batches` (remaining only), plus `my_staff_roles` / `my_org_roles`
@@ -77,7 +77,7 @@ Checks: `npm run typecheck && npm run lint && npm test && npm run build` green (
 ## Exact sandbox prerequisites (for when Claude C's payment tests are finished)
 
 1. Confirm the sandbox ledger contains 076–092 (do **not** reapply); apply
-   `20260910120000_venue_api_read_views.sql` via the SQL editor and record its ledger row.
+   `20261021120000_venue_api_read_views.sql` (registry 159) via the SQL editor and record its ledger row.
    Rollback file is beside it. Coordinate the ledger entry with Claude A.
 2. Data API → Exposed schemas: add **`venue_api`** only (not `catalog`, not `venue`).
 3. Seed one organization, one **approved** venue, one event with a public ticket type and a
@@ -161,8 +161,8 @@ refresh on expiry, `getClaims` against the project's JWKS, and the Data API's sc
 ## Shared files touched (for Claude A)
 
 New files only:
-- `supabase/migrations/20260910120000_venue_api_read_views.sql`
-- `supabase/rollbacks/20260910120000_venue_api_read_views_rollback.sql`
+- `supabase/migrations/20260910120000_venue_api_read_views.sql` (retired; re-timestamped as `20261021120000_venue_api_read_views.sql`, registry 159)
+- `supabase/rollbacks/20260910120000_venue_api_read_views_rollback.sql` (retired; now `20261021120000_venue_api_read_views_rollback.sql`)
 - `supabase/tests/188_venue_api_read_views.sql` (renumbered from 187 to avoid the RC's `187_my_tickets_read.sql`; no branch carries a 188 or a `2026091*` migration as of 2026-09-10). No existing migration,
 test, or CI file was modified. The `venue` CI job already runs the app checks; the migrations job
 picks up the new pgTAP file automatically.

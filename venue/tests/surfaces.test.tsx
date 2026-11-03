@@ -44,7 +44,7 @@ describe("events list (§7.1)", () => {
   });
   it("shows availability, not counters, to org_member", () => {
     const out = html(<EventsTable {...props} ctx={{ role: "org_member", state: "live" }} events={EVENTS} filter={{}} />);
-    expect(out).toContain("available");
+    expect(out).toContain("remaining, all releases");
     expect(out).not.toContain("411 of 520 sold");
   });
 });
@@ -87,7 +87,7 @@ describe("inventory (§8)", () => {
     // the wrong reason, so the positive case is asserted in the same test.
     expect(html(<InventoryOverview {...props} ctx={vm} />)).toContain("Needs attention");
     expect(out).not.toContain("Needs attention");
-    expect(out).toContain("available");
+    expect(out).toContain("remaining");
     expect(out).not.toContain("venue.release_inventory_hold");
   });
   it("uses the specific empties", () => {

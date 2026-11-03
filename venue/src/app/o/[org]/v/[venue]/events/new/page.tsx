@@ -1,4 +1,10 @@
 import { VENUE } from "@/fixtures/venue";
+import { mintCommandKey } from "@/lib/db/event-commands";
+import { commandsGateOpen } from "@/lib/db/command-gate";
+import { DATA_SOURCE } from "@/lib/env";
+import { venueTimeZone, zoneNote } from "@/lib/events/zone";
+import { dbVenueSettings } from "@/lib/db/adapters";
+import { CreateEventForm } from "@/components/events/EventCommandForms";
 import { readPage, type PageParams } from "@/lib/page";
 import { withPreview, type SearchParams } from "@/lib/preview";
 import { canEditEvents } from "@/lib/roles";
@@ -21,10 +27,22 @@ export default async function NewEventPage({ params, searchParams }: { params: P
   const denied = ctx.state === "denied" || !canEditEvents(ctx.role);
   // The wizard carries its own page heading; every other state screen gets it from the frame.
   const showsWizard = ctx.source !== "database" && !denied && ctx.state !== "loading" && ctx.state !== "error";
+  // Database mode: the real command, when D's wrappers are exposed and the role may edit.
+  const commands = ctx.source === "database" && !denied && p.entry.kind === "ok" && p.scope.ok && commandsGateOpen() ? { ids: { orgId: p.scope.orgId, venueId: p.scope.venueId }, key: await mintCommandKey() } : null;
+  // The venue's OWN stored zone (195), not the platform default: every time typed on this form is
+  // converted with it, so guessing would put a Phoenix door time hours out. Unreadable keeps
+  // source "default", and zoneNote says which was used either way.
+  const venueRow = DATA_SOURCE === "database" ? await dbVenueSettings(p.scope.venueId) : null;
+  const zone = venueTimeZone(DATA_SOURCE, venueRow?.ok ? (venueRow.data?.timezone ?? null) : null);
   return (
     <Shell ctx={ctx} event={null} active="events" signedInAs={p.signedInAs} title={showsWizard ? undefined : "New event"}>
       {ctx.source === "fixtures" ? <PreviewOutcome did={p.first("did")} /> : null}
-      {ctx.source === "database" ? (p.entry.kind === "ok" ? <NotWiredState surface="Create event" /> : <EntryGate entry={p.entry} loginHref={`/login?next=${encodeURIComponent(`${p.scope.basePath}/events/new`)}`} retryHref={p.scope.basePath} />) : denied ? <DeniedState surface="Creating an event" roleLabel={PRINCIPAL_LABEL[p.ctx.role]} alternative={{ label: "Back to events", href: withPreview(`${p.scope.basePath}/events`, p.ctx) }} /> : ctx.state === "loading" ? <Skeleton rows={6} /> : ctx.state === "error" ? <ErrorState lost="Creating an event" read="catalog.create_event" retryHref={withPreview(`${p.scope.basePath}/events/new`, ctx)} /> : <CreateEventWizard ctx={ctx} basePath={p.scope.basePath} step={step} venueApproved={VENUE.approvalStatus === "approved"} venueName={VENUE.name} />}
+      {ctx.source === "database" && commands ? (
+        <>
+          <p className="mb-4 text-xs text-dim">{zoneNote(zone)}</p>
+          <CreateEventForm ids={commands.ids} commandKey={commands.key} timeZone={zone.zone} />
+        </>
+      ) : ctx.source === "database" ? (p.entry.kind === "ok" ? <NotWiredState surface="Create event" /> : <EntryGate entry={p.entry} loginHref={`/login?next=${encodeURIComponent(`${p.scope.basePath}/events/new`)}`} retryHref={p.scope.basePath} />) : denied ? <DeniedState surface="Creating an event" roleLabel={PRINCIPAL_LABEL[p.ctx.role]} alternative={{ label: "Back to events", href: withPreview(`${p.scope.basePath}/events`, p.ctx) }} /> : ctx.state === "loading" ? <Skeleton rows={6} /> : ctx.state === "error" ? <ErrorState lost="Creating an event" read="catalog.create_event" retryHref={withPreview(`${p.scope.basePath}/events/new`, ctx)} /> : <CreateEventWizard ctx={ctx} basePath={p.scope.basePath} step={step} venueApproved={VENUE.approvalStatus === "approved"} venueName={VENUE.name} />}
     </Shell>
   );
 }

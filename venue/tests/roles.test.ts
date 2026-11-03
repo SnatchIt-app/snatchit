@@ -51,6 +51,8 @@ describe("role matrix projections (spec §5, §5.1, §9.3, §12.4)", () => {
   it("org_member and scanner see remaining only, never raw counters", () => {
     expect(inventoryView("org_member")).toBe("remaining_only");
     expect(inventoryView("venue_scanner")).toBe("remaining_only");
+    expect(inventoryView("venue_box_office")).toBe("remaining_only"); // 160's counters authority excludes box office; owner decision pending
+    expect(inventoryView("org_finance")).toBe("counters");
     expect(inventoryView("venue_manager")).toBe("counters");
     expect(inventoryView("venue_marketing")).toBe("none");
   });

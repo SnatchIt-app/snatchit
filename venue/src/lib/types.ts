@@ -11,6 +11,13 @@
 export type EventStatus = "draft" | "announced" | "on_sale" | "live" | "completed" | "cancelled";
 export type SessionStatus = "scheduled" | "live" | "completed" | "cancelled";
 export type ResaleMode = "off" | "transfers_only" | "fixed_cap" | "face_value_queue" | "buy_now" | "auction" | "offer";
+/**
+ * What the dashboard can say about an event's resale mode. `not_readable`: database mode, no own event-scope
+ * policy is visible and RLS (078 catalog_resale_policy_sel_public) hides a row the server would resolve (088:
+ * event scope first, then the venue's): a draft's own policy, or the venue-wide policy of a venue that is not
+ * approved. The mode that applies cannot be known, so it is never guessed from what is visible, nor shown as off.
+ */
+export type ResaleDisplay = ResaleMode | "not_readable";
 export type TicketKind = "admission" | "table";
 export type Visibility = "hidden" | "public" | "door_only";
 export type ReleaseKind = "public_sale" | "promoter_hold" | "comp" | "door" | "presale";
@@ -45,9 +52,11 @@ export type Event = {
   venueId: string;
   title: string;
   status: EventStatus;
-  resaleMode: ResaleMode;
+  resaleMode: ResaleDisplay;
   /** null when the promoter table is not readable in the current data source. */
   promoterCount: number | null;
+  /** 162's projection of the venue's own time zone onto the event; null when not readable. */
+  timeZone?: string | null;
   sessions: EventSession[];
 };
 

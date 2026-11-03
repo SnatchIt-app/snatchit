@@ -24,7 +24,7 @@ export function CreateEventWizard({ ctx, basePath, step, venueApproved, venueNam
             Cancel and go back to events
           </a>
         </div>
-        <p className="mt-3 text-[0.9375rem] leading-relaxed text-muted">Three steps. It ends as a draft — visible to your staff only, not announced and not selling, so nothing is public until you choose to announce it.</p>
+        <p className="mt-3 text-[0.9375rem] leading-relaxed text-muted">Three steps. The event starts as a draft. Buyers cannot see a draft, and it sells nothing.</p>
         <ol className="mt-5 grid grid-cols-3 gap-2 text-[0.8125rem]">
           {steps.map((s, i) => (
             <li key={s} aria-current={i + 1 === step ? "step" : undefined} className={`border-t-2 pt-2 ${i + 1 === step ? "border-[#26211d] font-medium text-ink" : i + 1 < step ? "border-[#2f6b33] text-success" : "border-line text-dim"}`}>
@@ -55,7 +55,7 @@ export function CreateEventWizard({ ctx, basePath, step, venueApproved, venueNam
         </Panel>
       ) : step === 2 ? (
         <Panel title="First ticket type" eyebrow="Step 2 of 3">
-          <p className="mb-3 text-sm text-muted">Publishing requires at least one ticket type with a release. Doing it later is allowed; doing it never means the event can never go on sale.</p>
+          <p className="mb-3 text-sm text-muted">To go on sale, an event needs at least one ticket type with a release. You can add it later.</p>
           <form method="get" action={withPreview(self, ctx)} className="space-y-3">
             <input type="hidden" name="step" value="3" />
             <input type="hidden" name="did" value="venue.create_ticket_type" />
@@ -68,7 +68,7 @@ export function CreateEventWizard({ ctx, basePath, step, venueApproved, venueNam
               </select>
             </label>
             <Field label="Name (unique per event)" name="name" required placeholder="General admission" />
-            <Field label="Price (USD)" name="price" type="number" step="0.01" min="0" required placeholder="25.00" />
+            <Field label="Price (USD)" name="price" type="number" step="0.01" min="0.01" required placeholder="25.00" />
             <label className="block text-sm">
               Visibility
               <select name="visibility" className="field mt-1" defaultValue="public">
@@ -100,7 +100,7 @@ export function CreateEventWizard({ ctx, basePath, step, venueApproved, venueNam
               </select>
             </label>
             <Field label="Capacity" name="capacity" type="number" required placeholder="300" />
-            <p className="text-xs text-dim">Capacity is per session. There is no event-level capacity number anywhere in this product.</p>
+            <p className="text-xs text-dim">Capacity is set per session. An event has no capacity of its own.</p>
             <AuditNote />
             <button className="btn btn-primary" type="submit">
               Create draft

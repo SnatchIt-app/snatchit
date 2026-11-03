@@ -1,4 +1,4 @@
-import type { EventStatus, InventoryBatch, TicketType } from "@/lib/types";
+import type { Event, EventStatus, InventoryBatch, TicketType } from "@/lib/types";
 
 /** Spec §7.4 — forward-only lifecycle; the UI offers only the next legal transition. */
 const FORWARD: EventStatus[] = ["draft", "announced", "on_sale", "live", "completed"];
@@ -19,11 +19,11 @@ export const STATUS_LABEL: Record<EventStatus, string> = {
 };
 
 export const STATUS_HELP: Record<EventStatus, string> = {
-  draft: "Not visible to anyone outside your team.",
-  announced: "Visible publicly, not buyable.",
-  on_sale: "Buyable.",
-  live: "The night itself.",
-  completed: "Terminal for sales.",
+  draft: "Buyers cannot see it, and it sells nothing.",
+  announced: "Not on sale yet. Buyers cannot buy tickets.",
+  on_sale: "Buyers can buy a ticket type only if it is public, has a public-sale release for the session, and is inside its sale window. The venue must also be approved, and Snatch It must have sales turned on.",
+  live: "The event is happening.",
+  completed: "Sales are closed.",
   cancelled: "Cancelled. Nothing is deleted.",
 };
 
@@ -53,4 +53,15 @@ export const RESALE_LABEL = {
   buy_now: "Buy now",
   auction: "Auction",
   offer: "Offer",
+  not_readable: "Resale not readable while the event is a draft",
 } as const;
+
+/**
+ * The resale line for an event. `not_readable` has two causes (lib/db/rows.ts): a draft's own policy is hidden by
+ * RLS until it is published, or the venue is not approved and RLS hides its venue-wide policy. Only a draft can be
+ * "published", so any other event says what it is actually waiting for.
+ */
+export function resaleLabel(e: Pick<Event, "status" | "resaleMode">): string {
+  if (e.resaleMode !== "not_readable") return RESALE_LABEL[e.resaleMode];
+  return e.status === "draft" ? RESALE_LABEL.not_readable : "Resale not readable until the venue is approved";
+}

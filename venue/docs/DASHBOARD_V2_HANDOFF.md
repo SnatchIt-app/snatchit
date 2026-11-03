@@ -4,8 +4,10 @@ Venue dashboard and admin operating console in the owner-approved concept
 (visual direction locked 2026-10-09), plus the functional-readiness pass of
 2026-10-12. **Not deployed, not merged to `main`, not in the current app
 release** (A's `CANDIDATE_MANIFEST.md`). Both are local previews with exact
-commits. Venue v2 still carries the unapplied `20260910120000_venue_api_read_views`
-migration, so it cannot go live before an owner-approved apply; admin v2 would
+commits. Venue v2's database mode needs the `venue_api` read views, now registry 159
+`20261021120000_venue_api_read_views` (pgTAP 226). It replaces the unapplied
+`20260910120000` file these branches still carry (retired, never to be applied).
+Venue v2 cannot go live before an owner-approved apply; admin v2 would
 replace the current console UI, which is a separate owner decision.
 
 ## Branch tips (verified against `origin`, 2026-10-12)
@@ -197,7 +199,100 @@ it with `HARNESS_MFA_MODE=totp HARNESS_QR_ENCODER=<repo>/snatchit/node_modules/q
 3. A15: relist's expected state is not compared server-side (A/D, needs a migration; parked).
 4. A 429 at sign-in reads as a credentials error (A: stays as written).
 5. Box office has no lookup surface: the role matrix allows manual lookup but the door screen denies the role (D's roles spec).
-6. Venue database mode has no route loading state (a route `loading.tsx` would blank each screen's own frame on every navigation, including the demo); database-mode error screens keep pre-v4 styling.
+6. ~~Venue database mode has no route loading state~~ — added on `venue/production-readiness` as a frame-shaped skeleton (see below), so a navigation no longer blanks the frame. Database-mode error screens still keep pre-v4 styling.
 7. Small phone targets meet WCAG AA 2.5.8 (24px), not the 44px AAA guideline; MetricTile definitions on /system are hover-only.
 8. Screen reader (VoiceOver) not exercised; real event photography needs storage work — both optional.
 9. The private rehearsal copy keeps the harness's append-only audit rows (labelled "harness:"); state was restored.
+
+## Production-readiness branch (`venue/production-readiness`, 2026-10-21)
+
+Branch off `venue/dashboard-v2` @ `ee1d90b7` (code `bb94b1f2`) for a hosted preview now and a
+database-mode host at `https://venue.snatchitapp.com` later. No new features (box office lookup,
+database-mode guest list/door and writes stay with D). Not pushed, not deployed; one commit per fix.
+
+| Fix | What changed |
+|---|---|
+| Acceptance kit | `venue/slice1-acceptance-kit` @ `62ec887d` merged (clean). Kit markers aligned to v2 copy: `DENIED` = "… isn't open to you.", role-label check in any case, after removing v2's own denial sentence ("A venue manager or an organization owner can give you access"; the kit reads innerText, so uppercase-styled text arrives uppercase), "174 still available", Sign out found in the DOM (it sits in a closed popover), and every page read waits for the route loading state to go. App/kit pins in the window manifest and runbook now name this branch (sha pinned when the window is named). |
+| Secret key guard | `keyLooksPrivileged` also refuses `sb_secret_…` keys (trimmed, any case), not only legacy `service_role` JWTs. |
+| Loading state | `src/app/o/[org]/v/[venue]/loading.tsx`: Shell-shaped skeleton (sidebar, top line, content), mode-neutral, `data-route-loading` for the kit. |
+| Mode-aware copy | Root metadata says DEMO / sample data only in the fixture build ("Venue dashboard · Snatch It" in database mode). Events eyebrow shows the venue's own name (`venue_api.venues.name`). Stale comments fixed (CSP note, package description, "eight views"). The empty events list no longer offers Create event in database mode. |
+| Entry default | Database mode starts from `{kind: "denied"}`; a non-UUID route can never come back as the fixture entry. **Defense in depth, not a closed leak:** every routed page already returned the denial on `!scope.ok` before reading the entry, so no route rendered fixture data in database mode before this change either. The RED is unit-level only (4 tests in `production-readiness.test.tsx`). |
+| Resale policy | Venue-scope policies are read for the route venue; in-force policy = event scope first, then highest version (the rule in 088 `create_native_listing` / `buy_now`). RLS hides a draft event's own policy from every client, so a draft without a visible own row shows "Resale not readable until published" instead of its venue's policy, which could be more permissive than the one the server applies. RLS also hides every venue-wide policy of a venue that is not approved (088 still resolves it, with no approval check), so an event there without a visible own row shows "Resale not readable until the venue is approved", never "Off" (third pass below). |
+| `.vercelignore` | A CLI deploy from `venue/` never uploads `.env*`, key files, `.vercel`, `.next`, `node_modules`, `*.tsbuildinfo`, `next-env.d.ts`, kit `.runs/`, harness state, logs or `.f-handoff`. |
+| Domain readiness | `POST /logout` answers 303 with a relative `Location: /login`. Confirmed host-agnostic: no absolute URL in `src/`, CSP and headers carry no host (`connect-src 'self'`, every Supabase call is server-side), sign-in `next=` is relative-only, and the `@supabase/ssr` cookies (`sb-venue-auth-token`, third pass) are host-only (no Domain), `Path=/`, `SameSite=Lax`, and now `Secure` + `HttpOnly` (`lib/supabase/cookies.ts`, both SSR clients; no browser code reads the session, pinned by a test). Responses outside `next dev` add `Strict-Transport-Security: max-age=63072000` (no `includeSubDomains`, no preload); admin's `Permissions-Policy` is sent in every mode. |
+| Next.js | `next` 16.3.3 → 16.3.8 exact (clears the critical advisory for 16.0.0–16.3.7). |
+
+Verification (Node 24.13.1): typecheck and lint clean; vitest 16 files / 235 tests; `next build`
+in fixture mode and in database mode with the CI placeholder env. Each fix has a test that failed
+on the unfixed code and a planted regression the test catches. Acceptance kit `--phase all` on a
+local replay of this branch (136/136 migrations, PostgREST exposing `venue_api`, auth stub):
+**138/138**; with `venueInRouteOrg` planted to always pass, the three C6 checks fail (135/138).
+That run is at `40e8831d` (run 3) and on the tree committed as `e42f6e7d` (run 4). The review
+fixes below change the kit and the app, so it has to be repeated at the head that gets pinned.
+
+### Review fixes (second pass, 2026-10-21)
+
+| Fix | What changed |
+|---|---|
+| Migration pin | `venue_api` = registry 159, `20261021120000_venue_api_read_views.sql`, pgTAP 226 (A's PR #115). Kit SQL, `apply`, the app's "not applied?" hint and the venue docs name it. Preflight and verify-apply fail if the ledger holds the retired `20260910120000`. This branch still carries the retired `supabase/migrations/20260910120000_*` files from `venue/dashboard-v2`, so ship `venue/` only, never this branch wholesale. |
+| Draft resale | A draft event without a visible own policy shows "Resale not readable until published" (RLS hides a draft's event-scope row; 088 would still apply it first). |
+| Cookies, HSTS | Session cookies `Secure` + `HttpOnly` (plus host-only, `Lax`, `/`) in both SSR clients; HSTS `max-age=63072000` outside `next dev`; `Permissions-Policy` (as admin) in every mode. |
+| Logout test | Calls the route with a real `POST` Request, so a reverted absolute-URL redirect fails on `Location`. |
+| Kit `settled()` | Throws (phase FAIL) when the loading state never clears, instead of reading the skeleton. |
+| Kit P1 | Role labels matched in any case after removing the denial's own sentence; a planted `verifiedRole` leak is caught in the contract test. |
+
+Verification for this pass: targeted vitest runs of the touched test files only (each fix RED on
+the unfixed code, GREEN after, plus planted mutants) and eslint on the changed files. Still owed:
+full `npm test`, `npm run typecheck`, `next build` in both modes, and the kit `--phase all` rerun
+(H2/H3/H6 with the Secure/HttpOnly cookies included).
+
+### Review fixes (third pass, 2026-10-21)
+
+| Fix | What changed |
+|---|---|
+| Resale at an unapproved venue | `mapEvents` takes the venue's `approval_status` (`venue_api.venues`, read with the policies, in parallel). An event at a venue that is not approved, or whose row the caller cannot read, reads as `not_readable` unless one of its own event-scope rows is visible, exactly like a draft: RLS hides that venue's venue-wide rows from every client (own staff included) while 088 `create_native_listing` applies them. The line says "Resale not readable until the venue is approved" (drafts keep "… until published"). |
+| Kit C6 | "Org A owner at /o/A/v/B: … no role claimed" now uses `roleLabelClaimed(t)` (any case, every role label) instead of a case-sensitive test for the strip sentence alone; a rendered owner denial at that route is shown not to trip it, and a planted `verifiedRole` leak there is caught. |
+| Kit cookie read-back | `writeAuthCookie` reads the cookie back after `Network.setCookie` and returns whether the browser holds exactly the session it wrote. H2 and H3 each record that as a check before their visit ("… (read back)") and gate their outcome on it, so a refused Secure cookie (a plain-http host other than localhost) can no longer pass H2 on "Sign in to continue" with no token presented, or H3 on the old unexpired session. `authCookie` moved unchanged to `lib/checks.mjs` so both are unit-tested offline. This adds two checks to `--phase all`. |
+| Cookie name | The session cookie is `sb-venue-auth-token[.N]` (`cookieOptions.name` in `lib/supabase/cookies.ts`; @supabase/ssr makes it the auth `storageKey`, so both SSR clients read, refresh and clear it under that name). The default `sb-<first host label>-auth-token` is admin's too: on localhost both apps share host `localhost` (ports do not separate cookies) and the harness Supabase URL, so the venue's HttpOnly cookie replaced admin's, whose MFA runs in the browser. Tests: sign-in writes only the venue name, the proxy neither refreshes nor rewrites admin's cookie, sign-out leaves it alone, a chunked session keeps `.0`/`.1`, the kit's `authCookie` finds it. One-time effect: a session stored under the old name is no longer read, so a signed-in user signs in once more; the old cookie is ignored until it expires. |
+| HSTS wording | `next.config.ts` and this record no longer say `includeSubDomains` would bind every `snatchitapp.com` subdomain: sent from `venue.snatchitapp.com` it covers `*.venue.snatchitapp.com` only. They also say what the code does: only HSTS is gated on `next dev`; `Permissions-Policy` is sent in every mode (now pinned by a test). |
+| pgTAP record | `DEMO.md` / `REMAINING_WORK.md` B1: "pgTAP 47/47" was the retired 188 suite; pgTAP 226 (plan 72 on F's `venue/api-read-views-provisional` @ `ad728964`) has not been run on this branch, and that run is owed by F/A. |
+| Window manifest pins | Only the 159 SQL body hash (`fb3cf536…1199e70`, recomputed from F's file at `ad728964` and the retired file at `ae2e2ea`) and "re-pin to the ref A merges" stay; the stale whole-file values from `239c2c4f` are gone. |
+
+Verification for this pass: targeted vitest runs of the touched test files only
+(`resale-policy-scope`, `data-source-ui`, `acceptance-kit-markers`, `domain-readiness`). Each
+behaviour fix was RED on the unfixed code and GREEN after, and planted mutants were killed. eslint
+ran on the changed TS/TSX files; the kit `.mjs` files are eslint-ignored, so `node --check` was used
+for them. Still owed (heavy slot): full `npm test` (untouched tests that render `EventsTable` /
+`EventSetup`: `demo-usability`, `readiness-fixes`, `entry-policy`, `surfaces`; `slice1-fixes` mocks
+`@supabase/ssr`, so its cookie name is arbitrary), `npm run typecheck` (`mapEvents` now has 4
+parameters; `.mjs` imports into TS tests), `next build` in both modes, and the kit `--phase all`
+rerun. That rerun has two more checks (H2/H3 read-back) and is the first with `sb-venue-auth-token`.
+
+Hosting notes for `venue.snatchitapp.com` (code side; nothing configured):
+
+- Env (all inlined at build, so a change needs a rebuild): `NEXT_PUBLIC_VENUE_DATA_SOURCE=database`,
+  `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (anon or `sb_publishable_…`, never a
+  secret key: the app refuses one), `NEXT_PUBLIC_ENV_LABEL`. The production project still needs
+  registry 159 `20261021120000_venue_api_read_views` applied and `venue_api` exposed (owner-gated).
+- Sign-in is password-only through a server action, so no Supabase Auth redirect URL is used
+  today. Adding reset or magic-link sign-in later would need `https://venue.snatchitapp.com/**` in
+  the Auth redirect allow-list.
+- Session cookies are host-only, so the venue session is never shared with `admin.snatchitapp.com`
+  or `snatchitapp.com`, and named `sb-venue-auth-token`, so it never collides with admin's on a
+  shared host (localhost). They are `Secure` and `HttpOnly` on every host. Chrome treats plain-http
+  localhost as secure, so local runs keep working, but the kit's H2/H3/H6 cookie checks have not
+  been re-run with these attributes yet (a later heavy step; the kit copies `secure`/`httpOnly`
+  from the cookie it reads when it rewrites one).
+- HSTS is `max-age=63072000` only. Sent from `venue.snatchitapp.com`, `includeSubDomains` would
+  cover `*.venue.snatchitapp.com` only, never `admin.snatchitapp.com` or the apex; it is omitted
+  because nothing is served under this host (admin sends it from its own host).
+- No CORS is involved: the browser only talks to its own origin.
+
+### Full gates run 2026-10-21 (wave 4, local, Node 24.13.1; CI on Node 22 runs on the PR)
+Supersedes the "still owed (heavy slot)" notes above.
+- `npm ci`, typecheck, lint: exit 0. `npm test`: **18 files / 294 tests**.
+- `next build` in fixtures mode (title "Venue dashboard · DEMO") and in database mode with placeholder env (title "Venue dashboard · Snatch It"): both exit 0.
+- `next start` headers: HSTS `max-age=63072000` outside dev, Permissions-Policy, self-only CSP with `frame-ancestors 'none'`.
+- Acceptance kit `--phase all`, LOCAL target, on a clone of the production-chain replay with registry 159 applied: **140/140**. That includes H2/H3/H6 with the new `sb-venue-auth-token` cookie (Secure, HttpOnly, SameSite=Lax, host-only).
+- Planted negative control (venue-in-route-org forced true): 137/140, exit 1 (3 C6 checks fail). After restore: 140/140.
+- Not run: the sandbox window, and any hosted environment. The kit's apply phase needs a ledger and the migration file from branch `venue/api-read-views-provisional`; the window run uses the ref A merges.
