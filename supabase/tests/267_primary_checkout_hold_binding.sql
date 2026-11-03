@@ -85,6 +85,14 @@
 --   X1 L5r L7 R1r T1 T3 T4 T5 (nothing binds; no replay state; 085's oversell_rejected) · M2 and M4 also T4 ·
 --   M6 and M16 also L7 · M14 also L5r R1r T3 · M-strict also T2 (the first item's conversion makes the second
 --   item refuse).
+--
+-- Registry 201 (primary_checkout_sale_eligibility) moved these pins, nothing else, and kept every assertion:
+-- EXECUTE on venue.reserve_primary_inventory is revoked from authenticated, so tap._rsv267 calls the engine in
+-- owner context through tap._eng267 (a SECURITY DEFINER helper; the buyer's request.jwt.claims stay set, so
+-- auth.uid() still resolves the buyer); A5 expects 201's checkout and finalize md5s (50ed88e0 / 3c359ec1); A6's
+-- strips also remove the 201 blocks (byte-for-byte additions, so the 188 / 093 / 085 md5s stand; the 198 marker
+-- counts do not move); A8 expects 201's reserve md5 (079aa9b5); B2 and B6 expect the coverage DETAIL with 201's
+-- appended non_buyer_kind_units=0.
 -- ============================================================================
 BEGIN;
 SELECT plan(76);
@@ -119,9 +127,12 @@ CREATE FUNCTION tap._id267(k text) RETURNS uuid LANGUAGE sql IMMUTABLE AS $m$
     ('HL','301'), ('LG','401'), ('LGI','411'), ('LX','402'),
     ('PA','601'), ('PB','602'), ('PC','603'), ('PD','604'), ('PE','605'), ('PR','606'), ('PLG','607'),
     ('PB4','608'), ('PH','609'), ('PX','60a'), ('PT','60b'), ('PW','60c')) AS t(n, v) WHERE t.n = k $m$;
--- reserve / checkout as the logged-in buyer (holds named by memo key, in the given order)
+-- reserve / checkout as the logged-in buyer (holds named by memo key, in the given order); registry 201: the engine
+-- runs in owner context (tap._eng267) with the buyer's claims still set
+CREATE FUNCTION tap._eng267(p_batch uuid, p_qty integer, p_key text) RETURNS jsonb LANGUAGE sql SECURITY DEFINER AS
+$m$ SELECT venue.reserve_primary_inventory(p_batch, p_qty, p_key) $m$;
 CREATE FUNCTION tap._rsv267(p_key text, p_batch text, p_qty integer) RETURNS jsonb LANGUAGE sql AS $m$
-  SELECT tap._call267(format('SELECT venue.reserve_primary_inventory(%L::uuid, %s, %L)', tap._id267(p_batch), p_qty, p_key)) $m$;
+  SELECT tap._call267(format('SELECT tap._eng267(%L::uuid, %s, %L)', tap._id267(p_batch), p_qty, p_key)) $m$;
 CREATE FUNCTION tap._ck267(p_key text, p_tt text, p_qty integer, p_holds text[]) RETURNS jsonb LANGUAGE sql AS $m$
   SELECT tap._call267(format('SELECT venue.create_primary_checkout(%L::uuid, %L::jsonb, %L::uuid[], %L)',
            tap._id267('S1'),
@@ -196,7 +207,7 @@ CREATE FUNCTION tap._anyplan267() RETURNS void LANGUAGE plpgsql AS $m$ BEGIN
   PERFORM set_config('enable_bitmapscan', 'on', true); PERFORM set_config('enable_indexonlyscan', 'on', true);
 END $m$;
 GRANT EXECUTE ON FUNCTION tap._store267(text, text), tap._fetch267(text), tap._call267(text), tap._q267(text),
-  tap._id267(text), tap._rsv267(text, text, integer), tap._ck267(text, text, integer, text[]),
+  tap._id267(text), tap._eng267(uuid, integer, text), tap._rsv267(text, text, integer), tap._ck267(text, text, integer, text[]),
   tap._ckm267(text, text[], integer[], text[]), tap._seqplan267(), tap._anyplan267() TO authenticated, service_role;
 -- throwaway P-256 SPKI PEM (suite 176's; no private half anywhere)
 CREATE FUNCTION tap._pem267() RETURNS text LANGUAGE sql IMMUTABLE AS $f$ SELECT $p$-----BEGIN PUBLIC KEY-----
@@ -269,18 +280,18 @@ SELECT tap.logout();
 SELECT is(ARRAY[md5(tap._def267('venue.create_primary_checkout(uuid, jsonb, uuid[], text)')),
                 md5(tap._def267('venue.finalize_primary_order(uuid, uuid, text, text)')),
                 md5(tap._def267('venue.sweep_expired_inventory_holds(integer)'))],
-          ARRAY['daf8bffd8a5f4a71fc7229dc11e3494a', '7b8007e59e4faf6ed5d69cc3b2690d49', 'd2ed033325aa3972e9c1be48bb8f4e91'],
-  'A5: checkout, finalize and sweep bodies are 198''s (md5(pg_get_functiondef) daf8bffd / 7b8007e5 / d2ed0333)');
+          ARRAY['50ed88e09825c811a0aa155d06b00f32', '3c359ec14a788be8398d67210828b773', 'd2ed033325aa3972e9c1be48bb8f4e91'],
+  'A5: checkout and finalize bodies are 201''s (198''s daf8bffd / 7b8007e5 plus the 201 blocks: 50ed88e0 / 3c359ec1), the sweep 198''s (d2ed0333)');
 SELECT is(ARRAY[tap._markers267('venue.create_primary_checkout(uuid, jsonb, uuid[], text)', '198', false)::text,
                 tap._markers267('venue.create_primary_checkout(uuid, jsonb, uuid[], text)', '198', true)::text,
                 tap._markers267('venue.finalize_primary_order(uuid, uuid, text, text)', '198', false)::text,
                 tap._markers267('venue.finalize_primary_order(uuid, uuid, text, text)', '198', true)::text,
                 tap._markers267('venue.sweep_expired_inventory_holds(integer)', '198', false)::text,
-                tap._strip267('venue.create_primary_checkout(uuid, jsonb, uuid[], text)', '198'),
-                tap._strip267('venue.create_primary_checkout(uuid, jsonb, uuid[], text)', '188|198'),
-                tap._strip267('venue.finalize_primary_order(uuid, uuid, text, text)', '198')],
+                tap._strip267('venue.create_primary_checkout(uuid, jsonb, uuid[], text)', '198|201'),
+                tap._strip267('venue.create_primary_checkout(uuid, jsonb, uuid[], text)', '188|198|201'),
+                tap._strip267('venue.finalize_primary_order(uuid, uuid, text, text)', '198|201')],
           ARRAY['7', '7', '8', '8', '0', '77004331198b9dad2e51e1ed2ceaef35', 'a629b41216397da48f71a7c6cc4fd298', '99a391ea1e5f80e4523da3a05b1c7d3a'],
-  'A6: 198 blocks — checkout 7 (D P1 P2 F P3 P4 B), finalize 8 (D K1 L1 K2 K3 L2 L3 K4), sweep none; checkout minus them = 188 (77004331), minus 198 and 188 = 093 (a629b412), finalize minus them = 085 (99a391ea)');
+  'A6: 198 blocks — checkout 7 (D P1 P2 F P3 P4 B), finalize 8 (D K1 L1 K2 K3 L2 L3 K4), sweep none; checkout minus them (and 201''s) = 188 (77004331), minus 198, 201 and 188 = 093 (a629b412), finalize minus them (and 201''s) = 085 (99a391ea)');
 SELECT is(ARRAY(SELECT p.oid::regprocedure::text || ' ' || p.prosecdef || ' ' || p.proconfig::text || ' ' || p.proowner::regrole::text || ' ' || coalesce(p.proacl::text, '<default>')
                   FROM pg_proc p
                  WHERE p.oid IN (to_regprocedure('venue.create_primary_checkout(uuid, jsonb, uuid[], text)'),
@@ -299,9 +310,9 @@ SELECT is(ARRAY[(SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p
                 md5(tap._def267('kernel.issue_ticket_atoms(jsonb, text)')),
                 md5(tap._def267('venue.cancel_pending_order(uuid, text, text)')),
                 coalesce((SELECT j.schedule || ' | ' || j.command FROM cron.job j WHERE j.jobname = 'sweep-expired-inventory-holds'), '<missing>')],
-          ARRAY['3', '99', 'b981bef80b10455a0c45a6e908c91aec', 'd30669daef75abe15725aa0b04a107b0', '9f559af1202fa0e7d8bae0c44df93ff8',
+          ARRAY['3', '99', 'b981bef80b10455a0c45a6e908c91aec', '079aa9b5c7185a7acdd969d4afe6d77a', '9f559af1202fa0e7d8bae0c44df93ff8',
                 '3d7fef64c44483586f46b568cb92c610', '*/2 * * * * | select venue.sweep_expired_inventory_holds();'],
-  'A8: one overload each, venue functions 99, release / reserve / mint / cancel unchanged (b981 / d306 / 9f55 / 3d7f), the sweep cron job unchanged');
+  'A8: one overload each, venue functions 99, release / mint / cancel unchanged (b981 / 9f55 / 3d7f), reserve = 201''s (079a), the sweep cron job unchanged');
 SELECT ok(strpos(tap._def267('venue.create_primary_checkout(uuid, jsonb, uuid[], text)'), 'select order_id, total_minor, currency into v_ex_id') > 0
           AND strpos(tap._def267('venue.create_primary_checkout(uuid, jsonb, uuid[], text)'), 'select order_id, total_minor, currency into v_ex_id')
             < strpos(tap._def267('venue.create_primary_checkout(uuid, jsonb, uuid[], text)'), '''feature.native_issuance_enabled''')
@@ -357,8 +368,8 @@ SELECT tap._store267('ck_b2', tap._ck267('ck267-b2', 'TB', 2, ARRAY['HB1'])::tex
 SELECT tap.logout();
 SELECT is(coalesce((tap._fetch267('ck_b2')::jsonb ->> 'state') || ' / ' || (tap._fetch267('ck_b2')::jsonb ->> 'message') || ' / '
                    || coalesce(tap._fetch267('ck_b2')::jsonb ->> 'detail', '<no detail>'), '<no refusal>'),
-  'P0001 / precondition_failed: holds do not cover item (type ' || tap._id267('TB') || ', need 2, held 0) / bound_to_pending_order_units=2 other_batch_units=0',
-  'B2: a second key naming the same HB1 is refused hold-coverage (held 0), DETAIL bound_to_pending_order_units=2 other_batch_units=0');
+  'P0001 / precondition_failed: holds do not cover item (type ' || tap._id267('TB') || ', need 2, held 0) / bound_to_pending_order_units=2 other_batch_units=0 non_buyer_kind_units=0',
+  'B2: a second key naming the same HB1 is refused hold-coverage (held 0), DETAIL bound_to_pending_order_units=2 other_batch_units=0 (registry 201 appends non_buyer_kind_units=0)');
 SELECT is(tap._n267('ck267-b2') || '|' || tap._hs267('HB1'), '0|active|' || tap._o267('ck_b1'),
   'B3: …no order exists for ck267-b2 and HB1 is still bound to O_b1');
 SELECT tap.login(tap._id267('U5'));
@@ -386,8 +397,8 @@ SELECT tap._store267('ck_b6', tap._ck267('ck267-b6', 'TM', 2, ARRAY['HM1', 'HM2'
 SELECT tap.logout();
 SELECT is(coalesce((tap._fetch267('ck_b6')::jsonb ->> 'state') || ' / ' || (tap._fetch267('ck_b6')::jsonb ->> 'message') || ' / '
                    || coalesce(tap._fetch267('ck_b6')::jsonb ->> 'detail', '<no detail>'), '<no refusal>'),
-  'P0001 / precondition_failed: holds do not cover item (type ' || tap._id267('TM') || ', need 2, held 1) / bound_to_pending_order_units=0 other_batch_units=1',
-  'B6: holds of 1 on BM1 and 1 on BM2 for an item of 2 — no single batch covers: refused (held 1), DETAIL other_batch_units=1');
+  'P0001 / precondition_failed: holds do not cover item (type ' || tap._id267('TM') || ', need 2, held 1) / bound_to_pending_order_units=0 other_batch_units=1 non_buyer_kind_units=0',
+  'B6: holds of 1 on BM1 and 1 on BM2 for an item of 2 — no single batch covers: refused (held 1), DETAIL other_batch_units=1 (registry 201 appends non_buyer_kind_units=0)');
 SELECT is(tap._hs267('HM1') || '|' || tap._hs267('HM2') || '|' || tap._n267('ck267-b6'), 'active|-|active|-|0',
   'B7: …HM1 and HM2 stay unbound and no order exists for ck267-b6');
 SELECT tap.login(tap._id267('U6'));

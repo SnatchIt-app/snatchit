@@ -35,6 +35,13 @@ $m$ SELECT count(*)::int FROM kernel.org_contact_consent_event WHERE identity_id
 CREATE FUNCTION tap._ord_status(p_order uuid) RETURNS text LANGUAGE sql SECURITY DEFINER SET search_path='' AS
 $m$ SELECT status FROM venue."order" WHERE order_id = p_order $m$;
 GRANT EXECUTE ON FUNCTION tap._cc_state(uuid,uuid), tap._cce_count(uuid,uuid), tap._ord_status(uuid) TO authenticated;
+-- registry 201: EXECUTE on venue.reserve_primary_inventory is revoked from authenticated (buyers reach it through
+-- public.reserve_primary_tier); the buyer's direct calls below run in owner context instead — this SECURITY
+-- DEFINER helper calls the engine with the buyer's request.jwt.claims still set, so auth.uid() resolves the buyer
+-- and every assertion is unchanged.
+CREATE FUNCTION tap._eng146(p_batch uuid, p_qty integer, p_key text) RETURNS jsonb LANGUAGE sql SECURITY DEFINER AS
+$m$ SELECT venue.reserve_primary_inventory(p_batch, p_qty, p_key) $m$;
+GRANT EXECUTE ON FUNCTION tap._eng146(uuid, integer, text) TO authenticated;
 
 -- ============================================================================
 -- SECTION A — THE 082 CLOSED WORLD
@@ -272,7 +279,7 @@ VALUES ('fee.buyer_service_bps', 3, 'null'::jsonb, 'restricted');
 -- after the gate has been proven to bite, so satisfying it cannot mask a
 -- regression in it.
 SELECT tap.login(tap.buyer());
-SELECT tap._store146('hold', (venue.reserve_primary_inventory(tap._fetch146('batch')::uuid, 2, 'ck-r-1') ->> 'hold_id'));
+SELECT tap._store146('hold', (tap._eng146(tap._fetch146('batch')::uuid, 2, 'ck-r-1') ->> 'hold_id'));
 SELECT throws_ok(format($$SELECT venue.create_primary_checkout(%L,
     format('[{"ticket_type_id":"%%s","quantity":2}]', %L)::jsonb, ARRAY[%L]::uuid[], 'ck-co-0')$$,
     tap._fetch146('session'), tap._fetch146('tt'), tap._fetch146('hold')),
@@ -420,7 +427,7 @@ SELECT is((SELECT count(*)::int FROM kernel.admin_audit WHERE subject_id = tap._
 -- ============================================================================
 -- build a fresh order to force it to paid, then prove the item is frozen
 SELECT tap.login(tap.buyer());
-SELECT tap._store146('hold2', (venue.reserve_primary_inventory(tap._fetch146('batch')::uuid, 1, 'ck-r-2') ->> 'hold_id'));
+SELECT tap._store146('hold2', (tap._eng146(tap._fetch146('batch')::uuid, 1, 'ck-r-2') ->> 'hold_id'));
 SELECT tap._store146('ord2', (venue.create_primary_checkout(
   tap._fetch146('session')::uuid,
   format('[{"ticket_type_id":"%s","quantity":1}]', tap._fetch146('tt'))::jsonb,

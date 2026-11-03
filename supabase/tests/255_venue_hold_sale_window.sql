@@ -53,6 +53,16 @@
 -- negative controls are the runner mutants: M1 no window block -> the 17 RED pins;
 -- M3 reserve's block before the replay branch -> A10 W13 W14 R4 R5 R6; M5 the first
 -- draft's gated create_inventory_hold -> A7 A9 H1 N5.
+--
+-- Registry 201 (primary_checkout_sale_eligibility) moved these pins, nothing else, and kept every assertion:
+--   * EXECUTE on venue.reserve_primary_inventory is revoked from authenticated (DB-4), so the buyer's calls in W
+--     and R run in owner context: tap._eng255, a SECURITY DEFINER helper, calls the engine with the buyer's
+--     request.jwt.claims still set (tap.login), so auth.uid() still resolves the buyer; A3 expects
+--     authenticated no;
+--   * A10 expects 201's reserve md5 (079aa9b5); A11's strip removes the 185 and the 201 blocks (201's are
+--     byte-for-byte additions, so the 081 md5 stands);
+--   * a door_only tier is no longer buyer inventory (SW-4): W12 expects 'precondition_failed: not_buyer_inventory',
+--     so b12 joins the refused batches in N1-N3, N4 counts the five allowed batches and N5 six holds.
 -- ============================================================================
 BEGIN;
 SELECT plan(44);
@@ -71,6 +81,9 @@ $m$ SELECT ('25500000-0000-4000-8000-0000000200' || lpad(n::text, 2, '0'))::uuid
 CREATE FUNCTION tap._try255(p_sql text) RETURNS jsonb LANGUAGE plpgsql AS
 $m$ DECLARE r jsonb; BEGIN EXECUTE p_sql INTO r; RETURN r;
     EXCEPTION WHEN OTHERS THEN RETURN jsonb_build_object('error', SQLSTATE, 'message', SQLERRM); END $m$;
+-- registry 201: the engine in owner context with the caller's claims still set (auth.uid() resolves the buyer)
+CREATE FUNCTION tap._eng255(p_batch uuid, p_qty integer, p_key text) RETURNS jsonb LANGUAGE sql SECURITY DEFINER AS
+$m$ SELECT venue.reserve_primary_inventory(p_batch, p_qty, p_key) $m$;
 -- definer reads of what a refusal must not write (E-29: no client role reads held)
 CREATE FUNCTION tap._holds255(b uuid[]) RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS
 $m$ SELECT count(*)::integer FROM venue.inventory_hold WHERE batch_id = ANY (b) $m$;
@@ -78,14 +91,14 @@ CREATE FUNCTION tap._held255(b uuid[]) RETURNS integer LANGUAGE sql STABLE SECUR
 $m$ SELECT coalesce(sum(held), 0)::integer FROM venue.inventory_batch WHERE batch_id = ANY (b) $m$;
 CREATE FUNCTION tap._moves255(b uuid[]) RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS
 $m$ SELECT count(*)::integer FROM venue.inventory_movement WHERE batch_id = ANY (b) $m$;
--- strip rule (185 header): every line from a '-- ── 185 BLOCK <X> …' marker through its
--- '-- ── 185 BLOCK <X> END' marker (both included) goes; everything else is kept byte for byte.
+-- strip rule (185 header; registry 201 adds its own blocks the same way): every line from a '-- ── 185 BLOCK <X> …'
+-- or '-- ── 201 BLOCK <X> …' marker through its END marker (both included) goes; everything else is kept byte for byte.
 CREATE FUNCTION tap._strip255(p_sig text) RETURNS text LANGUAGE sql STABLE AS $m$
   WITH l AS (
     SELECT t.line, t.n,
-           CASE WHEN t.line ~ '^ *-- ── 185 BLOCK [A-Z0-9]+ END *$' THEN -1
-                WHEN t.line ~ '^ *-- ── 185 BLOCK [A-Z0-9]+( |$)'   THEN 1 ELSE 0 END AS d,
-           t.line ~ '^ *-- ── 185 BLOCK ' AS marker
+           CASE WHEN t.line ~ '^ *-- ── (185|201) BLOCK [A-Z0-9]+ END *$' THEN -1
+                WHEN t.line ~ '^ *-- ── (185|201) BLOCK [A-Z0-9]+( |$)'   THEN 1 ELSE 0 END AS d,
+           t.line ~ '^ *-- ── (185|201) BLOCK ' AS marker
       FROM regexp_split_to_table(pg_get_functiondef(p_sig::regprocedure), E'\n') WITH ORDINALITY AS t(line, n))
   SELECT md5(string_agg(x.line, E'\n' ORDER BY x.n))
     FROM (SELECT l.line, l.n, l.marker, sum(l.d) OVER (ORDER BY l.n) AS depth FROM l) x
@@ -96,7 +109,7 @@ CREATE FUNCTION tap._markers255(p_sig text, p_end boolean) RETURNS integer LANGU
    WHERE CASE WHEN p_end THEN t.line ~ '^ *-- ── 185 BLOCK [A-Z0-9]+ END *$'
               ELSE t.line ~ '^ *-- ── 185 BLOCK [A-Z0-9]+ ' AND t.line !~ ' END *$' END $m$;
 GRANT EXECUTE ON FUNCTION tap._store255(text, text), tap._fetch255(text), tap._t255(int), tap._b255(int),
-  tap._try255(text), tap._holds255(uuid[]), tap._held255(uuid[]), tap._moves255(uuid[]) TO authenticated;
+  tap._try255(text), tap._holds255(uuid[]), tap._held255(uuid[]), tap._moves255(uuid[]), tap._eng255(uuid, integer, text) TO authenticated;
 
 -- ── Fixture (synthetic; never a migration) ─────────────────────────────────
 INSERT INTO auth.users (id, instance_id, aud, role, email, raw_app_meta_data, raw_user_meta_data, email_confirmed_at, created_at, updated_at) VALUES
@@ -184,8 +197,8 @@ SELECT is(ARRAY[has_function_privilege('authenticated', 'venue.reserve_primary_i
                 has_function_privilege('anon',          'venue.reserve_primary_inventory(uuid, integer, text)', 'EXECUTE'),
                 (SELECT coalesce(bool_or(a.grantee = 0), false) FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
                   WHERE p.oid = 'venue.reserve_primary_inventory(uuid, integer, text)'::regprocedure AND a.privilege_type = 'EXECUTE')],
-          ARRAY[true, false, false],
-  'A3: reserve_primary_inventory EXECUTE — authenticated yes, anon no, PUBLIC no (the 081 ACL; 185 restates no grant)');
+          ARRAY[false, false, false],
+  'A3: reserve_primary_inventory EXECUTE — authenticated no (registry 201 revoked it; buyers go through public.reserve_primary_tier), anon no, PUBLIC no');
 SELECT is(ARRAY[has_function_privilege('authenticated', 'venue.create_inventory_hold(uuid, integer, text, text)', 'EXECUTE'),
                 has_function_privilege('anon',          'venue.create_inventory_hold(uuid, integer, text, text)', 'EXECUTE'),
                 (SELECT coalesce(bool_or(a.grantee = 0), false) FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
@@ -211,10 +224,10 @@ SELECT is(md5(pg_get_functiondef('venue.create_inventory_hold(uuid, integer, tex
   'f177b73fadaa60234a6d416fed558d11',
   'A9: create_inventory_hold is byte-identical to its 081 predecessor (md5(pg_get_functiondef) f177b73f) — 185 does not touch it');
 SELECT is(md5(pg_get_functiondef('venue.reserve_primary_inventory(uuid, integer, text)'::regprocedure)),
-  'd30669daef75abe15725aa0b04a107b0',
-  'A10: reserve_primary_inventory body = 185''s (md5(pg_get_functiondef) d30669da)');
+  '079aa9b5c7185a7acdd969d4afe6d77a',
+  'A10: reserve_primary_inventory body = 201''s (md5(pg_get_functiondef) 079aa9b5; 185''s d30669da plus the 201 blocks)');
 SELECT is(tap._strip255('venue.reserve_primary_inventory(uuid, integer, text)'), '3538344c0418c7b322accafdee76f0f6',
-  'A11: reserve_primary_inventory minus the 185 block = the predecessor byte for byte (081 body; md5 3538344c)');
+  'A11: reserve_primary_inventory minus the 185 and 201 blocks = the predecessor byte for byte (081 body; md5 3538344c)');
 SELECT is((SELECT ARRAY[count(*), count(*) FILTER (WHERE pg_get_functiondef(p.oid) !~ 'ticket_type_on_sale|tier_not_on_sale')]::integer[]
              FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
             WHERE n.nspname = 'venue' AND p.proname = 'create_primary_checkout'), ARRAY[1, 1],
@@ -226,42 +239,42 @@ SELECT is((SELECT count(*)::integer FROM pg_proc p JOIN pg_namespace n ON n.oid 
 
 -- ── Section W — reserve_primary_inventory as an authenticated buyer ──────────
 SELECT tap.login('25500000-0000-4000-8000-000000000199');
-SELECT throws_ok(format($$SELECT venue.reserve_primary_inventory(%L, 1, 'ck255-r-01')$$, tap._b255(1)),
+SELECT throws_ok(format($$SELECT tap._eng255(%L, 1, 'ck255-r-01')$$, tap._b255(1)),
   'P0001', 'precondition_failed: tier_not_on_sale', 'W1: before the window -> refused tier_not_on_sale');
-SELECT is(tap._try255(format($$SELECT venue.reserve_primary_inventory(%L, 1, 'ck255-r-02')$$, tap._b255(2))) ->> 'status', 'ok',
+SELECT is(tap._try255(format($$SELECT tap._eng255(%L, 1, 'ck255-r-02')$$, tap._b255(2))) ->> 'status', 'ok',
   'W2: at the exact start instant (sale_starts_at = now()) -> allowed (starts inclusive)');
-SELECT is(tap._try255(format($$SELECT venue.reserve_primary_inventory(%L, 1, 'ck255-r-03')$$, tap._b255(3))) ->> 'status', 'ok',
+SELECT is(tap._try255(format($$SELECT tap._eng255(%L, 1, 'ck255-r-03')$$, tap._b255(3))) ->> 'status', 'ok',
   'W3: inside the window -> allowed');
-SELECT throws_ok(format($$SELECT venue.reserve_primary_inventory(%L, 1, 'ck255-r-04')$$, tap._b255(4)),
+SELECT throws_ok(format($$SELECT tap._eng255(%L, 1, 'ck255-r-04')$$, tap._b255(4)),
   'P0001', 'precondition_failed: tier_not_on_sale', 'W4: at the exact end instant (sale_ends_at = now()) -> refused (ends exclusive)');
-SELECT throws_ok(format($$SELECT venue.reserve_primary_inventory(%L, 1, 'ck255-r-05')$$, tap._b255(5)),
+SELECT throws_ok(format($$SELECT tap._eng255(%L, 1, 'ck255-r-05')$$, tap._b255(5)),
   'P0001', 'precondition_failed: tier_not_on_sale', 'W5: after the window -> refused');
-SELECT is(tap._try255(format($$SELECT venue.reserve_primary_inventory(%L, 1, 'ck255-r-06')$$, tap._b255(6))) ->> 'status', 'ok',
+SELECT is(tap._try255(format($$SELECT tap._eng255(%L, 1, 'ck255-r-06')$$, tap._b255(6))) ->> 'status', 'ok',
   'W6: NULL/NULL window (open both sides, 162) -> allowed');
-SELECT is(tap._try255(format($$SELECT venue.reserve_primary_inventory(%L, 1, 'ck255-r-07')$$, tap._b255(7))) ->> 'status', 'ok',
+SELECT is(tap._try255(format($$SELECT tap._eng255(%L, 1, 'ck255-r-07')$$, tap._b255(7))) ->> 'status', 'ok',
   'W7: NULL start, end later -> allowed (open on the start side)');
-SELECT is(tap._try255(format($$SELECT venue.reserve_primary_inventory(%L, 1, 'ck255-r-08')$$, tap._b255(8))) ->> 'status', 'ok',
+SELECT is(tap._try255(format($$SELECT tap._eng255(%L, 1, 'ck255-r-08')$$, tap._b255(8))) ->> 'status', 'ok',
   'W8: started, NULL end -> allowed (open on the end side)');
-SELECT throws_ok(format($$SELECT venue.reserve_primary_inventory(%L, 1, 'ck255-r-09')$$, tap._b255(9)),
+SELECT throws_ok(format($$SELECT tap._eng255(%L, 1, 'ck255-r-09')$$, tap._b255(9)),
   'P0001', 'precondition_failed: tier_not_on_sale', 'W9: NULL start, end exactly now -> refused (the end stays exclusive with an open start)');
-SELECT throws_ok(format($$SELECT venue.reserve_primary_inventory(%L, 1, 'ck255-r-10')$$, tap._b255(10)),
+SELECT throws_ok(format($$SELECT tap._eng255(%L, 1, 'ck255-r-10')$$, tap._b255(10)),
   'P0001', 'precondition_failed: tier_not_on_sale', 'W10: starts later, NULL end -> refused (the start still binds with an open end)');
-SELECT throws_ok(format($$SELECT venue.reserve_primary_inventory(%L, 1, 'ck255-r-11')$$, tap._b255(11)),
+SELECT throws_ok(format($$SELECT tap._eng255(%L, 1, 'ck255-r-11')$$, tap._b255(11)),
   'P0001', 'precondition_failed: tier_not_on_sale', 'W11: a HIDDEN tier of an on_sale event -> refused (162: hidden is never on sale; intended for buyers)');
-SELECT is(tap._try255(format($$SELECT venue.reserve_primary_inventory(%L, 1, 'ck255-r-12')$$, tap._b255(12))) ->> 'status', 'ok',
-  'W12: a door_only tier with no window -> allowed (162: door_only is on sale)');
+SELECT throws_ok(format($$SELECT tap._eng255(%L, 1, 'ck255-r-12')$$, tap._b255(12)),
+  'P0001', 'precondition_failed: not_buyer_inventory', 'W12: a door_only tier with no window -> refused not_buyer_inventory (registry 201 SW-4; 162''s predicate still calls door_only on sale)');
 SELECT tap.logout();
 -- the dark flag still answers first (a new, higher version of the flag = false, then back on)
 INSERT INTO catalog.platform_config (key, version, value, visibility)
 SELECT 'feature.native_issuance_enabled', max(version) + 1, 'false'::jsonb, 'public' FROM catalog.platform_config WHERE key = 'feature.native_issuance_enabled';
 SELECT tap.login('25500000-0000-4000-8000-000000000199');
-SELECT throws_ok(format($$SELECT venue.reserve_primary_inventory(%L, 1, 'ck255-r-dark')$$, tap._b255(1)),
+SELECT throws_ok(format($$SELECT tap._eng255(%L, 1, 'ck255-r-dark')$$, tap._b255(1)),
   'P0001', 'precondition_failed: feature_disabled', 'W13: native issuance dark + a before-window tier -> feature_disabled (the flag gate stays first)');
 SELECT tap.logout();
 INSERT INTO catalog.platform_config (key, version, value, visibility)
 SELECT 'feature.native_issuance_enabled', max(version) + 1, 'true'::jsonb, 'public' FROM catalog.platform_config WHERE key = 'feature.native_issuance_enabled';
 SELECT tap.login('25500000-0000-4000-8000-000000000199');
-SELECT throws_ok(format($$SELECT venue.reserve_primary_inventory(%L, 1, 'ck255-r-21')$$, tap._b255(21)),
+SELECT throws_ok(format($$SELECT tap._eng255(%L, 1, 'ck255-r-21')$$, tap._b255(21)),
   'P0001', 'precondition_failed: not_on_sale', 'W14: a tier of an ANNOUNCED event -> not_on_sale (081''s event gate still answers before the tier gate)');
 SELECT tap.logout();
 
@@ -272,22 +285,22 @@ SELECT is(tap._try255(format($$SELECT venue.create_inventory_hold(%L, 1, 'staff'
 SELECT tap.logout();
 
 -- ── Section N — a buyer refusal writes nothing (postgres reads) ──────────────
-SELECT is(tap._holds255(ARRAY[tap._b255(1), tap._b255(4), tap._b255(5), tap._b255(9), tap._b255(10), tap._b255(11), tap._b255(21)]), 0,
-  'N1: no inventory_hold row on any refused batch (b01 b04 b05 b09 b10 b11 b21)');
-SELECT is(tap._held255(ARRAY[tap._b255(1), tap._b255(4), tap._b255(5), tap._b255(9), tap._b255(10), tap._b255(11), tap._b255(21)]), 0,
+SELECT is(tap._holds255(ARRAY[tap._b255(1), tap._b255(4), tap._b255(5), tap._b255(9), tap._b255(10), tap._b255(11), tap._b255(12), tap._b255(21)]), 0,
+  'N1: no inventory_hold row on any refused batch (b01 b04 b05 b09 b10 b11 b12 b21; b12 since registry 201)');
+SELECT is(tap._held255(ARRAY[tap._b255(1), tap._b255(4), tap._b255(5), tap._b255(9), tap._b255(10), tap._b255(11), tap._b255(12), tap._b255(21)]), 0,
   'N2: held = 0 on every refused batch (no counter draw)');
-SELECT is(tap._moves255(ARRAY[tap._b255(1), tap._b255(4), tap._b255(5), tap._b255(9), tap._b255(10), tap._b255(11), tap._b255(21)]), 0,
+SELECT is(tap._moves255(ARRAY[tap._b255(1), tap._b255(4), tap._b255(5), tap._b255(9), tap._b255(10), tap._b255(11), tap._b255(12), tap._b255(21)]), 0,
   'N3: no inventory_movement row on any refused batch (no ledger row)');
-SELECT is(ARRAY[tap._holds255(ARRAY[tap._b255(2), tap._b255(3), tap._b255(6), tap._b255(7), tap._b255(8), tap._b255(12)]),
-                tap._held255(ARRAY[tap._b255(2), tap._b255(3), tap._b255(6), tap._b255(7), tap._b255(8), tap._b255(12)])], ARRAY[6, 6],
-  'N4: the six allowed batches carry exactly 6 buyer holds and held = 6');
+SELECT is(ARRAY[tap._holds255(ARRAY[tap._b255(2), tap._b255(3), tap._b255(6), tap._b255(7), tap._b255(8)]),
+                tap._held255(ARRAY[tap._b255(2), tap._b255(3), tap._b255(6), tap._b255(7), tap._b255(8)])], ARRAY[5, 5],
+  'N4: the five allowed batches carry exactly 5 buyer holds and held = 5 (b12 refused since registry 201)');
 SELECT is((SELECT count(*)::integer FROM venue.inventory_hold
-            WHERE identity_id IN ('25500000-0000-4000-8000-000000000101', '25500000-0000-4000-8000-000000000199')), 7,
-  'N5: the two callers hold exactly 7 holds in all (6 buyer + the staff hold on b14) — nothing landed anywhere else');
+            WHERE identity_id IN ('25500000-0000-4000-8000-000000000101', '25500000-0000-4000-8000-000000000199')), 6,
+  'N5: the two callers hold exactly 6 holds in all (5 buyer + the staff hold on b14; 6 buyer before registry 201) — nothing landed anywhere else');
 
 -- ── Section R — buyer idempotency replay after the window closed (t13 / b13) ─
 SELECT tap.login('25500000-0000-4000-8000-000000000199');
-SELECT tap._store255('r_hold', tap._try255(format($$SELECT venue.reserve_primary_inventory(%L, 1, 'ck255-replay-b')$$, tap._b255(13))) ->> 'hold_id');
+SELECT tap._store255('r_hold', tap._try255(format($$SELECT tap._eng255(%L, 1, 'ck255-replay-b')$$, tap._b255(13))) ->> 'hold_id');
 SELECT tap._store255('r_exp',  (SELECT expires_at::text FROM venue.inventory_hold WHERE hold_id = tap._fetch255('r_hold')::uuid));
 SELECT isnt(tap._fetch255('r_hold'), NULL, 'R1: the buyer holds b13 in-window (open-ended window started an hour ago)');
 SELECT tap.logout();
@@ -297,12 +310,12 @@ SELECT is(venue.set_ticket_type_sale_window(tap._t255(13), now() - interval '1 h
 SELECT is(venue.ticket_type_on_sale(tap._t255(13)), false, 'R3: 162''s predicate: t13 is not on sale now');
 SELECT tap.logout();
 SELECT tap.login('25500000-0000-4000-8000-000000000199');
-SELECT tap._store255('r_replay', tap._try255(format($$SELECT venue.reserve_primary_inventory(%L, 1, 'ck255-replay-b')$$, tap._b255(13)))::text);
+SELECT tap._store255('r_replay', tap._try255(format($$SELECT tap._eng255(%L, 1, 'ck255-replay-b')$$, tap._b255(13)))::text);
 SELECT is(tap._fetch255('r_replay')::jsonb ->> 'status', 'idempotency_replay',
   'R4: the buyer REPLAY after the window closed -> status idempotency_replay (not tier_not_on_sale)');
 SELECT is(tap._fetch255('r_replay')::jsonb ->> 'hold_id', tap._fetch255('r_hold'), 'R5: …with the SAME hold_id');
 SELECT is((tap._fetch255('r_replay')::jsonb ->> 'expires_at')::timestamptz, tap._fetch255('r_exp')::timestamptz, 'R6: …and the original expiry');
-SELECT throws_ok(format($$SELECT venue.reserve_primary_inventory(%L, 1, 'ck255-replay-b2')$$, tap._b255(13)),
+SELECT throws_ok(format($$SELECT tap._eng255(%L, 1, 'ck255-replay-b2')$$, tap._b255(13)),
   'P0001', 'precondition_failed: tier_not_on_sale', 'R7: a FRESH buyer key on b13 is refused — the window really is closed for new holds');
 SELECT tap.logout();
 SELECT is(ARRAY[tap._holds255(ARRAY[tap._b255(13)]), tap._held255(ARRAY[tap._b255(13)]), tap._moves255(ARRAY[tap._b255(13)])], ARRAY[1, 1, 1],

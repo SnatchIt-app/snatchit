@@ -39,6 +39,8 @@
 -- true) and a second fan hold …032 for P6 (one hold backs at most one live order, so P6 can no longer re-use
 -- P5's bound hold …031; the batch's held is 2 to match); A7 expects 198's checkout md5 (daf8bffd); A9's strip
 -- removes the 188 and the 198 blocks (198 blocks are byte-for-byte additions, so the 093 md5 stands).
+-- Registry 201 (primary_checkout_sale_eligibility) moved two pins here, nothing else: A7 expects 201's checkout md5
+-- (50ed88e0); A9's strip also removes the 201 blocks (byte-for-byte additions, so the 093 md5 stands).
 --
 -- NOT in-suite (runner, evidence dir a188_189/): pre-flight refusal of a foreign body with nothing changed,
 -- idempotent re-apply, rollback to both predecessor md5s with every other function unchanged, rollback
@@ -98,14 +100,15 @@ CREATE FUNCTION tap._orders258(p_prefix text) RETURNS integer LANGUAGE sql STABL
 $m$ SELECT count(*)::integer FROM venue."order" WHERE buyer_id = '25800000-0000-4000-8000-000000000199' AND command_idempotency_key LIKE p_prefix || '%' $m$;
 CREATE FUNCTION tap._top258(k text) RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER AS
 $m$ SELECT c.value FROM catalog.platform_config c WHERE c.key = k ORDER BY c.version DESC LIMIT 1 $m$;
--- strip rule (188 header; 198 adds its own blocks the same way): every line from a '-- ── 188 BLOCK <X> …' or
--- '-- ── 198 BLOCK <X> …' marker through its END marker (both included) goes; everything else is kept byte for byte.
+-- strip rule (188 header; 198 and 201 add their own blocks the same way): every line from a '-- ── 188 BLOCK <X> …',
+-- '-- ── 198 BLOCK <X> …' or '-- ── 201 BLOCK <X> …' marker through its END marker (both included) goes; everything
+-- else is kept byte for byte.
 CREATE FUNCTION tap._strip258(p_sig text) RETURNS text LANGUAGE sql STABLE AS $m$
   WITH l AS (
     SELECT t.line, t.n,
-           CASE WHEN t.line ~ '^ *-- ── (188|198) BLOCK [A-Z0-9]+ END *$' THEN -1
-                WHEN t.line ~ '^ *-- ── (188|198) BLOCK [A-Z0-9]+( |$)'   THEN 1 ELSE 0 END AS d,
-           t.line ~ '^ *-- ── (188|198) BLOCK ' AS marker
+           CASE WHEN t.line ~ '^ *-- ── (188|198|201) BLOCK [A-Z0-9]+ END *$' THEN -1
+                WHEN t.line ~ '^ *-- ── (188|198|201) BLOCK [A-Z0-9]+( |$)'   THEN 1 ELSE 0 END AS d,
+           t.line ~ '^ *-- ── (188|198|201) BLOCK ' AS marker
       FROM regexp_split_to_table(pg_get_functiondef(to_regprocedure(p_sig)), E'\n') WITH ORDINALITY AS t(line, n))
   SELECT md5(string_agg(x.line, E'\n' ORDER BY x.n))
     FROM (SELECT l.line, l.n, l.marker, sum(l.d) OVER (ORDER BY l.n) AS depth FROM l) x
@@ -188,13 +191,13 @@ SELECT is(ARRAY[tap._markers258('venue.create_primary_checkout(uuid, jsonb, uuid
                 tap._markers258('catalog.set_platform_config(text, jsonb, text, text)', true)], ARRAY[3, 3, 1, 1],
   'A6: 188 blocks — checkout carries three (D, R1, R2), set_platform_config one (V); every opening has its END');
 SELECT is(md5(pg_get_functiondef(to_regprocedure('venue.create_primary_checkout(uuid, jsonb, uuid[], text)'))),
-  'daf8bffd8a5f4a71fc7229dc11e3494a',
-  'A7: create_primary_checkout body = 198''s (md5(pg_get_functiondef) daf8bffd; 188''s 77004331 plus the 198 blocks)');
+  '50ed88e09825c811a0aa155d06b00f32',
+  'A7: create_primary_checkout body = 201''s (md5(pg_get_functiondef) 50ed88e0; 188''s 77004331 plus the 198 and 201 blocks)');
 SELECT is(md5(pg_get_functiondef(to_regprocedure('catalog.set_platform_config(text, jsonb, text, text)'))),
   '2ece44b98c73af1e8c2b5d930b0a5895',
   'A8: set_platform_config body = 188''s (md5(pg_get_functiondef) 2ece44b9)');
 SELECT is(tap._strip258('venue.create_primary_checkout(uuid, jsonb, uuid[], text)'), 'a629b41216397da48f71a7c6cc4fd298',
-  'A9: create_primary_checkout minus the 188 and 198 blocks = the 093 predecessor byte for byte (md5 a629b412)');
+  'A9: create_primary_checkout minus the 188, 198 and 201 blocks = the 093 predecessor byte for byte (md5 a629b412)');
 SELECT is(tap._strip258('catalog.set_platform_config(text, jsonb, text, text)'), 'd0aaada87856b8579f7e19fcd9934fbf',
   'A10: set_platform_config minus the 188 block = the 102 predecessor byte for byte (md5 d0aaada8)');
 SELECT ok(pg_get_functiondef(to_regprocedure('venue.create_primary_checkout(uuid, jsonb, uuid[], text)'))
