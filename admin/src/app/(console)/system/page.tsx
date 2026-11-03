@@ -51,9 +51,9 @@ const ACTION_STATES = Object.keys(ACTION_STATE_LABELS);
 const ACTION_TYPES = Object.keys(ACTION_TYPE_LABELS);
 
 const SETTING_HELP: Record<string, string> = {
-  actions_enabled: "Console-wide pause. When false, the server refuses console actions, approval decisions and refund resumes (code console_actions_paused). Reads still work. This setting stays changeable. Not paused: Money settings, alert acknowledgements and opening evidence. Set it to true to resume.",
+  actions_enabled: "Console-wide pause. When false, the server refuses console actions, approval decisions and refund resumes (code console_actions_paused). Reads still work. This setting stays changeable. Not paused: Money settings, Operational settings, alert acknowledgements and opening evidence. Set it to true to resume.",
   refund_execute_enabled: "Turns Execute refund on or off. Set it to true only after the ops-refund-execute function is deployed.",
-  detectors_enabled: "Master switch for the 5-minute detector tick.",
+  detectors_enabled: "Turns every scheduled run of the console jobs on or off: the detectors and the metric snapshot every 5 minutes, and the daily summary.",
   dispute_sla_hours: "Hours before an open in-app dispute is overdue.",
   transfer_deadline_soon_hours: "Window before the seller deadline that raises Transfer due soon.",
   paid_unsettled_grace_minutes: "Grace after a captured payment before Paid but not settled fires.",
@@ -114,7 +114,7 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
       <PageHeader
         eyebrow="Health"
         title="System"
-        description="Detectors, cron, webhook backlog, notification delivery, approvals, settings, the action log and the append-only audit trail. Stripe webhooks are re-sent from the Stripe Dashboard, never replayed from here."
+        description="Detectors, cron, webhook backlog, notification delivery, approvals, settings, the action log and the audit log (append-only). To re-send a Stripe webhook, use the Stripe Dashboard. This console never replays webhooks."
         meta={
           health ? (
             <>
@@ -153,14 +153,14 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
         {!healthRes.ok ? (
           <OpsFailureAlert failure={healthRes} fn="job_health" retryHref={selfHref("/system", sp)} />
         ) : !health ? (
-          <Alert state="failed" title="Unrecognised payload from ops.job_health()" />
+          <Alert state="failed" title="Unexpected answer from ops.job_health()" />
         ) : (
           <>
             <MetricGrid cols={6}>
               <MetricTile label="Ops jobs" value={health.ops_jobs.length} definition="Jobs the console runs: the detectors, the daily summary and the metric snapshot." href="#jobs" />
-              <MetricTile label="Jobs failing" value={failingJobs} definition="Enabled ops jobs with 2 or more consecutive failures." href="#jobs" />
-              <MetricTile label="Webhooks unprocessed" value={health.webhook_backlog.unprocessed ?? "—"} definition="stripe_webhook_events with processed_at null and no failed_at." href="#webhooks" />
-              <MetricTile label="Webhooks failed" value={health.webhook_backlog.failed ?? "—"} definition="stripe_webhook_events with failed_at set and processed_at null." href="#webhooks" />
+              <MetricTile label="Jobs failing" value={failingJobs} definition="Console jobs with 2 or more consecutive failures, disabled jobs included." href="#jobs" />
+              <MetricTile label="Webhooks unprocessed" value={health.webhook_backlog.unprocessed ?? "—"} definition="Stripe webhook events not yet processed and not marked failed." href="#webhooks" />
+              <MetricTile label="Webhooks failed" value={health.webhook_backlog.failed ?? "—"} definition="Stripe webhook events marked failed and not processed." href="#webhooks" />
               <MetricTile label="Alerts firing" value={health.alerts.length} definition="Alerts that are firing now." href="#alerts" />
               <MetricTile label="Approvals pending" value={approvalsRes.ok ? approvals.length : "—"} note={approvalsRes.ok ? null : "Couldn't be loaded"} definition="Second-founder approvals awaiting a decision." href="#approvals" />
             </MetricGrid>
@@ -173,7 +173,7 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
             <Panel eyebrow="Scheduled in the database" title="Cron jobs">
               {!health.cron.available ? (
                 <Alert state="info" title="Run history unavailable." compact>
-                  {health.cron.note ?? "cron.job_run_details is not present on this database."}
+                  {health.cron.note ?? "This database does not keep cron run history."}
                 </Alert>
               ) : null}
               <div className={health.cron.available ? "" : "mt-3"}>
@@ -196,7 +196,7 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
                 <p className="mt-3 text-[0.6875rem] text-dim">Stuck or failed events are re-sent from the Stripe Dashboard (Developers → Webhooks → event → Resend). The console does not replay webhooks.</p>
               </Panel>
 
-              <Panel eyebrow="notify.*" title="Notification delivery">
+              <Panel eyebrow="From the database" title="Notification delivery">
                 <div id="notify" />
                 <h3 className="eyebrow text-dim">Delivery by state</h3>
                 <CountList map={health.notify.delivery} />
@@ -233,7 +233,7 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
         {/* 196's Money settings panel, carried from production (dddc8e92) with 196's ops reads,
             guards and copy unchanged. 197 adds one read-only live-values overview below the decided
             list; its position remains in the v2 /system layout above the console switches. */}
-        <Panel eyebrow={money ? `${moneyPending} pending` : "platform_config"} title="Money settings (second founder)">
+        <Panel eyebrow={money ? `${moneyPending} pending` : "Two-founder rule"} title="Money settings (second founder)">
           <div id="money" />
           {!isAdmin ? (
             <Alert state="info" title="Only founders can see Money settings." compact />
@@ -245,21 +245,21 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
           <p className="mt-3 text-[11px] text-dim">Money keys (refund, payout, fee, authn, …) follow the two-founder rule: a loosening needs a second founder, and a tightening applies at once. You cannot approve your own request. Approving needs a recent check with your authenticator. Requests expire after 72 hours.</p>
         </Panel>
 
-        <Panel eyebrow="platform_config · single founder" title="Operational settings">
+        <Panel eyebrow="Single-founder rule" title="Operational settings">
           <div id="operational" />
           {!isAdmin ? (
             <Alert state="info" title="Only founders can see Operational settings." compact />
           ) : operationalRes && !operationalRes.ok ? (
             operationalRes.kind === "error" && operationalRes.unavailable ? (
               <Alert state="info" title="Needs registry 197 — operational settings are not available on this server." compact>
-                The server could not provide <code>ops.list_operational_config</code> (the 197 schema/function is unavailable). No value was read or changed, and no write control is shown.
+                The server could not provide <code>ops.list_operational_config</code>. No value was read or changed, and no write control is shown.
               </Alert>
             ) : (
               <OpsFailureAlert failure={operationalRes} fn="list_operational_config" retryHref="/system#operational" />
             )
           ) : operationalRes && operationalRes.ok && operational === null ? (
-            <Alert state="failed" title="Unrecognised payload from ops.list_operational_config" compact>
-              The read did not return an items array. No write control is shown; reload before changing anything.
+            <Alert state="failed" title="Unexpected answer from ops.list_operational_config" compact>
+              The read did not return the four operational settings. No write control is shown. Reload the page before you change anything.
             </Alert>
           ) : operational ? (
             <OperationalSettingsForm settings={operational} commandKey={newIdempotencyKey()} />
@@ -387,7 +387,7 @@ function OpsJobTable({ jobs, canRetry }: { jobs: OpsJob[]; canRetry: boolean }) 
         ),
     },
   ];
-  return <DataTable id="jobs" columns={columns} rows={jobs} rowKey={(j) => j.job_name} basePath="/system" emptyText="No ops jobs registered (migration 117 not applied?)." caption="Console jobs" dense />;
+  return <DataTable id="jobs" columns={columns} rows={jobs} rowKey={(j) => j.job_name} basePath="/system" emptyText="No console jobs are registered. Is registry 117 applied?" caption="Console jobs" dense />;
 }
 
 function CronTable({ rows, available }: { rows: CronJob[]; available: boolean }) {
@@ -468,7 +468,7 @@ function SettingsList({ settings }: { settings: Setting[] }) {
                 Current: <code className="font-mono text-ink">{JSON.stringify(s.value)}</code> <span className="text-dim">({kind})</span>
               </p>
               <p className="mt-1 text-[0.6875rem] text-dim">
-                Last changed <DateTime value={s.updated_at} /> {s.updated_by_label ? `by ${s.updated_by_label}` : s.updated_by ? `by ${shortId(s.updated_by)}` : "(seed)"}
+                Last changed <DateTime value={s.updated_at} /> {s.updated_by_label ? `by ${s.updated_by_label}` : s.updated_by ? `by ${shortId(s.updated_by)}` : "(no person recorded)"}
               </p>
             </div>
             <ConfirmForm idempotencyKey={newIdempotencyKey()} actionType="setting_set" subjectKind="setting" subjectRef={s.key} revalidate="/system" label="Save setting" danger={s.key === "refund_execute_enabled" || s.key === "actions_enabled"}>

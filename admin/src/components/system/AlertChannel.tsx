@@ -89,7 +89,7 @@ export function AlertDeliveryChannel({ settings }: { settings: SettingsRead }) {
               <>
                 <strong className="font-semibold">email to the owner&apos;s verified account email — prepared, not active (owner action)</strong>.{" "}
                 <span className="text-dim">
-                  From the runbook, not read from the server: the email channel&apos;s settings are edge-function secrets, which no console read returns.
+                  From the runbook, not read from the server. The email channel&apos;s settings are stored as server secrets, and no console read returns them.
                 </span>
               </>
             ),

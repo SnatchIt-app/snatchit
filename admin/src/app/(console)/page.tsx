@@ -26,17 +26,17 @@ type Assignee = "me" | "unassigned" | "all";
 /** Tooltip definitions for the counts ops.today() returns (§3.5 / §5). */
 const METRIC_DEFINITIONS: Record<string, string> = {
   open_cases: "Cases whose status is not resolved or dismissed.",
-  paid_unsettled: "Succeeded payments older than the grace window with no transfer row yet.",
-  transfers_due_6h: "Pending transfers whose seller deadline falls within the next 6 hours.",
+  paid_unsettled: "Captured payments that still have no transfer record after paid_unsettled_grace_minutes (a setting).",
+  transfers_due_6h: "Pending transfers whose seller deadline falls within transfer_deadline_soon_hours (a setting, 6 by default).",
   transfers_overdue: "Pending transfers whose seller deadline has passed.",
   refunds_pending: "Expired or buyer-win/partial-refund transfers whose payment is still 'succeeded' (refund not yet executed).",
   disputes_open: "Transfers currently in 'disputed' status (buyer/seller dispute, not Stripe).",
   stripe_disputes_open: "Stripe disputes not yet won, lost, warning_closed or charge_refunded.",
-  evidence_due_72h: "Open Stripe disputes whose evidence_due_by is within 72 hours.",
-  payout_review: "Transfers flagged for manual payout review without a Stripe transfer id yet.",
+  evidence_due_72h: "Open Stripe disputes whose evidence is due within 72 hours.",
+  payout_review: "Transfers held or in manual payout review, with no Stripe Transfer yet.",
   reports_pending: "User reports in 'pending' status.",
   jobs_failing: "Enabled ops jobs with 2+ consecutive failures.",
-  webhook_backlog: "Stripe webhook events unprocessed for longer than the stuck window.",
+  webhook_backlog: "Stripe webhook events still not processed after webhook_stuck_minutes (a setting).",
   approvals_pending: "Second-founder approvals still pending and not expired.",
   alerts_firing: "Alerts that are firing now.",
 };
@@ -60,7 +60,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
     return (
       <>
         <PageHeader eyebrow="Overview" title="Today" />
-        <Alert state="failed" title="Unrecognised payload from ops.today()" retryHref="/" />
+        <Alert state="failed" title="Unexpected answer from ops.today()" retryHref="/" />
       </>
     );
   }

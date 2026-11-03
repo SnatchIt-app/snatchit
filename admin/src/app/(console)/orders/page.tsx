@@ -314,10 +314,10 @@ function OrderPreview({ r }: { r: OrderRow }) {
         <dl className="mt-2 flex flex-col gap-2 text-[0.75rem]">
           {[
             ["Payment", r.payment_id],
-            ["Payment intent", r.stripe_payment_intent_id],
+            ["Stripe PaymentIntent", r.stripe_payment_intent_id],
             ["Transfer", r.transfer_id],
-            ["Stripe transfer", r.stripe_transfer_id],
-            ["Refund", r.stripe_refund_id],
+            ["Stripe Transfer", r.stripe_transfer_id],
+            ["Stripe refund", r.stripe_refund_id],
             ["Listing", r.listing_id],
           ]
             .filter(([, v]) => v)

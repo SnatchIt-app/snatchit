@@ -261,17 +261,17 @@ export function refundStateLabel(state: unknown, refundStatus: unknown): string 
 
 /** ops.executor_claim() refusal reasons surfaced by ops-refund-execute as HTTP 409 {reason}. */
 export const EXECUTOR_REFUSAL_LABELS: Record<string, string> = {
-  disabled: "refund execution is disabled (ops.setting refund_execute_enabled = false)",
-  paused: "console actions are paused by a founder (ops.setting actions_enabled = false)",
+  disabled: "refund execution is turned off (the setting refund_execute_enabled is false)",
+  paused: "console actions are paused by a founder (the setting actions_enabled is false)",
   claim_busy: "another executor run is already working on this action — wait for it to finish, then retry",
   approval_missing: "no approved second-founder decision exists for this action",
   approval_stale: "the approval no longer matches the action's terms — a fresh approval is needed",
-  terminal: "the action is already in a terminal state — nothing to resume",
-  succeeded_at_provider: "Stripe already succeeded — the local record completes when the webhook lands",
+  terminal: "the action is already finished — nothing to resume",
+  succeeded_at_provider: "Stripe already succeeded — the local record completes when the Stripe webhook arrives",
   not_executable: "the action is not in a resumable state",
   not_found: "no such action",
   wrong_type: "not a refund_execute action",
-  payment_missing: "the payment row no longer exists",
+  payment_missing: "the payment record no longer exists",
   already_refunded_locally: "the payment is already refunded locally",
   payment_not_refundable: "the payment is not in a refundable state",
 };

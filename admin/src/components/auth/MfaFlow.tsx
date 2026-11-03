@@ -129,7 +129,7 @@ export function MfaFlow({ next }: { next: string }) {
           <div className="flex flex-col items-center gap-3 rounded-[20px] bg-white p-4 ring-1 ring-[rgba(70,50,30,0.1)]">
             {/* qr_code is an SVG data URL from Supabase; a plain img is the correct element. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={phase.qr} alt="TOTP enrolment QR code" width={180} height={180} />
+            <img src={phase.qr} alt="QR code for your authenticator app" width={180} height={180} />
           </div>
           <details className="text-[0.75rem] text-muted">
             <summary className="inline-flex min-h-9 cursor-pointer items-center rounded-lg hover:text-ink">Can&apos;t scan? Show the secret</summary>

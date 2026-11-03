@@ -127,7 +127,7 @@ export default async function MoneyPage({ searchParams }: { searchParams: Promis
             </button>
           </form>
           {!payoutsRes.ok ? <OpsFailureAlert failure={payoutsRes} fn="list_payouts" retryHref={selfHref("/money", sp)} /> : <PayoutTable rows={payouts} searchParams={sp} nextCursor={payoutsPage?.next_cursor} />}
-          <p className="mt-3 text-[0.6875rem] text-dim">“Released to connected account” means a Stripe Transfer exists (stripe_transfer_id). Bank payouts from the connected account are not tracked.</p>
+          <p className="mt-3 text-[0.6875rem] text-dim">“Released to connected account” means a Stripe Transfer to the connected account exists. Bank payouts from the connected account are not tracked.</p>
         </Panel>
 
         <Panel eyebrow="Read-only detector" title="Reconciliation queue" description="Money facts that disagree.">

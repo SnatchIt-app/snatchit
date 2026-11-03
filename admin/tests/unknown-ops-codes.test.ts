@@ -154,7 +154,7 @@ describe("an answer with a status the console does not know keeps the DB's words
         ok: false,
         kind: "error",
         code: "duplicate_unsettled",
-        message: `Unrecognised response from ${fn} (status refused): An unsettled payout_release already exists`,
+        message: `Unexpected answer from ${fn} (status refused): An unsettled payout_release already exists`,
       });
       const html = rendered(state, fn);
       expect(html).toContain("Request failed");
@@ -170,7 +170,7 @@ describe("an answer with a status the console does not know keeps the DB's words
       ]) {
         rpc.reply = { data, error: null };
         const state = await submitActionForm({}, form());
-        expect(state.failure, JSON.stringify(data)).toEqual({ ok: false, kind: "error", code: "P9999", message: `Unrecognised response from ${fn} (status x): a rule added after this build` });
+        expect(state.failure, JSON.stringify(data)).toEqual({ ok: false, kind: "error", code: "P9999", message: `Unexpected answer from ${fn} (status x): a rule added after this build` });
       }
     });
 
@@ -178,7 +178,7 @@ describe("an answer with a status the console does not know keeps the DB's words
       for (const data of [null, "x", [], {}, { status: 7 }]) {
         rpc.reply = { data, error: null };
         const state = await submitActionForm({}, form());
-        expect(state.failure, JSON.stringify(data)).toEqual({ ok: false, kind: "error", message: `Unrecognised response from ${fn}` });
+        expect(state.failure, JSON.stringify(data)).toEqual({ ok: false, kind: "error", message: `Unexpected answer from ${fn}` });
       }
     });
   }

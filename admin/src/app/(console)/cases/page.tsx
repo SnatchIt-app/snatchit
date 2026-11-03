@@ -111,7 +111,7 @@ export default async function CasesPage({ searchParams }: { searchParams: Promis
         eyebrow="Work"
         title="Cases"
         meta={total !== null ? `${total.toLocaleString("en-US")}${chips.length ? " matching" : ""} case${total === 1 ? "" : "s"}` : undefined}
-        description="Detector-raised and manual cases across payments, transfers, disputes, users, and jobs."
+        description="Cases that detectors opened, and cases opened by hand, across payments, transfers, disputes, users and jobs."
         actions={
           <details data-popover className="relative">
             <summary className="btn btn-ghost">

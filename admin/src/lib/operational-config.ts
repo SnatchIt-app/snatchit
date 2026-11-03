@@ -27,7 +27,7 @@ export const OPERATIONAL_KEYS: readonly OperationalKeySpec[] = [
     key: "inventory.per_user_active_hold_max",
     label: "Hold max per buyer",
     kind: "integer",
-    help: "Active holds one buyer may have at once. A whole number of at least 1. Unset = every reserve is refused.",
+    help: "Active holds one buyer may have at once. A whole number of at least 1. Unset = every new hold is refused.",
   },
   {
     key: "inventory.hold_ttl_interval",

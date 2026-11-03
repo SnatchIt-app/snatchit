@@ -202,7 +202,7 @@ export function OrderActions({
                   Full refund of <Money cents={p.total} /> only. This form cannot request a partial refund; the server would reject one as <code className="font-mono">not_supported</code>.
                 </p>
                 <p className="text-[0.6875rem] text-dim">
-                  While refund_execute_enabled is true, the request is parked as awaiting approval; after the other founder approves, the ops-refund-execute function calls Stripe with a stable idempotency key. While it is false, the server rejects the request as disabled and parks nothing. The console never calls Stripe. The payment shows “refunded” only after the webhook lands.
+                  While refund_execute_enabled is true, the request is parked as awaiting approval. Then, after the other founder approves, a founder must press Resume execution on the action page. Only then does the ops-refund-execute function call Stripe, with a stable idempotency key. While it is false, the server rejects the request as disabled and parks nothing. The console never calls Stripe. The payment shows “Refund recorded” only after the Stripe webhook arrives.
                 </p>
               </ConfirmForm>
             </>,

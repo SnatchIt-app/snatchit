@@ -142,7 +142,7 @@ describe("operational settings panel", () => {
     for (const data of [{ items: "nope" }, { items: [] }, { items: OPERATIONAL.slice(0, 3) }]) {
       mocks.operational = { ok: true, data };
       const html = await render();
-      expect(html).toContain("Unrecognised payload from ops.list_operational_config");
+      expect(html).toContain("Unexpected answer from ops.list_operational_config");
       expect(html).not.toContain("Apply now");
     }
   });

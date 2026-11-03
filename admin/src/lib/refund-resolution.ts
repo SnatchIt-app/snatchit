@@ -29,17 +29,17 @@ export const REFUND_CLASSIFICATIONS = [
     value: "A",
     label: "A — a full refund was issued",
     // 144 raises reversal_decision for A only when the transfer has a Stripe transfer id or a recorded release.
-    hint: "Stripe shows the whole charge refunded. Raises nothing, unless the payout was already released: then it raises reversal_decision.",
+    hint: "Stripe shows the whole charge refunded. Raises nothing, unless the payout was already released. In that case it raises the obligation “Reversal decision”.",
   },
   {
     value: "B",
     label: "B — a partial refund, and fulfilment continues",
-    hint: "The buyer keeps the order. The seller is still owed the remainder: raises payout_owed.",
+    hint: "The buyer keeps the order. The seller is still owed the remainder. Raises the obligation “Payout owed to the seller”.",
   },
   {
     value: "C",
     label: "C — a partial refund, and the order was cancelled",
-    hint: "The order is off. The buyer is still owed the rest: raises remainder_refund_owed.",
+    hint: "The order is off. The buyer is still owed the rest of the refund. Raises the obligation “Remainder refund owed to the buyer”.",
   },
 ] as const;
 
