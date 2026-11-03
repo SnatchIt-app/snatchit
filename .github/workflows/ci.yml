@@ -1797,7 +1797,8 @@ jobs:
             supabase/functions/ops-refund-execute/classify.ts \
             supabase/functions/ops-refund-execute/handler.ts \
             supabase/functions/stripe-webhook/native.ts \
-            supabase/functions/stripe-webhook/native-dispute.ts
+            supabase/functions/stripe-webhook/native-dispute.ts \
+            supabase/functions/stripe-webhook/refund-failure.ts
 
       - name: deno check — deployed + production-aligned entrypoints (blocking)
         run: |

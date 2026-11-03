@@ -68,6 +68,10 @@ import {
   resolveDisputeRail,
   resolveTransferRail,
 } from './native-dispute.ts';
+// refunds-4 (DESIGN-199 §5.1): a failed or canceled refund converges
+// kernel.refund through kernel.record_refund_stripe_failure. Pure decisions,
+// pinned by tests/refund-webhook-refunds4.test.ts.
+import { classifyRefundFailureResult, needsRefundFailureConvergence } from './refund-failure.ts';
 
 // ── 150: refund lifecycle ────────────────────────────────────────────────────
 // A Stripe refund has its own status (pending, requires_action, succeeded,
@@ -2106,7 +2110,7 @@ serve(async (req: Request) => {
           console.warn('Webhook: refund without payment_intent (ack only)', { refund_id: evRefund.id });
           await markProcessed();
         } else {
-          const { error: refErr } = await supabase.rpc('record_refund_state', {
+          const { data: refState, error: refErr } = await supabase.rpc('record_refund_state', {
             p_payment_intent_id: r.payment_intent,
             p_stripe_refund_id:  evRefund.id,
             p_status:            r.status,
@@ -2120,6 +2124,29 @@ serve(async (req: Request) => {
             return await finish(false, { refund_id: evRefund.id }, `refund state: ${refErr.message}`);
           }
           console.log('Webhook: refund state recorded', { refund_id: evRefund.id, status: r.status, event_type: event.type });
+
+          // refunds-4: a failed or canceled refund must also converge
+          // kernel.refund, through the one verb that can (199). It reads the
+          // failure from the state just recorded, never from us, so the event
+          // is complete only once this step is decided.
+          if (needsRefundFailureConvergence(r.status, refState)) {
+            const converged = await kernelService().rpc('record_refund_stripe_failure', {
+              p_stripe_refund_ref: evRefund.id,
+              p_command_key:       `webhook:${event.id}`,
+            });
+            const decision = classifyRefundFailureResult(converged, {
+              metadata:   r.metadata ?? null,
+              ageSeconds: eventAgeSeconds(event.created, Date.now()),
+            });
+            if (!decision.ack) {
+              console.error('Webhook: refund failure not converged (Stripe will retry):', { refund_id: evRefund.id, reason: decision.reason });
+              return await finish(false, { refund_id: evRefund.id }, decision.reason);
+            }
+            if (decision.page) {
+              await captureException(decision.page.tag, new Error(`${decision.log}: ${evRefund.id}`), decision.page.facts);
+            }
+            console.log('Webhook: refund failure converged', { refund_id: evRefund.id, outcome: decision.log });
+          }
           await markProcessed();
         }
       }
