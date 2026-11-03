@@ -15,6 +15,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadEdgeHandler, mockStripe, mockSupabase, signedStripeWebhookRequest, type StripeCall } from './helpers/edge-vm';
 import {
+  REFUND_FAILURE_RETRY_PAGE_AFTER_SECONDS,
   REFUND_FAILURE_UNBOUND_GRACE_SECONDS,
   classifyRefundFailureResult,
   needsRefundFailureConvergence,
@@ -137,6 +138,31 @@ describe('C: what the verb\'s answer means for the delivery', () => {
   ])('C14 a transport or transient fault (%o) is retried', (error) => {
     expect(classifyRefundFailureResult({ data: null, error }, fresh)).toMatchObject({ ack: false });
   });
+  // E review of 17d48073: the generic retry was the one path silent for an UNKNOWN
+  // reason. A persistent coded fault (a lost grant 42501, a rotated key 28P01,
+  // PGRST301) retried silently until Stripe stopped redelivering, and the
+  // convergence was lost with no page. It now stays silent while the event is young
+  // (a blip) and pages once it is old enough that a transient no longer explains it.
+  it('C19 a retryable fault on a young event is retried silently (a blip must not page on every delivery)', () => {
+    const d = classifyRefundFailureResult({ data: null, error: { message: 'permission denied for function record_refund_stripe_failure', code: '42501' } }, fresh);
+    expect(d).toMatchObject({ ack: false });
+    expect((d as { page?: unknown }).page).toBeUndefined();
+  });
+  it('C20 the same fault on an event past the window is still retried, and now paged convergence_stalled', () => {
+    const old = { ...fresh, ageSeconds: REFUND_FAILURE_RETRY_PAGE_AFTER_SECONDS };
+    expect(classifyRefundFailureResult({ data: null, error: { message: 'permission denied for function record_refund_stripe_failure', code: '42501' } }, old))
+      .toMatchObject({ ack: false, page: { tag: 'refund-webhook:convergence_stalled', facts: { code: '42501', stripe_refund_ref: 're_1' } } });
+    expect(classifyRefundFailureResult({ data: null, error: { message: 'fetch failed' } }, old))
+      .toMatchObject({ ack: false, page: { tag: 'refund-webhook:convergence_stalled', facts: { code: null } } });
+  });
+  it('C21 an undatable event pages (never a silent retry we cannot bound)', () => {
+    expect(classifyRefundFailureResult({ data: null, error: { message: 'x', code: '28P01' } }, { ...fresh, ageSeconds: Number.POSITIVE_INFINITY }))
+      .toMatchObject({ ack: false, page: { tag: 'refund-webhook:convergence_stalled' } });
+  });
+  it('C22 the paging threshold mirrors the not_bound grace (one constant, not a second mechanism)', () => {
+    expect(REFUND_FAILURE_RETRY_PAGE_AFTER_SECONDS).toBe(REFUND_FAILURE_UNBOUND_GRACE_SECONDS);
+  });
+
   it('C15 an answer the contract does not name is ACKed and paged (contract drift does not fix itself on redelivery)', () => {
     expect(classifyRefundFailureResult({ data: { status: 'something_new' }, error: null }, fresh)).toMatchObject({ ack: true, page: { tag: 'refund-webhook:verb_unrecognized' } });
     expect(classifyRefundFailureResult({ data: true, error: null }, fresh)).toMatchObject({ ack: true, page: { tag: 'refund-webhook:verb_unrecognized' } });
@@ -257,6 +283,15 @@ describe('R: stripe-webhook refund.* calls the converger', () => {
     expect(h.names()).not.toContain('complete_stripe_webhook_event');
     expect(h.edge.sentry.map((s) => s.tag)).toEqual(['refund-webhook:verb_missing']);
     expect(h.edge.sentry[0].ctx).toEqual({ stripe_refund_ref: 're_11' });
+  });
+
+  it('R12 a persistent coded fault on an hours-old delivery answers non-2xx AND pages convergence_stalled once', async () => {
+    const h = await webhook({ refund: refundObj('re_12', 'failed', { metadata: OURS }), verbAnswer: { data: null, error: { message: 'permission denied for function record_refund_stripe_failure', code: '42501' } } });
+    const res = await h.send('refund.failed', Math.floor(Date.now() / 1000) - 7200);
+    expect(res.status).toBeGreaterThanOrEqual(500);
+    expect(h.names()).not.toContain('complete_stripe_webhook_event');
+    expect(h.edge.sentry.map((s) => s.tag)).toEqual(['refund-webhook:convergence_stalled']);
+    expect(h.edge.sentry[0].ctx).toEqual({ code: '42501', stripe_refund_ref: 're_12' });
   });
 
   it('R10 a failed record_refund_state still answers non-2xx BEFORE the verb is tried (unchanged)', async () => {
