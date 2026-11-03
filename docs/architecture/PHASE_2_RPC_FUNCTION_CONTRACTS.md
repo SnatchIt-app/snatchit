@@ -844,7 +844,7 @@ rather than changed** — see §20.14 `R-24`, because the overlay primitives §7
   [venue_manager])` OR `is_platform([platform_admin])`.
 - **Params:** `p_event_id`,`p_reason_code`,`p_command_key` — untrusted. **Server-derived:** `auth.uid()`;
   refund `reason_code:='event_cancelled'`.
-- **Preconditions:** event not already `cancelled`. **Locks & lock order (SSCAS #3 per atom, batched):**
+- **Preconditions:** event not already `cancelled`, and not `completed` (**PFA-34**, owner-ratified 2026-11-03: `precondition_failed: event_completed`; refunds after the event go through admin refunds). **Locks & lock order (SSCAS #3 per atom, batched):**
   **Event/Session** (`FOR UPDATE`) → **Inventory batch(es)** (return capacity) → per issued atom **Ticket
   Atom (ascending `ticket_atom_id`)** → **Refund/Payment**. Open **Listings** are locked before their atoms
   where a listing exists. Iterates atoms in ascending-id order — no inversion.
