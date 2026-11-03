@@ -24,7 +24,10 @@
 --      atoms untouched); the submitted arm, canceled, binding mismatches, pending-with-ref, a booked refund_void line,
 --      a clawback obligation, in_flight (pending; requires_action on a succeeded row), mark_refund_state's guard in both
 --      directions (failed and canceled), and the org settlement seam lock held by the verb (S25 the order, S28 the lock
---      itself in pg_locks).
+--      itself in pg_locks). S29-S34 (revision after review of 45708aec): a ref without the re_ prefix, stored by the
+--      column's only writer kernel.mark_refund_state, converges through the verb on both arms — succeeded -> failed with
+--      the audit row and the settlement-review residue (S29-S32), submitted -> failed on a canceled refund (S33) — and
+--      a NULL, empty or blank ref is still refused (S34).
 --   E  refunds-5: ops.executor_claim on refunded payments — unresolved, previously-sent admitted, Stripe-confirmed
 --      acknowledgement, legacy unobserved, charged back (whole and split with a succeeded refund), the unchanged plain
 --      claim, a failed payment, the empty-claims session, a previously-sent action whose payment later gained an
@@ -45,16 +48,17 @@
 -- Section order matters: M's claim leases its rows before P's fixtures exist; P parks Rq/Ru/Rm/Rps/Rv1-Rv3 before P4's
 -- claim; W's rows are written after P's last claim; S and E write no claim.
 --
--- RED (main 7496fee3 without 199), predicted before the run: the file runs to the end; 93 emitted = 24 ok + 69 not ok.
---   ok: A6 A7 A8 A10 · F1 F2 · M1 M4 M5 M8 M10 M11 · W2 · S1 S2 S4 S5 S12 S24 · E2 E4 E7 E8 E9.
+-- RED (main without 199), predicted before the run: the file runs to the end; 99 emitted = 25 ok + 74 not ok.
+--   ok: A6 A7 A8 A10 · F1 F2 · M1 M4 M5 M8 M10 M11 · W2 · S1 S2 S4 S5 S12 S24 S29 · E2 E4 E7 E8 E9.
 --   A8 is vacuous on RED (only the four replaced bodies resolve); W2 is the window's positive control (true before
---   and after); the rest are behaviour 199 must preserve. Every other assertion is not ok (M12 P20-P26 S26-S28 E11
---   E12 included).
--- GREEN: 93/93. Mutant predictions: planning/2026-10-26-launch/D/s15-199/mut/PREDICTIONS.txt, run by run_199f.sh
--- (each mutant is a create-or-replace of one function, or one grant, after the GREEN apply).
+--   and after); S29 is the Rp setup (the 085 mark_refund_state already stores any non-null ref); the rest are
+--   behaviour 199 must preserve. Every other assertion is not ok (M12 P20-P26 S26-S28 S30-S34 E11 E12 included).
+-- GREEN: 99/99. Mutant predictions: planning/2026-10-26-launch/D/s15-199/delta-regex/mut/PREDICTIONS.txt, run by
+-- delta-regex/run_199d.sh (each mutant is a create-or-replace of one function, or one grant, after the GREEN apply;
+-- MU38a restores the ref shape check of 45708aec and must turn S30-S34 red).
 -- ============================================================================
 BEGIN;
-SELECT plan(93);
+SELECT plan(99);
 
 -- ── helpers ──────────────────────────────────────────────────────────────────
 CREATE TABLE tap.memo_268 (k text PRIMARY KEY, v text);
@@ -319,7 +323,7 @@ SELECT is(ARRAY[tap._md5268('kernel.refund_executor_hold(uuid)'),
                 tap._md5268('kernel.rearm_refund_execution(uuid,text,text)'),
                 tap._md5268('ops.executor_claim(uuid,integer)')],
           ARRAY['31d6705d651d04ef82191faec528ad27', 'a14aafa2040db639a18f64aa30e5b6f1', '3664f28dc744d274ff8813309edf9fd0',
-                '8aede0fc7dbdb0bc37a53d53c0eda51e', 'ba2de45d6283db5afcc954b7d401596d', '822d2d2fd0cfd3e39f8fe6f1f0baec74',
+                '8aede0fc7dbdb0bc37a53d53c0eda51e', '8a443bd8ee3444ba11b6097eeda6fd9a', '822d2d2fd0cfd3e39f8fe6f1f0baec74',
                 '977edd52c3d535a36f7431ea008a2bb9', '2d658f3406ea6e774fd8f6dcb163a27f'],
   'A5: md5(pg_get_functiondef) of the eight = the values 199 declares');
 SELECT is(ARRAY[tap._md5268('kernel.refund_primary_order(uuid,integer,text,text)'),
@@ -779,6 +783,60 @@ SELECT is(ARRAY[tap._fj268('s27r') ->> 'recorded', tap._fe268('s27'), (SELECT st
   'S27: mark_refund_state refuses succeeded for a ref Stripe recorded canceled (refund_failed_at_stripe); the row stays submitted (I-R1)');
 SELECT is(ARRAY[tap._fe268('s28a'), tap._fe268('s28b')], ARRAY['false', 'true'],
   'S28: this backend does not hold Org 268''s settlement seam lock (advisory hashtext(''settlement.seam.org:''||org)) before S3''s verb call and holds it after (the verb takes the lock the close takes; I-S1)');
+-- Rp: a ref with no re_ prefix, stored by the column's only writer. kernel.admin_refund on O6 (admin_action, money only),
+-- moved to submitted and then succeeded through kernel.mark_refund_state with ref pyr_268_shape (it stores any non-null
+-- ref), Stripe recorded succeeded, a refund_clawback obligation recorded, then Stripe records the refund failed
+SELECT tap._st268('s_rp', tap._as268('a2680000-0000-4000-a000-000000000a01', NULL,
+         $q$SELECT kernel.admin_refund('a2680000-0000-4000-a000-000000000606', '{}'::uuid[], 2000, 'admin_action', 'ck268-s-rp')::text$q$));
+SELECT tap._st268('r_p', tap._fj268('s_rp') ->> 'refund_id');
+SELECT tap._st268('s29a', tap._mark268(tap._id268('r_p'), 'submitted', 'pyr_268_shape', NULL));
+SELECT tap._st268('s29b', tap._rrs268('pi_268_06', 'pyr_268_shape', 'succeeded', 2000, NULL));
+SELECT tap._st268('s29c', tap._mark268(tap._id268('r_p'), 'succeeded', 'pyr_268_shape', NULL));
+SELECT tap._st268('s29o', tap._val268(format('SELECT kernel.record_identity_obligation(%L, %L, %L, NULL, 2000, %L, %L)::text',
+         'a2680000-0000-4000-a000-000000000101', 'refund_clawback', tap._id268('r_p'), 'refund_clawback', 'ck268-s29-clawback')));
+SELECT tap._st268('s29r', tap._rrs268('pi_268_06', 'pyr_268_shape', 'failed', 2000, 'declined'));
+SELECT is(ARRAY[tap._fj268('s_rp') ->> 'status', tap._fj268('s29a') ->> 'status', tap._fj268('s29b') ->> 'recorded', tap._fj268('s29c') ->> 'status',
+                tap._fj268('s29o') ->> 'status', tap._fj268('s29r') ->> 'recorded',
+                (SELECT status || '|' || stripe_refund_ref FROM kernel.refund WHERE refund_id = tap._id268('r_p'))],
+          ARRAY['ok', 'ok', 'true', 'ok', 'ok', 'true', 'succeeded|pyr_268_shape'],
+  'S29: setup — Rp (admin_refund on O6) carries pyr_268_shape, written by mark_refund_state (submitted, then succeeded); clawback recorded; Stripe recorded succeeded, then failed (declined)');
+SELECT tap._st268('s30', tap._verb268('pyr_268_shape', 'webhook:evt_268_p'));
+SELECT is(ARRAY[tap._fj268('s30') ->> 'status', tap._fj268('s30') ->> 'transition', tap._fj268('s30') ->> 'failure_code',
+                (tap._fj268('s30') ->> 'refund_id' = tap._fe268('r_p'))::text,
+                (SELECT status || '|' || stripe_refund_ref FROM kernel.refund WHERE refund_id = tap._id268('r_p'))],
+          ARRAY['ok', 'succeeded_to_failed', 'declined', 'true', 'failed|pyr_268_shape'],
+  'S30: a stored ref without the re_ prefix converges like S6 — ok, succeeded_to_failed, code from the recorded state; Rp is failed and keeps its ref');
+SELECT is((SELECT ARRAY[count(*)::text, min(reason_code), min(actor_identity::text), min(before ->> 'status'), min(before ->> 'stripe_refund_ref'),
+                        min(after ->> 'status'), min(after ->> 'command_key')]
+             FROM kernel.admin_audit WHERE action = 'refund.failed_after_success' AND subject_id = tap._id268('r_p')),
+          ARRAY['1', 'declined', ((repeat('0', 30) || 'f1')::uuid)::text, 'succeeded', 'pyr_268_shape', 'failed', 'webhook:evt_268_p'],
+  'S31: one refund.failed_after_success row for Rp — reason from the recorded state, SYSTEM actor, before succeeded with the stored ref, after failed, the command key');
+SELECT is(ARRAY[tap._fj268('s30') #>> '{refund_clawback_obligation,status}',
+                (SELECT status FROM kernel.identity_obligation WHERE origin_kind = 'refund_clawback' AND origin_ref = tap._id268('r_p')),
+                tap._fj268('s30') ->> 'settlement_review_required',
+                (SELECT after ->> 'settlement_review_required' FROM kernel.admin_audit
+                  WHERE action = 'refund.failed_after_success' AND subject_id = tap._id268('r_p')),
+                tap._fj268('s30') ->> 'order_id', tap._fj268('s30') ->> 'payment_id', tap._fj268('s30') ->> 'atoms_voided'],
+          ARRAY['outstanding', 'outstanding', 'true', 'true', 'a2680000-0000-4000-a000-000000000306', 'a2680000-0000-4000-a000-000000000606', '[]'],
+  'S32: the settlement-review residue is computed for Rp as in S21 — clawback reported and left outstanding, settlement_review_required true in the verdict and the audit row, O6''s order and payment, no atoms');
+-- Rpc: a direct pending row (158's shape) on PS, moved to submitted by mark_refund_state with pyr_268_shape_c; Stripe cancels it
+SELECT tap._st268('rpc', tap._mkrefund268('a2680000-0000-4000-a000-000000000711', 1000, 'pending', NULL, interval '2 hours', 'ck268-s-pc'));
+SELECT tap._st268('s33a', tap._mark268(tap._id268('rpc'), 'submitted', 'pyr_268_shape_c', NULL));
+SELECT tap._st268('s33r', tap._rrs268('pi_268_s', 'pyr_268_shape_c', 'canceled', 1000, 'merchant_request'));
+SELECT tap._st268('s33', tap._verb268('pyr_268_shape_c', 'webhook:evt_268_pc'));
+SELECT is(ARRAY[tap._fj268('s33a') ->> 'status', tap._fj268('s33') ->> 'status', tap._fj268('s33') ->> 'transition', tap._fj268('s33') ->> 'failure_code',
+                (SELECT status || '|' || stripe_refund_ref FROM kernel.refund WHERE refund_id = tap._id268('rpc')),
+                (SELECT count(*)::text FROM kernel.admin_audit WHERE action = 'refund.state_sync' AND subject_id = tap._id268('rpc') AND reason_code = 'refund_canceled')],
+          ARRAY['ok', 'ok', 'submitted_to_failed', 'refund_canceled', 'failed|pyr_268_shape_c', '1'],
+  'S33: the submitted arm with a stored ref without the re_ prefix — canceled -> submitted_to_failed, refund_canceled, through mark_refund_state');
+SELECT tap._st268('s34n', (SELECT count(*)::text FROM kernel.admin_audit));
+SELECT tap._st268('s34a', tap._verb268(NULL, 'webhook:evt_268_null'));
+SELECT tap._st268('s34b', tap._verb268('', 'webhook:evt_268_empty'));
+SELECT tap._st268('s34c', tap._verb268('   ', 'webhook:evt_268_blank'));
+SELECT is(ARRAY[tap._fe268('s34a'), tap._fe268('s34b'), tap._fe268('s34c'), ((SELECT count(*) FROM kernel.admin_audit) - tap._fe268('s34n')::bigint)::text],
+          ARRAY['ERROR P0001|invalid_input: stripe_refund_ref is mandatory', 'ERROR P0001|invalid_input: stripe_refund_ref is mandatory',
+                'ERROR P0001|invalid_input: stripe_refund_ref is mandatory', '0'],
+  'S34: a NULL, empty or blank ref is still refused (invalid_input) and nothing is written');
 
 -- ── Section E — ops.executor_claim on refunded payments (refunds-5) ──────────
 SELECT tap._st268('e1p', tap._rrs268('pi_268_e5', 're_268e5', 'pending', 11000, NULL));

@@ -5,8 +5,8 @@
 --
 -- WHAT THIS MIGRATION GUARANTEES
 --   refunds-4  A kernel.refund that Stripe fails or cancels AFTER it was recorded succeeded converges to `failed`
---              through exactly one verb, kernel.record_refund_stripe_failure(re_…, command_key). The verb resolves
---              the row by its own write-once stripe_refund_ref, takes the failure code from the recorded Stripe
+--              through exactly one verb, kernel.record_refund_stripe_failure(stripe_refund_ref, command_key). The verb
+--              resolves the row by its own write-once stripe_refund_ref, takes the failure code from the recorded Stripe
 --              state (public.payment_refund_state) and never from a caller argument, checks that the recorded
 --              payment and amount match the row before any verdict, holds the org settlement seam lock, and
 --              writes the settlement / obligation / atom / resale residue into one kernel.admin_audit row
@@ -33,6 +33,19 @@
 --              POST may have come through action:execute, which writes no claim row). submitted rows always
 --              reconcile, as before.
 --
+-- REF SHAPE (revised after review of 45708aec). kernel.record_refund_stripe_failure refuses only a null or blank
+-- stripe_refund_ref (invalid_input); it applies no shape check to the ref, and none is added to mark_refund_state.
+-- kernel.mark_refund_state is the sole writer of kernel.refund.stripe_refund_ref (non-null and write-once, no shape
+-- check), and the verb resolves the row by that stored ref, so a ref it does not know already returns the soft
+-- not_bound verdict. A shape check in the verb could therefore only refuse a ref this ledger stored itself, and doing
+-- so would skip the settlement-review residue and the succeeded -> failed write. A shape check in mark_refund_state
+-- would refuse to record a refund Stripe had already accepted.
+--
+-- TWO WRITERS OF kernel.refund.status, both deliberate: kernel.mark_refund_state (the forward-only direction guard)
+-- and kernel.record_refund_stripe_failure's audited succeeded -> failed update, made under the row lock and the org
+-- settlement seam lock. The direction guard is not a global invariant of the column; both COMMENT ON FUNCTION texts
+-- say so, and the post-flight writer census pins exactly these two.
+--
 -- NOT CHANGED. No table, column, constraint, index, trigger, policy or table-grant DDL (the money-ledger freeze,
 -- 093:148-150 / 093:1242-1243, holds). Not touched: 189's bodies (ops.record_primary_refund md5 337a8f19…),
 -- kernel.refund_primary_order, public.record_refund_state, every settlement body. Nothing lands in `public`.
@@ -52,10 +65,15 @@
 --   kernel.mark_refund_state(uuid,text,text,text,text)                  a14aafa2040db639a18f64aa30e5b6f1
 --   kernel.claim_refunds_for_execution(integer,integer)                 3664f28dc744d274ff8813309edf9fd0
 --   kernel.get_refund_execution_context(uuid)                           8aede0fc7dbdb0bc37a53d53c0eda51e
---   kernel.record_refund_stripe_failure(text,text)                      ba2de45d6283db5afcc954b7d401596d
+--   kernel.record_refund_stripe_failure(text,text)                      8a443bd8ee3444ba11b6097eeda6fd9a
 --   kernel.park_refund_execution(uuid,integer,text,text,text)           822d2d2fd0cfd3e39f8fe6f1f0baec74
 --   kernel.rearm_refund_execution(uuid,text,text)                       977edd52c3d535a36f7431ea008a2bb9
 --   ops.executor_claim(uuid,integer)                                    2d658f3406ea6e774fd8f6dcb163a27f
+-- Reviewed head (R): record_refund_stripe_failure as written at 45708aec (with the ref shape check), ALSO accepted
+-- as "already 199" by the pre-flight and by the rollback guard, so a database that applied that head re-applies this
+-- file (the body moves to the O value above) or rolls it back. 199 is applied nowhere; this keeps local rehearsal
+-- clones of 45708aec usable, and it is the only accept-set change. The other seven O values are unchanged.
+--   kernel.record_refund_stripe_failure(text,text) at 45708aec          ba2de45d6283db5afcc954b7d401596d
 -- Predecessors (P), the applied bodies at main 7496fee3:
 --   kernel.mark_refund_state (085)                                      4ed2a017cb2596f5c96b341c7856948c
 --   kernel.claim_refunds_for_execution (093)                            e11686e3fc2da23aab169dbc668ae4d6
@@ -68,6 +86,9 @@
 -- Measured on a local PG17 replay of main 7496fee3 (template d197_base: a154c_green + main's 2026102x/3x
 -- migrations, service_role function default revoked), under the server zone and under PGTZ=UTC (identical).
 -- Five of the seven P/D values also equal lane D's earlier record of 7496fee3 (predecessor-md5-7496fee3.txt).
+-- The revised record_refund_stripe_failure value was measured on a local PG17 replay of main c093bada (template
+-- d197_main), under the server zone, under PGTZ=UTC and under a non-default search_path (identical), and is
+-- unchanged by its COMMENT ON FUNCTION (an object comment is not part of pg_get_functiondef).
 -- Every argument and return type is in pg_catalog, so pg_get_functiondef does not depend on search_path.
 -- A production-equal clone has NOT been measured from lane D: confirm the P and D values there before apply. A
 -- mismatch makes the pre-flight refuse (safe; it blocks apply).
@@ -94,18 +115,19 @@ declare
   v_states   text    := '';
   v_pre      jsonb;
 begin
-  -- (a) replaced bodies: predecessor or 199's own; (b) new functions: absent or 199's own, and no other overload
+  -- (a) replaced bodies: predecessor or 199's own; (b) new functions: absent or 199's own (own_md5, or rev_md5 = the
+  -- reviewed head 45708aec's body where it differs), and no other overload
   for r in
     select * from (values
-      ('kernel.refund_executor_hold(uuid)',                         'new',      null,                               '31d6705d651d04ef82191faec528ad27'),
-      ('kernel.mark_refund_state(uuid,text,text,text,text)',        'replaced', '4ed2a017cb2596f5c96b341c7856948c', 'a14aafa2040db639a18f64aa30e5b6f1'),
-      ('kernel.claim_refunds_for_execution(integer,integer)',       'replaced', 'e11686e3fc2da23aab169dbc668ae4d6', '3664f28dc744d274ff8813309edf9fd0'),
-      ('kernel.get_refund_execution_context(uuid)',                 'replaced', '15e5576c89f55aedb9ea1be2c050d4dd', '8aede0fc7dbdb0bc37a53d53c0eda51e'),
-      ('kernel.record_refund_stripe_failure(text,text)',            'new',      null,                               'ba2de45d6283db5afcc954b7d401596d'),
-      ('kernel.park_refund_execution(uuid,integer,text,text,text)', 'new',      null,                               '822d2d2fd0cfd3e39f8fe6f1f0baec74'),
-      ('kernel.rearm_refund_execution(uuid,text,text)',             'new',      null,                               '977edd52c3d535a36f7431ea008a2bb9'),
-      ('ops.executor_claim(uuid,integer)',                          'replaced', '1cfa0290546ff36fe07389a9d13b7f9e', '2d658f3406ea6e774fd8f6dcb163a27f')
-    ) as t(sig, kind, pred_md5, own_md5)
+      ('kernel.refund_executor_hold(uuid)',                         'new',      null,                               '31d6705d651d04ef82191faec528ad27', null),
+      ('kernel.mark_refund_state(uuid,text,text,text,text)',        'replaced', '4ed2a017cb2596f5c96b341c7856948c', 'a14aafa2040db639a18f64aa30e5b6f1', null),
+      ('kernel.claim_refunds_for_execution(integer,integer)',       'replaced', 'e11686e3fc2da23aab169dbc668ae4d6', '3664f28dc744d274ff8813309edf9fd0', null),
+      ('kernel.get_refund_execution_context(uuid)',                 'replaced', '15e5576c89f55aedb9ea1be2c050d4dd', '8aede0fc7dbdb0bc37a53d53c0eda51e', null),
+      ('kernel.record_refund_stripe_failure(text,text)',            'new',      null,                               '8a443bd8ee3444ba11b6097eeda6fd9a', 'ba2de45d6283db5afcc954b7d401596d'),
+      ('kernel.park_refund_execution(uuid,integer,text,text,text)', 'new',      null,                               '822d2d2fd0cfd3e39f8fe6f1f0baec74', null),
+      ('kernel.rearm_refund_execution(uuid,text,text)',             'new',      null,                               '977edd52c3d535a36f7431ea008a2bb9', null),
+      ('ops.executor_claim(uuid,integer)',                          'replaced', '1cfa0290546ff36fe07389a9d13b7f9e', '2d658f3406ea6e774fd8f6dcb163a27f', null)
+    ) as t(sig, kind, pred_md5, own_md5, rev_md5)
   loop
     v_md5 := md5(pg_get_functiondef(to_regprocedure(r.sig)));
     if r.kind = 'replaced' then
@@ -122,10 +144,11 @@ begin
     else
       if v_md5 is null then
         v_again := false;
-      elsif v_md5 = r.own_md5 then
+      elsif v_md5 = r.own_md5 or v_md5 = r.rev_md5 then
         v_first := false;
       else
-        raise exception 'MIGRATION_199_REFUSED: a foreign % exists (md5 %, 199''s is %)', r.sig, v_md5, r.own_md5;
+        raise exception 'MIGRATION_199_REFUSED: a foreign % exists (md5 %, 199''s is %)', r.sig, v_md5,
+          r.own_md5 || coalesce(' or ' || r.rev_md5, '');
       end if;
       v_name := split_part(split_part(r.sig, '(', 1), '.', 2);
       select count(*) into v_n from pg_proc p where p.pronamespace = 'kernel'::regnamespace and p.proname = v_name;
@@ -458,8 +481,8 @@ declare
   v_review boolean;
   v_facts  jsonb;
 begin
-  if p_stripe_refund_ref is null or p_stripe_refund_ref !~ '^re_[A-Za-z0-9]{1,250}$' then
-    raise exception 'invalid_input: stripe_refund_ref must be a Stripe refund id (re_…)' using errcode = 'P0001';
+  if p_stripe_refund_ref is null or length(trim(p_stripe_refund_ref)) = 0 then
+    raise exception 'invalid_input: stripe_refund_ref is mandatory' using errcode = 'P0001';
   end if;
   if p_command_key is null or p_command_key !~ '^[A-Za-z0-9._:-]{1,80}$' then
     raise exception 'invalid_input: command_key must match ^[A-Za-z0-9._:-]{1,80}$' using errcode = 'P0001';
@@ -851,13 +874,13 @@ grant execute on function ops.executor_claim(uuid,integer) to service_role;
 comment on function kernel.refund_executor_hold(uuid) is
   'Registry 199. The single executor-exclusion predicate: ''manual_record'' when the row was written by refund_primary_order''s DIRECT arm (its same-transaction refund.issue audit, subject the order, after.refund_id = the row, after.delegated = false), ''parked'' when an unfinished row has more refund.execute_parked than refund.execute_rearmed audit rows recorded at its CURRENT status (counts, not timestamps: now() is frozen per transaction; status-scoped, so a park at pending stops applying once the row is submitted), else NULL. Executable by nobody but its owner; reached definer-to-definer by the claim, the context, the park and the re-arm. cancel_event rows, admin_refund rows and delegated req: rows are never marked.';
 comment on function kernel.mark_refund_state(uuid,text,text,text,text) is
-  'Registry 199 (body 085 + one guard). Forward-only pending -> submitted -> succeeded | failed under FOR UPDATE, check order unchanged (input, lock, noop, direction, ref mandatory, write-once ref, failure code). New: `succeeded` is refused (precondition_failed: refund_failed_at_stripe) when public.payment_refund_state records the ref as failed or canceled, so the kernel never says succeeded for money Stripe did not return. The recorded state is a consistency input, not authentication (service_role holds DML on it). The row stays submitted and the next sweep reconciles it to failed.';
+  'Registry 199 (body 085 + one guard). Forward-only pending -> submitted -> succeeded | failed under FOR UPDATE, check order unchanged (input, lock, noop, direction, ref mandatory, write-once ref, failure code). New: `succeeded` is refused (precondition_failed: refund_failed_at_stripe) when public.payment_refund_state records the ref as failed or canceled, so the kernel never says succeeded for money Stripe did not return. The recorded state is a consistency input, not authentication (service_role holds DML on it). The row stays submitted and the next sweep reconciles it to failed. It is the sole writer of stripe_refund_ref (non-null, write-once, no shape check). kernel.refund.status has two deliberate writers: this function (the forward-only direction guard) and kernel.record_refund_stripe_failure''s audited succeeded -> failed update under the row lock and the org settlement seam lock; the direction guard is not a global invariant of the column.';
 comment on function kernel.claim_refunds_for_execution(integer,integer) is
   'Registry 199 (body 093 + two insertions + one mode line). The executor''s leased work list. Excludes any row kernel.refund_executor_hold marks (manual_record or parked), in the cursor and again under the row lock: the cursor snapshot is fixed when it opens and a lock-only xmax triggers no EvalPlanQual, so a claim or park committed after that snapshot is re-checked with a fresh READ COMMITTED statement snapshot; rows dropped there were already counted by LIMIT, so a batch may come back under-filled (harmless). Mode: submitted always reconcile; a pending row is create only when created inside the 20 h window (created_at precedes any POST with the row''s key, so every earlier POST is still deduped by Stripe); older pending rows reconcile even with no claim row, because a POST may have come through action:execute, which writes none. A re-armed row therefore never creates blind after the window.';
 comment on function kernel.get_refund_execution_context(uuid) is
   'Registry 199 (093''s fifteen keys, now plpgsql STABLE). The executor''s only binding read: unknown id -> SQL NULL; terminal rows -> the object (planReconcile''s noop_replay stays reachable); a pending or submitted row that kernel.refund_executor_hold marks -> raises precondition_failed: executor_hold <manual_record|parked> (refund <id>), which refund-execute''s loadContext maps to HTTP 409, so every Stripe POST path (sweep or action:execute, create or reconcile) fails closed for a held row without any edge change.';
 comment on function kernel.record_refund_stripe_failure(text,text) is
-  'Registry 199. The single post-failure converger, called by stripe-webhook for a failed or canceled Stripe refund. Resolves the row only by its own write-once stripe_refund_ref (never Stripe metadata); not_bound when none. Takes the org settlement seam lock, then the row lock. failed -> noop_replay; pending -> refund_not_submitted. Requires a recorded public.payment_refund_state row whose payment and amount equal the row''s (binding before verdict; a mismatch is conflict_locked, never a convergence). Stripe pending/requires_action -> in_flight, succeeded -> not_failed, both with no write. The failure code comes from the recorded state (canceled -> refund_canceled; else failure_reason, default stripe_refund_failed), never from the caller. submitted -> failed via mark_refund_state. succeeded -> failed (the one new transition) writes refund.failed_after_success with the residue: the refund_void line and its settlement, any settlement_shortfall / unlined_reversal / refund_clawback obligation, compensated market_sale ids, atoms voided, promoter commission lined, and settlement_review_required. It records exposure; it never writes lines, atoms, orders, obligations or public.* (O-1/O-2).';
+  'Registry 199. The single post-failure converger, called by stripe-webhook for a failed or canceled Stripe refund. Resolves the row only by its own write-once stripe_refund_ref (never Stripe metadata); not_bound when none. Refuses only a null or blank ref (invalid_input) and applies no shape check: mark_refund_state, the sole writer of stripe_refund_ref, stores any non-null ref, and an unknown ref is already not_bound, so a shape check could only refuse a ref this ledger stored. Takes the org settlement seam lock, then the row lock. failed -> noop_replay; pending -> refund_not_submitted. Requires a recorded public.payment_refund_state row whose payment and amount equal the row''s (binding before verdict; a mismatch is conflict_locked, never a convergence). Stripe pending/requires_action -> in_flight, succeeded -> not_failed, both with no write. The failure code comes from the recorded state (canceled -> refund_canceled; else failure_reason, default stripe_refund_failed), never from the caller. submitted -> failed via mark_refund_state. succeeded -> failed (the one new transition) writes refund.failed_after_success with the residue: the refund_void line and its settlement, any settlement_shortfall / unlined_reversal / refund_clawback obligation, compensated market_sale ids, atoms voided, promoter commission lined, and settlement_review_required. It records exposure; it never writes lines, atoms, orders, obligations or public.* (O-1/O-2). kernel.refund.status has two deliberate writers: kernel.mark_refund_state (the forward-only direction guard) and this function''s audited succeeded -> failed update under the row lock and the org settlement seam lock; the direction guard is not a global invariant of the column.';
 comment on function kernel.park_refund_execution(uuid,integer,text,text,text) is
   'Registry 199. Parks an unfinished refund after a non-retryable executor outcome (refused | stripe_error | state_sync_deferred). Only the sweep holds the DB-issued key refund.execute:<refund_id>. Fenced by the latest claim attempt (attempt = count+1 minted under the row lock, so unique per refund): a stale attempt -> not_parked/stale_attempt, a future one -> no_such_claim_attempt, never claimed -> never_claimed. Scoped to the status that claim saw (status_moved otherwise). Terminal -> not_parked/terminal; already held -> noop_replay. Writes only refund.execute_parked (no free-form payload).';
 comment on function kernel.rearm_refund_execution(uuid,text,text) is
@@ -881,7 +904,7 @@ begin
       ('kernel.mark_refund_state(uuid,text,text,text,text)',        'a14aafa2040db639a18f64aa30e5b6f1',  'v', null),
       ('kernel.claim_refunds_for_execution(integer,integer)',       '3664f28dc744d274ff8813309edf9fd0', 'v', null),
       ('kernel.get_refund_execution_context(uuid)',                 '8aede0fc7dbdb0bc37a53d53c0eda51e',   's', null),
-      ('kernel.record_refund_stripe_failure(text,text)',            'ba2de45d6283db5afcc954b7d401596d',  'v', 'postgres:EXECUTE,service_role:EXECUTE'),
+      ('kernel.record_refund_stripe_failure(text,text)',            '8a443bd8ee3444ba11b6097eeda6fd9a',  'v', 'postgres:EXECUTE,service_role:EXECUTE'),
       ('kernel.park_refund_execution(uuid,integer,text,text,text)', '822d2d2fd0cfd3e39f8fe6f1f0baec74',  'v', 'postgres:EXECUTE,service_role:EXECUTE'),
       ('kernel.rearm_refund_execution(uuid,text,text)',             '977edd52c3d535a36f7431ea008a2bb9', 'v', 'authenticated:EXECUTE,postgres:EXECUTE'),
       ('ops.executor_claim(uuid,integer)',                          '2d658f3406ea6e774fd8f6dcb163a27f',  'v', null)
