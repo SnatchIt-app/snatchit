@@ -119,6 +119,21 @@ describe('parsePrimaryCheckoutResponse', () => {
     expect(parsePrimaryCheckoutResponse(500, { error: 'x' })).toEqual({ ok: false, reason: 'unavailable' });
   });
 
+  it('Q9: 201 — the edge\u2019s own sales_unavailable code maps to that reason, and nothing else widened', () => {
+    const r = (status: number, code: string) => parsePrimaryCheckoutResponse(status, { error: 'server text', code });
+    // #221 @3642ba0d answers 409 sales_unavailable for an unapproved venue and for org_not_active.
+    // The internal org status never reaches the client — only the code does.
+    expect(r(409, 'sales_unavailable')).toEqual({ ok: false, reason: 'sales_unavailable' });
+    // Guards that the new case did not widen the neighbours it sits next to.
+    expect(r(409, 'precondition_failed')).toEqual({ ok: false, reason: 'refused' });
+    expect(r(409, 'a_code_we_do_not_know')).toEqual({ ok: false, reason: 'unavailable' });
+    // Success is untouched.
+    expect(parsePrimaryCheckoutResponse(200, okBody)).toEqual(expect.objectContaining({ ok: true }));
+    // The shared copy drops "yet": sales are not available for this event, not "not yet".
+    expect(PRIMARY_CHECKOUT_COPY.refusal.sales_unavailable).toBe('Ticket sales aren\u2019t available for this event.');
+    expect(PRIMARY_CHECKOUT_COPY.refusal.sales_unavailable).not.toMatch(/\byet\b/);
+  });
+
   it('Q4: a total_mismatch without a usable server total is still price_changed, with no number to show', () => {
     expect(parsePrimaryCheckoutResponse(409, { code: 'total_mismatch' })).toEqual({ ok: false, reason: 'price_changed', serverTotalMinor: null });
   });

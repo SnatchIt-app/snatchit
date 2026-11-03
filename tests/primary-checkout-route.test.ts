@@ -144,6 +144,23 @@ describe('parseHoldReply — public.reserve_primary_tier (167)', () => {
     expect(HOLD_COPY.not_found).toBe('These tickets aren’t available for this event.');
   });
 
+  it('H10: 201 — an unapproved venue is sales_unavailable; non-public inventory is its own terminal reason', () => {
+    const err = (message: string) => parseHoldReply({ data: null, error: { code: 'P0001', message } });
+    // `primary-checkout` (#221 @3642ba0d) answers 409 sales_unavailable for an unapproved venue AND for
+    // org_not_active, so the hold path maps the raw phrase to the same reason the buyer already sees.
+    expect(err('precondition_failed: venue is not approved')).toEqual({ ok: false, reason: 'sales_unavailable' });
+    // A DISTINCT reason: the tier exists but is not public inventory, so the screen says "choose
+    // different tickets" rather than offering a retry that cannot succeed.
+    expect(err('precondition_failed: not_buyer_inventory')).toEqual({ ok: false, reason: 'not_public' });
+    expect(HOLD_COPY.not_public).toBe('These tickets aren\u2019t available for public sale. Choose different tickets.');
+    // The pre-existing arms must not have moved: a tier that is off sale keeps its own reason, and an
+    // unrecognised message still falls through to the generic refusal.
+    expect(err('precondition_failed: tier_not_on_sale')).toEqual({ ok: false, reason: 'not_on_sale' });
+    expect(err('precondition_failed: something_we_have_never_seen')).toEqual({ ok: false, reason: 'unavailable' });
+    // The server phrase is matched but NEVER rendered: no copy string may contain it.
+    expect(Object.values(HOLD_COPY).join(' ')).not.toMatch(/venue is not approved|not_buyer_inventory|org_not_active/);
+  });
+
   it('H4: a reply without a hold id is unavailable — never a fake hold', () => {
     expect(parseHoldReply({ data: { status: 'ok' }, error: null })).toEqual({ ok: false, reason: 'unavailable' });
     expect(parseHoldReply({ data: [{ status: 'ok', hold_id: HOLD, expires_at: null, quantity: 1 }], error: null }))

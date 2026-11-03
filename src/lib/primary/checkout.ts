@@ -118,6 +118,7 @@ export function parsePrimaryCheckoutResponse(status: number | null, body: unknow
     case 'not_on_sale': return { ok: false, reason: 'not_on_sale' };
     case 'session_terminal': return { ok: false, reason: 'ended' };
     case 'hold_invalid': return { ok: false, reason: 'hold_expired' };
+    case 'sales_unavailable':
     case 'service_fee_unset':
     case 'service_fee_out_of_range':
     case 'org_not_eligible':
@@ -238,7 +239,7 @@ export const PRIMARY_CHECKOUT_COPY = {
     not_on_sale: 'This event isn’t on sale right now.',
     ended: 'This event has ended or was cancelled.',
     hold_expired: 'Your ticket hold ran out. Choose your tickets again.',
-    sales_unavailable: 'Ticket sales aren’t available yet for this event.',
+    sales_unavailable: 'Ticket sales aren’t available for this event.',
     not_found: 'We couldn’t find this event or ticket type.',
     account_blocked: 'This account can’t buy tickets right now. Contact support if you think this is wrong.',
     refused: 'We couldn’t start this purchase. Choose your tickets again.',

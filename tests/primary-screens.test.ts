@@ -224,6 +224,17 @@ describe('primary checkout screen — a payments surface (A reviews)', () => {
     expect(view).toContain('`${PRIMARY_CHECKOUT_COPY.payAction} ${formatUsd(q.totalMinor)}`');
   });
 
+  it('K7: 201 — the new terminal reasons go Back, because Try again is an allow-list they are not on', () => {
+    // The gating is `state.reason === 'offline' || 'unavailable'` (+ rate_limited at checkout), so a new
+    // reason defaults to Back. That is the safe shape: a terminal refusal never offers a dead retry.
+    expect(view).not.toMatch(/state\.reason === 'not_public'/);
+    expect(view).not.toMatch(/state\.reason === 'sales_unavailable'/);
+    // The retryable ones are still on the list.
+    expect(view).toContain("state.reason === 'offline'");
+    expect(view).toContain("state.reason === 'unavailable'");
+    expect(view).toContain("state.reason === 'rate_limited'");
+  });
+
   it('K6: no gated payments file is imported or touched by the primary screens', () => {
     for (const f of [native, web, view]) {
       expect(f).not.toMatch(/lib\/payments'|lib\/checkout\/(setupDecision|payControl|holdState)'/);

@@ -80,7 +80,7 @@ export function holdCommandKey(sessionId: string, attemptId: string): string {
 }
 
 export type HoldRefusal =
-  | 'sold_out' | 'not_on_sale' | 'hold_limit' | 'sales_unavailable' | 'ended' | 'account_blocked' | 'not_found'
+  | 'sold_out' | 'not_on_sale' | 'not_public' | 'hold_limit' | 'sales_unavailable' | 'ended' | 'account_blocked' | 'not_found'
   | 'signed_out' | 'not_ready' | 'offline' | 'unavailable';
 export type HoldResult =
   | { ok: true; holdId: string; expiresAt: string | null; quantity: number }
@@ -98,6 +98,13 @@ export function parseHoldReply(res: HoldRpcResult): HoldResult {
     if (/tier_not_on_sale|not_on_sale/.test(msg)) return { ok: false, reason: 'not_on_sale' };
     if (/hold_limit|per_user_active_hold|hold_cap/.test(msg)) return { ok: false, reason: 'hold_limit' };
     if (/hold_ttl_unset|feature_disabled/.test(msg)) return { ok: false, reason: 'sales_unavailable' };
+    // 201: the venue is not approved for sales. `primary-checkout` answers 409 `sales_unavailable`
+    // for this and for org_not_active; the hold RPC surfaces the raw phrase, so it is matched here.
+    // The server phrase itself is never rendered — only the reason travels.
+    if (/venue is not approved/.test(msg)) return { ok: false, reason: 'sales_unavailable' };
+    // 201: the tier exists but is not public buyer inventory. A distinct terminal refusal, so the
+    // screen can say "choose different tickets" rather than offer a retry that cannot succeed.
+    if (/not_buyer_inventory/.test(msg)) return { ok: false, reason: 'not_public' };
     if (/session_terminal/.test(msg)) return { ok: false, reason: 'ended' };
     if (/deletion_pending/.test(msg)) return { ok: false, reason: 'account_blocked' };
     if (code === 'P0002' || /^not_found\b/.test(msg)) return { ok: false, reason: 'not_found' };
@@ -136,6 +143,7 @@ export const reservePrimaryTier: HoldReserver = async (req) => {
 export const HOLD_COPY: Record<HoldRefusal, string> = {
   sold_out: 'There aren’t enough tickets left for that quantity.',
   not_on_sale: 'These tickets aren’t on sale right now.',
+  not_public: 'These tickets aren’t available for public sale. Choose different tickets.',
   hold_limit: 'You can’t hold more tickets right now. If you have a hold open, finish that purchase or wait for it to end.',
   sales_unavailable: PRIMARY_CHECKOUT_COPY.refusal.sales_unavailable,
   ended: PRIMARY_CHECKOUT_COPY.refusal.ended,
