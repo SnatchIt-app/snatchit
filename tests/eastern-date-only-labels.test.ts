@@ -129,6 +129,9 @@ describe('D3 — the blocked list dates a block on New York\'s calendar, in a fi
   it('ET midnight, the evening anchor, the year boundary', () => {
     expect(underEveryZone(() => blockedOnLabel('2026-11-02T04:59:59Z'))).toBe('Blocked 11/1/2026');
     expect(underEveryZone(() => blockedOnLabel('2026-11-02T05:00:00Z'))).toBe('Blocked 11/2/2026');
+    // daylight time too (EDT midnight is 04:00Z): a fixed −05:00 rewrite would put these a day apart (review of 1d054bad)
+    expect(underEveryZone(() => blockedOnLabel('2026-11-01T03:59:59Z'))).toBe('Blocked 10/31/2026');
+    expect(underEveryZone(() => blockedOnLabel('2026-11-01T04:00:00Z'))).toBe('Blocked 11/1/2026');
     expect(underEveryZone(() => blockedOnLabel('2026-11-03T02:14:00Z'))).toBe('Blocked 11/2/2026');
     expect(underEveryZone(() => blockedOnLabel('2027-01-01T04:59:59Z'))).toBe('Blocked 12/31/2026');
     expect(deviceDay('2026-11-02T04:59:59Z', 'UTC')).toBe('2026-11-02 Mon');
