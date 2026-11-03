@@ -356,10 +356,10 @@ function DataSource({ ctx, surface, where = "sidebar" }: { ctx: PreviewContext; 
         <p className="mt-1 text-[0.75rem] leading-relaxed text-muted">
           {ctx.verifiedRole ? (
             <>
-              Capabilities come from your grants: <strong className="text-ink">{PRINCIPAL_LABEL[ctx.role]}</strong>. Write actions are not available in this mode.
+              Capabilities come from your grants: <strong className="text-ink">{PRINCIPAL_LABEL[ctx.role]}</strong>. The server checks your role on every change.
             </>
           ) : (
-            <>No verified role at this venue. Write actions are not available in this mode.</>
+            <>No verified role at this venue, so you cannot make changes here.</>
           )}
         </p>
       ) : (

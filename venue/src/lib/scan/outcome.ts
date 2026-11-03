@@ -150,13 +150,15 @@ export const OUTCOME_TONE: Record<ScanOutcome["kind"], Tone> = {
 
 const CANNOT_VERIFY_COPY: Record<CannotVerifyWhy, string> = {
   offline: "This phone is offline. Nothing was checked; do not admit on the phone's word.",
-  timeout: "Sent, no answer. The scan may or may not have been recorded. Check again with the same key before deciding.",
-  transport: "The request did not get through. Check again with the same key; if that keeps failing, use another phone or hotspot.",
+  timeout: "Sent, but no answer came back. The scan may or may not be recorded. Tap Check again before you decide.",
+  transport: "This phone could not confirm that the scan reached the server. Tap Check again. If it keeps failing, use another phone or another connection.",
   not_enabled: "Scanning is not enabled on this project yet. Nothing can be verified here.",
-  session_not_admitting: "This session is not admitting right now (not live, or doors are closed).",
+  // 104:89 / 108:69 refuse a cancelled or completed session AND one whose row cannot be found (status null,
+  // "missing"). The second needs the opposite action at the door: reload and check the session, not turn guests away.
+  session_not_admitting: "This session is not admitting: it was cancelled, it has ended, or it cannot be found. Nobody can be let in with it. If you expected it to be open, reload and check you picked the right session.",
   rate_limited: "Too many requests from this account. Wait a moment, then check again.",
-  server_error: "The server could not answer. Check again with the same key.",
-  keyring: "The trusted key list could not be read, so no pass can be verified right now. Check again.",
+  server_error: "The server could not answer. Tap Check again.",
+  keyring: "The scanner could not load the Snatch It security keys, so it cannot check any pass right now. Tap Check again.",
   demo: "Demo — sample data. There is no admission server behind this screen.",
 };
 
@@ -167,12 +169,12 @@ const INVALID_COPY: Record<InvalidWhy, string> = {
   not_active: "This ticket is not active (already used, voided or not yet issued). Not valid.",
   listed_locked: "Listed for resale and locked. Not valid until the listing ends.",
   credential_stale: "This is an old version of the pass (it was re-issued). Ask the guest to open the Snatch It app for the current one.",
-  credential_claims_malformed: "The pass's claims do not match the ticket. Not valid.",
+  credential_claims_malformed: "The details in the pass do not match the ticket. Not valid.",
   unknown_atom: "Unknown ticket. Not valid.",
   other: "Not valid for this session.",
   malformed: "This code is not a Snatch It pass.",
   stale_pass: "This pass is out of date. Ask the guest to open it again in the Snatch It app and rescan.",
-  wrong_type: "This code is a Snatch It credential of another kind, not a ticket pass.",
+  wrong_type: "This is a Snatch It code, but not a ticket pass. Not valid.",
   not_trusted: "This pass is not signed by a trusted Snatch It key. Not valid.",
 };
 

@@ -19,11 +19,11 @@ export const STATUS_LABEL: Record<EventStatus, string> = {
 };
 
 export const STATUS_HELP: Record<EventStatus, string> = {
-  draft: "Not visible to anyone outside your team.",
-  announced: "Visible publicly, not buyable.",
-  on_sale: "Buyable.",
-  live: "The night itself.",
-  completed: "Terminal for sales.",
+  draft: "Buyers cannot see it, and it sells nothing.",
+  announced: "Not on sale yet. Buyers cannot buy tickets.",
+  on_sale: "Buyers can buy a ticket type only if it is public, has a public-sale release for the session, and is inside its sale window. The venue must also be approved, and Snatch It must have sales turned on.",
+  live: "The event is happening.",
+  completed: "Sales are closed.",
   cancelled: "Cancelled. Nothing is deleted.",
 };
 

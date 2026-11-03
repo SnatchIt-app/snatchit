@@ -48,7 +48,7 @@ export function zoneNote(info: ZoneInfo): string {
     case "venue":
       return `Times are read in this venue's time zone (${info.zone}).`;
     case "default":
-      return `Times are read in ${info.zone}, the platform default, because this project does not publish the venue's own time zone yet. Set the venue's time zone if that is wrong.`;
+      return `Times are read in ${info.zone}, the platform default, because this page did not get the venue's own time zone. If the venue is in another zone, contact Snatch It before you enter times.`;
     case "sample":
       return `Times are read in ${info.zone} (sample data).`;
   }

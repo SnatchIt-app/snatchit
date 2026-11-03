@@ -78,7 +78,7 @@ function Outcome({ state }: { state: CommandFormState }) {
     const replayed = r.result.status === "noop_replay" || r.result.status === "noop";
     return (
       <p role="status" className="border-l-2 border-success bg-success-soft px-3 py-2 text-sm text-success">
-        {replayed ? "Already applied — the server replayed this as a no-op, so nothing changed twice." : "Saved. The server recorded the change."}
+        {replayed ? "Nothing changed: this was already in place." : "Saved. The server recorded the change."}
       </p>
     );
   }

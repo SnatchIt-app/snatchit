@@ -123,7 +123,7 @@ function SnapshotNote({ snapshot, storedTransfersActive }: { snapshot: ConnectSn
         <p className="mt-2 border-l-2 border-line-strong pl-2 text-xs text-muted">
           Stripe is ready, but <strong>&ldquo;Can receive transfers&rdquo; above still says no</strong>. That row is the stored copy, and only
           Stripe&rsquo;s own notification to the platform updates it &mdash; neither this page nor this button can write it, by design.
-          Going on sale reads the stored copy, so it waits for that notification. If it stays behind, an operator has to reconcile it
+          Going on sale reads the stored copy, so it waits for that notification. If it stays behind, Snatch It staff have to update it
           server-side; nothing is wrong with the Stripe account.
         </p>
       ) : null}

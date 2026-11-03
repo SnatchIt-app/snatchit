@@ -85,7 +85,7 @@ describe("counters gate follows the data source", () => {
     expect(showCounters("venue_manager", {})).toBe(true);
     const batches = BATCHES.map((b) => ({ ...b, capacity: b.capacity - b.held - b.sold, held: 0, sold: 0, countersKnown: false }));
     const table = html(<EventsTable events={EVENTS} batches={batches} types={TICKET_TYPES} holds={[]} ctx={db} basePath={base} timeZone={VENUE.timeZone} now={PREVIEW_NOW} filter={{}} />);
-    expect(table).toContain("available");
+    expect(table).toContain("remaining, all releases");
     expect(table).not.toMatch(/\d+ \/ \d+/);
     const setup = html(<EventSetup event={EVENTS[0]} types={TICKET_TYPES} batches={batches} ctx={db} basePath={base} timeZone={VENUE.timeZone} openManifestSessionIds={new Set()} />);
     expect(setup).not.toContain("Sold / capacity");
@@ -93,7 +93,7 @@ describe("counters gate follows the data source", () => {
     const inv = html(<InventoryOverview event={EVENTS[0]} types={TICKET_TYPES.filter((t) => t.eventId === EVENTS[0].eventId)} batches={batches} holds={HOLDS} ctx={db} basePath={base} timeZone={VENUE.timeZone} now={PREVIEW_NOW} />);
     expect(inv).not.toContain("Inventory warnings");
     expect(inv).not.toContain("Capacity change");
-    expect(inv).toContain("available");
+    expect(inv).toContain("remaining");
   });
   it("an unknown figure renders a dash with a reason, never a zero", () => {
     // The promoter column is gone (it could never show anything but a dash

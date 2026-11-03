@@ -60,7 +60,7 @@ describe("P5 — the header names the measure actually shown", () => {
   it("counter roles see capacity, remaining-only roles see availability", () => {
     expect(html(<EventsTable {...tableProps} events={EVENTS} filter={{}} />)).toContain("411 of 520 sold");
     const member = html(<EventsTable {...tableProps} ctx={{ role: "org_member", state: "live" }} events={EVENTS} filter={{}} />);
-    expect(member).toContain("still available");
+    expect(member).toContain("remaining, all releases");
     expect(member).not.toContain("411 of 520 sold");
   });
 });

@@ -53,9 +53,9 @@ export type CommandFailure = CommandRefused | CommandUnavailable;
 export type CommandResult<T> = CommandOk<T> | CommandFailure;
 
 /** The dark state, in the words the operator reads. */
-export const NOT_ENABLED_COPY = "Commands are not enabled for this project. Tiers and inventory are read-only here for now.";
+export const NOT_ENABLED_COPY = "Changes are turned off on this project, so nothing changed. This screen is read-only for now.";
 /** The objects are missing (schema or function does not exist): the transport migration is not applied. */
-export const NOT_INSTALLED_COPY = "Commands are not installed on this project yet. Tiers and inventory are read-only here for now.";
+export const NOT_INSTALLED_COPY = "Changes are not set up on this project yet, so nothing changed. This screen is read-only for now.";
 /** The server answered without a receipt and without an error: the outcome is not known, so it is not claimed. */
 export const NO_RECEIPT_COPY = "The database didn't confirm the change. Reload to see the current state before trying again.";
 
@@ -63,17 +63,17 @@ export const COMMAND_COPY: Record<CommandErrorCode, string> = {
   not_allowed: "Your role can't make this change. It needs a venue manager, org owner or org admin.",
   auth: "Your sign-in has expired. Sign in again, then retry.",
   not_found: "That item isn't there, or isn't yours to change.",
-  event_terminal: "This event is completed or cancelled, so its tiers and inventory can't change.",
+  event_terminal: "This event is completed or cancelled, so its ticket types and releases can't change.",
   below_committed: "Capacity can't go below the seats already held or sold.",
   shard_distribution: "Capacity can't be reduced that far: the seats are already held or sold across its sections.",
-  duplicate_name: "A tier with that name already exists for this event.",
-  command_key_required: "This form lost its command key. Reload the page and try again.",
+  duplicate_name: "A ticket type with that name already exists for this event. It may be the one you just added. Reload the page to check.",
+  command_key_required: "This form is missing a value it needs. Reload the page and try again.",
   reason_required: "Give a reason for this change.",
   invalid_input: "Check the highlighted fields and try again.",
   // Deliberately no "nothing was changed": the request may have landed and only the answer been lost.
   // The command key is re-sent unchanged, so the server replays it as a no-op.
-  transport: "Couldn't reach the database. Try again — the same request is safe to resend.",
-  unknown: "The change was refused for a reason this dashboard doesn't recognise, and nothing was changed.",
+  transport: "Couldn't reach the database, or its answer was lost. The change may or may not be saved. Reload the page and check before you try again.",
+  unknown: "The server did not confirm this change, for a reason this dashboard does not know. Reload the page and check before you try again.",
 };
 
 type PgError = { code?: string | null; message?: string | null; details?: string | null; hint?: string | null };

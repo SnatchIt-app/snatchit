@@ -31,7 +31,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
           </p>
           {dbMode ? (
             <>
-              <p className="mt-2 text-[0.875rem] text-muted">Venue staff and organization members. You will see exactly what your grants allow.</p>
+              <p className="mt-2 text-[0.875rem] text-muted">For venue staff and organization members. You see only what your role allows.</p>
               <div className="mt-5">
                 <LoginForm next={next} />
               </div>
