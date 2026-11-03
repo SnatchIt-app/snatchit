@@ -603,6 +603,15 @@ function mapRpcError(
   if (/feature_disabled/.test(msg)) {
     return { status: 503, body: { error: 'Ticket sales are paused for this event.', code: 'sales_paused' } };
   }
+  // 201's venue-approval gate and the organization gate (093/198): the venue is
+  // not approved, or the organization is applied / suspended / closed / missing.
+  // The buyer can fix neither, and org_not_active's text names the
+  // organization's INTERNAL status, so neither may reach the generic arm below,
+  // which relays the RPC's own words. One stable code, 409, terminal: unlike
+  // `sales_paused` (503, a pause) this is not "try again later".
+  if (/venue is not approved|org_not_active/.test(msg)) {
+    return { status: 409, body: { error: 'Ticket sales aren’t available for this event.', code: 'sales_unavailable' } };
+  }
   if (/precondition_failed|invalid_input/.test(msg)) {
     // Includes 093's organization readiness gate and any future precondition.
     // The RPC's own text is the most accurate thing we can say, and it is
