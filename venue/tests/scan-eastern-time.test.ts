@@ -64,6 +64,29 @@ for (const tz of ["UTC", "America/Los_Angeles"]) {
       expect(m.clock(null, NY)).toBeNull();
     });
 
+    it("a zone Intl does not recognise keeps the time: platform zone, still labelled (E's finding on #219)", () => {
+      expect(m.clock("2026-11-02T04:59:59Z", "Not/AZone")).toBe("11:59 PM EST");
+      const html = renderToStaticMarkup(
+        createElement(m.ScannerClient, {
+          demo: false,
+          ids: { orgId: "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d", venueId: "1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e", eventId: "2c3d4e5f-6a7b-4c8d-9e0f-1a2b3c4d5e6f" },
+          eventTitle: "Fixture night",
+          sessions: [
+            { sessionId: "3d4e5f6a-7b8c-4d9e-8f0a-1b2c3d4e5f6a", label: "Doors", startsAt: "2026-11-02T04:59:59Z", endsAt: null, status: "live" },
+            { sessionId: "4e5f6a7b-8c9d-4e0f-9a1b-2c3d4e5f6a7b", label: "Late", startsAt: "soon", endsAt: null, status: "scheduled" },
+          ],
+          defaultSessionId: "3d4e5f6a-7b8c-4d9e-8f0a-1b2c3d4e5f6a",
+          staff: { label: "door@example.test", role: "Scanner" },
+          timeZone: "Not/AZone",
+          loginHref: "/login",
+        }),
+      );
+      expect(html).toContain("Doors · Sun, Nov 1, 11:59 PM EST · live");
+      // a value that is not a date is shown as the server sent it, never hidden
+      expect(html).toContain("Late · soon · scheduled");
+      expect(html).not.toContain("time not available");
+    });
+
     it("a venue outside New York keeps its own zone (the venue-zone contract)", () => {
       expect(m.clock("2026-11-02T04:59:59Z", "America/Chicago")).toBe("10:59 PM CST");
     });

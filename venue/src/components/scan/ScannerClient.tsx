@@ -7,7 +7,7 @@ import { DEMO_DATA_LABEL } from "@/lib/preview";
 import { readSessionScanCounters, scanAction, type SessionScanCounters } from "@/lib/scan/actions";
 import { initialScanState, scanReducer, type CameraState, type ScanState } from "@/lib/scan/machine";
 import { OUTCOME_TITLE, OUTCOME_TONE, outcomeDetail, type BlockedWhy, type ScanOutcome, type Tone } from "@/lib/scan/outcome";
-import { venueTime } from "@/lib/format";
+import { PLATFORM_TIME_ZONE, venueTime } from "@/lib/format";
 
 /**
  * The online phone-web scanner (CONTRACTS.md C7 / P8): the staff member's
@@ -71,12 +71,20 @@ function storeLabel(label: string) {
   }
 }
 
-/** A session or scan time in the venue's zone, with EST/EDT. Never the phone's zone: a door phone can be set to anything. */
+/**
+ * A session or scan time in the venue's zone, with EST/EDT. Never the phone's zone: a door phone can be set to anything.
+ * A zone Intl does not recognise must not cost the door the time (E, #219): fall back to the platform zone, still
+ * labelled, and if the value is not a date at all, show it as the server sent it, never hidden (same rule as platformTime).
+ */
 function fmtWhen(iso: string, timeZone: string): string {
   try {
     return venueTime(iso, timeZone);
   } catch {
-    return "time not available";
+    try {
+      return venueTime(iso, PLATFORM_TIME_ZONE);
+    } catch {
+      return iso;
+    }
   }
 }
 
