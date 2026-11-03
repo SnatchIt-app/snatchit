@@ -88,14 +88,23 @@ function pinsAgainstSources(path: WorkflowStep[], sopText: string | null): strin
 // ---------------------------------------------------------------------------
 
 describe("the refund path as it actually is today", () => {
-  it("five steps: request → two-founder approval → execution disabled → manual Stripe Dashboard refund (SOP, draft) → webhook records the result", () => {
+  it("four steps: request → rejected at once (execution disabled) → manual Stripe Dashboard refund (SOP, draft) → webhook records the result", () => {
     expect(REFUND_PATH.map((s) => s.title)).toEqual([
       "Request refund",
-      "Two-founder approval",
-      "Execution disabled in production",
+      "Rejected at once: execution disabled in production",
       "Manual Stripe Dashboard refund (SOP, draft)",
       "Webhook records the result",
     ]);
+  });
+  it("NEGATIVE CONTROL — today's path never shows the request reaching approval before it is rejected", () => {
+    // While refund_execute_enabled is false the server rejects the request when it is made (action_precheck,
+    // 118:143-151), so no step after the request may be an approval step, and the rejection comes right after it.
+    const titles = REFUND_PATH.map((s) => s.title.toLowerCase());
+    expect(titles.findIndex((t) => t.includes("rejected"))).toBe(1);
+    expect(titles.some((t) => /approval/.test(t))).toBe(false);
+    const disabled = REFUND_PATH.find((s) => s.id === "disabled")!;
+    expect(disabled.detail).toContain("parks nothing");
+    expect(disabled.detail).toContain("never reaches approval");
   });
   it("every phrase is pinned to the console's copy, the vocabulary or the SOP", () => pinsAgainstSources(REFUND_PATH, sop));
   it("uses the reviewed labels verbatim and states that the SOP is a draft and that the console never calls Stripe", () => {

@@ -10,7 +10,7 @@ const STYLES: Record<AlertState, { tone: string; label: string; glyph: string }>
   denied: { tone: "bg-danger-soft text-danger", label: "Access denied", glyph: "✕" },
   failed: { tone: "bg-danger-soft text-danger", label: "Failed", glyph: "✕" },
   stale: { tone: "bg-warning-soft text-warning", label: "Stale", glyph: "!" },
-  mfa: { tone: "bg-warning-soft text-warning", label: "Step-up required", glyph: "!" },
+  mfa: { tone: "bg-warning-soft text-warning", label: "Re-verification needed", glyph: "!" },
   info: { tone: "bg-info-soft text-info", label: "Info", glyph: "i" },
   success: { tone: "bg-success-soft text-success", label: "Done", glyph: "✓" },
   warning: { tone: "bg-warning-soft text-warning", label: "Warning", glyph: "!" },
@@ -69,22 +69,22 @@ export function OpsFailureAlert({ failure, retryHref, fn, subject }: { failure: 
   if (failure.kind === "denied") {
     return (
       <Alert state="denied" title="Your account is not allowed to do this.">
-        The database refused the call ({fn ? `ops.${fn}` : "ops"}). If you were recently granted a role, sign out
-        and back in.
+        The server refused this request ({fn ? `ops.${fn}` : "ops"}). If you were given a role recently, sign out
+        and sign in again.
       </Alert>
     );
   }
   if (failure.kind === "mfa") {
     return (
       <Alert state="mfa" title="Re-verify with your authenticator to continue." retryHref="/mfa" retryLabel="Go to MFA">
-        The database requires a fresh aal2 session for this operation.
+        The server needs a recent check with your authenticator for this step.
       </Alert>
     );
   }
   if (failure.kind === "paused") {
     return (
-      <Alert state="warning" title="Actions are paused by a founder — read-only until re-enabled from System → Settings." retryHref="/system#setting-actions_enabled" retryLabel="Open settings">
-        Nothing was changed. ops.setting <code className="font-mono">actions_enabled</code> is false; every mutation is refused until a platform_admin sets it back to true.
+      <Alert state="warning" title="A founder paused console actions. Nothing was changed." retryHref="/system#setting-actions_enabled" retryLabel="Open settings">
+        The setting <code className="font-mono">actions_enabled</code> is false, so the server refuses console actions. A founder can set it back to true in System → Settings.
       </Alert>
     );
   }

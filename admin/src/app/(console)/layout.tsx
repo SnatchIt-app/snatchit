@@ -30,11 +30,11 @@ function PausedNotice() {
         <span aria-hidden="true" className="inline-block h-2 w-2 rounded-full bg-amber-500" />
         Actions paused
       </span>
-      Actions are paused by a founder — the console is read-only until <code className="font-mono">actions_enabled</code> is set back to true from{" "}
+      A founder paused console actions. The server refuses them with the code <code className="font-mono">console_actions_paused</code> and queues nothing. Not paused: Money settings, Operational settings, alert acknowledgements and opening evidence. To resume, set <code className="font-mono">actions_enabled</code> to true in{" "}
       <Link href="/system#setting-actions_enabled" className="link">
         System → Settings
       </Link>
-      . Every mutation is refused as <code className="font-mono">console_actions_paused</code>; nothing is queued.
+      .
     </div>
   );
 }

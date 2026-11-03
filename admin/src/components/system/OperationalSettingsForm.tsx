@@ -124,7 +124,7 @@ export function OperationalSettingsForm({ settings, commandKey }: { settings: Op
           </label>
           <input id={`${base}-confirm`} name="confirm" required autoComplete="off" spellCheck={false} className="field mt-1 font-mono text-[0.75rem]" placeholder={spec?.key ?? "the key name"} />
         </div>
-        <p className="text-[0.6875rem] text-dim">This applies immediately for one founder — these keys are not dual-control. An aal2 session is required on this path.</p>
+        <p className="text-[0.6875rem] text-dim">This applies at once. One founder is enough; no second founder approves it. You need a recent check with your authenticator.</p>
         <SubmitButton />
         {resultBelongsToKey(state.subjectKey, key) ? (
           state.invalid ? (

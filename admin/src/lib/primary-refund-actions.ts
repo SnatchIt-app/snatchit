@@ -37,7 +37,7 @@ export async function readPrimaryReconciliation(from?: string | null, to?: strin
   const res = await callOps<unknown>("primary_reconciliation", { p_from: day(from), p_to: day(to) });
   if (!res.ok) return res;
   const data = toPrimaryReconciliation(res.data);
-  if (!data) return { ok: false, kind: "error", message: "Unrecognised payload from ops.primary_reconciliation()" };
+  if (!data) return { ok: false, kind: "error", message: "Unexpected answer from ops.primary_reconciliation()" };
   return { ok: true, data };
 }
 

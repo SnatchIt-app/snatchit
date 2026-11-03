@@ -18,16 +18,123 @@ export function formatMoney(cents: unknown): string {
   return `${usd.format(cents / 100)} USD`;
 }
 
+/** A date-time with no zone designator, e.g. "2026-11-01T12:00" (an operator-typed value kept in action params). */
+const ZONELESS_DATE_TIME = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/;
+
+/** "YYYY-MM-DD": a calendar date, not an instant. Show it as written; never shift it into a zone. */
+export function isCalendarDate(v: unknown): boolean {
+  return typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
+}
+
+/**
+ * A zone-less date-time is read as UTC, the database's zone (production TimeZone is UTC, A, 2026-11-02),
+ * never as the runtime zone: JavaScript would read it as local time, which is UTC on the server and the
+ * operator's zone in the browser.
+ */
 export function parseDate(v: unknown): Date | null {
   if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v;
   if (typeof v !== "string" && typeof v !== "number") return null;
-  const d = new Date(v);
+  const d = new Date(typeof v === "string" && ZONELESS_DATE_TIME.test(v.trim()) ? `${v.trim().replace(" ", "T")}Z` : v);
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
-/** "2026-09-06 18:45 UTC" — explicit basis, no locale ambiguity. */
+/** Snatch It operates in Eastern Time (owner decision, 2026-11-02). Every time shown to a person uses this zone. */
+export const DISPLAY_TIME_ZONE = "America/New_York";
+
+const etParts = new Intl.DateTimeFormat("en-US", {
+  timeZone: DISPLAY_TIME_ZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+  timeZoneName: "short",
+});
+
+/**
+ * "2026-11-01 23:59 EST" — Eastern wall clock with the EST/EDT that applies at that instant. The zone is
+ * explicit, so the server render and the browser render give the same text whatever zone either runs in.
+ */
+export function formatEt(v: unknown, withSeconds = false): string {
+  const d = parseDate(v);
+  if (!d) return "—";
+  const p = etWall(d);
+  const base = `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}`;
+  return `${withSeconds ? `${base}:${p.second}` : base} ${p.timeZoneName}`;
+}
+
+function etWall(d: Date): Record<string, string> {
+  const p: Record<string, string> = {};
+  for (const part of etParts.formatToParts(d)) p[part.type] = part.value;
+  return p;
+}
+
+const ET_WALL_CLOCK = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(\.\d{1,6})?)?$/;
+
+export type EtInstant = { ok: true; iso: string; date: Date } | { ok: false; reason: "invalid" | "skipped" | "repeated"; message: string };
+
+/**
+ * An Eastern wall-clock time ("2026-11-01T00:30", what <input type="datetime-local"> posts) → the instant,
+ * written with the offset that applies on that date ("2026-11-01T00:30:00-04:00"). Never a fixed −05:00.
+ * A time that does not exist (the spring-forward gap) or happens twice (the fall-back hour) is refused
+ * with a plain reason, so the console never guesses which instant a person meant.
+ */
+export function etWallClockToInstant(wall: string): EtInstant {
+  const m = ET_WALL_CLOCK.exec(wall.trim());
+  if (!m) return { ok: false, reason: "invalid", message: `"${wall}" is not a date and time (YYYY-MM-DDTHH:MM, Eastern Time)` };
+  const [, y, mo, d, h, mi, s = "00", frac = ""] = m;
+  const asUtc = Date.UTC(+y, +mo - 1, +d, +h, +mi, +s, frac ? Math.round(Number(`0${frac}`) * 1000) : 0);
+  const check = new Date(asUtc);
+  if (check.getUTCFullYear() !== +y || check.getUTCMonth() !== +mo - 1 || check.getUTCDate() !== +d || check.getUTCHours() !== +h || check.getUTCMinutes() !== +mi || check.getUTCSeconds() !== +s) {
+    return { ok: false, reason: "invalid", message: `"${wall}" is not a real date and time` };
+  }
+  // Eastern is UTC−4 (EDT) or UTC−5 (EST): keep each candidate instant whose Eastern wall clock reads back as typed.
+  const matches = [4, 5]
+    .map((hours) => new Date(asUtc + hours * 3_600_000))
+    .filter((cand) => {
+      const p = etWall(cand);
+      return p.year === y && p.month === mo && p.day === d && p.hour === h && p.minute === mi && p.second === s;
+    });
+  const day = `${y}-${mo}-${d}`;
+  if (matches.length === 0) return { ok: false, reason: "skipped", message: `${h}:${mi} on ${day} does not exist in Eastern Time (clocks jump from 2:00 to 3:00 AM). Choose another time.` };
+  if (matches.length > 1) return { ok: false, reason: "repeated", message: `${h}:${mi} on ${day} happens twice in Eastern Time (clocks go back from 2:00 to 1:00 AM). Choose a time before 1:00 AM or from 2:00 AM.` };
+  const date = matches[0];
+  const offsetMin = Math.round((asUtc - date.getTime()) / 60_000);
+  const sign = offsetMin < 0 ? "-" : "+";
+  const abs = Math.abs(offsetMin);
+  return { ok: true, date, iso: `${day}T${h}:${mi}:${s}${frac}${sign}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}` };
+}
+
+/** The instant an Eastern calendar day starts ("2026-11-01" → 2026-11-01T04:00:00Z). Midnight always exists once in Eastern. */
+export function etDayStart(day: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const r = etWallClockToInstant(`${day}T00:00`);
+  return r.ok ? r.date : null;
+}
+
+/** The last millisecond of an Eastern calendar day: the next day's start minus 1 ms (a 23 h or 25 h day included). */
+export function etDayEnd(day: string): Date | null {
+  const start = etDayStart(day);
+  if (!start) return null;
+  const next = new Date(start.getTime() + 36 * 3_600_000); // always inside the next Eastern day
+  const p = etWall(next);
+  const nextStart = etDayStart(`${p.year}-${p.month}-${p.day}`);
+  return nextStart ? new Date(nextStart.getTime() - 1) : null;
+}
+
+/** An instant → the Eastern wall clock for <input type="datetime-local"> ("2026-11-01T23:59"). */
+export function toDatetimeLocalEt(v: unknown): string {
+  const d = parseDate(v);
+  if (!d) return "";
+  const p = etWall(d);
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
+}
+
+/** "2026-09-06 18:45 UTC" — the canonical instant, for support and evidence. People-facing times use formatEt. */
 export function formatUtc(v: unknown, withSeconds = false): string {
   const d = parseDate(v);
   if (!d) return "—";
@@ -154,17 +261,17 @@ export function refundStateLabel(state: unknown, refundStatus: unknown): string 
 
 /** ops.executor_claim() refusal reasons surfaced by ops-refund-execute as HTTP 409 {reason}. */
 export const EXECUTOR_REFUSAL_LABELS: Record<string, string> = {
-  disabled: "refund execution is disabled (ops.setting refund_execute_enabled = false)",
-  paused: "console actions are paused by a founder (ops.setting actions_enabled = false)",
-  claim_busy: "another executor run holds the lease — wait for it to finish, then retry",
+  disabled: "refund execution is turned off (the setting refund_execute_enabled is false)",
+  paused: "console actions are paused by a founder (the setting actions_enabled is false)",
+  claim_busy: "another executor run is already working on this action — wait for it to finish, then retry",
   approval_missing: "no approved second-founder decision exists for this action",
   approval_stale: "the approval no longer matches the action's terms — a fresh approval is needed",
-  terminal: "the action is already in a terminal state — nothing to resume",
-  succeeded_at_provider: "Stripe already succeeded — the local record completes when the webhook lands",
+  terminal: "the action is already finished — nothing to resume",
+  succeeded_at_provider: "Stripe already succeeded — the local record completes when the Stripe webhook arrives",
   not_executable: "the action is not in a resumable state",
   not_found: "no such action",
   wrong_type: "not a refund_execute action",
-  payment_missing: "the payment row no longer exists",
+  payment_missing: "the payment record no longer exists",
   already_refunded_locally: "the payment is already refunded locally",
   payment_not_refundable: "the payment is not in a refundable state",
 };
@@ -224,8 +331,8 @@ export const ACTION_TYPE_LABELS: Record<string, string> = {
   payout_release: "Release held payout",
   listing_relist: "Relist listing",
   report_resolve: "Resolve report",
-  user_restrict: "Block listing creation",
-  user_unrestrict: "Unblock listing creation",
+  user_restrict: "Restrict user (listing block or suspension)",
+  user_unrestrict: "Lift user restriction (listing block or suspension)",
   refund_execute: "Execute refund",
   job_retry: "Run job now",
   setting_set: "Change setting",
@@ -338,13 +445,13 @@ export function stripeModeOf(payment: Record<string, unknown> | null | undefined
     return {
       mode: "not_provided",
       label: "Unclassified (not provided by the server)",
-      note: `ops.order_detail returned no stripe_livemode, so the console can't tell live from test. Treat it as unclassified: ${STRIPE_MODE_STOP}`,
+      note: `The server did not say whether this payment is live or test (no stripe_livemode). Treat it as unclassified: ${STRIPE_MODE_STOP}`,
     };
   }
   return {
     mode: "unrecognised",
     label: "Unclassified (unrecognised value)",
-    note: `ops.order_detail returned a stripe_livemode that is not true, false or null, so the console can't tell live from test. Treat it as unclassified: ${STRIPE_MODE_STOP}`,
+    note: `The server sent a stripe_livemode value that is not true, false or null, so the console cannot tell live from test. Treat it as unclassified: ${STRIPE_MODE_STOP}`,
   };
 }
 

@@ -56,13 +56,13 @@ function unrecognisedResponse(fn: "execute_action" | "approve_action", data: unk
     ok: false,
     kind: "error",
     ...(code ? { code } : {}),
-    message: `Unrecognised response from ${fn}${status ? ` (status ${status})` : ""}${message ? `: ${message}` : ""}`,
+    message: `Unexpected answer from ${fn}${status ? ` (status ${status})` : ""}${message ? `: ${message}` : ""}`,
   };
 }
 
 export async function executeAction(input: ExecuteActionInput): Promise<ActionFormState> {
   if (!isIdempotencyKey(input.idempotencyKey)) {
-    return { submitted: true, invalid: "Missing idempotency key — reload the page and try again." };
+    return { submitted: true, invalid: "Missing form key — reload the page and try again." };
   }
   const res = await callOps<unknown>("execute_action", {
     p_idempotency_key: input.idempotencyKey,
@@ -139,7 +139,7 @@ export async function submitActionForm(_prev: ActionFormState, formData: FormDat
     // that key, and some actions read a missing key as "clear": case_due writes
     // nullif(a.params ->> 'due_at','')::timestamptz, so a dropped due_at sets the due date to NULL (A read the
     // production body of ops.action_dispatch, 2026-11-02). The case that lands here: a tab rendered by a newer
-    // release (e.g. a `param.due_at:et` field) posting to this server after a rollback.
+    // release (a `param.<key>:<type>` whose type this release does not read) posting to this server after a rollback.
     if (!field) return forSubject({ submitted: true, invalid: `This form is out of date (it sent ${k}, which this console does not read). Reload the page, then try again. Nothing was changed.` });
     // Same rule for a value that is not text (a file input under a param.* name): refuse, never drop.
     if (typeof v !== "string") return forSubject({ submitted: true, invalid: `This form sent a file in ${k}, which this console does not accept. Nothing was changed.` });
@@ -159,7 +159,7 @@ export async function submitActionForm(_prev: ActionFormState, formData: FormDat
   // (or nothing at all); everything else needs a uuid subject.
   const refAddressed = actionType === "job_retry" || actionType === "setting_set" || (actionType === "case_create" && subjectKind === "none");
   if (!actionType || !subjectKind || (!subjectId && !refAddressed)) {
-    return forSubject({ submitted: true, invalid: "This form is missing its action envelope. Reload and try again." });
+    return forSubject({ submitted: true, invalid: "This form is missing data it needs. Reload and try again." });
   }
   if (!reason) return forSubject({ submitted: true, invalid: "A reason is required." });
   if (reason.length > 2000) return forSubject({ submitted: true, invalid: "Reason is too long (2000 characters max)." });
@@ -170,7 +170,7 @@ export async function submitActionForm(_prev: ActionFormState, formData: FormDat
     const decision = parseApprovalDecision(params.decision);
     if (!decision) return forSubject({ submitted: true, failure: { ok: false, kind: "error", message: "invalid decision" } });
     if (typeof params.action_id !== "string" || !params.action_id) {
-      return forSubject({ submitted: true, invalid: "This form is missing its action envelope. Reload and try again." });
+      return forSubject({ submitted: true, invalid: "This form is missing data it needs. Reload and try again." });
     }
     state = await approveAction({ actionId: params.action_id, decision, reason });
   } else {
@@ -225,7 +225,7 @@ export async function submitMoneyConfigRequest(_prev: MoneyFormState, formData: 
     return { submitted: true, failure: res };
   }
   const reply = moneyReply(res.data);
-  if (!reply) return { submitted: true, failure: { ok: false, kind: "error", message: "Unrecognised response from request_platform_config" } };
+  if (!reply) return { submitted: true, failure: { ok: false, kind: "error", message: "Unexpected answer from request_platform_config" } };
   revalidatePath("/system");
   return { submitted: true, ...reply };
 }
@@ -241,7 +241,7 @@ export async function submitMoneyConfigDecision(_prev: MoneyFormState, formData:
   const res = await callKernelApproval<unknown>(built.args);
   if (!res.ok) return { submitted: true, failure: res };
   const reply = moneyReply(res.data);
-  if (!reply) return { submitted: true, failure: { ok: false, kind: "error", message: "Unrecognised response from approve_refund_request" } };
+  if (!reply) return { submitted: true, failure: { ok: false, kind: "error", message: "Unexpected answer from approve_refund_request" } };
   revalidatePath("/system");
   return { submitted: true, ...reply };
 }
@@ -276,7 +276,7 @@ export async function submitOperationalConfig(_prev: MoneyFormState, formData: F
     return { submitted: true, failure: res, subjectKey: submittedKey };
   }
   const reply = moneyReply(res.data);
-  if (!reply) return { submitted: true, failure: { ok: false, kind: "error", message: "Unrecognised response from set_operational_config" }, subjectKey: submittedKey };
+  if (!reply) return { submitted: true, failure: { ok: false, kind: "error", message: "Unexpected answer from set_operational_config" }, subjectKey: submittedKey };
   revalidatePath("/system");
   return { submitted: true, ...reply, subjectKey: submittedKey };
 }
@@ -422,7 +422,7 @@ export async function acknowledgeAlert(alertKey: string, note: string, shownInci
   const row = isRecord(res.data) ? res.data : {};
   const acknowledgedAt = typeof row.acknowledged_at === "string" ? row.acknowledged_at : undefined;
   if (!acknowledgedAt) {
-    return { submitted: true, failure: { ok: false, kind: "error", message: "Unrecognised response from alert_ack" } };
+    return { submitted: true, failure: { ok: false, kind: "error", message: "Unexpected answer from alert_ack" } };
   }
   const incidentSeq = typeof row.incident_seq === "number" ? row.incident_seq : undefined;
   const warning = shownIncidentSeq === undefined ? undefined : otherIncidentWarning(shownIncidentSeq, incidentSeq);

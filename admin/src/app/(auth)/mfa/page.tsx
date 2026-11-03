@@ -21,7 +21,7 @@ export default async function MfaPage({ searchParams }: { searchParams: Promise<
   return (
     <>
       <h1 className="title-page md:text-[2.25rem]">Two-factor authentication</h1>
-      <p className="mt-2 text-[0.9375rem] leading-relaxed text-muted">Every console session must be verified with an authenticator app (TOTP).</p>
+      <p className="mt-2 text-[0.9375rem] leading-relaxed text-muted">You must verify every console session with an authenticator app.</p>
       <div className="mt-6">
         <MfaFlow next={next} />
       </div>

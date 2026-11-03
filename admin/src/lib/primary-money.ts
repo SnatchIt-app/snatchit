@@ -203,14 +203,14 @@ export function toRefundOutcome(v: unknown): RefundOutcome {
  */
 export const REFUND_REFUSAL_COPY: Record<string, string> = {
   step_up_required: "Confirm it is you with your authenticator, then try again.",
-  step_up_unavailable: "This session cannot be stepped up. Sign in again and confirm with your authenticator.",
+  step_up_unavailable: "This session cannot be re-verified. Sign in again, then confirm with your authenticator.",
   insufficient_privilege: "Your role cannot record a refund.",
   actions_disabled: "Console actions are paused. Nothing was recorded.",
   invalid_input: "One of the values was refused. Nothing was recorded.",
   not_found: "That order is not something this account can see, or it is not there.",
   over_refund: "That would refund more than the order was paid. Nothing was recorded.",
   not_refundable: "This order is not in a state that can be refunded (only a paid or partially refunded order can be).",
-  support_cap: "This amount is above what your role may refund on its own. A platform admin has to record it.",
+  support_cap: "This amount is above what your role may refund on its own. A founder has to record it.",
   atom_not_voidable: "A ticket on this order cannot be voided — it is listed for resale, transferred or frozen. Resolve that first; nothing was recorded.",
   already_refunded: "This order is already fully refunded. Nothing was recorded.",
   no_native_payment: "This order has no linked payment, so there is nothing to refund against.",
@@ -239,4 +239,4 @@ export function refundRefusalCopy(message: string | null | undefined): string {
 
 /** The sentence the console shows beside the button, every time. Money is not moved here. */
 export const MANUAL_REFUND_NOTE =
-  "Recording a refund voids this order's tickets so the door refuses them, and writes the refund against your name. It does not move money: refund the PaymentIntent in the Stripe Dashboard afterwards, and this page will show both sides once the webhook records it.";
+  "A refund of the whole order total voids this order's voidable tickets, so the door refuses them. A smaller refund records money only and voids no tickets. Either way, the server records the refund under your name. It does not move money: afterwards, refund the PaymentIntent in the Stripe Dashboard by hand. This page shows both sides once the Stripe webhook records it.";

@@ -54,7 +54,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
     return (
       <>
         <PageHeader eyebrow="Listing" title={<code className="font-mono">{shortId(id)}</code>} />
-        <Alert state="failed" title="Unrecognised payload from ops.listing_detail()" retryHref={path} />
+        <Alert state="failed" title="Unexpected answer from ops.listing_detail()" retryHref={path} />
       </>
     );
   }
@@ -134,7 +134,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
 
           <Panel eyebrow={d.transfer ? "1" : "0"} title="Transfer obligation">
             {!d.transfer ? (
-              <p className="text-dim">No transfer row.</p>
+              <p className="text-dim">No transfer record.</p>
             ) : (
               <KeyValue
                 columns={3}
@@ -187,27 +187,27 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
           {/* One Relist panel and one answer host in every state. The action's refresh (revalidatePath) turns a
               relisted listing's form into the note below; the host stays at the same place with the same key, so
               React keeps the answer it holds ('Recorded.' + result.before, or the stale copy + result.current). */}
-          <Panel eyebrow={relist ? "Domain rule" : "Actions"} title="Relist">
+          <Panel eyebrow={relist ? "Enforced by the server" : "Actions"} title="Relist">
             <OutcomeHost key="listing_relist" actionType="listing_relist">
               {relist && founder ? (
                 <ConfirmForm key={`relist-${relist.updated_at}`} idempotencyKey={newIdempotencyKey()} actionType="listing_relist" subjectKind="listing" subjectId={id} expected={relist} revalidate={path} label="Relist" danger>
                   <p className="text-[0.75rem] text-muted">
-                    admin_relist_listing only accepts admin-owned inventory that has never transacted; anything else is rejected by the domain guard. Price and fees are not editable.
+                    Relist works only for a listing from an admin account that is in the cancelled resting state (a cancelled auction on a listing that is still active), with no bids, payments, transfers, winner or reservation. The server rejects any other listing. You cannot change the price or fees.
                     {transacted ? " This listing has a captured payment — expect a rejection." : ""}
                   </p>
                   <div>
                     <label htmlFor="relist-ends" className="eyebrow block text-dim">
-                      New end (UTC) <span aria-hidden="true">*</span>
+                      New end (Eastern Time) <span aria-hidden="true">*</span>
                     </label>
-                    <input id="relist-ends" type="datetime-local" name="param.new_ends_at:utc" required className="field mt-1" />
-                    <p className="text-[0.6875rem] text-dim">Enter the new auction end as a UTC wall-clock time; it is sent with a Z (UTC) suffix and stored as timestamptz.</p>
+                    <input id="relist-ends" type="datetime-local" name="param.new_ends_at:et" required className="field mt-1" />
+                    <p className="text-[0.6875rem] text-dim">Enter the new auction end in Eastern Time. The console sends it with the EST or EDT offset for that date.</p>
                   </div>
                 </ConfirmForm>
               ) : relist ? (
                 <Alert state="info" title="Only a founder can relist." compact />
               ) : relistState ? (
-                <Alert state="failed" title="Relist is unavailable: ops.listing_detail did not return this listing's version." compact>
-                  The relist form states updated_at, ends_at and ended_at exactly as loaded. Reload; if this persists, the read contract changed.
+                <Alert state="failed" title="Relist is unavailable: the server did not return this listing's version." compact>
+                  The relist form needs the listing&apos;s version from the server. Reload the page. If this message stays, report it with the code ops.listing_detail.
                 </Alert>
               ) : (
                 <Alert state="info" title="Relist applies only to active listings whose auction is cancelled." compact>

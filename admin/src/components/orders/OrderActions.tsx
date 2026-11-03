@@ -51,7 +51,7 @@ function PendingRequest({ action, form }: { action: OpsAction; form: MoneyAction
 function GuardUnverified({ path }: { path: string }) {
   return (
     <Alert state="failed" title="Couldn't check for an earlier request" retryHref={path} retryLabel="Try again" compact>
-      The request form is hidden until ops.list_actions answers, so a second request cannot be parked by mistake. Nothing was changed.
+      The console could not check for an earlier money request on this order, so it hides the request form. This stops a second request for the same money. Nothing was changed.
     </Alert>
   );
 }
@@ -91,7 +91,7 @@ export function OrderActions({
     <>
       <Panel eyebrow="Safe actions" title="Actions">
         <p className="text-[0.75rem] text-muted">
-          Every action needs a reason, checks the state you see here before acting, and is recorded with your identity. Results shown are the server&apos;s answer — never optimistic.
+          Every action needs a reason and is recorded under your name. Before it acts, the server checks that the order still matches what you see. The result shown is the server&apos;s answer, not a guess.
         </p>
         {nothing ? <Alert state="info" title="No state-changing action applies to this order right now." compact /> : null}
       </Panel>
@@ -130,7 +130,7 @@ export function OrderActions({
                 </label>
                 <textarea id="dispute-notes" name="param.notes" rows={2} maxLength={2000} className="field mt-1" />
               </div>
-              <p className="text-[0.6875rem] text-dim">Buyer win / partial refund does not move money — a Refund pending case opens and the refund is executed separately.</p>
+              <p className="text-[0.6875rem] text-dim">A buyer win or a partial refund does not move money here. A Refund pending case opens, and the refund is a separate step.</p>
             </ConfirmForm>
           ) : (
             <Alert state="info" title="Only founders and risk operators can record dispute outcomes." compact />
@@ -156,7 +156,7 @@ export function OrderActions({
               danger
             >
               <p className="text-[0.75rem] text-muted">
-                Marks the transfer released; the payout worker creates the Stripe Transfer to the seller&apos;s connected account on its next run (not a bank payout). Requires the other founder&apos;s approval under System → Approvals; nothing changes until then.
+                Requires the other founder&apos;s approval in System → Approvals. Nothing changes until then. Approval marks the transfer released. The payout worker creates the Stripe Transfer to the seller&apos;s connected account on its next run. This is not a bank payout.
               </p>
               <p className="text-[0.6875rem] text-dim">
                 Current review status: <StatusBadge status={t.payout_review_status} label={labelFor("payout_review", t.payout_review_status ?? "none")} />
@@ -183,7 +183,7 @@ export function OrderActions({
               {!refundEnabled ? (
                 <Alert state="warning" title="Disabled until ops-refund-execute is deployed." compact>
                   {me.role === "platform_admin"
-                    ? "ops.setting refund_execute_enabled is false. Follow the Stripe Dashboard SOP; the request below will be rejected as disabled."
+                    ? "The setting refund_execute_enabled is false, so the request below will be rejected as disabled. Refund in the Stripe Dashboard instead, following the SOP."
                     : "Refund execution state is only visible to founders; assume disabled and follow the Stripe Dashboard SOP."}
                 </Alert>
               ) : null}
@@ -199,10 +199,10 @@ export function OrderActions({
                 className="mt-3"
               >
                 <p className="text-[0.75rem] text-ink">
-                  Full refund of <Money cents={p.total} /> only — partial refunds are not supported by the local money model (payments records refund status, not a refunded amount; a partial would be rejected as <code className="font-mono">not_supported</code>).
+                  Full refund of <Money cents={p.total} /> only. This form cannot request a partial refund; the server would reject one as <code className="font-mono">not_supported</code>.
                 </p>
                 <p className="text-[0.6875rem] text-dim">
-                  Parked as awaiting approval; after the other founder approves, the ops-refund-execute function calls Stripe with a stable idempotency key. The console never calls Stripe. The payment shows “refunded” only after the webhook lands.
+                  While refund_execute_enabled is true, the request is parked as awaiting approval. Then, after the other founder approves, a founder must press Resume execution on the action page. Only then does the ops-refund-execute function call Stripe, with a stable idempotency key. While it is false, the server rejects the request as disabled and parks nothing. The console never calls Stripe. The payment shows “Refund recorded” only after the Stripe webhook arrives.
                 </p>
               </ConfirmForm>
             </>,

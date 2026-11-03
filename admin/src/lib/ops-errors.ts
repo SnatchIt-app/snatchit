@@ -64,7 +64,7 @@ export function mapOpsError(fn: string, err: PostgrestLikeError | null | undefin
       kind: "error",
       code: code || undefined,
       unavailable: true,
-      message: `RPC ops.${fn} not available yet`,
+      message: `ops.${fn} is not available on this server yet`,
     };
   }
   // Generic: keep the server's message (PostgREST messages carry no secrets),

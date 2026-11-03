@@ -23,36 +23,31 @@ const ACTIONS_PAGE = "app/(console)/actions/[id]/page.tsx";
 export const SOP_SOURCE = "docs/admin-console/MANUAL_REFUND_SOP.md (branch admin/manual-refund-sop, draft)";
 
 export const REFUND_PATH: WorkflowStep[] = [
+  // Today refund_execute_enabled is false. The server checks that when the request is MADE (action_precheck,
+  // 118:143-151), so the request is rejected at once: it is never parked and never reaches the two-founder
+  // approval. The approval step therefore is not on today's path; the disabled step says when it would apply.
   {
     id: "request",
     title: "Request refund",
-    detail: `A founder requests it on the order page; the request is parked as ${ACTION_STATE_LABELS.awaiting_approval.toLowerCase()}. Full refund of the total only.`,
-    pins: ["Request refund", "awaiting approval", "founder", "full refund"],
+    detail: "A founder requests it on the order page. Full refund of the total only.",
+    pins: ["Request refund", "founder", "full refund"],
     sources: [
       { file: ORDER_ACTIONS, quote: "Only a founder can request a refund." },
-      { file: ORDER_ACTIONS, quote: "Parked as awaiting approval" },
+      { file: ORDER_ACTIONS, quote: "Request refund (will be rejected: disabled)" },
       { file: ORDER_ACTIONS, quote: "Full refund of" },
     ],
   },
   {
-    id: "approval",
-    title: "Two-founder approval",
-    detail: "The other founder approves under System → Approvals; nothing changes until then.",
-    pins: ["Two-founder approval", "the other founder approves", "System → Approvals", "nothing changes until then"],
-    sources: [
-      { file: ORDER_ACTIONS, quote: 'eyebrow="Two-founder approval" title="Execute refund"' },
-      { file: ORDER_ACTIONS, quote: "after the other founder approves" },
-      { file: ORDER_ACTIONS, quote: "Requires the other founder's approval under System → Approvals; nothing changes until then." },
-    ],
-  },
-  {
     id: "disabled",
-    title: "Execution disabled in production",
-    detail: "ops.setting refund_execute_enabled is false, so the request is rejected as disabled. The console never calls Stripe.",
-    pins: ["refund_execute_enabled is false", "rejected as disabled", "The console never calls Stripe"],
+    title: "Rejected at once: execution disabled in production",
+    detail: `refund_execute_enabled is false, so the server rejects the request as disabled and parks nothing. It never reaches approval. (While the setting is true, the request is parked as ${ACTION_STATE_LABELS.awaiting_approval.toLowerCase()} until the other founder approves it.) The console never calls Stripe.`,
+    pins: ["refund_execute_enabled is false", "rejects the request as disabled and parks nothing", "awaiting approval", "the other founder approves", "The console never calls Stripe"],
     sources: [
       { file: ORDER_ACTIONS, quote: "Disabled until ops-refund-execute is deployed." },
-      { file: ORDER_ACTIONS, quote: "ops.setting refund_execute_enabled is false. Follow the Stripe Dashboard SOP; the request below will be rejected as disabled." },
+      { file: ORDER_ACTIONS, quote: "The setting refund_execute_enabled is false, so the request below will be rejected as disabled." },
+      { file: ORDER_ACTIONS, quote: "While it is false, the server rejects the request as disabled and parks nothing." },
+      { file: ORDER_ACTIONS, quote: "While refund_execute_enabled is true, the request is parked as awaiting approval." },
+      { file: ORDER_ACTIONS, quote: "after the other founder approves" },
       { file: ORDER_ACTIONS, quote: "The console never calls Stripe." },
     ],
   },
@@ -87,8 +82,8 @@ export const PAYOUT_RELEASE_PATH: WorkflowStep[] = [
   {
     id: "seller_sent",
     title: TRANSFER_STATUS_LABELS.seller_sent,
-    detail: "The transfer is in seller_sent, no release is recorded (payout_released_at is empty) and no dispute is open (disputeOpen is false); the release form is offered only then.",
-    pins: [TRANSFER_STATUS_LABELS.seller_sent, "seller_sent", "payout_released_at", "disputeOpen"],
+    detail: "The seller marked the ticket sent (seller_sent), no release is recorded (payout_released_at is empty) and no dispute is open. Only then does the console offer the release form.",
+    pins: [TRANSFER_STATUS_LABELS.seller_sent, "seller_sent", "payout_released_at"],
     sources: [
       { file: FORMAT, quote: 'seller_sent: "Seller marked sent"' },
       { file: ORDER_PAGE, quote: 'const canRelease = t?.status === "seller_sent" && !t?.payout_released_at && !disputeOpen;' },
@@ -113,7 +108,7 @@ export const PAYOUT_RELEASE_PATH: WorkflowStep[] = [
     pins: ["the other founder", "System → Approvals", "nothing changes until then"],
     sources: [
       { file: ORDER_ACTIONS, quote: 'eyebrow="Two-founder approval" title="Release held payout"' },
-      { file: ORDER_ACTIONS, quote: "Requires the other founder's approval under System → Approvals; nothing changes until then." },
+      { file: ORDER_ACTIONS, quote: "Requires the other founder's approval in System → Approvals. Nothing changes until then." },
     ],
   },
   {
@@ -122,7 +117,7 @@ export const PAYOUT_RELEASE_PATH: WorkflowStep[] = [
     detail: "Marks the transfer released; the payout worker creates the Stripe Transfer to the seller's connected account on its next run (not a bank payout). The state then reads “Released to connected account”.",
     pins: ["Marks the transfer released", "the payout worker creates the Stripe Transfer", "connected account on its next run", "not a bank payout", "Released to connected account"],
     sources: [
-      { file: ORDER_ACTIONS, quote: "Marks the transfer released; the payout worker creates the Stripe Transfer to the seller's connected account on its next run (not a bank payout)." },
+      { file: ORDER_ACTIONS, quote: "The payout worker creates the Stripe Transfer to the seller's connected account on its next run. This is not a bank payout." },
       { file: FORMAT, quote: 'if (row.payout_released_at) return "Released to connected account";' },
     ],
   },
@@ -216,7 +211,7 @@ export function HowThisWorks() {
     <details className="panel px-5 py-4 md:px-6">
       <summary className="inline-flex min-h-9 items-center gap-2 rounded-lg text-[0.9375rem] font-medium text-ink">How this works</summary>
       <div className="reveal mt-4 space-y-6">
-        <WorkflowDiagram id="refund-path" title="Refund path (today)" description="How a refund happens today: a founder's request, the other founder's approval, execution disabled in production, the manual Stripe Dashboard refund per the draft SOP, and the webhook recording the result." steps={REFUND_PATH} />
+        <WorkflowDiagram id="refund-path" title="Refund path (today)" description="How a refund happens today: a founder's request, which the server rejects at once because execution is disabled in production; then the manual Stripe Dashboard refund per the draft SOP, and the webhook recording the result." steps={REFUND_PATH} />
         <WorkflowDiagram id="payout-release-path" title="Payout release path" description="How a held payout is released: a transfer the seller marked sent, a founder's release request, the second founder's approval, and the payout worker's Stripe Transfer to the connected account." steps={PAYOUT_RELEASE_PATH} />
       </div>
     </details>

@@ -202,7 +202,7 @@ describe("marketplace/[id]: when the relist form renders", () => {
     }
     const tree = await renderPage(row);
     expect(relistForms(tree)).toHaveLength(0);
-    expect(treeText(tree)).toContain("ops.listing_detail did not return this listing's version");
+    expect(treeText(tree)).toContain("Relist is unavailable: the server did not return this listing's version.");
   });
 
   it("a non-founder sees the founder-only note, not the form", async () => {
@@ -239,10 +239,10 @@ describe("marketplace/[id]: p_expected carries the five raw values byte-identica
     expect(hidden?.value).not.toContain(new Date(RAW_UPDATED).toISOString());
   });
 
-  it("the new-end input is typed so the submitted value carries 'Z'", async () => {
+  it("the new-end input is typed so the submitted value carries its Eastern offset", async () => {
     const [form] = relistForms(await renderPage(listingRow()));
     const ends = inputs(renderToStaticMarkup(form)).find((i) => i.type === "datetime-local");
-    expect(ends?.name).toBe("param.new_ends_at:utc");
+    expect(ends?.name).toBe("param.new_ends_at:et");
   });
 });
 
@@ -263,7 +263,7 @@ describe("relist form post → ops.execute_action (the whole console pipeline)",
     return { state, exec };
   }
 
-  it("sends p_expected with all five raw values and p_params.new_ends_at with 'Z'", async () => {
+  it("sends p_expected with all five raw values and p_params.new_ends_at with the EDT offset for Oct 28", async () => {
     const { exec } = await postRelist(listingRow(), "2026-10-28T03:47");
     expect(exec).toBeDefined();
     expect(exec?.args.p_action_type).toBe("listing_relist");
@@ -271,7 +271,7 @@ describe("relist form post → ops.execute_action (the whole console pipeline)",
     expect(exec?.args.p_subject_id).toBe(LISTING_ID);
     expect(exec?.args.p_expected).toStrictEqual(FIVE);
     expect(JSON.stringify(exec?.args.p_expected)).toContain(`"updated_at":"${RAW_UPDATED}"`);
-    expect(exec?.args.p_params).toStrictEqual({ new_ends_at: "2026-10-28T03:47Z" });
+    expect(exec?.args.p_params).toStrictEqual({ new_ends_at: "2026-10-28T03:47:00-04:00" });
   });
 
   it("sends ended_at: null when the listing's ended_at is SQL NULL", async () => {
@@ -279,14 +279,14 @@ describe("relist form post → ops.execute_action (the whole console pipeline)",
     const expected = exec?.args.p_expected as Record<string, unknown>;
     expect("ended_at" in expected).toBe(true);
     expect(expected.ended_at).toBeNull();
-    expect(exec?.args.p_params).toStrictEqual({ new_ends_at: "2026-10-28T03:47:30Z" });
+    expect(exec?.args.p_params).toStrictEqual({ new_ends_at: "2026-10-28T03:47:30-04:00" });
   });
 
   it("a missing reason is refused before any call (reason-required precedence)", async () => {
     const [form] = relistForms(await renderPage(listingRow()));
     const fd = new FormData();
     for (const i of inputs(renderToStaticMarkup(form))) if (i.type === "hidden") fd.set(i.name, i.value ?? "");
-    fd.set("param.new_ends_at:utc", "2026-10-28T03:47");
+    fd.set("param.new_ends_at:et", "2026-10-28T03:47");
     h.calls.length = 0;
     const state = await submitActionForm({}, fd);
     expect(state.invalid).toBe("A reason is required.");
@@ -297,7 +297,7 @@ describe("relist form post → ops.execute_action (the whole console pipeline)",
     const [form] = relistForms(await renderPage(listingRow()));
     const fd = new FormData();
     for (const i of inputs(renderToStaticMarkup(form))) if (i.type === "hidden") fd.set(i.name, i.value ?? "");
-    fd.set("param.new_ends_at:utc", "next friday");
+    fd.set("param.new_ends_at:et", "next friday");
     fd.set("reason", "relist");
     h.calls.length = 0;
     const state = await submitActionForm({}, fd);
@@ -474,7 +474,7 @@ describe("raised errors: out-of-date console vs 42501 / step-up / reason / pause
     const [form] = relistForms(await renderPage(listingRow()));
     const fd = new FormData();
     for (const i of inputs(renderToStaticMarkup(form))) if (i.type === "hidden") fd.set(i.name, i.value ?? "");
-    fd.set("param.new_ends_at:utc", "2026-10-28T03:47");
+    fd.set("param.new_ends_at:et", "2026-10-28T03:47");
     fd.set("reason", "relist");
     const state = await submitActionForm({}, fd);
     const html = state.failure ? renderToStaticMarkup(createElement(OpsFailureAlert, { failure: state.failure, fn: "execute_action" })) : "";
@@ -504,7 +504,7 @@ describe("raised errors: out-of-date console vs 42501 / step-up / reason / pause
   it("console_actions_paused stays paused", async () => {
     const { state, text } = await postAndRender({ code: "P0001", message: "precondition_failed: console_actions_paused" });
     expect(state.failure).toMatchObject({ kind: "paused" });
-    expect(text).toContain("Actions are paused by a founder");
+    expect(text).toContain("A founder paused console actions");
     expect(text).not.toContain("out of date");
   });
 

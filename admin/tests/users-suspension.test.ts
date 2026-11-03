@@ -132,7 +132,8 @@ describe("account suspension is offered (RC5, migration 152)", () => {
       expect(html).not.toMatch(/suspension does not exist/i);
       expect(html).not.toMatch(/not offered/i);
     }
-    expect(await render({ listingBlocked: false })).toContain("To stop bidding and buying as well, use Account suspension below.");
+    // the block form still points to suspension, and says truthfully that the server needs registry 152 for it
+    expect(await render({ listingBlocked: false })).toContain("Account suspension below would also stop bidding and buying, but it needs registry 152.");
   });
 
   it("a risk operator can suspend a user who is not suspended", async () => {

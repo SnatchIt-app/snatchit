@@ -11,7 +11,7 @@ function scalar(k: string, v: unknown): ReactNode {
   if (v === null || v === undefined) return null;
   if (typeof v === "boolean") return <StatusBadge status={String(v)} label={v ? "yes" : "no"} />;
   if (typeof v === "number") return /(cents|amount|total)$/.test(k) ? <Money cents={v} /> : v.toLocaleString("en-US");
-  if (typeof v === "string") return /_at$|^from$|^to$/.test(k) && /\d{4}-\d{2}-\d{2}/.test(v) ? <DateTime value={v} /> : v;
+  if (typeof v === "string") return /_at$|^from$|^to$|^oldest_open$/.test(k) && /\d{4}-\d{2}-\d{2}/.test(v) ? <DateTime value={v} /> : v;
   return <code className="font-mono text-[0.6875rem]">{JSON.stringify(v)}</code>;
 }
 
@@ -72,7 +72,7 @@ export function SummaryView({ summary }: { summary: DailySummary }) {
       </section>
 
       <section>
-        <h3 className="eyebrow mb-2 text-dim">Money — last 24 h ({str(money.currency) ?? "USD"}, {str(money.basis) ?? "UTC"})</h3>
+        <h3 className="eyebrow mb-2 text-dim">Money — last 24 h ({str(money.currency) ?? "USD"}, {str(money.basis) ?? "basis not stated"})</h3>
         <KeyValue
           columns={3}
           items={[

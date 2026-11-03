@@ -6,7 +6,9 @@
  * jsonb-typed setting (boolean / number) or a cents amount arrives with the
  * right JSON type. Pure and unit-tested.
  */
-export type ParamType = "string" | "number" | "integer" | "boolean" | "json" | "optional" | "utc";
+import { etWallClockToInstant } from "@/lib/format";
+
+export type ParamType = "string" | "number" | "integer" | "boolean" | "json" | "optional" | "utc" | "et";
 
 /**
  * `optional` is a string field whose empty value means "no change": it is left
@@ -16,9 +18,16 @@ export type ParamType = "string" | "number" | "integer" | "boolean" | "json" | "
  * `utc` is a `<input type="datetime-local">` the form labels UTC: the posted
  * wall clock gets an explicit `Z`, because a zone-less timestamptz literal is
  * read in the database session's TimeZone. A value that already states its
- * zone (`Z` or `±HH:MM`) is kept as is.
+ * zone (`Z` or `±HH:MM`) is kept as is. Kept so a form rendered before this
+ * release still posts correctly; the console's own forms now use `et`.
+ *
+ * `et` is a `<input type="datetime-local">` the form labels Eastern Time (owner
+ * decision, 2026-11-02): the posted wall clock is sent with the EST/EDT offset
+ * that applies on that date, so the instant never depends on the database
+ * session's TimeZone. A time in the spring gap or the repeated fall hour is
+ * refused with a plain reason (etWallClockToInstant).
  */
-export const PARAM_TYPES: ParamType[] = ["string", "number", "integer", "boolean", "json", "optional", "utc"];
+export const PARAM_TYPES: ParamType[] = ["string", "number", "integer", "boolean", "json", "optional", "utc", "et"];
 
 const WALL_CLOCK = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?$/;
 const ZONED = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?(Z|[+-]\d{2}:\d{2})$/;
@@ -72,6 +81,12 @@ export function coerceParam(type: ParamType, raw: string): Coerced {
       if (WALL_CLOCK.test(s)) return { ok: true, value: `${s}Z` };
       if (ZONED.test(s)) return { ok: true, value: s };
       return { ok: false, error: `"${raw}" is not a date-time (YYYY-MM-DDTHH:MM, UTC)` };
+    case "et": {
+      if (ZONED.test(s)) return { ok: true, value: s };
+      if (!WALL_CLOCK.test(s)) return { ok: false, error: `"${raw}" is not a date and time (YYYY-MM-DDTHH:MM, Eastern Time)` };
+      const r = etWallClockToInstant(s);
+      return r.ok ? { ok: true, value: r.iso } : { ok: false, error: r.message };
+    }
   }
 }
 

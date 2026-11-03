@@ -42,7 +42,7 @@ describe("executor refusal reasons (409 {reason})", () => {
       expect(executorRefusalLabel(r).length).toBeGreaterThan(10);
     }
     expect(executorRefusalLabel("paused")).toMatch(/paused by a founder/);
-    expect(executorRefusalLabel("claim_busy")).toMatch(/lease/);
+    expect(executorRefusalLabel("claim_busy")).toMatch(/already working on this action/);
   });
   it("never hides an unknown reason", () => {
     expect(executorRefusalLabel("brand_new_reason")).toBe("brand new reason");

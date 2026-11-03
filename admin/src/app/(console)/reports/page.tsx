@@ -83,7 +83,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
       <PageHeader
         eyebrow="Moderation"
         title="Reports"
-        description="User reports on listings and users. Triage: Reviewing → Actioned / Dismissed, each with a reason. Resolving a report closes its Report review case; it does not touch the listing or the user."
+        description="User reports on listings and users. Mark a report Reviewing, Actioned or Dismissed, each with a reason. Marking it Actioned or Dismissed closes its Report review case. It does not change the listing or the user."
         meta={countHint !== null ? `${countHint.toLocaleString("en-US")} report${countHint === 1 ? "" : "s"}` : undefined}
       />
       <FilterForm action={basePath}>

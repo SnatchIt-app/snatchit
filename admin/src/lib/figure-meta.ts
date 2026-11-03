@@ -5,19 +5,25 @@
  * accumulating. Pure, no I/O; the components render what these return.
  *
  * Every claim here is taken from the formatters the console already uses:
- * `formatMoney` prints "… USD", `formatUtc` prints "… UTC", and the analytics
- * buckets are UTC calendar days (`isoDay` / `shortDay` read the UTC fields).
+ * `formatMoney` prints "… USD", `formatEt` prints "… EST" / "… EDT", and the
+ * analytics buckets are UTC calendar days (`isoDay` / `shortDay` read the UTC fields).
  */
-import { formatUtc, parseDate } from "@/lib/format";
+import { formatEt, parseDate } from "@/lib/format";
 import { isoDay, parseIsoDay } from "@/lib/analytics-core";
 
 /** The platform is single-currency; `formatMoney` prints this code after every amount. */
 export const CURRENCY = "USD";
 
-/** Every timestamp is UTC wall clock (`formatUtc`) and every period is a UTC calendar day (`isoDay`). */
-export const TIMEZONE = "UTC";
+/**
+ * The calendar day the money and report figures are counted in. The server decides it: ops.money_overview,
+ * ops.refresh_metrics, ops.build_daily_summary and ops.primary_reconciliation count UTC calendar days
+ * (118:783,797-798; 118:875; 120:32,36). Registry 200 moves them to Eastern days. Change this only in the
+ * same release that applies 200 — a label must say what the server counted, not what we want it to count.
+ * Timestamps are a separate thing: they are shown in Eastern Time (`formatEt`) now.
+ */
+export const REPORT_DAY_BASIS = "UTC";
 
-/** The current UTC day is still accumulating rows; a period that includes it is not final. */
+/** The current report day (REPORT_DAY_BASIS) is still accumulating rows; a period that includes it is not final. */
 export const PARTIAL_LABEL = "includes today so far (partial)";
 
 /** Counts with no date predicate (ops.today(), seller funds pending, job_health). */
@@ -52,16 +58,16 @@ export function rangeLabel(from: string, to: string): string {
  */
 export function asOfLabel(computedAt: string | null | undefined, readAt: Date): string {
   const d = parseDate(computedAt ?? null);
-  if (d) return `as of ${formatUtc(d, true)}`;
-  return `as of: not stated by the server (read ${formatUtc(readAt, true)})`;
+  if (d) return `as of ${formatEt(d, true)}`;
+  return `as of: not stated by the server (read ${formatEt(readAt, true)})`;
 }
 
 /** The read did not succeed: no freshness is claimed and nothing is shown. */
 export function readFailedLabel(readAt: Date): string {
-  return `read at ${formatUtc(readAt, true)} failed — nothing is shown`;
+  return `read at ${formatEt(readAt, true)} failed — nothing is shown`;
 }
 
-/** True when the range's last day is today (UTC) or later, i.e. still accumulating. */
+/** True when the range's last day is today (in REPORT_DAY_BASIS, UTC until registry 200) or later, i.e. still accumulating. */
 export function isPartialPeriod(to: string, now: Date): boolean {
   if (!parseIsoDay(to)) return false;
   // ISO days compare lexically.

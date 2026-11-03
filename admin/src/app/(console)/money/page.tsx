@@ -127,7 +127,7 @@ export default async function MoneyPage({ searchParams }: { searchParams: Promis
             </button>
           </form>
           {!payoutsRes.ok ? <OpsFailureAlert failure={payoutsRes} fn="list_payouts" retryHref={selfHref("/money", sp)} /> : <PayoutTable rows={payouts} searchParams={sp} nextCursor={payoutsPage?.next_cursor} />}
-          <p className="mt-3 text-[0.6875rem] text-dim">“Released to connected account” means a Stripe Transfer exists (stripe_transfer_id). Bank payouts from the connected account are not tracked.</p>
+          <p className="mt-3 text-[0.6875rem] text-dim">“Released to connected account” means a Stripe Transfer to the connected account exists. Bank payouts from the connected account are not tracked.</p>
         </Panel>
 
         <Panel eyebrow="Read-only detector" title="Reconciliation queue" description="Money facts that disagree.">
@@ -136,7 +136,7 @@ export default async function MoneyPage({ searchParams }: { searchParams: Promis
           ) : (
             <ReconTable rows={recon} searchParams={sp} nextCursor={reconPage?.next_cursor} />
           )}
-          <p className="mt-3 text-[0.6875rem] text-dim">Money facts that disagree. Investigate before any money action; the console never repairs money state — escalate with the ids.</p>
+          <p className="mt-3 text-[0.6875rem] text-dim">Money facts that disagree. Check them before any money action. The console never repairs money records; escalate with the ids.</p>
         </Panel>
       </div>
     </>

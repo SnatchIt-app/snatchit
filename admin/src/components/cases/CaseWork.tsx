@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { newIdempotencyKey } from "@/lib/idempotency";
 import { CASE_PRIORITIES, CASE_STATUSES, type OpsCase, type CaseDetail } from "@/lib/types";
-import { humanize } from "@/lib/format";
+import { humanize, toDatetimeLocalEt } from "@/lib/format";
 import { OBLIGATION_LABELS, REFUND_CLASSIFICATIONS, refundResolutionState, type RefundResolutionState } from "@/lib/refund-resolution";
 import { ConfirmForm, OutcomeHost } from "@/components/ui/ConfirmForm";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -227,9 +227,9 @@ export function CaseControls({ c, detail, me, envelope, idPrefix }: { c: OpsCase
         <OutcomeHost actionType="case_due">
           <ConfirmForm key={`due-${c.version}`} idempotencyKey={newIdempotencyKey()} actionType="case_due" {...envelope} label="Set due">
             <label htmlFor={id("due")} className="eyebrow block text-dim">
-              Due (UTC)
+              Due (Eastern Time)
             </label>
-            <input id={id("due")} type="datetime-local" name="param.due_at" defaultValue={c.due_at ? c.due_at.slice(0, 16) : ""} className="field mt-1" />
+            <input id={id("due")} type="datetime-local" name="param.due_at:et" defaultValue={toDatetimeLocalEt(c.due_at)} className="field mt-1" />
             <p className="mt-1 text-[0.6875rem] text-dim">Leave empty to clear the due date.</p>
           </ConfirmForm>
         </OutcomeHost>
@@ -289,8 +289,8 @@ function RefundControls({ c, detail, me, envelope, refund, id }: { c: OpsCase; d
                 ))}
             </select>
             <p className="mt-1 text-[0.6875rem] text-dim">
-              Classifying assigns the case to whoever is chosen here, whatever the classification; it does not change the status. B and C always raise an obligation, and A
-              does when the payout was already released. The database refuses a classification that would leave an obligation with nobody assigned.
+              Classifying assigns the case to the person chosen here. It does not change the status. B and C always raise an obligation. A raises one only when the
+              payout was already released. The server refuses a classification that would leave an obligation with nobody assigned.
             </p>
           </ConfirmForm>
         </OutcomeHost>
@@ -380,7 +380,7 @@ export function CaseNotes({ c, detail, meId, envelope, idPrefix, limit }: { c: O
             <label htmlFor={`${idPrefix}-note`} className="eyebrow block text-dim">
               New note
             </label>
-            <textarea id={`${idPrefix}-note`} name="param.body" required rows={3} maxLength={4000} className="field mt-1" placeholder="Append-only; visible to all operators." />
+            <textarea id={`${idPrefix}-note`} name="param.body" required rows={3} maxLength={4000} className="field mt-1" placeholder="Notes cannot be edited or deleted. All operators can see them." />
           </ConfirmForm>
         </OutcomeHost>
       </div>

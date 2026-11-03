@@ -51,7 +51,7 @@ export default async function ActionPage({ params }: { params: Promise<{ id: str
     return (
       <>
         <PageHeader eyebrow="Action" title={<code className="font-mono">{shortId(id)}</code>} />
-        <Alert state="failed" title="Unrecognised payload from ops.action_detail()" retryHref={path} />
+        <Alert state="failed" title="Unexpected answer from ops.action_detail()" retryHref={path} />
       </>
     );
   }
@@ -131,7 +131,7 @@ export default async function ActionPage({ params }: { params: Promise<{ id: str
                 ) : pending.can_decide ? (
                   <ApprovalDecisionForms approval={pending} actionId={id} revalidate={path} />
                 ) : (
-                  <Alert state="info" title="Only another platform_admin can decide this approval." compact />
+                  <Alert state="info" title="Only another founder can decide this approval." compact />
                 )}
               </div>
             ) : null}
@@ -158,17 +158,17 @@ export default async function ActionPage({ params }: { params: Promise<{ id: str
                       Stripe reports refund status <code className="font-mono">{refundStatus}</code>. This is not a completed refund; the payment shows “refunded” only after the charge.refunded webhook lands.
                     </>
                   ) : (
-                    "The executor has not recorded a provider status yet. Resume is safe (same idempotency key)."
+                    "The executor has not recorded a Stripe refund status yet. Resume is safe: it uses the same idempotency key."
                   )}
                 </Alert>
               ) : null}
               {a.state === "unknown" ? (
                 <Alert state="failed" title="Outcome unknown — needs reconciliation." compact>
-                  Stripe may or may not have refunded. Resume looks the refund up under its idempotency key before doing anything; if it stays unknown, verify in the Stripe Dashboard and escalate.
+                  Stripe may or may not have refunded. Resume first looks at Stripe for a refund made by this action. If it finds none, it can ask Stripe to create the refund. If the outcome stays unknown, check the Stripe Dashboard and escalate.
                 </Alert>
               ) : null}
               {a.state === "succeeded_at_provider" ? (
-                <Alert state="info" title="Succeeded at provider — awaiting local webhook." compact>
+                <Alert state="info" title="Succeeded at Stripe — waiting for the Stripe webhook." compact>
                   Stripe refunded{a.provider_ref ? <> (<code className="font-mono">{a.provider_ref}</code>)</> : null}; the local payment flips to refunded when charge.refunded lands and the detector completes this action. Nothing to resume.
                 </Alert>
               ) : null}
@@ -206,9 +206,9 @@ function ApprovalDecisionForms({ approval, actionId, revalidate }: { approval: A
   const deny: ApprovalDecision = "deny";
   return (
     <div className="grid gap-4 sm:grid-cols-2">
-      {approval.hash_current === false ? <Alert state="stale" title="Action terms changed since approval was requested — the decision will be rejected as stale." compact /> : null}
+      {approval.hash_current === false ? <Alert state="stale" title="The terms of this action changed after someone requested this approval. The server will reject your decision as stale." compact /> : null}
       <ConfirmForm idempotencyKey={newIdempotencyKey()} actionType="approval_decide" subjectKind="action" subjectId={actionId} params={{ action_id: actionId, decision: approve }} revalidate={revalidate} label="Approve and execute" danger reasonLabel="Approval reason">
-        <p className="text-[0.75rem] text-muted">Approving executes the action immediately with the requester as the domain actor. Bound to the exact terms shown above.</p>
+        <p className="text-[0.75rem] text-muted">Approving runs the action at once, in the requester&apos;s name, with the exact terms shown above.</p>
       </ConfirmForm>
       <ConfirmForm idempotencyKey={newIdempotencyKey()} actionType="approval_decide" subjectKind="action" subjectId={actionId} params={{ action_id: actionId, decision: deny }} revalidate={revalidate} label="Deny" reasonLabel="Denial reason">
         <p className="text-[0.75rem] text-muted">Denying rejects the action; nothing changes.</p>

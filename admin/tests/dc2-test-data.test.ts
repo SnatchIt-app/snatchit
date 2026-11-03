@@ -118,7 +118,7 @@ describe("DC1-R3: the restricted view is the only caller of p_include_test", () 
       ["list_reports", true],
     ]);
     expect(html).toContain("Test records (restricted view)");
-    expect(html).toContain("The server classifies rows (DC-1 is applied).");
+    expect(html).toContain("The server classifies rows.");
     expect((html.match(/Test record<\/span>/g) ?? []).length).toBe(3); // three test rows badged; the real listing says Real
     expect(html).toContain("Real");
   });
@@ -173,7 +173,7 @@ describe("DC1-R3: the restricted view is the only caller of p_include_test", () 
     mocks.requireOperator.mockResolvedValue({ id: "f0000000-0000-4000-8000-0000000000a1", role: "platform_admin" });
     mocks.callOps.mockImplementation(async () => ({ ok: true, data: { items: [{ id: "c1000000-0000-4000-8000-000000000001", status: "open" }], next_cursor: null } }));
     const html = h(await TestDataPage());
-    expect(html).toContain("does not classify rows yet");
+    expect(html).toContain("No row below has a classification from the server.");
     expect(html).not.toContain("Test record</span>");
     expect(html).toContain("Not classified");
   });

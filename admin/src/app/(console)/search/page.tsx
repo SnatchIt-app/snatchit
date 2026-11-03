@@ -89,7 +89,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
       />
       {hits.length === 0 ? (
         <Alert state="empty" title="No matches.">
-          Ids must be exact or a prefix of 8+ hex characters; emails and phones must match exactly (they are never searched by substring).
+          Stripe ids (pi_, tr_, re_, dp_) must be complete. For other ids, the first 8 or more characters are enough. Emails and phone numbers must match exactly: search never matches part of one.
         </Alert>
       ) : (
         <div className="space-y-6">

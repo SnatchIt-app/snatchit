@@ -191,7 +191,7 @@ describe("1. alert_delivery_enabled is shown as ops.settings returns it, else un
     h.settings = withSwitch(true); // would read true if it were called
     const r = rows(block(await renderSystem()))["Delivery switch"];
     expect(r.value).toBe("unknown");
-    expect(r.text).toContain("ops.settings is readable by platform_admin only");
+    expect(r.text).toContain("only founders can read the console settings");
     expect(h.calls).not.toContain("settings");
     expect([...h.calls].sort()).toEqual(EXISTING_READS.filter((f) => f !== "settings" && f !== "list_config_approvals" && f !== "list_operational_config"));
   });
@@ -235,8 +235,8 @@ describe("2. Schedule: never asserted, because no read returns it", () => {
         h.cron = cron;
         const b = block(await renderSystem());
         const r = rows(b)["Schedule"];
-        expect(r.value).toBe("not shown by the server (owner/A to verify)");
-        expect(r.text).toContain("ops.job_health lists each pg_cron job's name, schedule and active flag, not the command it runs");
+        expect(r.value).toBe("not shown by the server (the owner must check)");
+        expect(r.text).toContain("Cron jobs (above) shows each job's name, schedule and on/off state, but not what it runs");
         expect(r.text).not.toMatch(/\bnone\b/i);
         expect(text(b)).not.toMatch(/not scheduled|is scheduled|Schedule:? none/i);
       }
