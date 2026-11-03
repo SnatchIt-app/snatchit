@@ -9,9 +9,10 @@
 --     refund_execute_enabled is true. The pre-199 bodies hand manual and parked rows back to the sweep and restore the
 --     unconfirmed already_refunded_locally acknowledgement, so this runs only with both executors off;
 --   * inverse md5: each replaced body must be 199's or its predecessor; each new function 199's or absent. A foreign
---     body is refused, never overwritten or dropped. record_refund_stripe_failure is accepted at this revision's body
---     (8a443bd8…) or at the reviewed head 45708aec's (ba2de45d…, which carried the ref shape check), matching the
---     migration's pre-flight, so a database that applied either revision rolls back with this file;
+--     body is refused, never overwritten or dropped. 199's is this revision's body or a reviewed head's, matching the
+--     migration's pre-flight, so a database that applied 45708aec, 25e0df05 or this revision rolls back with this file:
+--     mark_refund_state at this revision (ab215b7b…) or at both reviewed heads (a14aafa2…); record_refund_stripe_failure
+--     at this revision (3e7b649b…), at 25e0df05 (8a443bd8…) or at 45708aec (ba2de45d…, the ref shape check);
 --   * callers: any function body or view outside the eight 199 signatures that names a 199 function.
 -- ORDER: roll back A's edges first (a webhook calling the dropped verb gets PGRST202, which A maps to ack + page).
 -- Roll 199 back BEFORE any 150 rollback.
@@ -44,24 +45,25 @@ begin
 
   for r in
     select * from (values
-      ('kernel.refund_executor_hold(uuid)',                         'new',      null,                               '31d6705d651d04ef82191faec528ad27', null),
-      ('kernel.mark_refund_state(uuid,text,text,text,text)',        'replaced', '4ed2a017cb2596f5c96b341c7856948c', 'a14aafa2040db639a18f64aa30e5b6f1', null),
-      ('kernel.claim_refunds_for_execution(integer,integer)',       'replaced', 'e11686e3fc2da23aab169dbc668ae4d6', '3664f28dc744d274ff8813309edf9fd0', null),
-      ('kernel.get_refund_execution_context(uuid)',                 'replaced', '15e5576c89f55aedb9ea1be2c050d4dd', '8aede0fc7dbdb0bc37a53d53c0eda51e', null),
-      ('kernel.record_refund_stripe_failure(text,text)',            'new',      null,                               '8a443bd8ee3444ba11b6097eeda6fd9a', 'ba2de45d6283db5afcc954b7d401596d'),
-      ('kernel.park_refund_execution(uuid,integer,text,text,text)', 'new',      null,                               '822d2d2fd0cfd3e39f8fe6f1f0baec74', null),
-      ('kernel.rearm_refund_execution(uuid,text,text)',             'new',      null,                               '977edd52c3d535a36f7431ea008a2bb9', null),
-      ('ops.executor_claim(uuid,integer)',                          'replaced', '1cfa0290546ff36fe07389a9d13b7f9e', '2d658f3406ea6e774fd8f6dcb163a27f', null)
+      ('kernel.refund_executor_hold(uuid)',                         'new',      null,                               '31d6705d651d04ef82191faec528ad27', '{}'::text[]),
+      ('kernel.mark_refund_state(uuid,text,text,text,text)',        'replaced', '4ed2a017cb2596f5c96b341c7856948c', 'ab215b7b939c8843376161b2a35dadd3', array['a14aafa2040db639a18f64aa30e5b6f1']),
+      ('kernel.claim_refunds_for_execution(integer,integer)',       'replaced', 'e11686e3fc2da23aab169dbc668ae4d6', '3664f28dc744d274ff8813309edf9fd0', '{}'::text[]),
+      ('kernel.get_refund_execution_context(uuid)',                 'replaced', '15e5576c89f55aedb9ea1be2c050d4dd', '8aede0fc7dbdb0bc37a53d53c0eda51e', '{}'::text[]),
+      ('kernel.record_refund_stripe_failure(text,text)',            'new',      null,                               '3e7b649b80286f4be2c459dde43ace59', array['ba2de45d6283db5afcc954b7d401596d', '8a443bd8ee3444ba11b6097eeda6fd9a']),
+      ('kernel.park_refund_execution(uuid,integer,text,text,text)', 'new',      null,                               '822d2d2fd0cfd3e39f8fe6f1f0baec74', '{}'::text[]),
+      ('kernel.rearm_refund_execution(uuid,text,text)',             'new',      null,                               '977edd52c3d535a36f7431ea008a2bb9', '{}'::text[]),
+      ('ops.executor_claim(uuid,integer)',                          'replaced', '1cfa0290546ff36fe07389a9d13b7f9e', '2d658f3406ea6e774fd8f6dcb163a27f', '{}'::text[])
     ) as t(sig, kind, pred_md5, own_md5, rev_md5)
   loop
     v_md5 := md5(pg_get_functiondef(to_regprocedure(r.sig)));
-    if r.kind = 'replaced' and v_md5 is distinct from r.own_md5 and v_md5 is distinct from r.pred_md5 then
+    if r.kind = 'replaced' and v_md5 is distinct from r.own_md5 and v_md5 is distinct from r.pred_md5
+       and not coalesce(v_md5 = any(r.rev_md5), false) then
       raise exception 'ROLLBACK_199_REFUSED: % has md5 %, neither 199''s (%) nor its predecessor (%) — not overwriting a foreign body',
-        r.sig, coalesce(v_md5, '<absent>'), r.own_md5, r.pred_md5;
+        r.sig, coalesce(v_md5, '<absent>'), array_to_string(array[r.own_md5] || r.rev_md5, ' or '), r.pred_md5;
     end if;
-    if r.kind = 'new' and v_md5 is not null and v_md5 <> r.own_md5 and v_md5 is distinct from r.rev_md5 then
+    if r.kind = 'new' and v_md5 is not null and v_md5 <> r.own_md5 and not (v_md5 = any(r.rev_md5)) then
       raise exception 'ROLLBACK_199_REFUSED: % has md5 %, not 199''s (%) — not dropping a foreign body', r.sig, v_md5,
-        r.own_md5 || coalesce(' or ' || r.rev_md5, '');
+        array_to_string(array[r.own_md5] || r.rev_md5, ' or ');
     end if;
   end loop;
 
