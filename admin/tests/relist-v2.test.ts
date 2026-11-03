@@ -504,7 +504,7 @@ describe("raised errors: out-of-date console vs 42501 / step-up / reason / pause
   it("console_actions_paused stays paused", async () => {
     const { state, text } = await postAndRender({ code: "P0001", message: "precondition_failed: console_actions_paused" });
     expect(state.failure).toMatchObject({ kind: "paused" });
-    expect(text).toContain("Actions are paused by a founder");
+    expect(text).toContain("A founder paused console actions");
     expect(text).not.toContain("out of date");
   });
 

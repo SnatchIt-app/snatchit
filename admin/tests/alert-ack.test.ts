@@ -108,7 +108,7 @@ describe("acknowledgeAlert calls 146's ops.alert_ack exactly", () => {
     h.reply = { data: null, error: { code: "P0001", message: "step_up_required: aal2" } };
     expect((await acknowledgeAlert(KEY, "")).failure).toEqual({ ok: false, kind: "mfa" });
     h.reply = { data: null, error: { code: "PGRST202", message: "Could not find the function ops.alert_ack" } };
-    expect((await acknowledgeAlert(KEY, "")).failure).toMatchObject({ kind: "error", unavailable: true, message: "RPC ops.alert_ack not available yet" });
+    expect((await acknowledgeAlert(KEY, "")).failure).toMatchObject({ kind: "error", unavailable: true, message: "ops.alert_ack is not available on this server yet" });
   });
 
   it("refuses locally, without calling the database, when the key is missing or the note too long", async () => {
@@ -152,7 +152,7 @@ describe("acknowledgeAlert calls 146's ops.alert_ack exactly", () => {
     h.reply = { data: { alert_key: KEY, state: "firing" }, error: null };
     const s = await submitAlertAck({}, ackForm({ alert_key: KEY, incident_seq: "2", note: "", revalidate: "/system" }));
     expect(s.acknowledgedAt).toBeUndefined();
-    expect(s.failure).toMatchObject({ kind: "error", message: "Unrecognised response from alert_ack" });
+    expect(s.failure).toMatchObject({ kind: "error", message: "Unexpected answer from alert_ack" });
     expect(h.revalidated).toEqual([]);
   });
 });

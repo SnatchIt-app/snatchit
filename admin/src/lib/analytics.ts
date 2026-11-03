@@ -22,7 +22,7 @@ export async function readPeriod(from: string, to: string): Promise<PeriodResult
   const res = await callOps<unknown>("money_overview", { p_from: from, p_to: to });
   if (!res.ok) return res;
   const overview = toMoneyOverview(res.data);
-  if (!overview) return { ok: false, kind: "error", message: "Unrecognised payload from ops.money_overview()" };
+  if (!overview) return { ok: false, kind: "error", message: "Unexpected answer from ops.money_overview()" };
   return { ok: true, overview, figures: figuresFrom(overview) };
 }
 

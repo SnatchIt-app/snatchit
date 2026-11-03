@@ -77,7 +77,7 @@ export function MoneyRequestForm({ moneyKeys, commandKey }: { moneyKeys: MoneyKe
           className="field mt-1 font-mono text-[12px]"
           placeholder='2500 · "24 hours" · true'
         />
-        <p className="mt-1 text-[11px] text-dim">Text values need double quotes. Interval keys take a string such as &quot;24 hours&quot;; a bare number would be read as seconds and is refused.</p>
+        <p className="mt-1 text-[11px] text-dim">Text values need double quotes. Interval keys take a string such as &quot;24 hours&quot;. A bare number would be read as seconds, and it is refused.</p>
       </div>
       <div>
         <label htmlFor={`${base}-reason`} className="eyebrow block text-dim">

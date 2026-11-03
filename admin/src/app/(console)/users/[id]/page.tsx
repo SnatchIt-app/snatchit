@@ -50,7 +50,7 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
     return (
       <>
         <PageHeader eyebrow="User" title={<code className="font-mono">{shortId(id)}</code>} />
-        <Alert state="failed" title="Unrecognised payload from ops.user_detail()" retryHref={path} />
+        <Alert state="failed" title="Unexpected answer from ops.user_detail()" retryHref={path} />
       </>
     );
   }

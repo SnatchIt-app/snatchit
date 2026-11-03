@@ -54,7 +54,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
     return (
       <>
         <PageHeader eyebrow="Listing" title={<code className="font-mono">{shortId(id)}</code>} />
-        <Alert state="failed" title="Unrecognised payload from ops.listing_detail()" retryHref={path} />
+        <Alert state="failed" title="Unexpected answer from ops.listing_detail()" retryHref={path} />
       </>
     );
   }
@@ -134,7 +134,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
 
           <Panel eyebrow={d.transfer ? "1" : "0"} title="Transfer obligation">
             {!d.transfer ? (
-              <p className="text-dim">No transfer row.</p>
+              <p className="text-dim">No transfer record.</p>
             ) : (
               <KeyValue
                 columns={3}
@@ -187,12 +187,12 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
           {/* One Relist panel and one answer host in every state. The action's refresh (revalidatePath) turns a
               relisted listing's form into the note below; the host stays at the same place with the same key, so
               React keeps the answer it holds ('Recorded.' + result.before, or the stale copy + result.current). */}
-          <Panel eyebrow={relist ? "Domain rule" : "Actions"} title="Relist">
+          <Panel eyebrow={relist ? "Enforced by the server" : "Actions"} title="Relist">
             <OutcomeHost key="listing_relist" actionType="listing_relist">
               {relist && founder ? (
                 <ConfirmForm key={`relist-${relist.updated_at}`} idempotencyKey={newIdempotencyKey()} actionType="listing_relist" subjectKind="listing" subjectId={id} expected={relist} revalidate={path} label="Relist" danger>
                   <p className="text-[0.75rem] text-muted">
-                    Relist works only for a listing from an admin account with no bids, payments, transfers, winner or reservation. The server rejects any other listing. You cannot change the price or fees.
+                    Relist works only for a listing from an admin account that is in the cancelled resting state (a cancelled auction on a listing that is still active), with no bids, payments, transfers, winner or reservation. The server rejects any other listing. You cannot change the price or fees.
                     {transacted ? " This listing has a captured payment — expect a rejection." : ""}
                   </p>
                   <div>

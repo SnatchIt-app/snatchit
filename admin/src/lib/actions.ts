@@ -56,13 +56,13 @@ function unrecognisedResponse(fn: "execute_action" | "approve_action", data: unk
     ok: false,
     kind: "error",
     ...(code ? { code } : {}),
-    message: `Unrecognised response from ${fn}${status ? ` (status ${status})` : ""}${message ? `: ${message}` : ""}`,
+    message: `Unexpected answer from ${fn}${status ? ` (status ${status})` : ""}${message ? `: ${message}` : ""}`,
   };
 }
 
 export async function executeAction(input: ExecuteActionInput): Promise<ActionFormState> {
   if (!isIdempotencyKey(input.idempotencyKey)) {
-    return { submitted: true, invalid: "Missing idempotency key — reload the page and try again." };
+    return { submitted: true, invalid: "Missing form key — reload the page and try again." };
   }
   const res = await callOps<unknown>("execute_action", {
     p_idempotency_key: input.idempotencyKey,
@@ -151,7 +151,7 @@ export async function submitActionForm(_prev: ActionFormState, formData: FormDat
   // (or nothing at all); everything else needs a uuid subject.
   const refAddressed = actionType === "job_retry" || actionType === "setting_set" || (actionType === "case_create" && subjectKind === "none");
   if (!actionType || !subjectKind || (!subjectId && !refAddressed)) {
-    return forSubject({ submitted: true, invalid: "This form is missing its action envelope. Reload and try again." });
+    return forSubject({ submitted: true, invalid: "This form is missing data it needs. Reload and try again." });
   }
   if (!reason) return forSubject({ submitted: true, invalid: "A reason is required." });
   if (reason.length > 2000) return forSubject({ submitted: true, invalid: "Reason is too long (2000 characters max)." });
@@ -162,7 +162,7 @@ export async function submitActionForm(_prev: ActionFormState, formData: FormDat
     const decision = parseApprovalDecision(params.decision);
     if (!decision) return forSubject({ submitted: true, failure: { ok: false, kind: "error", message: "invalid decision" } });
     if (typeof params.action_id !== "string" || !params.action_id) {
-      return forSubject({ submitted: true, invalid: "This form is missing its action envelope. Reload and try again." });
+      return forSubject({ submitted: true, invalid: "This form is missing data it needs. Reload and try again." });
     }
     state = await approveAction({ actionId: params.action_id, decision, reason });
   } else {
@@ -217,7 +217,7 @@ export async function submitMoneyConfigRequest(_prev: MoneyFormState, formData: 
     return { submitted: true, failure: res };
   }
   const reply = moneyReply(res.data);
-  if (!reply) return { submitted: true, failure: { ok: false, kind: "error", message: "Unrecognised response from request_platform_config" } };
+  if (!reply) return { submitted: true, failure: { ok: false, kind: "error", message: "Unexpected answer from request_platform_config" } };
   revalidatePath("/system");
   return { submitted: true, ...reply };
 }
@@ -233,7 +233,7 @@ export async function submitMoneyConfigDecision(_prev: MoneyFormState, formData:
   const res = await callKernelApproval<unknown>(built.args);
   if (!res.ok) return { submitted: true, failure: res };
   const reply = moneyReply(res.data);
-  if (!reply) return { submitted: true, failure: { ok: false, kind: "error", message: "Unrecognised response from approve_refund_request" } };
+  if (!reply) return { submitted: true, failure: { ok: false, kind: "error", message: "Unexpected answer from approve_refund_request" } };
   revalidatePath("/system");
   return { submitted: true, ...reply };
 }
@@ -268,7 +268,7 @@ export async function submitOperationalConfig(_prev: MoneyFormState, formData: F
     return { submitted: true, failure: res, subjectKey: submittedKey };
   }
   const reply = moneyReply(res.data);
-  if (!reply) return { submitted: true, failure: { ok: false, kind: "error", message: "Unrecognised response from set_operational_config" }, subjectKey: submittedKey };
+  if (!reply) return { submitted: true, failure: { ok: false, kind: "error", message: "Unexpected answer from set_operational_config" }, subjectKey: submittedKey };
   revalidatePath("/system");
   return { submitted: true, ...reply, subjectKey: submittedKey };
 }
@@ -414,7 +414,7 @@ export async function acknowledgeAlert(alertKey: string, note: string, shownInci
   const row = isRecord(res.data) ? res.data : {};
   const acknowledgedAt = typeof row.acknowledged_at === "string" ? row.acknowledged_at : undefined;
   if (!acknowledgedAt) {
-    return { submitted: true, failure: { ok: false, kind: "error", message: "Unrecognised response from alert_ack" } };
+    return { submitted: true, failure: { ok: false, kind: "error", message: "Unexpected answer from alert_ack" } };
   }
   const incidentSeq = typeof row.incident_seq === "number" ? row.incident_seq : undefined;
   const warning = shownIncidentSeq === undefined ? undefined : otherIncidentWarning(shownIncidentSeq, incidentSeq);

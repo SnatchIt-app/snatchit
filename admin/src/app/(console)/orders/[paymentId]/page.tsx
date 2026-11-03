@@ -60,7 +60,7 @@ export default async function OrderPage({ params }: { params: Promise<{ paymentI
     return (
       <>
         <PageHeader eyebrow="Order" title={<code className="font-mono">{shortId(paymentId)}</code>} />
-        <Alert state="failed" title="Unrecognised payload from ops.order_detail()" retryHref={path} />
+        <Alert state="failed" title="Unexpected answer from ops.order_detail()" retryHref={path} />
       </>
     );
   }
@@ -117,7 +117,7 @@ export default async function OrderPage({ params }: { params: Promise<{ paymentI
         meta={
           <span className="flex flex-wrap items-center gap-2">
             <StatusBadge status={p.status} label={`payment: ${labelFor("payment", p.status)}`} />
-            <StatusBadge status={t?.status ?? null} label={t ? `transfer: ${transferStateLabel(t)}` : "no transfer row"} />
+            <StatusBadge status={t?.status ?? null} label={t ? `transfer: ${transferStateLabel(t)}` : "no transfer record"} />
             <StatusBadge status={d.seller_funds_state} label={`funds: ${labelFor("funds", d.seller_funds_state)}`} />
             <span className="font-mono">
               payment <code>{p.id}</code>
@@ -204,7 +204,7 @@ export default async function OrderPage({ params }: { params: Promise<{ paymentI
 
           <Panel eyebrow="Seller obligation" title="Transfer">
             {!t ? (
-              <Alert state={p.status === "succeeded" ? "warning" : "info"} title={p.status === "succeeded" ? "Captured payment without a transfer row." : "No transfer obligation (payment not captured)."} compact>
+              <Alert state={p.status === "succeeded" ? "warning" : "info"} title={p.status === "succeeded" ? "Captured payment without a transfer record." : "No transfer obligation (payment not captured)."} compact>
                 {p.status === "succeeded" ? "This is a settlement gap. Escalate with the payment id. Do not mark anything sold by hand." : null}
               </Alert>
             ) : (
@@ -345,7 +345,7 @@ export default async function OrderPage({ params }: { params: Promise<{ paymentI
           <ActionTable rows={d.actions} basePath={path} meId={me.id} />
         </Panel>
         <Panel eyebrow="Chronology" title="Timeline">
-          {!timelineRes.ok ? <OpsFailureAlert failure={timelineRes} fn="order_timeline" retryHref={path} /> : timeline ? <Timeline data={timeline} /> : <Alert state="failed" title="Unrecognised payload from ops.order_timeline()" retryHref={path} compact />}
+          {!timelineRes.ok ? <OpsFailureAlert failure={timelineRes} fn="order_timeline" retryHref={path} /> : timeline ? <Timeline data={timeline} /> : <Alert state="failed" title="Unexpected answer from ops.order_timeline()" retryHref={path} compact />}
         </Panel>
       </div>
     </>
@@ -382,7 +382,7 @@ function RefundAttemptTable({ rows, basePath, meId }: { rows: OpsAction[]; baseP
           <span className="flex flex-col gap-0.5">
             <StatusBadge status={a.state} label={refundStateLabel(a.state, rs)} />
             {a.state === "processing" && rs ? <span className="text-[0.6875rem] text-dim">Stripe refund status: {rs} — not a completed refund</span> : null}
-            {a.state === "succeeded_at_provider" ? <span className="text-[0.6875rem] text-dim">Stripe succeeded; payment flips to refunded when the webhook lands</span> : null}
+            {a.state === "succeeded_at_provider" ? <span className="text-[0.6875rem] text-dim">Stripe succeeded; the payment changes to “Refund recorded” when the Stripe webhook arrives</span> : null}
             {a.state === "unknown" ? <span className="text-[0.6875rem] text-danger">verify in the Stripe Dashboard before any retry</span> : null}
           </span>
         );

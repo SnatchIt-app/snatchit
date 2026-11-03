@@ -35,7 +35,7 @@ export function EvidenceLink({ subjectKind, subjectId, slot, recorded }: { subje
       {state.error ? (
         <span role="alert" className="text-warning">
           {state.error}
-          {state.code === "no_evidence" ? " (nothing recorded in this slot)" : state.code === "paused" || state.code === "denied" || state.code === "mfa" ? ` (${state.code})` : null}
+          {state.code === "no_evidence" ? " (nothing recorded in this slot)" : state.code === "paused" ? " (console actions are paused)" : state.code === "denied" ? " (your account is not allowed to open it)" : state.code === "mfa" ? " (re-verify with your authenticator first)" : null}
         </span>
       ) : null}
     </form>
@@ -46,7 +46,7 @@ function PublicLink({ url, recorded }: { url: string | null; recorded: boolean }
   if (!recorded || !url) return <span className="text-dim">none recorded</span>;
   return (
     <a href={url} target="_blank" rel="noopener noreferrer" className="link">
-      Open (public bucket)
+      Open (public file)
     </a>
   );
 }

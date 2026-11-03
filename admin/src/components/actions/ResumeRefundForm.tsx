@@ -29,14 +29,14 @@ export function ResumeRefundForm({ actionId, state, refundStatus }: { actionId: 
     <form action={formAction} className="space-y-3">
       <input type="hidden" name="action_id" value={actionId} />
       <p className="text-[0.75rem] text-muted">
-        Current state: <StatusBadge status={state} label={refundStateLabel(state, refundStatus)} />. First the executor checks again: the refund switch, the console pause, and the approval and its terms. It locks the action for a short time. It looks up any Stripe refund made with idempotency key{" "}
-        <code className="font-mono">ops_action_{actionId.slice(0, 8)}…</code>, then records the outcome. Safe to press more than once.
+        Current state: <StatusBadge status={state} label={refundStateLabel(state, refundStatus)} />. First the executor checks again: the refund switch, the console pause, and the approval and its terms. It locks the action for a short time. If an earlier run sent this refund to Stripe, it looks for that refund there. If there is no such refund, it can ask Stripe to create one, with idempotency key{" "}
+        <code className="font-mono">ops_action_{actionId.slice(0, 8)}…</code>. Then it records the outcome. Safe to press more than once.
       </p>
       <Submit />
       {result.submitted ? (
         result.notDeployed ? (
-          <Alert state="warning" title="Executor not deployed." compact>
-            ops-refund-execute is not reachable{result.httpStatus ? ` (HTTP ${result.httpStatus})` : ""}. Follow the Stripe Dashboard SOP and record the outcome via engineering.
+          <Alert state="warning" title="Executor did not answer." compact>
+            ops-refund-execute did not answer{result.httpStatus ? ` (HTTP ${result.httpStatus})` : ""}. Follow the Stripe Dashboard SOP. Then ask engineering to record the outcome.
           </Alert>
         ) : result.refusedReason ? (
           <Alert state="warning" title={`Executor refused: ${executorRefusalLabel(result.refusedReason)}`} compact>
@@ -64,7 +64,7 @@ export function ResumeRefundForm({ actionId, state, refundStatus }: { actionId: 
         ) : result.accepted ? (
           <Alert state="warning" title={result.refundStatus === "requires_action" ? "Requires action at Stripe — not succeeded." : "Accepted by Stripe, not yet succeeded."} compact>
             State: <StatusBadge status={result.state} label={refundStateLabel(result.state, result.refundStatus)} />
-            {result.message ? ` — ${result.message}` : null}. The action stays in processing until Stripe reports the final outcome; do not treat this as a completed refund.{" "}
+            {result.message ? ` — ${result.message}` : null}. The action stays in processing until Stripe reports the final outcome. Do not treat this as a completed refund.{" "}
             <button type="button" className="link" onClick={() => window.location.reload()}>
               Reload
             </button>

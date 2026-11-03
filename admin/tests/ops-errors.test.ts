@@ -22,7 +22,7 @@ describe("mapOpsError", () => {
 
   it("flags a missing function/schema as unavailable with a friendly message", () => {
     const r = mapOpsError("list_orders", { code: "PGRST202", message: "Could not find the function ops.list_orders(p_filters) in the schema cache" });
-    expect(r).toMatchObject({ ok: false, kind: "error", unavailable: true, message: "RPC ops.list_orders not available yet" });
+    expect(r).toMatchObject({ ok: false, kind: "error", unavailable: true, message: "ops.list_orders is not available on this server yet" });
     expect(mapOpsError("today", { code: "PGRST106", message: "The schema must be one of the following: public, kernel" })).toMatchObject({ unavailable: true });
     expect(mapOpsError("today", { code: "42883", message: "function ops.today() does not exist" })).toMatchObject({ unavailable: true });
   });

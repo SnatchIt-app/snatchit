@@ -203,7 +203,7 @@ export function toRefundOutcome(v: unknown): RefundOutcome {
  */
 export const REFUND_REFUSAL_COPY: Record<string, string> = {
   step_up_required: "Confirm it is you with your authenticator, then try again.",
-  step_up_unavailable: "This session cannot be stepped up. Sign in again and confirm with your authenticator.",
+  step_up_unavailable: "This session cannot be re-verified. Sign in again, then confirm with your authenticator.",
   insufficient_privilege: "Your role cannot record a refund.",
   actions_disabled: "Console actions are paused. Nothing was recorded.",
   invalid_input: "One of the values was refused. Nothing was recorded.",

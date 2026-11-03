@@ -62,9 +62,8 @@ export default async function TestDataPage() {
             support that request yet, so it refused it.
           </p>
           <p className="mt-2">
-            <strong>No rows are shown and nothing has been classified.</strong> This is not an outage and no data is
-            missing elsewhere: every other screen calls the same readers with the default, which never returns a test
-            record. Applying registry 180 enables this view.
+            <strong>No rows are shown and nothing has been classified.</strong> This is not an outage. Other screens do not ask for test records, so this refusal does not affect them.
+            Applying registry 180 enables this view.
           </p>
         </Alert>
       </>
@@ -76,7 +75,7 @@ export default async function TestDataPage() {
         eyebrow="System"
         title={RESTRICTED_VIEW_TITLE}
         description="Every row the readers return with test records included, badged by the server's own classification. Read-only. Nothing here is hidden from the audit log or the detail pages; the ordinary views exclude the badged rows."
-        meta={classified ? "The server classifies rows (DC-1 is applied)." : "This server does not classify rows yet (DC-1 is not applied): the lists below are the ordinary lists."}
+        meta={classified ? "The server classifies rows." : "No row below has a classification from the server."}
       />
       <section aria-labelledby="td-cases" className="mb-8">
         <h2 id="td-cases" className="mb-2 title-section">Cases</h2>
