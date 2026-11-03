@@ -44,7 +44,7 @@ function instantOrNull(local: string, timeZone: string, field: string): { value:
   if (r.ok) return { value: r.iso };
   if (r.reason === "nonexistent") return { field, message: "That local time does not exist on that date — the clocks move forward over it. Choose another time." };
   if (r.reason === "ambiguous") return { field, message: "That local time happens twice on that date — the clocks move back over it. Choose another time." };
-  if (r.reason === "unknown_zone") return { field, message: "This venue's time zone is not one this server recognises." };
+  if (r.reason === "unknown_zone") return { field, message: "This venue's time zone is not one this server recognizes." };
   return { field, message: "Give a date and a time." };
 }
 
@@ -136,7 +136,7 @@ export async function createInventoryBatchForm(_prev: CommandFormState, fd: Form
       result: {
         ...result,
         message:
-          "Couldn't tell whether the release was created. Do NOT send it again — a second attempt would release the inventory twice. Reload this page and check whether the release is listed; add it only if it is not.",
+          "Couldn't tell whether the release was created. Do NOT send it again: a second attempt would release the inventory twice. Reload this page and check whether the release is listed. Add it only if it is not.",
       },
     };
   }

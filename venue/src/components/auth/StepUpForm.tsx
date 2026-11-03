@@ -95,7 +95,7 @@ export function StepUpForm({ nextHref }: { nextHref: string }) {
         <div className="space-y-2">
           {phase.replacedUnfinished ? (
             <p className="text-sm text-muted">
-              This account had an unfinished authenticator setup, so it has been cleared. Any earlier &ldquo;Snatch It venue&rdquo; entry in your
+              This account had an unfinished authenticator setup, so it has been cleared. Any earlier entry for this account in your
               authenticator app no longer works. Scan the new code below.
             </p>
           ) : null}

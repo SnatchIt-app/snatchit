@@ -91,7 +91,7 @@ export function CapacityBar({ capacity, held, sold, remaining }: { capacity: num
 export function AuditNote() {
   return (
     <p className="text-xs text-dim">
-      <strong>In this demo nothing is saved.</strong> In the real dashboard an action like this is attributable — recorded against your name — though there is no screen to read that history on yet.
+      <strong>In this demo nothing is saved.</strong> In the real dashboard, an action like this is recorded against your name. There is no screen to read that history on yet.
     </p>
   );
 }

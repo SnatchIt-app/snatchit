@@ -109,7 +109,7 @@ export function instantProblemCopy(r: Extract<InstantResult, { ok: false }>, tim
     case "bad_input":
       return "Enter a date and a time.";
     case "unknown_zone":
-      return `This venue's time zone (${timeZone || "not set"}) is not one the server recognises. Fix the venue's time zone first.`;
+      return `This venue's time zone (${timeZone || "not set"}) is not one the server recognizes. Fix the venue's time zone first.`;
     case "nonexistent":
       return `That clock time does not exist in ${timeZone} — the clocks jump forward over it. Pick another time.`;
     case "ambiguous":
@@ -155,7 +155,7 @@ export function buildEventPatch(input: EventPatchInput, ctx: { status: EventStat
 
   if (problems.length > 0) return { ok: false, problems };
   const keys = Object.keys(out).filter((k) => k !== "reason_code");
-  if (keys.length === 0) return { ok: false, problems: [problem("title", "Nothing changed.")] };
+  if (keys.length === 0) return { ok: false, problems: [problem("title", "You did not change anything.")] };
   for (const k of Object.keys(out)) if (!(EVENT_PATCH_KEYS as readonly string[]).includes(k)) return { ok: false, problems: [problem(k, "The server refuses that field on an event.")] };
   return { ok: true, value: out };
 }
@@ -174,7 +174,7 @@ export function buildVenuePatch(input: VenuePatchInput): Built<Record<string, un
   if (input.neighborhood !== undefined) {
     const n = input.neighborhood.trim().toLowerCase();
     if (!n) out.neighborhood = null;
-    else if (!(NEIGHBORHOODS as readonly string[]).includes(n)) problems.push(problem("neighborhood", "Choose one of the listed neighbourhoods."));
+    else if (!(NEIGHBORHOODS as readonly string[]).includes(n)) problems.push(problem("neighborhood", "Choose one of the listed neighborhoods."));
     else out.neighborhood = n;
   }
   if (input.address !== undefined) out.address = input.address.trim() || null;
@@ -187,7 +187,7 @@ export function buildVenuePatch(input: VenuePatchInput): Built<Record<string, un
   const reason = (input.reasonCode ?? "").trim();
   if (reason) out.reason_code = reason;
   if (problems.length > 0) return { ok: false, problems };
-  if (Object.keys(out).filter((k) => k !== "reason_code").length === 0) return { ok: false, problems: [problem("name", "Nothing changed.")] };
+  if (Object.keys(out).filter((k) => k !== "reason_code").length === 0) return { ok: false, problems: [problem("name", "You did not change anything.")] };
   for (const k of Object.keys(out)) if (!(VENUE_PATCH_KEYS as readonly string[]).includes(k)) return { ok: false, problems: [problem(k, "The server refuses that field on a venue.")] };
   return { ok: true, value: out };
 }
@@ -212,7 +212,7 @@ export function buildSalesCapacity(raw: string, reasonCode: string): Built<{ cap
 export const REFUSAL_COPY: Record<string, string> = {
   // publish_event's five "not ready to sell" reasons
   empty_inventory: "This event has no ticket type with a release yet, so there is nothing to sell.",
-  org_not_saleable: "This organization is not cleared to sell yet. Finish payout setup, then try again.",
+  org_not_saleable: "This organization is not cleared to sell. It is not approved yet, it is suspended or closed, or it cannot be found. Contact Snatch It.",
   connect_not_ready: "Stripe has not confirmed this organization's payout account yet, so sales cannot open.",
   signing_not_ready: "Ticket signing is not ready on this platform yet, so sales cannot open. Snatch It has to turn it on.",
   fee_policy_unset: "The platform's service fee is not set yet, so a price cannot be charged. Snatch It has to set it.",
@@ -220,13 +220,13 @@ export const REFUSAL_COPY: Record<string, string> = {
   // shared preconditions
   event_terminal: "This event is completed or cancelled, so it can no longer be changed.",
   session_terminal: "This session is completed or cancelled, so it can no longer be changed.",
-  boundary_engaged: "The door schedule for this session is already engaged, so its times are fixed.",
+  boundary_engaged: "Check-in has opened for this session, so its start and doors-open times can no longer change.",
   move_exceeds_grace: "This session has tickets issued, and the new time moves it too far. Make a smaller change, or ask Snatch It.",
   reason_required: "A reason is required for this change; it is recorded.",
   unwritable_key: "The dashboard tried to change a field the server does not accept. Nothing changed; this is a bug in the dashboard.",
   duplicate_name: "Another one here already uses that name.",
   invalid_input: "One of the values was refused. Nothing changed.",
-  unknown_timezone: "That time zone is not one the server recognises.",
+  unknown_timezone: "That time zone is not one the server recognizes.",
   operatorship_transfer_frozen: "Moving a venue to another organization is not something this dashboard does.",
   venue_not_approved: "This venue is not approved to sell yet. Snatch It has to approve it first.",
   // 162's capacity refusals
@@ -254,5 +254,5 @@ export function refusalCopy(message: string | null | undefined): string {
   const token = refusalToken(message);
   if (token) return REFUSAL_COPY[token];
   const m = (message ?? "").trim();
-  return m ? `The server did not confirm this change (${m}). Reload the page and check before you send it again.` : "The server refused this change. Nothing changed.";
+  return m ? `The server did not confirm this change (${m}). Reload the page and check before you send it again.` : "The server did not confirm this change. Reload the page and check before you send it again.";
 }

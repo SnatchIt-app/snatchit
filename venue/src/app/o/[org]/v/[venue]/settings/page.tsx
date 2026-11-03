@@ -72,7 +72,7 @@ export default async function VenueSettingsPage({ params, searchParams }: { para
               <p className="mt-1 text-sm text-dim">Editing venue settings is turned off for this dashboard. These are the stored values, read from the database.</p>
               <dl className="mt-4 space-y-3 text-sm">
                 <div><dt className="eyebrow block text-dim">Name</dt><dd className="mt-0.5">{show(venue?.name ?? null)}</dd></div>
-                <div><dt className="eyebrow block text-dim">Neighbourhood</dt><dd className="mt-0.5">{show(venue?.neighborhood ?? null)}</dd></div>
+                <div><dt className="eyebrow block text-dim">Neighborhood</dt><dd className="mt-0.5">{show(venue?.neighborhood ?? null)}</dd></div>
                 <div><dt className="eyebrow block text-dim">Address</dt><dd className="mt-0.5">{show(venue?.address ?? null)}</dd></div>
                 <div><dt className="eyebrow block text-dim">Capacity</dt><dd className="mt-0.5 tabular-nums">{typeof venue?.capacityHint === "number" ? String(venue.capacityHint) : "Not set"}</dd></div>
                 <div><dt className="eyebrow block text-dim">Time zone</dt><dd className="mt-0.5">{show(venue?.timezone ?? null)}</dd></div>

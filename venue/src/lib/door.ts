@@ -4,7 +4,7 @@ import type { DoorRejectReason, EventSession, ScanDevice, ScanResult } from "@/l
 export const SCAN_RESULT_LABEL: Record<ScanResult, string> = {
   admitted: "Admitted",
   duplicate: "Already used",
-  invalid: "Not recognised",
+  invalid: "Not recognized",
   frozen: "Blocked — check-in list is open",
   fraud_review: "Needs review",
 };

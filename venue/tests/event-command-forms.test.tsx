@@ -37,7 +37,7 @@ describe("the pool form shows what the server knows, and nothing it does not", (
   });
   it("without the read: no numbers are invented, and it says the server will name them", () => {
     const out = html(createElement(SessionCapacityForm, base));
-    expect(out).toContain("not readable on this project yet");
+    expect(out).toContain("The current numbers could not be read.");
     expect(out).not.toContain("Already allocated");
     expect(out).not.toContain("Pool now");
     // the capacity input itself carries no default, so nothing stands in for the unknown pool

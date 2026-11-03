@@ -100,7 +100,7 @@ export function CreateEventWizard({ ctx, basePath, step, venueApproved, venueNam
               </select>
             </label>
             <Field label="Capacity" name="capacity" type="number" required placeholder="300" />
-            <p className="text-xs text-dim">Capacity is per session. There is no event-level capacity number anywhere in this product.</p>
+            <p className="text-xs text-dim">Capacity is set per session. An event has no capacity of its own.</p>
             <AuditNote />
             <button className="btn btn-primary" type="submit">
               Create draft
