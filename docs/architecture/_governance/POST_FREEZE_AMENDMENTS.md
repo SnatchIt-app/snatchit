@@ -1789,6 +1789,8 @@ judgement). **Inert today** (dark rail ⇒ no order is written), so not a blocke
 PFA-9 CLASS-A: an **owner-owed-forward** value (or a client `source` param added when §6.1 is next opened),
 resolved BEFORE native issuance activates — not "settled." Raised by red-team F (PR #36).
 
+*(Amended for BOUND holds by **PFA-33** / O4, owner-ratified 2026-11-03: see PFA-33 below.)*
+
 **E-40 — 082 creates SOFT pending orders and never converts/locks holds; oversell-safety is a forward
 obligation on 085's finalize.** `create_primary_checkout` validates hold coverage as a pure READ, takes ZERO
 batch/hold locks and issues ZERO counter DML (081 stays the single writer). It does not transition holds to
@@ -2021,6 +2023,8 @@ ladder across BOTH money engines.
 `p_atom_ids` member to belong to an order paid by `p_payment_id` (via ownership_log seq-1 → order_item →
 payment_native), and raises `precondition_failed` when none match. Break-glass latitude no longer
 decouples the money leg from arbitrary tickets.
+
+*(Discharged for BOUND orders by **PFA-33** / O5, owner-ratified 2026-11-03; the heuristic remains only for unbound orders.)*
 
 **E-58 — finalize batch attribution is HEURISTIC; exact linkage is a forward obligation (R1 P1).** 082's
 `create_primary_checkout` takes `p_hold_ids` but persists no order↔hold/batch linkage, and `order_item`
@@ -3526,4 +3530,64 @@ PROOF:   supabase/tests/125_deletion_sweep_live_rail.sql (28) + 141 unchanged (2
          site; predicate NULL for clean identities; BP-7/BP-8 still fire before BP-13; end-to-end request →
          held on BP-13 → refund → tombstoned.
 OWNER SIGNATURE REQUIRED: YES (amends a ratified closed-world set).  OWNER SIGNATURE: NOT YET RECORDED.
+```
+
+## PFA-33 — registry 198 (primary checkout hold binding): E-40 amended for bound holds, E-58 discharged for bound orders, owner rulings O2 / O11 / O14 (OWNER-RATIFIED 2026-11-03)
+
+```
+ID:                          PFA-33  (registry 198, stem 20261102120000, pgTAP 267; PR #233)
+FROZEN RULE:                 E-40 (this file): "`venue.finalize_primary_order` MUST re-read the hold
+                             `status='active'` + `expires_at > now()`" before converting it.
+                             E-58 (this file): finalize batch attribution is HEURISTIC; exact linkage is a
+                             forward obligation.
+IMPLEMENTATION CONFLICT:     198 binds each active hold to the pending order that reserved it. With binding,
+                             finalize converts the buyer's OWN active bound holds whatever their `expires_at`.
+                             The literal E-40 re-check of `expires_at > now()` would refuse a paid order whose
+                             own reservation timer ran out between payment and finalize.
+WHY IMPLEMENTATION CANNOT CONFORM: conforming turns a captured payment into a refund for a buyer whose own bound
+                             hold lapsed mid-payment, although no double decrement is reachable: the hold is
+                             locked FOR UPDATE and release re-checks its status, which keeps E-40's purpose.
+OPTIONS:                     (a) keep the literal E-40 re-check (paid orders refused on a lapsed own hold);
+                             (b) amend E-40 for bound holds and discharge E-58 for bound orders.
+RECOMMENDATION:              (b), with these owner rulings (registry-198 design, D, recommended answers):
+                             O2  PaymentIntents minted before a sales switch-off and paid while it is off:
+                                 finalize keeps retrying (finalize_feature_disabled, ack:false, alert); a
+                                 manual refund only after Stripe stops retrying.
+                             O4  E-40 amended as above.
+                             O5  E-58 discharged for bound orders: binding replaces the heuristic for every new
+                                 order; the legacy branch is kept only for unbound orders. The first apply
+                                 requires zero pending orders (its pre-flight refuses otherwise).
+                             O11 Only the webhook writes 'cancelled' for a lapsed order, after the PaymentIntent
+                                 is cancelled (the settled 10-minute checkout TTL on the payment side).
+                             O14 Refunds stay manual: refund_required is ack:true + alert + review row.
+PACKAGE IMPACT:              registry 198 only (its migration, rollback, pgTAP 267, and the 258 test edits).
+DAG IMPACT:                  none.
+SECURITY/MONEY IMPACT:       no double decrement (FOR UPDATE + release status re-check); a paid order that
+                             cannot finalize is flagged for manual review and alerted, never auto-refunded.
+                             Sales and every money executor stay OFF; enabling them is a separate owner GO.
+OWNER SIGNATURE REQUIRED:    YES.  OWNER SIGNATURE: RECORDED 2026-11-03. To the plain-language statement of
+                             O2/O4/O5/O11/O14 the owner answered "Ratify all five (Recommended)" (Claude A
+                             session). Ratification record row OR-26.
+```
+
+## PFA-34 — registry 203 (event lifecycle guards): `catalog.cancel_event` refuses a COMPLETED event (OWNER-RATIFIED 2026-11-03)
+
+```
+ID:                          PFA-34  (registry 203, stem 20261102170000, pgTAP 272; PR #226)
+FROZEN RULE:                 PHASE_2_RPC_FUNCTION_CONTRACTS.md, catalog.cancel_event: "Preconditions: event not
+                             already `cancelled`." A completed event therefore remains cancellable, running the
+                             void + refund cascade over tickets already admitted.
+IMPLEMENTATION CONFLICT:     trace cluster DB-5 (EL-03): cancelling an event after it took place voids and
+                             refunds admitted tickets in bulk. Refunds after the event belong to admin refunds.
+WHY IMPLEMENTATION CANNOT CONFORM: this is a policy amendment, not an impossibility. Conforming keeps a bulk
+                             void + refund path over already-used tickets that the owner does not want.
+OPTIONS:                     (a) keep the frozen precondition; (b) refuse a completed event.
+RECOMMENDATION:              (b): cancel_event raises `precondition_failed: event_completed` for a completed
+                             event (after the authority check); a cancelled event still answers noop_replay;
+                             refunds after the event go through admin refunds.
+PACKAGE IMPACT:              registry 203 only (its migration, rollback, pgTAP 272).
+DAG IMPACT:                  none.
+SECURITY/MONEY IMPACT:       removes a bulk void + refund path for completed events; no new grant or object.
+OWNER SIGNATURE REQUIRED:    YES.  OWNER SIGNATURE: RECORDED 2026-11-03. The owner answered "Ratify
+                             (Recommended)" (Claude A session). Ratification record row OR-27.
 ```
