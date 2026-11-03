@@ -1,0 +1,445 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { callOps } from "@/lib/ops";
+import { requireOperator } from "@/lib/auth/session";
+import { isUuid } from "@/lib/routes";
+import { SUPABASE_URL } from "@/lib/env";
+import { decisionProvenanceNote, labelFor, payoutStateLabel, refundStateLabel, shortId, stripeModeOf, transferStateLabel } from "@/lib/format";
+import { asArray, str, num, bool, evidenceItems, refundStatusOf, toOrderDetail, toSettings, toTimeline, type JsonRecord, type OpsAction } from "@/lib/types";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Panel } from "@/components/ui/Panel";
+import { KeyValue } from "@/components/ui/KeyValue";
+import { StatusBadge } from "@/components/ui/StatusBadge";
+import { DateTime } from "@/components/ui/DateTime";
+import { Money } from "@/components/ui/Money";
+import { Alert, OpsFailureAlert } from "@/components/ui/Alert";
+import { DataTable, type Column } from "@/components/ui/DataTable";
+import { IdLink, PartyLink } from "@/components/ui/IdLink";
+import { EvidenceList } from "@/components/ui/EvidenceLink";
+import { CaseTable } from "@/components/cases/CaseTable";
+import { OrderActions } from "@/components/orders/OrderActions";
+import { HowThisWorks } from "@/components/orders/WorkflowDiagrams";
+import { loadMoneyGuards } from "@/lib/pending-actions";
+import { ActionTable } from "@/components/actions/ActionTable";
+import { Timeline } from "@/components/orders/Timeline";
+
+export const metadata: Metadata = { title: "Order" };
+export const dynamic = "force-dynamic";
+
+function isNotFound(message: string | undefined): boolean {
+  return (message ?? "").toLowerCase().includes("not_found");
+}
+
+export default async function OrderPage({ params }: { params: Promise<{ paymentId: string }> }) {
+  const { paymentId } = await params;
+  if (!isUuid(paymentId)) notFound();
+  const me = await requireOperator();
+  const path = `/orders/${paymentId}`;
+
+  const [detailRes, timelineRes, settingsRes] = await Promise.all([
+    callOps<unknown>("order_detail", { p_payment_id: paymentId }),
+    callOps<unknown>("order_timeline", { p_payment_id: paymentId }),
+    me.role === "platform_admin" ? callOps<unknown>("settings") : Promise.resolve(null),
+  ]);
+
+  if (!detailRes.ok) {
+    return (
+      <>
+        <PageHeader eyebrow="Order" title={<code className="font-mono">{shortId(paymentId)}</code>} />
+        {detailRes.kind === "error" && isNotFound(detailRes.message) ? (
+          <Alert state="empty" title="No payment with this id." retryHref="/orders" retryLabel="Back to orders" />
+        ) : (
+          <OpsFailureAlert failure={detailRes} fn="order_detail" retryHref={path} />
+        )}
+      </>
+    );
+  }
+  const d = toOrderDetail(detailRes.data);
+  if (!d || !d.payment) {
+    return (
+      <>
+        <PageHeader eyebrow="Order" title={<code className="font-mono">{shortId(paymentId)}</code>} />
+        <Alert state="failed" title="Unexpected answer from ops.order_detail()" retryHref={path} />
+      </>
+    );
+  }
+  const p = d.payment;
+  const t = d.transfer;
+  const l = d.listing;
+  const timeline = timelineRes.ok ? toTimeline(timelineRes.data) : null;
+
+  // Refund execution is gated by ops.setting refund_execute_enabled; only a
+  // platform_admin can read settings, so anyone else assumes disabled.
+  let refundEnabled = false;
+  if (settingsRes && settingsRes.ok) {
+    const s = toSettings(settingsRes.data).find((x) => x.key === "refund_execute_enabled");
+    refundEnabled = s?.value === true;
+  }
+
+  const disputeOpen = Boolean(t?.disputed_at) && !t?.dispute_resolved_at;
+  const canRelease = t?.status === "seller_sent" && !t?.payout_released_at && !disputeOpen;
+  const canRefund = p.status === "succeeded";
+  // order_detail's `actions` holds only the newest 50 rows across payment,
+  // transfer and listing, so an older unsettled request can be missing from
+  // it. Before offering either money form, ask list_actions for BOTH money
+  // types on this order (payout_release on the transfer, refund_execute on the
+  // payment): a pending one of either type hides both forms, and a failed
+  // read on either hides both (fail closed).
+  const guards = await loadMoneyGuards((fn, args) => callOps<unknown>(fn, args), d, { release: canRelease && Boolean(t?.id), refund: canRefund });
+  const eventTitle = l?.event_name ?? "Order";
+  // From the payload record, not p.stripe_livemode: toPayment folds a missing key into null.
+  const stripeMode = stripeModeOf(p.raw);
+
+  return (
+    <>
+      <PageHeader
+        eyebrow={
+          <>
+            <Link href="/orders" className="hover:text-ink">
+              Orders
+            </Link>{" "}
+            / payment {shortId(p.id)}
+          </>
+        }
+        title={
+          l?.id ? (
+            <Link href={`/marketplace/${l.id}`} className="hover:text-primary-ink">
+              {eventTitle}
+            </Link>
+          ) : (
+            eventTitle
+          )
+        }
+        description={
+          l ? [l.venue, l.event_date, l.event_time, l.ticket_type, l.quantity ? `×${l.quantity}` : null, l.ticket_platform].filter(Boolean).join(" · ") : undefined
+        }
+        meta={
+          <span className="flex flex-wrap items-center gap-2">
+            <StatusBadge status={p.status} label={`payment: ${labelFor("payment", p.status)}`} />
+            <StatusBadge status={t?.status ?? null} label={t ? `transfer: ${transferStateLabel(t)}` : "no transfer record"} />
+            <StatusBadge status={d.seller_funds_state} label={`funds: ${labelFor("funds", d.seller_funds_state)}`} />
+            <span className="font-mono">
+              payment <code>{p.id}</code>
+            </span>
+            {t?.id ? (
+              <span className="font-mono">
+                · transfer <code>{t.id}</code>
+              </span>
+            ) : null}
+            {p.stripe_livemode === false ? <StatusBadge status="test" label="stripe test mode" variant="muted" /> : null}
+          </span>
+        }
+      />
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div className="space-y-6 lg:col-span-2">
+          <Panel eyebrow="Parties" title="Buyer & seller (masked)">
+            <KeyValue
+              columns={2}
+              items={[
+                {
+                  key: "buyer",
+                  value: (
+                    <span className="flex flex-col gap-0.5">
+                      <PartyLink id={d.buyer?.id ?? p.buyer_id} displayName={d.buyer?.display_name} emailMasked={d.buyer?.email_masked} meId={me.id} />
+                      <span className="text-[0.6875rem] text-dim">phone {d.buyer?.phone_masked ?? "—"}</span>
+                    </span>
+                  ),
+                },
+                {
+                  key: "seller",
+                  value: (
+                    <span className="flex flex-col gap-0.5">
+                      <PartyLink id={d.seller?.id ?? p.seller_id} displayName={d.seller?.display_name} emailMasked={d.seller?.email_masked} meId={me.id} />
+                      <span className="text-[0.6875rem] text-dim">
+                        {d.seller?.is_verified_seller ? "verified seller" : "not verified"} · onboarding {d.seller?.stripe_onboarding_complete ? "complete" : "incomplete"}
+                        {d.seller?.stripe_payouts_enabled === null || d.seller?.stripe_payouts_enabled === undefined ? "" : ` · payouts ${d.seller.stripe_payouts_enabled ? "enabled" : "disabled"}`}
+                      </span>
+                    </span>
+                  ),
+                },
+              ]}
+            />
+          </Panel>
+
+          <Panel eyebrow="Captured payment" title="Payment">
+            <KeyValue
+              columns={3}
+              items={[
+                { key: "amount", label: "Amount (ticket price)", value: <Money cents={p.amount} /> },
+                { key: "buyer_fee", value: <Money cents={p.buyer_fee} /> },
+                { key: "seller_fee", value: <Money cents={p.seller_fee} /> },
+                { key: "total", label: "Total charged to buyer", value: <Money cents={p.total} /> },
+                { key: "mode", value: p.mode ? <StatusBadge status={p.mode} variant="neutral" /> : null },
+                { key: "payment_method", value: p.payment_method },
+                { key: "stripe_payment_intent_id", label: "Stripe PaymentIntent", value: p.stripe_payment_intent_id ? <code className="font-mono text-[0.75rem]">{p.stripe_payment_intent_id}</code> : null },
+                {
+                  key: "stripe_livemode",
+                  label: "Stripe mode",
+                  value: (
+                    <StatusBadge
+                      status={`stripe_${stripeMode.mode}`}
+                      label={stripeMode.label}
+                      variant={stripeMode.mode === "live" ? "neutral" : stripeMode.mode === "test" ? "muted" : "warn"}
+                      qualifier="below"
+                    />
+                  ),
+                },
+                { key: "status", value: <StatusBadge status={p.status} label={labelFor("payment", p.status)} /> },
+                { key: "created_at", value: <DateTime value={p.created_at} /> },
+                { key: "paid_at", label: "Captured at", value: <DateTime value={p.paid_at} /> },
+                { key: "failed_at", value: <DateTime value={p.failed_at} /> },
+                { key: "refunded_at", value: <DateTime value={p.refunded_at} /> },
+              ]}
+            />
+            {stripeMode.note ? (
+              <div className="mt-3">
+                <Alert state="warning" title={`Stripe mode: ${stripeMode.label}`} compact>
+                  {stripeMode.note}
+                </Alert>
+              </div>
+            ) : null}
+          </Panel>
+
+          <Panel eyebrow="Seller obligation" title="Transfer">
+            {!t ? (
+              <Alert state={p.status === "succeeded" ? "warning" : "info"} title={p.status === "succeeded" ? "Captured payment without a transfer record." : "No transfer obligation (payment not captured)."} compact>
+                {p.status === "succeeded" ? "This is a settlement gap. Escalate with the payment id. Do not mark anything sold by hand." : null}
+              </Alert>
+            ) : (
+              <>
+                <KeyValue
+                  columns={3}
+                  items={[
+                    { key: "status", value: <StatusBadge status={t.status} label={transferStateLabel(t)} /> },
+                    { key: "transfer_method", value: t.transfer_method },
+                    { key: "created_at", value: <DateTime value={t.created_at} /> },
+                    { key: "expires_at", label: "Seller deadline", value: <DateTime value={t.expires_at} /> },
+                    { key: "auto_release_at", label: "Auto-release at", value: <DateTime value={t.auto_release_at} /> },
+                    { key: "expired_at", value: <DateTime value={t.expired_at} /> },
+                    { key: "seller_sent_at", value: <DateTime value={t.seller_sent_at} /> },
+                    { key: "buyer_viewed_at", value: <DateTime value={t.buyer_viewed_at} /> },
+                    { key: "buyer_confirmed_at", value: <DateTime value={t.buyer_confirmed_at} /> },
+                    { key: "delivery_email", label: "Delivery email (masked)", value: t.delivery_email ? <span className="font-mono text-[0.75rem]">{t.delivery_email}</span> : null },
+                    { key: "delivery_phone", label: "Delivery phone (masked)", value: t.delivery_phone ? <span className="font-mono text-[0.75rem]">{t.delivery_phone}</span> : null },
+                    { key: "id", label: "Transfer id", value: <code className="font-mono text-[0.75rem]">{t.id}</code> },
+                  ]}
+                />
+                <h3 className="eyebrow mt-4 text-dim">Evidence (audited access, short-lived links)</h3>
+                <div className="mt-2">
+                  <EvidenceList
+                    items={evidenceItems(
+                      d.evidence.filter((e) => e.key !== "proof_of_ownership_path"),
+                      { transferId: t.id ?? null, listingId: l?.id ?? null },
+                    )}
+                    publicBase={SUPABASE_URL ? `${SUPABASE_URL}/storage/v1/object/public` : null}
+                  />
+                </div>
+              </>
+            )}
+          </Panel>
+
+          <Panel eyebrow="Where the seller's share sits" title="Seller funds state">
+            <div className="flex flex-wrap items-center gap-3">
+              <StatusBadge status={d.seller_funds_state} label={labelFor("funds", d.seller_funds_state)} variant={d.seller_funds_state === "released_to_connected_account" ? "ok" : undefined} />
+              <code className="font-mono text-[0.6875rem] text-dim">{d.seller_funds_state ?? "—"}</code>
+            </div>
+            {t ? (
+              <KeyValue
+                columns={3}
+                items={[
+                  { key: "payout_review_status", value: t.payout_review_status ? <StatusBadge status={t.payout_review_status} label={labelFor("payout_review", t.payout_review_status)} /> : "none" },
+                  { key: "payout_risk_tier", value: t.payout_risk_tier ? <StatusBadge status={t.payout_risk_tier} variant="neutral" /> : null },
+                  { key: "payout_reason_codes", value: t.payout_reason_codes?.length ? t.payout_reason_codes.join(", ") : null },
+                  { key: "payout_hold_until", value: <DateTime value={t.payout_hold_until} /> },
+                  { key: "payout_state", label: "Payout state", value: payoutStateLabel(t) },
+                  { key: "payout_released_at", label: "Release recorded at", value: <DateTime value={t.payout_released_at} /> },
+                  {
+                    key: "stripe_transfer_id",
+                    label: "Stripe Transfer (connected account)",
+                    value: t.stripe_transfer_id ? <code className="font-mono text-[0.75rem]">{t.stripe_transfer_id}</code> : <span className="text-dim">none — funds not released</span>,
+                  },
+                  { key: "seller_share", label: "Seller share (amount − seller fee)", value: p.amount !== null && p.amount !== undefined ? <Money cents={p.amount - (p.seller_fee ?? 0)} /> : null },
+                ]}
+              />
+            ) : null}
+            <p className="mt-3 text-[0.6875rem] text-dim">
+              {d.bank_payout.note ?? "Bank payouts from the connected account to the seller's bank are not tracked."} “Released to connected account” is a Stripe Transfer, not a bank payout.
+            </p>
+          </Panel>
+
+          <Panel eyebrow={`${d.disputes.length} stripe · ${t?.disputed_at ? 1 : 0} in-app`} title="Disputes">
+            {t?.disputed_at ? (
+              <div className="mb-4">
+                <h3 className="eyebrow text-dim">In-app dispute (transfer)</h3>
+                <KeyValue
+                  columns={3}
+                  items={[
+                    { key: "disputed_at", value: <DateTime value={t.disputed_at} /> },
+                    { key: "dispute_reason", value: t.dispute_reason },
+                    { key: "dispute_notes", value: t.dispute_notes },
+                    { key: "dispute_resolution", value: t.dispute_resolution ? <StatusBadge status={t.dispute_resolution} variant="neutral" label={labelFor("dispute_resolution", t.dispute_resolution)} /> : <StatusBadge status="dispute_open" label="unresolved" /> },
+                    { key: "dispute_resolved_at", value: <DateTime value={t.dispute_resolved_at} /> },
+                    { key: "dispute_resolved_by", value: t.dispute_resolved_by ? <IdLink kind="user" id={t.dispute_resolved_by} /> : null },
+                  ]}
+                />
+              </div>
+            ) : null}
+            <h3 className="eyebrow text-dim">Stripe disputes (chargebacks)</h3>
+            <div className="mt-2">
+              <StripeDisputeTable rows={d.disputes} basePath={path} />
+            </div>
+            {d.dispute_resolutions.length ? (
+              <>
+                <h3 className="eyebrow mt-4 text-dim">Resolutions recorded</h3>
+                <div className="mt-2">
+                  <ResolutionTable rows={d.dispute_resolutions} basePath={path} />
+                </div>
+              </>
+            ) : null}
+          </Panel>
+
+          <Panel eyebrow={`${d.payout_decisions.length}`} title="Payout decisions (risk classifier)">
+            <PayoutDecisionTable rows={d.payout_decisions} basePath={path} />
+          </Panel>
+
+          <Panel eyebrow="Refund facts" title="Refund">
+            <KeyValue
+              columns={3}
+              items={[
+                { key: "payment_status", value: <StatusBadge status={d.refund.payment_status} label={labelFor("payment", d.refund.payment_status)} /> },
+                { key: "refunded_at", value: <DateTime value={d.refund.refunded_at} /> },
+                { key: "stripe_refund_id", value: d.refund.stripe_refund_id ? <code className="font-mono text-[0.75rem]">{d.refund.stripe_refund_id}</code> : <span className="text-dim">none</span> },
+              ]}
+            />
+            <p className="mt-3 text-[0.6875rem] text-dim">
+              “Refund recorded” is set by the Stripe webhook or by the expiry job when a refund is recorded — never by the console. It means refunds
+              were CREATED at Stripe for the full total, not that the money arrived. A card refund can still fail up to ~30 days later, and a refund
+              that fails later still counts here. None of the refund facts on this page shows that a refund settled. Treat them as “a refund exists at Stripe”, and
+              confirm the outcome in Stripe before telling anyone their money is back.
+            </p>
+            {d.refund.refund_actions.length ? (
+              <div className="mt-3">
+                <h3 className="eyebrow text-dim">Refund execution attempts</h3>
+                <div className="mt-2">
+                  <RefundAttemptTable rows={d.refund.refund_actions} basePath={path} meId={me.id} />
+                </div>
+              </div>
+            ) : null}
+          </Panel>
+        </div>
+
+        <div className="space-y-6">
+          <OrderActions d={d} me={me} path={path} refundEnabled={refundEnabled} disputeOpen={disputeOpen} canRelease={canRelease} canRefund={canRefund} guards={guards} />
+          {/* Static reference, collapsed: the refund path as it is today and the payout release path, each step from the repo's own records. */}
+          <HowThisWorks />
+        </div>
+      </div>
+
+      <div className="mt-6 space-y-6">
+        <Panel eyebrow={`${d.cases.length}`} title="Cases on this order">
+          <CaseTable rows={d.cases} basePath={path} meId={me.id} emptyText="No cases reference this payment, transfer or listing." />
+        </Panel>
+        <Panel eyebrow={`${d.actions.length}`} title="Actions history">
+          <ActionTable rows={d.actions} basePath={path} meId={me.id} />
+        </Panel>
+        <Panel eyebrow="Chronology" title="Timeline">
+          {!timelineRes.ok ? <OpsFailureAlert failure={timelineRes} fn="order_timeline" retryHref={path} /> : timeline ? <Timeline data={timeline} /> : <Alert state="failed" title="Unexpected answer from ops.order_timeline()" retryHref={path} compact />}
+        </Panel>
+      </div>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * Refund attempts with the provider's own status: `processing` + pending /
+ * requires_action is shown as exactly that, never as success.
+ */
+function RefundAttemptTable({ rows, basePath, meId }: { rows: OpsAction[]; basePath: string; meId: string }) {
+  const columns: Column<OpsAction>[] = [
+    { key: "requested_at", header: "Requested", render: (a) => <DateTime value={a.requested_at ?? a.created_at} /> },
+    {
+      key: "id",
+      header: "Action",
+      render: (a) =>
+        a.id ? (
+          <Link href={`/actions/${a.id}`} className="link font-mono text-[0.75rem]">
+            {shortId(a.id)}
+          </Link>
+        ) : (
+          <span className="text-dim">—</span>
+        ),
+    },
+    {
+      key: "state",
+      header: "State",
+      render: (a) => {
+        const rs = refundStatusOf(a.result);
+        return (
+          <span className="flex flex-col gap-0.5">
+            <StatusBadge status={a.state} label={refundStateLabel(a.state, rs)} />
+            {a.state === "processing" && rs ? <span className="text-[0.6875rem] text-dim">Stripe refund status: {rs} — not a completed refund</span> : null}
+            {a.state === "succeeded_at_provider" ? <span className="text-[0.6875rem] text-dim">Stripe succeeded; the payment changes to “Refund recorded” when the Stripe webhook arrives</span> : null}
+            {a.state === "unknown" ? <span className="text-[0.6875rem] text-danger">verify in the Stripe Dashboard before any retry</span> : null}
+          </span>
+        );
+      },
+    },
+    { key: "provider_ref", header: "Stripe refund", render: (a) => (a.provider_ref ? <code className="font-mono text-[0.6875rem]">{a.provider_ref}</code> : <span className="text-dim">none</span>) },
+    { key: "requested_by", header: "By", render: (a) => (a.requested_by === meId ? "me" : a.requested_by_label ?? shortId(a.requested_by)) },
+    { key: "error", header: "Error", render: (a) => (a.error ? <span className="text-[0.75rem] text-danger">{a.error}</span> : <span className="text-dim">—</span>) },
+  ];
+  return <DataTable columns={columns} rows={rows} rowKey={(a, i) => a.id ?? `${i}`} basePath={basePath} emptyText="No refund attempts." caption="Refund execution attempts" dense />;
+}
+
+function StripeDisputeTable({ rows, basePath }: { rows: JsonRecord[]; basePath: string }) {
+  const columns: Column<JsonRecord>[] = [
+    { key: "created_at", header: "Opened", render: (r) => <DateTime value={r.created_at} /> },
+    { key: "stripe_dispute_id", header: "Stripe dispute", render: (r) => <code className="font-mono text-[0.75rem]">{str(r.stripe_dispute_id) ?? "—"}</code> },
+    { key: "status", header: "Status", render: (r) => <StatusBadge status={str(r.status)} /> },
+    { key: "reason", header: "Reason", render: (r) => str(r.reason) ?? "—" },
+    { key: "amount", header: "Amount", align: "right", render: (r) => <Money cents={num(r.amount)} /> },
+    { key: "evidence_due_by", header: "Evidence due", render: (r) => <DateTime value={r.evidence_due_by} /> },
+  ];
+  return <DataTable columns={columns} rows={rows} rowKey={(r, i) => str(r.id) ?? `${i}`} basePath={basePath} emptyText="No Stripe disputes (chargebacks) on this payment." caption="Stripe disputes" dense />;
+}
+
+function ResolutionTable({ rows, basePath }: { rows: JsonRecord[]; basePath: string }) {
+  const columns: Column<JsonRecord>[] = [
+    { key: "created_at", header: "Recorded", render: (r) => <DateTime value={r.created_at} /> },
+    { key: "outcome", header: "Outcome", render: (r) => <StatusBadge status={str(r.outcome)} variant="neutral" /> },
+    { key: "resolution", header: "Resolution", render: (r) => str(r.resolution) ?? "—" },
+    { key: "refund_required", header: "Refund required", render: (r) => <StatusBadge status={String(bool(r.refund_required) ?? false)} label={bool(r.refund_required) ? "yes — not executed by this record" : "no"} /> },
+    { key: "actor", header: "By", render: (r) => str(r.actor_label) ?? shortId(r.actor_id) },
+    { key: "reason", header: "Reason / notes", render: (r) => <span className="text-[0.75rem] text-muted">{[str(r.reason), str(r.notes)].filter(Boolean).join(" — ") || "—"}</span> },
+  ];
+  return <DataTable columns={columns} rows={rows} rowKey={(r, i) => str(r.id) ?? `${i}`} basePath={basePath} emptyText="No resolutions." caption="Dispute resolutions" dense />;
+}
+
+function PayoutDecisionTable({ rows, basePath }: { rows: JsonRecord[]; basePath: string }) {
+  const columns: Column<JsonRecord>[] = [
+    { key: "decided_at", header: "Decided", render: (r) => <DateTime value={r.decided_at} /> },
+    { key: "decision", header: "Decision", render: (r) => <StatusBadge status={str(r.decision)} /> },
+    { key: "risk_tier", header: "Risk tier", render: (r) => <StatusBadge status={str(r.risk_tier)} variant="neutral" /> },
+    { key: "reason_codes", header: "Reason codes", render: (r) => <span className="font-mono text-[0.6875rem]">{asArray(r.reason_codes).join(", ") || "—"}</span> },
+    { key: "hold_until", header: "Hold until", render: (r) => <DateTime value={r.hold_until} /> },
+    {
+      key: "flags",
+      header: "Buyer confirmed / dispute",
+      render: (r) => (
+        <span className="text-[0.75rem]">
+          {bool(r.buyer_confirmed) ? "confirmed" : "not confirmed"} / {bool(r.dispute_open) ? "dispute open" : "no dispute"}
+          {(() => {
+            const note = decisionProvenanceNote(str(r.actor), str(r.decided_at), r);
+            return note ? <span className="text-dim"> · {note}</span> : null;
+          })()}
+        </span>
+      ),
+    },
+    { key: "actor", header: "Actor", render: (r) => (str(r.actor) ? <span className="font-mono text-[0.6875rem]">{str(r.actor)}</span> : <span className="text-dim">system</span>) },
+  ];
+  return <DataTable columns={columns} rows={rows} rowKey={(r, i) => str(r.id) ?? `${i}`} basePath={basePath} emptyText="No payout decisions recorded." caption="Payout decisions" dense />;
+}
