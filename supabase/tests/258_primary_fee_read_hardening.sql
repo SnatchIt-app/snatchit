@@ -40,7 +40,8 @@
 -- P5's bound hold …031; the batch's held is 2 to match); A7 expects 198's checkout md5 (daf8bffd); A9's strip
 -- removes the 188 and the 198 blocks (198 blocks are byte-for-byte additions, so the 093 md5 stands).
 -- Registry 201 (primary_checkout_sale_eligibility) moved two pins here, nothing else: A7 expects 201's checkout md5
--- (50ed88e0); A9's strip also removes the 201 blocks (byte-for-byte additions, so the 093 md5 stands).
+-- (0222d6d9; 50ed88e0 before the venue_not_approved token, a line inside 201's BLOCK V); A9's strip also removes
+-- the 201 blocks (byte-for-byte additions, so the 093 md5 stands).
 --
 -- NOT in-suite (runner, evidence dir a188_189/): pre-flight refusal of a foreign body with nothing changed,
 -- idempotent re-apply, rollback to both predecessor md5s with every other function unchanged, rollback
@@ -191,8 +192,8 @@ SELECT is(ARRAY[tap._markers258('venue.create_primary_checkout(uuid, jsonb, uuid
                 tap._markers258('catalog.set_platform_config(text, jsonb, text, text)', true)], ARRAY[3, 3, 1, 1],
   'A6: 188 blocks — checkout carries three (D, R1, R2), set_platform_config one (V); every opening has its END');
 SELECT is(md5(pg_get_functiondef(to_regprocedure('venue.create_primary_checkout(uuid, jsonb, uuid[], text)'))),
-  '50ed88e09825c811a0aa155d06b00f32',
-  'A7: create_primary_checkout body = 201''s (md5(pg_get_functiondef) 50ed88e0; 188''s 77004331 plus the 198 and 201 blocks)');
+  '0222d6d9f064a3f5d32e87a483872c4b',
+  'A7: create_primary_checkout body = 201''s (md5(pg_get_functiondef) 0222d6d9; 188''s 77004331 plus the 198 and 201 blocks)');
 SELECT is(md5(pg_get_functiondef(to_regprocedure('catalog.set_platform_config(text, jsonb, text, text)'))),
   '2ece44b98c73af1e8c2b5d930b0a5895',
   'A8: set_platform_config body = 188''s (md5(pg_get_functiondef) 2ece44b9)');

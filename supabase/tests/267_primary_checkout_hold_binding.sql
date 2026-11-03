@@ -89,10 +89,11 @@
 -- Registry 201 (primary_checkout_sale_eligibility) moved these pins, nothing else, and kept every assertion:
 -- EXECUTE on venue.reserve_primary_inventory is revoked from authenticated, so tap._rsv267 calls the engine in
 -- owner context through tap._eng267 (a SECURITY DEFINER helper; the buyer's request.jwt.claims stay set, so
--- auth.uid() still resolves the buyer); A5 expects 201's checkout and finalize md5s (50ed88e0 / 3c359ec1); A6's
+-- auth.uid() still resolves the buyer); A5 expects 201's checkout and finalize md5s (0222d6d9 / 3c359ec1); A6's
 -- strips also remove the 201 blocks (byte-for-byte additions, so the 188 / 093 / 085 md5s stand; the 198 marker
--- counts do not move); A8 expects 201's reserve md5 (079aa9b5); B2 and B6 expect the coverage DETAIL with 201's
--- appended non_buyer_kind_units=0.
+-- counts do not move); A8 expects 201's reserve md5 (1d759c5d); B2 and B6 expect the coverage DETAIL with 201's
+-- appended non_buyer_kind_units=0. (Before the venue_not_approved token, a line inside 201's BLOCK V of reserve
+-- and checkout, A5 / A8 pinned 50ed88e0 / 079aa9b5.)
 -- ============================================================================
 BEGIN;
 SELECT plan(76);
@@ -280,8 +281,8 @@ SELECT tap.logout();
 SELECT is(ARRAY[md5(tap._def267('venue.create_primary_checkout(uuid, jsonb, uuid[], text)')),
                 md5(tap._def267('venue.finalize_primary_order(uuid, uuid, text, text)')),
                 md5(tap._def267('venue.sweep_expired_inventory_holds(integer)'))],
-          ARRAY['50ed88e09825c811a0aa155d06b00f32', '3c359ec14a788be8398d67210828b773', 'd2ed033325aa3972e9c1be48bb8f4e91'],
-  'A5: checkout and finalize bodies are 201''s (198''s daf8bffd / 7b8007e5 plus the 201 blocks: 50ed88e0 / 3c359ec1), the sweep 198''s (d2ed0333)');
+          ARRAY['0222d6d9f064a3f5d32e87a483872c4b', '3c359ec14a788be8398d67210828b773', 'd2ed033325aa3972e9c1be48bb8f4e91'],
+  'A5: checkout and finalize bodies are 201''s (198''s daf8bffd / 7b8007e5 plus the 201 blocks: 0222d6d9 / 3c359ec1), the sweep 198''s (d2ed0333)');
 SELECT is(ARRAY[tap._markers267('venue.create_primary_checkout(uuid, jsonb, uuid[], text)', '198', false)::text,
                 tap._markers267('venue.create_primary_checkout(uuid, jsonb, uuid[], text)', '198', true)::text,
                 tap._markers267('venue.finalize_primary_order(uuid, uuid, text, text)', '198', false)::text,
@@ -310,9 +311,9 @@ SELECT is(ARRAY[(SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p
                 md5(tap._def267('kernel.issue_ticket_atoms(jsonb, text)')),
                 md5(tap._def267('venue.cancel_pending_order(uuid, text, text)')),
                 coalesce((SELECT j.schedule || ' | ' || j.command FROM cron.job j WHERE j.jobname = 'sweep-expired-inventory-holds'), '<missing>')],
-          ARRAY['3', '99', 'b981bef80b10455a0c45a6e908c91aec', '079aa9b5c7185a7acdd969d4afe6d77a', '9f559af1202fa0e7d8bae0c44df93ff8',
+          ARRAY['3', '99', 'b981bef80b10455a0c45a6e908c91aec', '1d759c5dd7aaa19b9366f0195ab5f528', '9f559af1202fa0e7d8bae0c44df93ff8',
                 '3d7fef64c44483586f46b568cb92c610', '*/2 * * * * | select venue.sweep_expired_inventory_holds();'],
-  'A8: one overload each, venue functions 99, release / mint / cancel unchanged (b981 / 9f55 / 3d7f), reserve = 201''s (079a), the sweep cron job unchanged');
+  'A8: one overload each, venue functions 99, release / mint / cancel unchanged (b981 / 9f55 / 3d7f), reserve = 201''s (1d75), the sweep cron job unchanged');
 SELECT ok(strpos(tap._def267('venue.create_primary_checkout(uuid, jsonb, uuid[], text)'), 'select order_id, total_minor, currency into v_ex_id') > 0
           AND strpos(tap._def267('venue.create_primary_checkout(uuid, jsonb, uuid[], text)'), 'select order_id, total_minor, currency into v_ex_id')
             < strpos(tap._def267('venue.create_primary_checkout(uuid, jsonb, uuid[], text)'), '''feature.native_issuance_enabled''')
