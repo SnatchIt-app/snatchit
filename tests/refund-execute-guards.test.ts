@@ -73,6 +73,8 @@ class StripeWithMemory {
   listError: { status: number; error: Record<string, string> } | null = null;
   /** When set, GET /refunds/<id> (the reconcile fetch_ref leg) answers this error. */
   getError: { status: number; error: Record<string, string> } | null = null;
+  /** When set, GET /refunds/<id> answers this raw non-2xx body (e.g. a proxy's HTML page: no JSON error). */
+  getRaw: { status: number; data: unknown } | null = null;
   /** Overrides has_more on the reconcile list (undefined = omit the field). Default false. */
   listHasMore: boolean | undefined | 'omit' = false;
 
@@ -118,6 +120,7 @@ class StripeWithMemory {
     const one = /^\/refunds\/(re_[A-Za-z0-9]+)$/.exec(c.path);
     if (c.method === 'GET' && one) {
       if (this.getError) return { ok: false, status: this.getError.status, data: { error: this.getError.error } };
+      if (this.getRaw) return { ok: false, status: this.getRaw.status, data: this.getRaw.data };
       const r = this.refunds.find((x) => x.id === one[1]);
       return r ? { ok: true, data: r } : { ok: false, status: 404, data: { error: { code: 'resource_missing' } } };
     }
@@ -547,8 +550,11 @@ describe('L: a Stripe error on the reconcile LIST pages exactly as a create erro
   // list leg it answered 503 retryable with no page, so the row retried forever
   // in silence. The list's non-2xx now goes through the same classifier.
   const LIST_CASES: Array<[number, Record<string, string>, string]> = [
-    [401, { type: 'invalid_request_error', message: 'synthetic: invalid API key' }, 'invalid_request'],
-    [403, { type: 'invalid_request_error', message: 'synthetic: restricted key lacks refunds read' }, 'invalid_request'],
+    // 401/403 are their own class since E's review of ed7e4a8a (a fault of the
+    // key, never parked; K11/K12). Everything this case defends is unchanged:
+    // 409, non-retryable, paged once, and no POST.
+    [401, { type: 'invalid_request_error', message: 'synthetic: invalid API key' }, 'auth_error'],
+    [403, { type: 'invalid_request_error', message: 'synthetic: restricted key lacks refunds read' }, 'auth_error'],
     [400, { type: 'invalid_request_error', code: 'resource_missing', message: 'synthetic: no such payment_intent' }, 'resource_missing'],
   ];
 
@@ -828,6 +834,64 @@ describe('K: a non-retryable sweep outcome is parked once; nothing else is (199 
     expect((r.body.results as Array<Record<string, unknown>>)[0]).toMatchObject({ code: 'resource_missing', retryable: false });
     expect(h.kernel.parks).toHaveLength(1);
     expect(h.kernel.parks[0]).toMatchObject({ p_reason_code: 'resource_missing', p_attempt: 2 });
+  });
+
+  // E review of ed7e4a8a: a 401/403 is a GLOBAL key fault. Non-retryable (the
+  // same key would spin) but never parked, and the sweep stops on the first one:
+  // every remaining call this run would fail the same way.
+  const AUTH_401 = { status: 401, error: { type: 'invalid_request_error', message: 'synthetic: Invalid API Key provided' } };
+  it('K11 a 401 on create: auth_error, NOT parked, paged, and the sweep halts before the next claimed row', async () => {
+    const h = await harness({ claim: [claimOf(REFUND), claimOf(REFUND_B)] });
+    h.stripe.postError = AUTH_401;
+    const r = await h.sweep();
+    expect(r.status).toBe(200);
+    const results = r.body.results as Array<Record<string, unknown>>;
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({ refund_id: REFUND, outcome: 'stripe_error', code: 'auth_error', retryable: false });
+    expect(r.body.halted).toBe('auth_error');
+    expect(r.body.unprocessed).toBe(1);
+    expect(h.kernel.parks).toEqual([]);
+    expect(h.rpcNames()).not.toContain('park_refund_execution');
+    expect(h.sb.rpcs.filter((x) => x.name === 'get_refund_execution_context').map((x) => x.params.p_refund_id)).toEqual([REFUND]);
+    expect(h.calls().filter((c) => c.startsWith('POST'))).toEqual(['POST /refunds']);
+    expect(h.edge.sentry.map((s) => s.tag)).toEqual(['refund-execute:stripe', 'refund-execute:sweep-halted']);
+    expect(h.edge.sentry[1].ctx).toEqual({ processed: 1, unprocessed: 1 });
+    expect(h.kernel.row).toEqual({ status: 'pending', stripe_refund_ref: null });
+  });
+
+  it('K12 a 403 on the fetch_ref GET of a submitted row: auth_error, NOT parked, the row left exactly as found', async () => {
+    const h = await harness({ claim: [submittedClaim(REFUND, 4)] });
+    h.kernel.row = { status: 'submitted', stripe_refund_ref: 're_1' };
+    h.stripe.getError = { status: 403, error: { type: 'invalid_request_error', message: 'synthetic: restricted key lacks rak_refund_read' } };
+    const r = await h.sweep();
+    expect((r.body.results as Array<Record<string, unknown>>)[0]).toMatchObject({ code: 'auth_error', retryable: false });
+    expect(r.body.halted).toBe('auth_error');
+    expect(h.kernel.parks).toEqual([]);
+    expect(h.calls()).toEqual(['GET /refunds/re_1']);
+    expect(h.kernel.row).toEqual({ status: 'submitted', stripe_refund_ref: 're_1' });
+  });
+
+  it('K13 a 502 whose body is not JSON (a proxy page) is retryable api_error: not parked, not paged, no halt', async () => {
+    const h = await harness({ claim: [submittedClaim(REFUND)] });
+    h.kernel.row = { status: 'submitted', stripe_refund_ref: 're_1' };
+    h.stripe.getRaw = { status: 502, data: '<html><body>Bad Gateway</body></html>' };
+    const r = await h.sweep();
+    expect((r.body.results as Array<Record<string, unknown>>)[0]).toMatchObject({ outcome: 'stripe_error', code: 'api_error', retryable: true });
+    expect(r.body.halted).toBeUndefined();
+    expect(h.kernel.parks).toEqual([]);
+    expect(h.edge.sentry).toHaveLength(0);
+  });
+
+  it('K14 control: a per-row terminal error (charge_disputed) still parks and does NOT halt the batch', async () => {
+    const h = await harness({ claim: [claimOf(REFUND), claimOf(REFUND_B)] });
+    h.stripe.postError = DISPUTED;
+    const r = await h.sweep();
+    expect(r.body.halted).toBeUndefined();
+    // The batch went on: the second claimed row was read and answered (this
+    // harness's kernel knows only REFUND, so REFUND_B is refused not_found).
+    expect(h.sb.rpcs.filter((x) => x.name === 'get_refund_execution_context').map((x) => x.params.p_refund_id)).toEqual([REFUND, REFUND_B]);
+    expect((r.body.results as unknown[])).toHaveLength(2);
+    expect(h.kernel.parks.map((p) => p.p_refund_id)).toEqual([REFUND]);
   });
 
   it.each([
