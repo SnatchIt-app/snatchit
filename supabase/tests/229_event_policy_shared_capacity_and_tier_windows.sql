@@ -913,11 +913,15 @@ SELECT throws_ok($$SELECT venue.set_ticket_type_sale_window('22900000-0000-4000-
 SELECT is((SELECT count(*)::int FROM kernel.admin_audit WHERE action = 'ticket_type.sale_window_change' AND subject_kind = 'ticket_type'
             AND subject_id = '22900000-0000-4000-8000-000000000021'), 6,
   'W48: exactly SIX audit rows for t21 — W2, W10, W13, W16, W35, W36; none for the noop W18 or the refusals');
-SELECT is((SELECT before::text || ' -> ' || after::text || ' / ' || reason_code || ' / ' || actor_identity::text
+-- W49 moved with registry 204 (pgTAP 273, venue_command_key_replay): the audit row is the command-key receipt, so
+-- after also carries command_key_sha256 and request_sha256; the bounds are compared without them, and the key digest
+-- is checked as well (same intent, same plan count).
+SELECT is((SELECT before::text || ' -> ' || (after - 'command_key_sha256' - 'request_sha256')::text || ' / ' || reason_code || ' / ' || actor_identity::text
+                  || ' / ' || (after ->> 'command_key_sha256' = encode(sha256(convert_to('ck229-w-2', 'UTF8')), 'hex'))::text
              FROM kernel.admin_audit WHERE action = 'ticket_type.sale_window_change'
               AND subject_id = '22900000-0000-4000-8000-000000000021' AND reason_code = 'presale_day'),
-  '{"sale_ends_at": null, "sale_starts_at": null} -> {"sale_ends_at": "' || (to_json('2036-11-02 00:00+00'::timestamptz) #>> '{}') || '", "sale_starts_at": "' || (to_json('2036-11-01 00:00+00'::timestamptz) #>> '{}') || '"} / presale_day / 22900000-0000-4000-8000-000000000101',
-  'W49: the W2 audit row carries before NULL/NULL, after both bounds, the reason and the actor');
+  '{"sale_ends_at": null, "sale_starts_at": null} -> {"sale_ends_at": "' || (to_json('2036-11-02 00:00+00'::timestamptz) #>> '{}') || '", "sale_starts_at": "' || (to_json('2036-11-01 00:00+00'::timestamptz) #>> '{}') || '"} / presale_day / 22900000-0000-4000-8000-000000000101 / true',
+  'W49: the W2 audit row carries before NULL/NULL, after both bounds, the reason, the actor and the key digest');
 
 -- ── Section W (TZ) — a window is a pair of absolute instants; the session TimeZone never enters ─
 -- A's readiness question ("are session start and sale windows evaluated in the venue's timezone?"):
