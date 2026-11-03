@@ -38,8 +38,9 @@
 -- timestamp immediately after it is recorded — the state the same call would
 -- have produced at that instant — using only owner-level trigger disabling and
 -- the repo's app.bypass_payment_guard GUC, both available to CI's non-superuser
--- postgres role (never session_replication_role). Windows are fixed UTC days D-10..D+1 with
--- D = today - 3, disjoint from every seed_core timestamp.
+-- postgres role (never session_replication_role). Windows are fixed days D-10..D+1 with
+-- D = today - 3, disjoint from every seed_core timestamp. Registry 200 cuts the report days at
+-- America/New_York midnight, so D and every instant below are ET wall times (the layout is unchanged).
 -- ============================================================================
 BEGIN;
 SELECT plan(65);
@@ -82,10 +83,10 @@ end $f$;
 CREATE FUNCTION tap._aal2_193() RETURNS void LANGUAGE plpgsql AS $f$ begin perform set_config('request.jwt.claims',
   (coalesce(current_setting('request.jwt.claims',true),'{}')::jsonb || '{"aal":"aal2"}'::jsonb)::text, true); end $f$;
 
--- D and explicit UTC instants.
-CREATE FUNCTION tap._d193() RETURNS date LANGUAGE sql STABLE AS $m$ SELECT (now() AT TIME ZONE 'UTC')::date - 3 $m$;
+-- D and explicit ET instants (200: report days are America/New_York days).
+CREATE FUNCTION tap._d193() RETURNS date LANGUAGE sql STABLE AS $m$ SELECT (now() AT TIME ZONE 'America/New_York')::date - 3 $m$;
 CREATE FUNCTION tap._at193(p_day_offset int, p_time text) RETURNS timestamptz LANGUAGE sql STABLE
-  AS $m$ SELECT ((tap._d193() + p_day_offset)::timestamp + p_time::interval) AT TIME ZONE 'UTC' $m$;
+  AS $m$ SELECT ((tap._d193() + p_day_offset)::timestamp + p_time::interval) AT TIME ZONE 'America/New_York' $m$;
 CREATE FUNCTION tap._pay193(n int) RETURNS uuid LANGUAGE sql IMMUTABLE
   AS $m$ SELECT ('19300000-0000-0000-0000-' || lpad(n::text, 12, '0'))::uuid $m$;
 
