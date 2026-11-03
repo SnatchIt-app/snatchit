@@ -28,6 +28,15 @@ import { isUuid } from './native.ts';
 export const REFUND_FAILURE_UNBOUND_GRACE_SECONDS = 3600;
 
 /**
+ * How long a retryable fault is retried silently before it also pages. A blip
+ * must not page on every delivery attempt, but a persistent fault (a lost
+ * grant, a rotated key) retried silently until Stripe gives up would lose the
+ * convergence with no alert. Past this age a transient no longer explains it.
+ * The same window as the not_bound grace, deliberately (E review of 17d48073).
+ */
+export const REFUND_FAILURE_RETRY_PAGE_AFTER_SECONDS = REFUND_FAILURE_UNBOUND_GRACE_SECONDS;
+
+/**
  * Must this observation reach the verb? Yes when Stripe now says the refund
  * failed or was canceled, and also when record_refund_state refused it as a
  * `stale_observation`: that refusal means a failure was ALREADY recorded,
@@ -92,8 +101,18 @@ export function classifyRefundFailureResult(
       };
     }
     // Transport, 5xx, 57P01, a statement timeout: both SQL steps replay
-    // idempotently, so let Stripe deliver again.
-    return { ack: false, reason: `record_refund_stripe_failure: ${message || res.error.code || 'error'}` };
+    // idempotently, so let Stripe deliver again. Silent while the event is
+    // young; paged once it is old enough to be a persistent fault, which also
+    // covers an undatable event (ageSeconds is Infinity).
+    const reason = `record_refund_stripe_failure: ${message || code || 'error'}`;
+    if (ctx.ageSeconds >= REFUND_FAILURE_RETRY_PAGE_AFTER_SECONDS) {
+      return {
+        ack: false,
+        reason,
+        page: { tag: 'refund-webhook:convergence_stalled', facts: { code: code || null, stripe_refund_ref: ctx.stripeRefundRef } },
+      };
+    }
+    return { ack: false, reason };
   }
 
   const d = obj(res.data);
