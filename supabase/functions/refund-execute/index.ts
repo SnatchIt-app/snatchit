@@ -825,7 +825,9 @@ serve(async (req: Request) => {
 
       const claimed = planClaimedBatch((data as { refunds?: ClaimedRefund[] } | null)?.refunds);
       const results: ExecuteOutcome[] = [];
-      // One failure NEVER blocks the batch (the enforce-transfer-expiry rule).
+      let halted = false;
+      // One failure NEVER blocks the batch (the enforce-transfer-expiry rule),
+      // with one exception: a Stripe auth fault, below.
       for (const row of claimed) {
         let res: ExecuteOutcome;
         try {
@@ -841,13 +843,33 @@ serve(async (req: Request) => {
         results.push(res);
         // 199 §5.2: after each executeOne, never instead of it. Sweep only.
         await parkIfTerminal(service, row, res);
+        // A 401/403 means the key is wrong, so every remaining call this run
+        // fails the same way. Stop: the unprocessed rows keep their lease and
+        // are claimed again once it lapses, with nothing written to any of them.
+        if (res.outcome === 'stripe_error' && res.code === 'auth_error') {
+          halted = true;
+          break;
+        }
+      }
+      const unprocessed = claimed.length - results.length;
+      if (halted) {
+        await captureException('refund-execute:sweep-halted', new Error('Stripe auth fault (401/403): sweep halted'), {
+          processed: results.length,
+          unprocessed,
+        });
       }
       const counts = results.reduce<Record<string, number>>((acc, r) => {
         acc[r.outcome] = (acc[r.outcome] ?? 0) + 1;
         return acc;
       }, {});
-      console.log('[refund-execute] sweep complete:', { claimed: claimed.length, counts });
-      return json({ status: 'ok', attempted: claimed.length, counts, results }, 200, headers);
+      console.log('[refund-execute] sweep complete:', { claimed: claimed.length, counts, halted });
+      return json({
+        status: 'ok',
+        attempted: claimed.length,
+        counts,
+        results,
+        ...(halted ? { halted: 'auth_error', unprocessed } : {}),
+      }, 200, headers);
     }
 
     // ═══ HUMAN PATHS — a platform/operator JWT is mandatory ══════════════════

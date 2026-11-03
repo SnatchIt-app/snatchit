@@ -1141,3 +1141,37 @@ describe('park planning — only a non-retryable sweep outcome is parked (199 §
     expect(planPark(row, { outcome: 'stripe_error', code: 'x'.repeat(64), retryable: false })?.p_reason_code).toBe('x'.repeat(64));
   });
 });
+
+// E review of ed7e4a8a: `retryable: false` carried two unrelated meanings. "This
+// refund is wrong" (charge_disputed, resource_missing, idempotency_conflict) is
+// per-row and needs a human, so parking is right. "We cannot talk to Stripe at
+// all" (401/403: a revoked, rotated, restricted or wrong-mode key) says nothing
+// about the row, and parking it turns one instantly fixable config fault into N
+// rows of durable state, each needing its own aal2 re-arm.
+describe('a Stripe auth fault is non-retryable but never parked', () => {
+  it.each([
+    [401, { type: 'invalid_request_error', message: 'Invalid API Key provided' }],
+    [403, { type: 'invalid_request_error', message: 'The provided key does not have the required permissions' }],
+    [403, { type: 'permission_error' }],
+  ] as const)('HTTP %i is auth_error: not retried with the same key, always paged', (status, error) => {
+    const v = classifyStripeRefundError({ status, error: { ...error } });
+    expect(v).toMatchObject({ class: 'auth_error', retryable: false, page: true, writesState: false });
+  });
+
+  it('control: the per-row 4xx classes are unchanged (they still park)', () => {
+    expect(classifyStripeRefundError({ status: 400, error: { code: 'charge_disputed' } }).class).toBe('charge_disputed');
+    expect(classifyStripeRefundError({ status: 404, error: { code: 'resource_missing' } }).class).toBe('resource_missing');
+    expect(classifyStripeRefundError({ status: 400, error: { type: 'invalid_request_error' } }).class).toBe('invalid_request');
+  });
+
+  it('a non-2xx with no JSON error body is classified on its status alone (a proxy-generated 502)', () => {
+    expect(classifyStripeRefundError({ status: 502, error: undefined })).toMatchObject({ class: 'api_error', retryable: true });
+    expect(classifyStripeRefundError({ status: 401, error: undefined })).toMatchObject({ class: 'auth_error', retryable: false });
+  });
+
+  it('planPark never parks an auth_error (the executor_hold shape: non-retryable, not parked)', () => {
+    const row = { refund_id: 'r1', created_at: '2026-10-01T00:00:00Z', status: 'pending' as const, execution_mode: 'create' as const, attempt: 2, command_key: 'refund.execute:r1' };
+    expect(planPark(row, { outcome: 'stripe_error', code: 'auth_error', retryable: false })).toBeNull();
+    expect(planPark(row, { outcome: 'stripe_error', code: 'charge_disputed', retryable: false })).not.toBeNull();   // control
+  });
+});
