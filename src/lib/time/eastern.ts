@@ -28,13 +28,46 @@ export interface EasternParts {
 const WEEKDAY_INDEX: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
 const pad2 = (n: number) => String(n).padStart(2, '0');
 
+/**
+ * Two instants that pin the formatter to Eastern, one in each offset.
+ * 2026-01-15T12:00Z is 07:00 EST; 2026-07-15T12:00Z is 08:00 EDT.
+ *
+ * Constructing `Intl.DateTimeFormat` with a `timeZone` does NOT prove the engine honours it: a build
+ * without full ICU can accept the option and then format in the DEVICE zone, and the old code cached
+ * that formatter as valid — so every reader saw device-zone times and `easternZoneLabel` returned ''
+ * because the offset was neither -300 nor -240. Needing BOTH instants is what makes the probe sharp:
+ * a zone-blind formatter fails January, and one pinned to a fixed -05:00 passes January and fails July.
+ */
+const EASTERN_PROBE: readonly (readonly [ms: number, hour: number])[] = [
+  [Date.UTC(2026, 0, 15, 12), 7],
+  [Date.UTC(2026, 6, 15, 12), 8],
+];
+
+/** Does this formatter actually answer in Eastern? Called once, on the formatter it is given. */
+function formatsEastern(f: Intl.DateTimeFormat): boolean {
+  try {
+    for (const [instant, hour] of EASTERN_PROBE) {
+      const parts = f.formatToParts(new Date(instant));
+      const h = Number(parts.find((p) => p.type === 'hour')?.value);
+      const minute = Number(parts.find((p) => p.type === 'minute')?.value);
+      if (h % 24 !== hour || minute !== 0) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 let formatter: Intl.DateTimeFormat | null | undefined;
 function intlFormatter(): Intl.DateTimeFormat | null {
   if (formatter !== undefined) return formatter;
   try {
-    formatter = new Intl.DateTimeFormat('en-US', {
+    const candidate = new Intl.DateTimeFormat('en-US', {
       timeZone: EASTERN_ZONE, hourCycle: 'h23', weekday: 'short', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric',
     });
+    // One probe per process: a formatter that cannot answer in Eastern is discarded, and every call
+    // then routes to `easternPartsByRule`, which ET6 pins against Intl for every hour of 2026.
+    formatter = formatsEastern(candidate) ? candidate : null;
   } catch {
     formatter = null;
   }

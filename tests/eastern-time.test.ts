@@ -15,7 +15,7 @@
  * Negative controls (run by hand, each must FAIL): read the parts with the Date's local getters (ET1–ET4);
  * label from a fixed -05:00 (ET3); drop the repeated-hour distinction (ET3); let the rule fallback ignore DST (ET6).
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   dayKeyDiff,
@@ -128,5 +128,89 @@ describe('easternWallZoneLabel — a stored New York wall clock is labelled, nev
     expect(easternWallZoneLabel('2026-12-05', '')).toBe('');
     expect(easternWallZoneLabel('2026-12-5', '19:30')).toBe('');
     expect(easternWallZoneLabel(null, '19:30')).toBe('');
+  });
+});
+
+/**
+ * ET7 — the Intl construction probe (E's finding on c36).
+ *
+ * `new Intl.DateTimeFormat('en-US', { timeZone })` succeeding does NOT prove the engine honours the
+ * zone: a build without full ICU can accept the option and format in the DEVICE zone. The old code
+ * cached that formatter as valid, so `partsByIntl` never returned null, the rule fallback never fired,
+ * and every reader saw device-zone times with the EST/EDT suffix silently absent.
+ *
+ * These cases stub `Intl` and re-import the module per case, because the formatter is cached per
+ * process — `vi.resetModules()` is what rebuilds it. Only ET7d uses the real Intl.
+ */
+const partsFrom = (d: Date, offsetMinutes: number) => {
+  const t = new Date(d.getTime() + offsetMinutes * 60_000);
+  const wk = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][t.getUTCDay()];
+  return [
+    { type: 'weekday', value: wk },
+    { type: 'year', value: String(t.getUTCFullYear()) },
+    { type: 'month', value: String(t.getUTCMonth() + 1) },
+    { type: 'day', value: String(t.getUTCDate()) },
+    { type: 'hour', value: String(t.getUTCHours()) },
+    { type: 'minute', value: String(t.getUTCMinutes()) },
+  ];
+};
+
+/** A formatter that ACCEPTS timeZone and ignores it, answering in UTC — the ICU-less engine. */
+const zoneBlindIntl = { DateTimeFormat: class { formatToParts(d: Date) { return partsFrom(d, 0); } } };
+/** A formatter pinned to a fixed -05:00: right in January, wrong in July. */
+const fixedOffsetIntl = { DateTimeFormat: class { formatToParts(d: Date) { return partsFrom(d, -300); } } };
+/** A constructor that throws — the path the original `catch` already handled. */
+const throwingCtorIntl = { DateTimeFormat: class { constructor() { throw new Error('no ICU'); } } };
+/** A formatter that constructs and then throws when used — the path the probe's own catch handles. */
+const throwingFormatIntl = { DateTimeFormat: class { formatToParts(): never { throw new Error('no ICU data'); } } };
+
+const freshEastern = async (fakeIntl?: unknown) => {
+  vi.resetModules();
+  if (fakeIntl) vi.stubGlobal('Intl', fakeIntl);
+  return import('@/src/lib/time/eastern');
+};
+
+describe('ET7 — a formatter that does not actually answer in Eastern is discarded', () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.resetModules(); });
+
+  const JAN = Date.UTC(2026, 0, 15, 12);   // 07:00 EST
+  const JUL = Date.UTC(2026, 6, 15, 12);   // 08:00 EDT
+
+  it('ET7a: a zone-blind Intl (accepts timeZone, formats in UTC) falls back to the rule, and the label is not blank', async () => {
+    const m = await freshEastern(zoneBlindIntl);
+    // Without the probe this returned the UTC parts — hour 12 — and the label was ''.
+    expect(m.easternParts(JAN)).toEqual(m.easternPartsByRule(JAN));
+    expect(m.easternParts(JUL)).toEqual(m.easternPartsByRule(JUL));
+    expect(m.easternParts(JAN)?.hour).toBe(7);
+    expect(m.easternParts(JUL)?.hour).toBe(8);
+    expect(m.easternZoneLabel(JAN)).toBe('EST');
+    expect(m.easternZoneLabel(JUL)).toBe('EDT');
+  });
+
+  it('ET7b: a fixed -05:00 Intl passes January and fails July, so it is discarded and July still reads EDT', async () => {
+    const m = await freshEastern(fixedOffsetIntl);
+    // This is why the probe needs BOTH instants: January alone cannot tell this formatter from a good one.
+    expect(m.easternParts(JAN)?.hour).toBe(7);
+    expect(m.easternParts(JUL)?.hour).toBe(8);
+    expect(m.easternZoneLabel(JUL)).toBe('EDT');
+    expect(m.easternParts(JUL)).toEqual(m.easternPartsByRule(JUL));
+  });
+
+  it('ET7c: an Intl that throws — on construction or on use — falls back to the rule', async () => {
+    const a = await freshEastern(throwingCtorIntl);
+    expect(a.easternParts(JUL)).toEqual(a.easternPartsByRule(JUL));
+    expect(a.easternZoneLabel(JUL)).toBe('EDT');
+    vi.unstubAllGlobals();
+    const b = await freshEastern(throwingFormatIntl);
+    expect(b.easternParts(JAN)).toEqual(b.easternPartsByRule(JAN));
+    expect(b.easternZoneLabel(JAN)).toBe('EST');
+  });
+
+  it('ET7d: CONTROL — on a real zone-aware Intl the formatter is kept and Intl is what answers', async () => {
+    const spy = vi.spyOn(Intl.DateTimeFormat.prototype, 'formatToParts');
+    const m = await freshEastern();            // no stub: the real Intl
+    expect(m.easternParts(JAN)?.hour).toBe(7);
+    expect(spy).toHaveBeenCalled();            // the probe did not disable a good engine
+    spy.mockRestore();
   });
 });
