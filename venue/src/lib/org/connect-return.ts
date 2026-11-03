@@ -89,12 +89,12 @@ export function resolveLanding(cookieOrg: string | null, eligibleOrgIds: string[
  */
 export const RETURN_COPY = {
   heading: "Back from Stripe",
-  body: "Stripe has sent you back. Your payout state is read fresh below — Stripe decides when an account can receive transfers, and it is sometimes a minute behind.",
+  body: "Stripe has sent you back. Stripe decides when an account can receive transfers, and it can be a minute behind.",
 } as const;
 
 export const REFRESH_COPY = {
   heading: "That setup link expired",
-  body: "Stripe links are single-use and short-lived, and this one is spent. Nothing is wrong with your account and nothing was lost. Start the setup again to get a new link.",
+  body: "Stripe setup links work once and expire quickly. This one can't be used again. Start the setup again to get a new link.",
 } as const;
 
 /** The roles that may see payouts at all (093 §6): org_owner or org_finance. No venue role, ever. */

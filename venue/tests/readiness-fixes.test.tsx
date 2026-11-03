@@ -95,7 +95,7 @@ describe("database mode states only what it read", () => {
   it("V8 — check-in list state is not invented", () => {
     const sess = { ...liveSession, doorOpenAt: "2026-09-13T01:05:00Z" };
     const out = html(<EventSetup event={{ ...live, sessions: [sess] }} types={TICKET_TYPES} batches={BATCHES} ctx={db} basePath={base} timeZone={tz} openManifestSessionIds={null} />);
-    expect(out).toContain("Check-in list state isn&#x27;t readable in this mode.");
+    expect(out).toContain("The dashboard does not read whether the check-in list is open now.");
     expect(out).not.toContain("Doors closed");
   });
   it("V-db-larger-screen-claim — no 'open on a larger screen to make changes' when nothing can be changed", () => {
@@ -105,7 +105,7 @@ describe("database mode states only what it read", () => {
   it("V1 — holds that were never read are not reported as none", () => {
     const out = html(<InventoryOverview event={live} types={TICKET_TYPES.filter((t) => t.eventId === live.eventId)} batches={BATCHES} holds={[]} ctx={db} basePath={base} timeZone={tz} now={PREVIEW_NOW} />);
     expect(out).not.toContain("No active holds");
-    expect(out).toContain("Holds aren&#x27;t readable in this mode.");
+    expect(out).toContain("The dashboard does not read holds.");
   });
   it("V7 — no 'Needs attention' chip computed from unread sold counts", () => {
     const zeroed = BATCHES.map((b) => ({ ...b, held: 0, sold: 0, countersKnown: false }));

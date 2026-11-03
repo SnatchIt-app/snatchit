@@ -31,7 +31,7 @@ export function VenueDetailsForm({ ids, commandKey, venue }: { ids: CommandIds; 
     <CommandForm action={updateVenueForm} ids={ids} commandKey={commandKey} submitLabel="Save the venue" busyLabel="Saving…">
       <Field label="Name" name="name" defaultValue={venue.name ?? ""} maxLength={200} />
       <Select
-        label="Neighbourhood"
+        label="Neighborhood"
         name="neighborhood"
         defaultValue={venue.neighborhood ?? ""}
         options={[["", "Not set"], ...NEIGHBORHOODS.map((n) => [n, n.replace(/\b\w/g, (c) => c.toUpperCase())] as const)]}
@@ -81,7 +81,7 @@ export function VenueTimezoneForm({ ids, commandKey, timeZone, stored }: { ids: 
         hint={
           stored
             ? "Every time you enter for this venue's nights is read in this zone. Changing it does not move times already saved."
-            : "This venue's stored time zone isn't readable yet, so nothing is preselected — choose one explicitly. Saving without choosing would write the platform default over whatever is stored."
+            : "This venue's stored time zone isn't readable yet, so nothing is preselected. Choose the venue's time zone yourself."
         }
       />
       <Field label="Reason" name="reason_code" required placeholder="venue_moved" maxLength={80} />

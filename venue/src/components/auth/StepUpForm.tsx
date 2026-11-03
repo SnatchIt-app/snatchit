@@ -95,8 +95,8 @@ export function StepUpForm({ nextHref }: { nextHref: string }) {
         <div className="space-y-2">
           {phase.replacedUnfinished ? (
             <p className="text-sm text-muted">
-              This account had an unfinished authenticator setup, so it has been cleared. Any earlier &ldquo;Snatch It venue&rdquo; entry in your
-              authenticator app is now dead and its codes will not work &mdash; use the code below. Authenticators for other Snatch It apps are untouched.
+              This account had an unfinished authenticator setup, so it has been cleared. Any earlier entry for this account in your
+              authenticator app no longer works. Scan the new code below.
             </p>
           ) : null}
           <p className="text-sm">Scan this with an authenticator app, then enter the 6-digit code it shows.</p>

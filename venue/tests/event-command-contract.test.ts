@@ -166,13 +166,16 @@ describe("server refusals in the operator's words", () => {
   });
   it("an unknown refusal keeps the server's words instead of inventing a cause, and nothing claims a change happened", () => {
     expect(refusalCopy("something_new: with detail")).toContain("something_new: with detail");
-    expect(refusalCopy(null)).toContain("Nothing changed");
-    expect(refusalCopy("")).toContain("Nothing changed");
+    // with no message from the server, whether anything changed is unknown: say so, and say to check
+    expect(refusalCopy(null)).toContain("did not confirm this change");
+    expect(refusalCopy("")).toContain("Reload the page and check before you send it again.");
     for (const copy of Object.values(REFUSAL_COPY)) expect(copy.toLowerCase()).not.toMatch(/\bsaved\b|\bpublished\b|\bis now on sale\b/);
   });
   it("the five not-ready-to-sell reasons each say who can fix it", () => {
     expect(REFUSAL_COPY.empty_inventory).toContain("nothing to sell");
-    expect(REFUSAL_COPY.org_not_saleable).toContain("payout setup");
+    // the server refuses any status but approved/active, and a missing org row (102:403): who fixes it is Snatch It
+    expect(REFUSAL_COPY.org_not_saleable).toContain("Contact Snatch It");
+    expect(REFUSAL_COPY.org_not_saleable).toContain("cannot be found");
     expect(REFUSAL_COPY.connect_not_ready).toContain("Stripe");
     expect(REFUSAL_COPY.signing_not_ready).toContain("platform");
     expect(REFUSAL_COPY.fee_policy_unset).toContain("Snatch It");

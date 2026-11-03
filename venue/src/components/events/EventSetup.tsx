@@ -83,7 +83,7 @@ export function EventSetup({ event, types, batches, ctx, basePath, timeZone, ope
           <Facts
             items={[
               { label: "Sold of capacity", value: `${sold} of ${cap}`, meaning: "Tickets sold for the first session, against what that session holds." },
-              { label: "Ticket sales", value: usd(gross), meaning: "Face value of what sold, before fees and before any refunds. This is not what you get paid — the payout screen that shows that is not built yet." },
+              { label: "Ticket sales", value: usd(gross), meaning: "Tickets sold for the first session, times each ticket type's current price, before fees and refunds. This is not what you get paid. The screen that would show that is not built yet." },
             ]}
           />
           <p className="mt-4">
@@ -111,7 +111,7 @@ export function EventSetup({ event, types, batches, ctx, basePath, timeZone, ope
                 }
                 right={
                   <span className="text-sm text-dim">
-                    {openManifestSessionIds === null ? "Check-in list state isn't readable in this mode." : MANIFEST_COPY[manifestState(sx, openManifestSessionIds.has(sx.sessionId))]}
+                    {openManifestSessionIds === null ? "The dashboard does not read whether the check-in list is open now." : MANIFEST_COPY[manifestState(sx, openManifestSessionIds.has(sx.sessionId))]}
                   </span>
                 }
               />
@@ -121,7 +121,7 @@ export function EventSetup({ event, types, batches, ctx, basePath, timeZone, ope
       </Block>
 
       {/* 4. What people can buy. */}
-      <Block title="What people can buy" action={<ArrowLink href={withPreview(`${self}/inventory`, ctx)}>Tickets</ArrowLink>} id="types">
+      <Block title="Ticket types" action={<ArrowLink href={withPreview(`${self}/inventory`, ctx)}>Tickets</ArrowLink>} id="types">
         {types.length === 0 ? (
           <p className="text-base text-muted">No ticket types yet. An event needs at least one before it can go on sale.</p>
         ) : (
@@ -144,28 +144,28 @@ export function EventSetup({ event, types, batches, ctx, basePath, timeZone, ope
           <Detail summary={`Can tickets be passed on? ${resaleLabel(event)}`}>
             {event.resaleMode === "not_readable" ? (
               event.status === "draft" ? (
-                <p className="mb-2">This event is a draft. Its own resale setting can&apos;t be read until the event is published, so nothing is shown here rather than a guess: the venue-wide setting is not necessarily the one that applies.</p>
+                <p className="mb-2">This event is a draft. Its own resale setting can&apos;t be read until it leaves draft. Nothing is shown here instead of a guess, because the venue-wide setting may not be the one that applies.</p>
               ) : (
-                <p className="mb-2">This venue isn&apos;t approved yet. Its venue-wide resale setting can&apos;t be read until it is, so nothing is shown here rather than a guess: resale is not necessarily off.</p>
+                <p className="mb-2">This venue isn&apos;t approved yet. Its venue-wide resale setting can&apos;t be read until it is. Nothing is shown here instead of a guess, because resale may not be off.</p>
               )
             ) : null}
-            <p>Resale is off unless you turn it on. Tickets already listed keep the rules they were listed under.</p>
-            {editor && ctx.writesEnabled !== false ? <p className="mt-2">Changing this writes a new version rather than editing the old one, so you can always see which rules a ticket was sold under.</p> : null}
+            <p>Resale is off unless a resale setting turns it on. This dashboard cannot change that setting. Tickets already listed keep the rules they were listed under.</p>
+            {editor && ctx.writesEnabled !== false ? <p className="mt-2">A change to the resale setting creates a new version. The old version is kept, so the record always shows which rules a ticket was sold under.</p> : null}
           </Detail>
         ) : null}
 {commandsSlot}
         <Detail summary="Good to know about ticket types">
           <ul className="space-y-1">
-            <li>Tiers are separate ticket types. When the first sells out, turn the next one public on the Tickets page (visibility is a command there).</li>
+            <li>Each price level is its own ticket type. Buyers see only Public ticket types. When one sells out, set the next one to Public on the Tickets page. It also needs a Public sale release for each night.</li>
             <li>Snatch It handles the deposit on a table. The balance at the table settles with you, off-platform.</li>
           </ul>
         </Detail>
         {editor && ctx.writesEnabled !== false && event.status !== "cancelled" && event.status !== "completed" ? (
           <Detail summary="Cancelling this event">
             <p>
-              Before the confirm button turns on, cancelling shows you exactly what it would affect, as counts: sessions to cancel, tickets to void, orders to refund, and open resale listings and transfers to cancel. You also have to give a reason and type the event title. Nothing is deleted.
+              In the real dashboard, you give a reason and type &quot;cancel&quot; to confirm. Cancelling voids the paid tickets for this event and creates refunds for them. Nothing is deleted.
             </p>
-            <p className="mt-2">Not offered in this demo, on purpose: the read that counts up what would be affected does not exist yet, and a cancel button that cannot show you the damage first is worse than no button.</p>
+            <p className="mt-2">This demo does not offer it.</p>
           </Detail>
         ) : null}
       </div>

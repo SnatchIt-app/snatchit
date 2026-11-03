@@ -46,7 +46,7 @@ describe("SQLSTATE / PostgREST code → plain copy", () => {
   });
   it("the dark state reads as 'not enabled', in those words", () => {
     expect(mapCommandError(pg("PGRST106", "Invalid schema: venue_cmd")).message).toBe(NOT_ENABLED_COPY);
-    expect(NOT_ENABLED_COPY).toMatch(/Commands are not enabled for this project/);
+    expect(NOT_ENABLED_COPY).toMatch(/Changes are turned off on this project/);
   });
   it("a 401 without a code is an auth failure; a code-less network message is transport", () => {
     expect(mapCommandError(pg(null, "unauthorized"), 401)).toMatchObject({ kind: "refused", code: "auth" });

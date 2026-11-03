@@ -62,10 +62,10 @@ export async function beginTotpEnroll(): Promise<EnrollStarted> {
     const { data: enrolled, error } = await supabase.auth.mfa.enroll({ factorType: "totp", friendlyName: `Snatch It venue ${new Date().toISOString().slice(0, 19)}` });
     if (error) return { ok: false, message: error.message };
     const fresh = enrolled?.totp as { qr_code?: string; secret?: string; uri?: string } | undefined;
-    if (!enrolled?.id || !fresh?.qr_code || !fresh.secret || !fresh.uri) return { ok: false, message: "Enrolment did not return a code to scan." };
+    if (!enrolled?.id || !fresh?.qr_code || !fresh.secret || !fresh.uri) return { ok: false, message: "Enrollment did not return a code to scan." };
     return { ok: true, factorId: enrolled.id, qrSvg: fresh.qr_code, secret: fresh.secret, uri: fresh.uri };
   } catch (e) {
-    return { ok: false, message: e instanceof Error ? e.message : "Could not start enrolment." };
+    return { ok: false, message: e instanceof Error ? e.message : "Could not start enrollment." };
   }
 }
 

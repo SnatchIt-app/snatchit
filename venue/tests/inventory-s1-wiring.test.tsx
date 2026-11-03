@@ -91,9 +91,9 @@ describe("InventoryOverview — the commands slot replaces the demo capacity pan
     const base = { event: EV, types: TYPES, batches: merged, holds: [], ctx: db, basePath: "/o/x/v/y", timeZone: "America/New_York", now: new Date("2026-11-29T00:00:00Z") };
     const withSlot = html(createElement(InventoryOverview, { ...base, commandsSlot: createElement("p", { id: "slot" }, "commands here") }));
     expect(withSlot).toContain('id="slot"');
-    expect(withSlot).not.toContain("Not available in this demo");
+    expect(withSlot).not.toContain("Not available on this screen");
     expect(withSlot).toContain("20"); // sold from the merged counters
     const without = html(createElement(InventoryOverview, base));
-    expect(without).toContain("Not available in this demo");
+    expect(without).toContain("Not available on this screen");
   });
 });

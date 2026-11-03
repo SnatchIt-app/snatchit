@@ -13,6 +13,7 @@ import { DataSourceError, NotWiredState } from "@/components/ui/DataSourceError"
 import { Shell } from "@/components/shell/Shell";
 import VenueLoading from "@/app/o/[org]/v/[venue]/loading";
 import { EventsTable } from "@/components/events/EventsTable";
+import { EventSetup } from "@/components/events/EventSetup";
 import { mapBatches } from "@/lib/db/rows";
 import type { Event, TicketType } from "@/lib/types";
 import { authCookie, roleLabelClaimed, sessionCookieHolds, waitSettled } from "../scripts/acceptance/lib/checks.mjs";
@@ -213,3 +214,33 @@ describe("the kit's database-mode events checks match the v2 list", () => {
     expect(out).toMatch(/<form[^>]*action="\/logout"[^>]*>\s*<button/);
   });
 });
+
+/**
+ * H1 checks the event setup page for the commands-OFF note. Its marker was "Status changes are not available in
+ * database mode", which no screen rendered any more, so H1 could not pass on a real run (D, 2026-11-02). It now
+ * matches the copy EventSetup renders (EventSetup.tsx, "Status changes aren't enabled on this project yet"),
+ * avoiding the apostrophe; this test keeps the two together.
+ */
+describe("H1's event-setup marker is the copy EventSetup renders with commands off", () => {
+  it("the kit's H1 line looks for a phrase the database-mode setup page shows", () => {
+    const kit = readFileSync(new URL("../scripts/acceptance/accept.mjs", import.meta.url), "utf8");
+    const h1 = kit.split("\n").find((l) => l.includes('"H1 event setup:'));
+    expect(h1).toBeDefined();
+    expect(h1).toContain('t.includes("enabled on this project yet")');
+    expect(h1).not.toContain("Status changes are not available in database mode");
+    const ev = { eventId: "e1", orgId: "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d", venueId: "1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e", title: "Night A", status: "draft", resaleMode: "off", promoterCount: null, sessions: [] } as unknown as Event;
+    const setup = text(
+      <EventSetup
+        event={ev}
+        types={[]}
+        batches={[]}
+        ctx={{ role: "venue_manager", state: "live", source: "database", countersAvailable: false, writesEnabled: false, verifiedRole: true } as never}
+        basePath="/o/x/v/y"
+        timeZone="America/New_York"
+        openManifestSessionIds={null}
+      />,
+    );
+    expect(setup).toContain("enabled on this project yet");
+  });
+});
+

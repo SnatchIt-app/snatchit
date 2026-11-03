@@ -17,7 +17,7 @@ export function TimeFields({ timeZone, defaults }: { timeZone: string; defaults?
     <>
       <input type="hidden" name="timeZone" value={timeZone} />
       <Field label="Name for this night (optional)" name="session_label" defaultValue={defaults?.label ?? ""} placeholder="Doors" maxLength={120} />
-      <Field label="Starts" name="starts_local" type="datetime-local" required defaultValue={defaults?.starts ?? ""} hint={`Entered in the venue's time zone (${timeZone}).`} />
+      <Field label="Starts" name="starts_local" type="datetime-local" required defaultValue={defaults?.starts ?? ""} hint={`Entered in the ${timeZone} time zone.`} />
       <Field label="Doors open (optional)" name="doors_local" type="datetime-local" defaultValue={defaults?.doors ?? ""} />
       <Field label="Ends (optional)" name="ends_local" type="datetime-local" defaultValue={defaults?.ends ?? ""} />
     </>
@@ -28,7 +28,7 @@ export function CreateEventForm({ ids, commandKey, timeZone }: { ids: CommandIds
   return (
     <section className="panel px-5 py-5" aria-labelledby="create-event">
       <h2 id="create-event" className="text-base font-semibold text-ink">Create an event</h2>
-      <p className="mt-1 text-sm text-dim">It is born as a draft: your staff can see it, nobody else can, and it sells nothing until you publish it.</p>
+      <p className="mt-1 text-sm text-dim">It starts as a draft. Buyers cannot see a draft, and it sells nothing. If no answer comes back, check the events list before you send it again. Each send creates a new draft.</p>
       <div className="mt-4">
         <CommandForm action={createEventForm} ids={ids} commandKey={commandKey} submitLabel="Create the draft" busyLabel="Creating…">
           <Field label="Title" name="title" required maxLength={200} placeholder="Snatch It pop-up" />
@@ -44,7 +44,7 @@ export function EventDetailsForm({ ids, commandKey, status, currentTitle, descri
   return (
     <CommandForm action={updateEventForm} ids={ids} commandKey={commandKey} extra={{ status, current_title: currentTitle }} submitLabel="Save the details" busyLabel="Saving…">
       <Field label="Title" name="title" defaultValue={currentTitle} maxLength={200} hint={needsReason ? "Changing the title now needs a reason, which is recorded." : undefined} />
-      <Field label="Description" name="description" defaultValue={description ?? ""} maxLength={2000} />
+      <Field label="Description" name="description" defaultValue={description ?? ""} maxLength={2000} hint="This form does not show the saved description, category or genres. Saving sets all three from these boxes. An empty box clears what was saved." />
       <Field label="Category" name="category" defaultValue={category ?? ""} maxLength={60} />
       <Field label="Genres" name="genre_tags" defaultValue={(genreTags ?? []).join(", ")} hint="Separate with commas." />
       {needsReason ? <Field label="Reason for this change" name="reason_code" placeholder="renamed_for_promo" maxLength={80} /> : null}
@@ -57,7 +57,7 @@ export function PublishEventForm({ ids, commandKey, target }: { ids: CommandIds;
     <CommandForm action={publishEventForm} ids={ids} commandKey={commandKey} extra={{ target_status: target }} submitLabel={`Move to ${STATUS_WORD[target] ?? target}`} busyLabel="Moving…">
       <p className="text-sm text-muted">
         {target === "on_sale"
-          ? "Going on sale needs a ticket type with a release, an organization cleared to sell, Stripe confirming the payout account, ticket signing enabled and the platform's fee set. If any of those is missing the server says which."
+          ? "Before the event can go on sale, the server checks for a ticket type with a release, an organization cleared to sell, a payout account Stripe has confirmed, ticket signing turned on, and the Snatch It fee set. If one is missing, the server names the first one it finds."
           : "An event moves forward one step at a time, and never backwards."}
       </p>
     </CommandForm>
@@ -67,7 +67,7 @@ export function PublishEventForm({ ids, commandKey, target }: { ids: CommandIds;
 export function CancelEventForm({ ids, commandKey }: { ids: CommandIds; commandKey: string }) {
   return (
     <CommandForm action={cancelEventForm} ids={ids} commandKey={commandKey} submitLabel="Cancel this event" busyLabel="Cancelling…" destructive>
-      <p className="text-sm text-muted">Cancelling is recorded and cannot be undone from here. Nothing is deleted.</p>
+      <p className="text-sm text-muted">Cancelling voids the paid tickets for this event and creates refunds for them. It also cancels open resale listings and transfers. It is recorded and cannot be undone here. Nothing is deleted.</p>
       <Field label="Reason" name="reason_code" required placeholder="venue_lost" maxLength={80} />
       <Field label='Type "cancel" to confirm' name="confirm" required autoComplete="off" />
     </CommandForm>
@@ -129,7 +129,7 @@ export function SessionCapacityForm({
               ]
                 .filter(Boolean)
                 .join(" ")
-            : "Leave empty for unlimited. These numbers are not readable on this project yet, so the server refuses a pool below what is already allocated, or above the venue's capacity, and says the numbers then."
+            : "Leave empty for unlimited. The current numbers could not be read. The server refuses a pool below what is already allocated to releases, or above the venue's capacity."
         }
       />
       <Field label="Reason" name="reason_code" required placeholder="opening_pool" maxLength={80} />
@@ -138,5 +138,5 @@ export function SessionCapacityForm({
 }
 
 export function NeighborhoodSelect({ value, options }: { value?: string | null; options: readonly string[] }) {
-  return <Select label="Neighbourhood" name="neighborhood" defaultValue={value ?? ""} options={[["", "Not set"], ...options.map((o) => [o, o.replace(/\b\w/g, (c) => c.toUpperCase())] as const)]} />;
+  return <Select label="Neighborhood" name="neighborhood" defaultValue={value ?? ""} options={[["", "Not set"], ...options.map((o) => [o, o.replace(/\b\w/g, (c) => c.toUpperCase())] as const)]} />;
 }

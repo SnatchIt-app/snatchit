@@ -52,9 +52,9 @@ export default async function InventoryPage({ params, searchParams }: { params: 
             const m = mergeCounters(batches, c.data);
             batches = m.batches;
             if (m.complete) ctx = { ...ctx, countersAvailable: true };
-            else countersNote = "Capacity, held and sold are shown only where the counters read covered every release; the rest show remaining only.";
+            else countersNote = "Capacity, held and sold did not load for every release, so the tables show remaining only.";
           } else {
-            countersNote = c.kind === "not_exposed" ? "Capacity, held and sold are not readable on this project yet (the counters read is not exposed). Remaining is shown." : `Couldn't load capacity, held and sold (${c.message}). Remaining is shown; nothing here is a zero.`;
+            countersNote = c.kind === "not_exposed" ? "Capacity, held and sold cannot be read on this project yet. Only remaining is shown." : `Couldn't load capacity, held and sold (${c.message}). Only remaining is shown. The missing figures are not shown as zero.`;
           }
         }
         loaded = { types: t.data, batches, holds: [] };
@@ -87,7 +87,7 @@ export default async function InventoryPage({ params, searchParams }: { params: 
       {!entryOpen ? (
         <EntryGate entry={p.entry} loginHref={`/login?next=${encodeURIComponent(withPreview(self, ctx))}`} retryHref={withPreview(self, ctx)} />
       ) : !readable ? (
-        <DeniedState surface="Inventory" roleLabel={PRINCIPAL_LABEL[ctx.role]} alternative={{ label: "Back to events", href: withPreview(`${basePath}/events`, ctx) }} />
+        <DeniedState surface="The Tickets page" roleLabel={PRINCIPAL_LABEL[ctx.role]} alternative={{ label: "Back to events", href: withPreview(`${basePath}/events`, ctx) }} />
       ) : ctx.state === "loading" ? (
         <Skeleton rows={9} />
       ) : dbFailure ?? dbLoadFailure ? (
@@ -99,11 +99,11 @@ export default async function InventoryPage({ params, searchParams }: { params: 
           alternative={{ label: "Back to events", href: withPreview(`${basePath}/events`, ctx) }}
         />
       ) : failedRead || !loaded ? (
-        <ErrorState lost="Inventory" read={failedRead ?? "venue.inventory_batch"} retryHref={withPreview(self, ctx)} />
+        <ErrorState lost="The Tickets page" read={failedRead ?? "venue.inventory_batch"} retryHref={withPreview(self, ctx)} />
       ) : (
         <>
-          {ctx.source === "database" && (countersNote || ctx.countersAvailable !== true) ? <p className="mb-4 border border-line-neutral px-3 py-2 text-xs text-muted">{countersNote ?? "This role reads remaining only; capacity, held and sold are a staff read for owners, admins, finance and venue managers."}</p> : null}
-          {ctx.source === "database" && !commands ? <p className="mb-4 text-xs text-dim">Tiers and inventory are read-only here for now: commands are not enabled on this project.</p> : null}
+          {ctx.source === "database" && (countersNote || ctx.countersAvailable !== true) ? <p className="mb-4 border border-line-neutral px-3 py-2 text-xs text-muted">{countersNote ?? "Owners, admins, finance and venue managers see capacity, held and sold once a release exists. Other roles see remaining only."}</p> : null}
+          {ctx.source === "database" && !commands ? <p className="mb-4 text-xs text-dim">Ticket types and releases are read-only here. Either your role cannot change them, or changes are turned off on this project.</p> : null}
           {false ? <p className="mb-4 border border-line-neutral px-3 py-2 text-xs text-muted">Database mode shows <strong>remaining</strong> only. Capacity, held and sold are not readable by any client role until a counters read is contracted (081 E-29).</p> : null}
           <InventoryOverview
             event={event}

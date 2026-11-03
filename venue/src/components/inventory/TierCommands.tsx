@@ -26,7 +26,7 @@ function Outcome({ state }: { state: CommandFormState }) {
     const replay = r.result.status === "noop_replay" || r.result.status === "noop";
     return (
       <p className="mt-2 text-sm text-success" role="status">
-        {replay ? "Already applied (the server replayed this command as a no-op)." : "Saved. The server recorded the change."}
+        {replay ? "Nothing changed: this was already in place." : "Saved. The server recorded the change."}
       </p>
     );
   }
@@ -91,8 +91,8 @@ export function TierCommands({ ids, types, batches, keys, sessionId, timeZone }:
   return (
     <section className="panel space-y-6 px-5 py-5" aria-labelledby="tier-commands-title">
       <div>
-        <h2 id="tier-commands-title" className="text-base font-semibold text-ink">Change tiers and capacity</h2>
-        <p className="mt-1 text-sm text-dim">Each change is a command the server audits under your name; a refusal says why. Capacity never goes below what is already held or sold.</p>
+        <h2 id="tier-commands-title" className="text-base font-semibold text-ink">Change ticket types and capacity</h2>
+        <p className="mt-1 text-sm text-dim">The server records each change under your name. If it refuses a change, it says why. Capacity cannot go below what is already held or sold.</p>
       </div>
       {types.map((t) => (
         <div key={t.ticketTypeId} className="space-y-3 border-t border-line pt-4">
@@ -110,9 +110,9 @@ export function TierCommands({ ids, types, batches, keys, sessionId, timeZone }:
             <label className="block text-xs">
               Visibility
               <select name="visibility" defaultValue={t.visibility} className="field mt-1">
-                <option value="hidden">Hidden</option>
-                <option value="public">Public</option>
-                <option value="door_only">Door only</option>
+                <option value="hidden">Hidden (not shown to buyers)</option>
+                <option value="public">Public (can be shown to buyers)</option>
+                <option value="door_only">Door only (not shown in the app)</option>
               </select>
             </label>
             <Reason />
@@ -140,7 +140,7 @@ export function TierCommands({ ids, types, batches, keys, sessionId, timeZone }:
                 Capacity
                 <input name="capacity" type="number" min={1} step="1" required className="field mt-1 w-28" />
               </label>
-              <p className="text-[0.6875rem] text-dim">Releasing twice releases the inventory twice, and sending it again does not undo it. If no answer arrives, reload and look before trying again.</p>
+              <p className="text-[0.6875rem] text-dim">Releasing twice releases the inventory twice. Sending it again does not undo it. If no answer arrives, reload the page and check before you try again.</p>
             </CommandForm>
           ) : null}
           {/* 162's sale window. The organizer types the venue's local wall clock; the server is given an offset. */}
@@ -150,11 +150,11 @@ export function TierCommands({ ids, types, batches, keys, sessionId, timeZone }:
               <input name="saleStartsLocal" type="datetime-local" className="field mt-1" />
             </label>
             <label className="block text-xs">
-              Until (exclusive)
+              Until (sales stop at this time)
               <input name="saleEndsLocal" type="datetime-local" className="field mt-1" />
             </label>
             <Reason />
-            <p className="text-[0.6875rem] text-dim">Leave a side empty to leave it open; empty both to clear the window.</p>
+            <p className="text-[0.6875rem] text-dim">This form does not show the saved window. Saving sets both sides. An empty side has no limit, even if one was saved before. Empty both sides to clear the window.</p>
           </CommandForm>
           {batches
             .filter((b) => b.ticketTypeId === t.ticketTypeId && (!sessionId || b.sessionId === sessionId))
@@ -190,9 +190,9 @@ export function TierCommands({ ids, types, batches, keys, sessionId, timeZone }:
           <label className="block text-xs">
             Visibility
             <select name="visibility" defaultValue="hidden" className="field mt-1">
-              <option value="hidden">Hidden</option>
-              <option value="public">Public</option>
-              <option value="door_only">Door only</option>
+              <option value="hidden">Hidden (not shown to buyers)</option>
+              <option value="public">Public (can be shown to buyers)</option>
+              <option value="door_only">Door only (not shown in the app)</option>
             </select>
           </label>
         </CommandForm>

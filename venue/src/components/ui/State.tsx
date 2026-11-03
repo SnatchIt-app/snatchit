@@ -44,7 +44,7 @@ export function ErrorState({ read, retryHref, lost = "This page" }: { read: stri
     <StateCard icon="alert" tone="danger" role="alert">
       <p className="title-section mt-4 text-[1.25rem]">{lost} couldn&apos;t be loaded.</p>
       <p className="mt-2 max-w-md text-[0.9375rem] leading-relaxed text-muted">
-        Nothing is shown rather than showing you numbers that might be out of date. Try again; if it keeps failing, the rest of the dashboard still works.
+        Nothing is shown, so you never see numbers that may be out of date. Try again. If it keeps failing, other pages may still work.
       </p>
       <a className="btn btn-primary mt-6" href={retryHref}>
         Try again
@@ -90,7 +90,7 @@ export function DeniedState({
       <Title className="title-section mt-4 text-[1.25rem]">{surface} isn&apos;t open to you.</Title>
       <p className="mt-3 max-w-md text-[0.9375rem] leading-relaxed text-muted">{reason ?? (roleLabel ? `Your role here is ${roleLabel}, and that role doesn't include this screen.` : "Your role at this venue doesn't include this screen.")}</p>
       <p className="mt-2 max-w-md text-[0.875rem] leading-relaxed text-muted">
-        {grantedBy} can give you access. Nothing about this screen&apos;s contents is shown either way — this is not a message about whether anything exists.
+        {grantedBy} can give you access. This message does not show what is on this screen, or whether anything is there.
       </p>
       {alternative ? (
         <a className="btn btn-primary mt-6" href={alternative.href}>

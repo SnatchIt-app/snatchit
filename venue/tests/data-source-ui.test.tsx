@@ -20,7 +20,7 @@ describe("database-mode failures are explicit", () => {
     expect(out).toContain("C0DE");
     if (kind === "auth") expect(out).toContain("Sign in to continue");
     if (kind === "permission") expect(out).toContain("You don&#x27;t have access to this.");
-    if (kind === "not_exposed") expect(out).toContain("does not expose the <code class=\"font-mono\">venue_api</code> schema");
+    if (kind === "not_exposed") expect(out).toContain("does not open <code class=\"font-mono\">venue_api</code> to the dashboard");
     if (kind === "config") expect(out).toContain("Database mode is not configured");
     if (kind === "transport") expect(out).toContain("Couldn&#x27;t reach the database");
     if (kind === "error") expect(out).toContain("venue_api.events");
@@ -36,8 +36,8 @@ describe("database-mode failures are explicit", () => {
 describe("a draft's resale mode that RLS hides is shown as not readable", () => {
   const db: PreviewContext = { role: "venue_manager", state: "live", source: "database", countersAvailable: false, writesEnabled: false };
   const draft: Event = { ...EVENTS[0], status: "draft", resaleMode: "not_readable" };
-  it("the label says it is not readable until published, and names no mode", () => {
-    expect(RESALE_LABEL.not_readable).toMatch(/not readable until (the event is )?published/i);
+  it("the label says it is not readable while the event is a draft, and names no mode", () => {
+    expect(RESALE_LABEL.not_readable).toMatch(/not readable while the event is a draft/i);
     const modes = Object.entries(RESALE_LABEL).filter(([k]) => k !== "not_readable").map(([, v]) => v);
     for (const m of modes) expect(RESALE_LABEL.not_readable).not.toContain(m);
   });
@@ -46,7 +46,7 @@ describe("a draft's resale mode that RLS hides is shown as not readable", () => 
     expect(table).toContain(RESALE_LABEL.not_readable);
     const setup = html(<EventSetup event={draft} types={[]} batches={[]} ctx={db} basePath={base} timeZone={VENUE.timeZone} openManifestSessionIds={new Set()} />);
     expect(setup).toContain(`Can tickets be passed on? ${RESALE_LABEL.not_readable}`);
-    expect(setup).toContain("can&#x27;t be read until the event is published");
+    expect(setup).toContain("can&#x27;t be read until it leaves draft");
     for (const m of ["Buy now", "Auction", "Transfers only"]) expect(setup).not.toContain(`Can tickets be passed on? ${m}`);
   });
 });
@@ -85,7 +85,7 @@ describe("counters gate follows the data source", () => {
     expect(showCounters("venue_manager", {})).toBe(true);
     const batches = BATCHES.map((b) => ({ ...b, capacity: b.capacity - b.held - b.sold, held: 0, sold: 0, countersKnown: false }));
     const table = html(<EventsTable events={EVENTS} batches={batches} types={TICKET_TYPES} holds={[]} ctx={db} basePath={base} timeZone={VENUE.timeZone} now={PREVIEW_NOW} filter={{}} />);
-    expect(table).toContain("available");
+    expect(table).toContain("remaining, all releases");
     expect(table).not.toMatch(/\d+ \/ \d+/);
     const setup = html(<EventSetup event={EVENTS[0]} types={TICKET_TYPES} batches={batches} ctx={db} basePath={base} timeZone={VENUE.timeZone} openManifestSessionIds={new Set()} />);
     expect(setup).not.toContain("Sold / capacity");
@@ -93,7 +93,7 @@ describe("counters gate follows the data source", () => {
     const inv = html(<InventoryOverview event={EVENTS[0]} types={TICKET_TYPES.filter((t) => t.eventId === EVENTS[0].eventId)} batches={batches} holds={HOLDS} ctx={db} basePath={base} timeZone={VENUE.timeZone} now={PREVIEW_NOW} />);
     expect(inv).not.toContain("Inventory warnings");
     expect(inv).not.toContain("Capacity change");
-    expect(inv).toContain("available");
+    expect(inv).toContain("remaining");
   });
   it("an unknown figure renders a dash with a reason, never a zero", () => {
     // The promoter column is gone (it could never show anything but a dash

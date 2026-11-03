@@ -50,9 +50,9 @@ const CAMERA_COPY: Record<Exclude<CameraState, "on" | "starting" | "off" | "paus
 };
 
 const BLOCKED_COPY: Record<BlockedWhy, { title: string; hint: string }> = {
-  signed_out: { title: "Signed out", hint: "Your session ended. Sign in again to keep scanning; nothing was admitted meanwhile." },
-  no_role: { title: "This account cannot scan here", hint: "Scanning needs the venue scanner or venue manager role at this venue. Ask a manager to grant it, then sign in again." },
-  config: { title: "The dashboard is not configured for a database", hint: "Tell the organiser. Nothing can be verified from this phone." },
+  signed_out: { title: "Signed out", hint: "Your sign-in ended. Sign in again to keep scanning. This phone admitted nobody while you were signed out." },
+  no_role: { title: "This phone cannot scan this session", hint: "The dashboard could not confirm that this account may scan this session. Scanning needs the venue scanner or venue manager role at this venue. Reload the page. If it still fails, ask a manager to check your role, then sign in again." },
+  config: { title: "This phone can't check passes right now", hint: "The dashboard could not check your sign-in or its own setup. Reload the page. If it keeps failing, tell a manager. Until then, nothing can be verified from this phone." },
 };
 
 function readStoredLabel(): string {
@@ -360,7 +360,7 @@ export function ScannerClient({
           <button type="submit" disabled={!sessionId} className="btn btn-primary btn-lg w-full min-h-11">
             Start scanning
           </button>
-          <p className="text-xs text-dim">Starting asks for the camera. A camera scan checks the pass only; the 21+ ID check stays with you.</p>
+          <p className="text-xs text-dim">Starting asks for the camera. A scan checks the pass only. It does not check ID or age; that stays with you.</p>
         </form>
       </section>
     );
@@ -381,7 +381,7 @@ export function ScannerClient({
               {session ? `${session.label ?? "Session"} · ${fmtWhen(session.startsAt, timeZone)}` : "No session"}
             </p>
             <p className="truncate text-dim">
-              {deviceLabel || "Unlabelled phone"} · {staff.label ?? "unknown"} · {staff.role}
+              {deviceLabel || "Unlabeled phone"} · {staff.label ?? "unknown"} · {staff.role}
             </p>
           </div>
           <button type="button" onClick={change} className="btn btn-ghost btn-sm min-h-11 shrink-0">
@@ -476,7 +476,7 @@ function ResultCard({ o, timeZone, onDismiss, onRetry, online }: { o: ScanOutcom
       <div className="mt-4 flex flex-wrap gap-2">
         {retry ? (
           <button type="button" onClick={onRetry} disabled={!online} className="btn btn-primary min-h-11">
-            Check again (same key)
+            Check again
           </button>
         ) : null}
         <button type="button" onClick={onDismiss} className="btn btn-soft min-h-11">

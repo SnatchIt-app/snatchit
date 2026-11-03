@@ -13,7 +13,7 @@ export type SourceInfo = {
 export function sourceInfo(): SourceInfo {
   if (DATA_SOURCE === "database") {
     const host = supabaseHost();
-    return { source: "database", host, envLabel: ENV_LABEL, label: `Database (${ENV_LABEL}) — ${host ?? "no host configured"} · reads as your own sign-in; what you see comes from your grants` };
+    return { source: "database", host, envLabel: ENV_LABEL, label: `Database (${ENV_LABEL}) — ${host ?? "no host configured"} · reads as your own sign-in; you see what your role allows` };
   }
   return { source: "fixtures", host: null, envLabel: ENV_LABEL, label: DEMO_DATA_LABEL };
 }

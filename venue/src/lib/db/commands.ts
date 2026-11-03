@@ -73,7 +73,7 @@ export async function createTicketTypeAction(input: CreateTicketTypeInput): Prom
   const bad = firstProblem(
     needUuid(i.eventId, "eventId"),
     needOneOf(i.kind, KINDS, "kind", "Choose admission or table."),
-    needText(i.name, "name", "Give the tier a name."),
+    needText(i.name, "name", "Give the ticket type a name."),
     needCents(i.priceMinor, "priceMinor"),
     needOneOf(i.visibility, VISIBILITIES, "visibility", "Choose hidden, public or door only."),
     needKey(i.commandKey),
