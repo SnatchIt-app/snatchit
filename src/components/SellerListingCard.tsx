@@ -49,6 +49,7 @@ import {
 import { MEDIA_SLOTS } from '@/src/lib/media/slots';
 import type { SellerNextAction } from '@/src/lib/seller/nextAction';
 import { formatDollars } from '@/src/lib/money';
+import { easternParts } from '@/src/lib/time/eastern';
 import { textStyle } from '@/src/theme/typography';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
@@ -107,14 +108,17 @@ const WEEKDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
 const MONTH = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
 
 /**
- * "Sold Fri 17 Oct" — the board's meta line for a sold row. Fixed tables, not
- * toLocaleDateString, for the same reason as feedRowState: the row must read identically on
- * every device locale. Empty when unparseable, so the row never shows "Sold Invalid Date".
+ * "Sold Fri 17 Oct" — the board's meta line for a sold row. Fixed tables, not a locale
+ * formatter, for the same reason as feedRowState: the row must read identically on every
+ * device locale. And New York's calendar, not the device's (owner, 2026-11-02: Snatch It
+ * operates in Eastern Time), so a sale at 9:14 PM EST on Mon 2 Nov reads Monday on a UTC or
+ * an LA phone alike. A date with no clock, so no EST / EDT label. Empty when unparseable, so
+ * the row never shows "Sold Invalid Date".
  */
 export function soldOnLabel(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  return `Sold ${WEEKDAY[d.getDay()]} ${d.getDate()} ${MONTH[d.getMonth()]}`;
+  const p = easternParts(Date.parse(iso));
+  if (!p) return '';
+  return `Sold ${WEEKDAY[p.weekday]} ${p.day} ${MONTH[p.month - 1]}`;
 }
 
 export default function SellerListingCard({ listing, onPress, onDelete, onEdit, isVerifiedSeller, nextAction, busy }: Props) {

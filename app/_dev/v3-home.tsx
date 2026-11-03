@@ -62,6 +62,7 @@ import { IS_SANDBOX_BUILD } from '@/src/config/envGuard';
 // listing harness cannot drift apart, and so the selection is testable without importing a route.
 import { ART_KEYS, withArt } from '@/src/lib/media/harnessArt';
 import { useAppearancePreference, useTheme } from '@/src/theme/appearance';
+import { easternDayKey } from '@/src/lib/time/eastern';
 import type { Palette } from '@/src/theme/palette';
 import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
@@ -73,11 +74,14 @@ function pad(n: number): string {
   return String(n).padStart(2, '0');
 }
 
-/** A local calendar date `days` from today, in the stored `YYYY-MM-DD` shape. */
+/**
+ * New York's calendar date `days` from today, in the stored `YYYY-MM-DD` shape — the day the screen buckets on
+ * (src/lib/home/sections.ts), so "tonight" in the fixture is tonight on the screen whatever the device zone.
+ */
 function dateIn(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const [y, m, d] = (easternDayKey(Date.now()) ?? '1970-01-01').split('-').map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d + days));
+  return `${t.getUTCFullYear()}-${pad(t.getUTCMonth() + 1)}-${pad(t.getUTCDate())}`;
 }
 
 /** An `ends_at` `hours` from now. */
@@ -288,11 +292,9 @@ export default function V3HomeHarness() {
   const fixture = useMemo(() => {
     const base = fixtureFor(variant);
     if (!base?.rows) return base;
-    // Local midnight, the same basis the screen keys its bucketing to, so the harness and the
-    // screen agree about which row is first.
-    const midnight = new Date();
-    midnight.setHours(0, 0, 0, 0);
-    return { ...base, rows: withArt(withLongAmounts(base.rows, amounts), art, midnight.getTime()) };
+    // Now, which the sections read as New York's day — the same basis the screen keys its bucketing to — so
+    // the harness and the screen agree about which row is first (review of b7d190e0).
+    return { ...base, rows: withArt(withLongAmounts(base.rows, amounts), art, Date.now()) };
   }, [variant, art, amounts]);
 
   if (!IS_SANDBOX_BUILD && !__DEV__) return <Redirect href="/" />;

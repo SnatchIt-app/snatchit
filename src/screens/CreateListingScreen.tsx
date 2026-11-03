@@ -77,6 +77,14 @@ import {
   proceedsKicker,
 } from '@/src/lib/sell/sellState';
 import { DURATION_OPTIONS, durationLabel } from '@/src/lib/sell/durations';
+import {
+  easternNextHourTime,
+  easternTodayDate,
+  eventDayString,
+  eventTimeDisplay,
+  eventTimeString,
+  SELL_TIME_COPY,
+} from '@/src/lib/sell/eventWallClock';
 import { textStyle } from '@/src/theme/typography';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
@@ -104,20 +112,23 @@ const TRANSFER_METHODS: { value: TransferMethod; label: string }[] = [
 ];
 
 
-// ─── Date/time helpers (unchanged) ──────────────────────────────────────────────
+// ─── Date/time helpers ──────────────────────────────────────────────────────────
+//
+// The form's times are Eastern (owner 2026-11-02; A: the form says so, its pickers default to
+// America/New_York, and event_date / event_time are stored as New York wall clock). The pickers draw a
+// Date's device-local wall clock and the form stores what they show, so eventDate / eventTime are
+// wall-clock CARRIERS whose local parts are New York's day and time on any phone — built and read only
+// through src/lib/sell/eventWallClock.ts. The defaults used to be the phone's today and next hour, and
+// the stored day was toISOString's UTC day (the day before on a phone east of UTC).
 
-function defaultDate() { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }
-function defaultTime() { const d = new Date(); d.setHours(d.getHours() + 1, 0, 0, 0); return d; }
+/** New York's today, as a local-midnight carrier. */
+function defaultDate() { return easternTodayDate(); }
+/** New York's next whole hour, as a local carrier. */
+function defaultTime() { return easternNextHourTime(); }
+/** The carrier's own day, as the date row shows it: "Mon, Nov 2". */
 function fmtDate(d: Date) {
   return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 }
-function fmtTime(d: Date) {
-  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-}
-/** "2025-08-15" */
-function toDateStr(d: Date) { return d.toISOString().split('T')[0]; }
-/** "21:00:00" */
-function toTimeStr(d: Date) { return d.toTimeString().split(' ')[0]; }
 
 // ─── Presentational building blocks (V2) ────────────────────────────────────────
 //
@@ -351,7 +362,7 @@ export default function CreateListingScreen({ fixture }: { fixture?: CreateFixtu
   const [platformQuery,    setPlatformQuery]    = useState('');
   const [eventDate,        setEventDate]        = useState<Date>(fx?.eventDate ?? defaultDate);
   const [eventTime,        setEventTime]        = useState<Date>(fx?.eventTime ?? defaultTime);
-  // CFT-608: the seller picked the date (the row starts at today). Only a picked date expires a draft.
+  // CFT-608: the seller picked the date (the row starts at New York's today). Only a picked date expires a draft.
   const [dateChosen,       setDateChosen]       = useState(false);
 
   // B — Ticket
@@ -653,8 +664,8 @@ export default function CreateListingScreen({ fixture }: { fixture?: CreateFixtu
           event_name:                    eventName.trim(),
           venue:                         venue.trim(),
           neighborhood:                  neighborhood!,
-          event_date:                    toDateStr(eventDate),
-          event_time:                    toTimeStr(eventTime),
+          event_date:                    eventDayString(eventDate),
+          event_time:                    eventTimeString(eventTime),
           ticket_type:                   ticketType!,
           quantity,
           transfer_method:               transferMethod!,
@@ -775,7 +786,10 @@ export default function CreateListingScreen({ fixture }: { fixture?: CreateFixtu
           {/* V3 (pkg7-create-after): date and time stack full width like every other picker
               row — the two-column pair was the V2 layout. */}
           <SelectRow label="Date" value={fmtDate(eventDate)} placeholder="Pick a date" onPress={() => openPicker('date')} sx={sx} p={palette} />
-          <SelectRow label="Time" value={fmtTime(eventTime)} placeholder="Pick a time" onPress={() => openPicker('time')} sx={sx} p={palette} />
+          {/* The stored New York wall clock is LABELLED, never converted: the row shows event_time as it is,
+              then EST or EDT for that date and time (easternWallZoneLabel) — "10:00 PM EST". */}
+          <SelectRow label="Time" value={eventTimeDisplay(eventDate, eventTime)} placeholder="Pick a time" onPress={() => openPicker('time')} sx={sx} p={palette} />
+          <Text style={[textStyle('bodySm'), sx.fieldHelper]}>{SELL_TIME_COPY.easternNote}</Text>
         </Section>
 
         {/* ── TICKET ────────────────────────────────────────── */}
@@ -1200,6 +1214,9 @@ export default function CreateListingScreen({ fixture }: { fixture?: CreateFixtu
       </Sheet>
 
       {/* ── Date / time picker ──────────────────────────────── */}
+      {/* The earliest pickable day is New York's today (a local-midnight carrier), not the phone's: a UTC
+          phone after 19:00 EST could not pick tonight, and a Los Angeles one after 21:00 PST could pick a
+          day already over in New York. */}
       {Platform.OS === 'ios' ? (
         <Sheet
           visible={pickerVisible}
@@ -1212,7 +1229,7 @@ export default function CreateListingScreen({ fixture }: { fixture?: CreateFixtu
             display="spinner"
             textColor={palette.text.primary}
             onChange={onPickerChange}
-            minimumDate={pickerMode === 'date' ? new Date() : undefined}
+            minimumDate={pickerMode === 'date' ? easternTodayDate() : undefined}
           />
         </Sheet>
       ) : (
@@ -1222,7 +1239,7 @@ export default function CreateListingScreen({ fixture }: { fixture?: CreateFixtu
             mode={pickerMode}
             display="default"
             onChange={onPickerChange}
-            minimumDate={pickerMode === 'date' ? new Date() : undefined}
+            minimumDate={pickerMode === 'date' ? easternTodayDate() : undefined}
           />
         )
       )}

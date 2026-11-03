@@ -46,7 +46,8 @@ describe('views — server facts only', () => {
   const listRoute = src('app/events.tsx');
 
   it('V1: tier status comes from tierLine; times from whenFromLocal; age from entryRestrictionLine', () => {
-    expect(event).toContain('tierLine(t, nowMs)');
+    expect(event).toContain('tierLine(t, nowMs, { timezone: facts.timezone, ended })');
+    expect(event).toMatch(/line\.opens \? <Text[^>]*>\{line\.opens\}<\/Text> : null/);   // SW-8: when a tier opens
     expect(event).toContain('whenFromLocal({');
     expect(event).toContain('entryRestrictionLine(facts.ageRestriction)');
     expect(event).toContain('DISCOVERY_COPY.priceNote');
@@ -67,6 +68,11 @@ describe('views — server facts only', () => {
     expect(list).not.toMatch(/whenLine\(|toLocale(Date|Time)?String|new Date\(/);
     expect(listRoute).toContain('whenFromLocal({');
     expect(listRoute).not.toMatch(/whenLine\(/);
+  });
+
+  it('V3b: the list labels each row from that row’s own venue zone and *_local text — no per-row session reads (D trace DSC-C8)', () => {
+    expect(listRoute).toContain('whenFromLocal({ startsAtLocal: r.startsAtLocal, doorsAtLocal: r.doorsAtLocal, timezone: r.timezone, startsAt: r.startsAt })');
+    expect(listRoute).not.toMatch(/readPrimarySession\(|FACTS_LIMIT|Promise\.all\(/);
   });
 
   it('V4: failure, not-available and empty states each use their own pinned copy', () => {
@@ -212,6 +218,14 @@ describe('primary checkout screen — a payments surface (A reviews)', () => {
     // the unverified view offers no Pay: only "Check again" and the ticket page
     expect(view).toMatch(/case 'unverified':[\s\S]*?onPress=\{props\.onCheckAgain\}[\s\S]*?onPress=\{props\.onViewTickets\}[\s\S]*?case 'review'/);
     expect(view.slice(view.indexOf("case 'unverified':"), view.indexOf("case 'review'"))).not.toContain('props.onPay');
+  });
+
+  it('K15: the unverified state\u2019s two ways forward are REQUIRED props — a caller cannot render it with dead buttons (E, review of #214 @ 52f4f226)', () => {
+    expect(view).toMatch(/^\s*onCheckAgain: \(\) => void;$/m);
+    expect(view).toMatch(/^\s*onViewTickets: \(\) => void;$/m);
+    expect(view).not.toMatch(/onCheckAgain\?:|onViewTickets\?:/);
+    expect(native).toContain("onCheckAgain={() => { if (state.kind === 'unverified') void checkAfterSheet(state.quote, state.outcome); }}");
+    expect(native).toContain('onViewTickets={submitted}');
   });
 
   it('K13: a quote refusal offers a retry only for offline, unavailable or rate limited; every other one goes Back (D14)', () => {

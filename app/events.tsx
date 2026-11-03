@@ -2,11 +2,10 @@
  * app/events.tsx — primary sessions on sale (CONTRACTS C1; D's 182 `list_primary_sessions_on_sale`,
  * anon + authenticated, DARK until applied). Public: works signed out.
  *
- * The list rows carry instants only, so each row's date/time comes from that session's
- * `get_primary_session` facts (venue-local strings, zone named) — read in parallel for at most
- * `FACTS_LIMIT` rows; a row whose facts fail shows no time rather than a device-zone time
- * (A's time rule). The pop-up has one session; the limit only bounds a longer list. A request to
- * append `timezone` / `starts_at_local` to the list rows is with D/A.
+ * Each row's date/time comes from the row itself: 182 returns the venue `timezone` and the venue-local
+ * `starts_at_local` / `doors_at_local` on every list row, so the list makes no per-row session read (D trace
+ * DSC-C8; it used to read up to 20). The venue-local text is shown as sent and labelled with the venue zone
+ * (EST/EDT), never converted; a row without it shows no time rather than a device-zone time (A's time rule).
  */
 import { useFocusEffect } from '@react-navigation/native';
 import { router } from 'expo-router';
@@ -14,11 +13,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useNetworkStatus } from '@/src/hooks/useNetworkStatus';
 import { discoveryRpc, readDiscovery, type DiscoveryLoad } from '@/src/lib/primary/discovery';
-import { readPrimarySession, sessionRpc } from '@/src/lib/tickets/entitlementReads';
 import { whenFromLocal, type WhenLine } from '@/src/lib/tickets/ticketWhen';
 import { PrimaryEventsView } from '@/src/screens/primary/PrimaryEventsView';
-
-const FACTS_LIMIT = 20;
 
 export default function PrimaryEventsRoute() {
   const { isOffline } = useNetworkStatus();
@@ -36,14 +32,9 @@ export default function PrimaryEventsRoute() {
     if (request !== requestRef.current) return;
     setLoad((prev) => (prev.kind === 'ready' && next.kind === 'failed' ? prev : next));
     if (next.kind !== 'ready') return;
-    const ids = next.rows.slice(0, FACTS_LIMIT).map((r) => r.sessionId);
-    const facts = await Promise.all(ids.map((id) => readPrimarySession(sessionRpc, id)));
-    if (request !== requestRef.current) return;
     const map: Record<string, WhenLine | null> = {};
-    ids.forEach((id, i) => {
-      const f = facts[i];
-      map[id] = f ? whenFromLocal({ startsAtLocal: f.startsAtLocal, doorsAtLocal: f.doorsAtLocal, timezone: f.timezone, startsAt: f.startsAt }) : null;
-    });
+    // whenFromLocal answers null for a row without venue-local text.
+    for (const r of next.rows) map[r.sessionId] = whenFromLocal({ startsAtLocal: r.startsAtLocal, doorsAtLocal: r.doorsAtLocal, timezone: r.timezone, startsAt: r.startsAt });
     setWhenBySession(map);
   }, []);
 

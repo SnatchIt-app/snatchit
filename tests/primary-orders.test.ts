@@ -52,10 +52,10 @@ describe('issuanceHint — A’s C5 ruling, newest order first', () => {
     expect(issuanceHint([order({ status: 'paid', atoms_issued: 2, payment_state: 'succeeded' })])).toBe('issued');
   });
 
-  it('H5: a pending order outranks an older settled one; cancelled/expired/refunded alone are none', () => {
+  it('H5: a pending order outranks an older settled one; cancelled/refunded alone are none', () => {
     const older = order({ order_id: 'o-old', status: 'paid', atoms_issued: 1, payment_state: 'succeeded', created_at: '2026-10-20T00:00:00Z' });
     expect(issuanceHint([order(), older])).toBe('awaiting_confirmation');
-    for (const status of ['cancelled', 'expired', 'refunded'] as const) {
+    for (const status of ['cancelled', 'refunded'] as const) {
       expect(issuanceHint([order({ status, payment_state: status === 'refunded' ? 'succeeded' : 'none' })]), status).toBe('none');
     }
   });
@@ -67,12 +67,17 @@ describe('issuanceHint — A’s C5 ruling, newest order first', () => {
     expect(issuanceHint([{ ...newerPaid, status: 'partially_refunded' }, olderPending])).toBe('issued');
     // a pending order newer than every paid one is still in flight, wherever older paid orders sit
     expect(issuanceHint([order({ payment_state: 'processing' }), newerPaid, olderPending])).toBe('payment_processing');
-    // anything newer that settled — refunded, cancelled, expired — also means the older pending one was abandoned
-    for (const status of ['refunded', 'cancelled', 'expired'] as const) {
+    // anything newer that settled — refunded, cancelled — also means the older pending one was abandoned
+    for (const status of ['refunded', 'cancelled'] as const) {
       expect(issuanceHint([order({ order_id: 'o-s', status, created_at: '2026-10-27T00:00:00Z' }), olderPending]), status).toBe('none');
     }
     // and a pending order newer than all of them is still in flight
     expect(issuanceHint([order({ order_id: 'o-n' }), order({ status: 'cancelled' }), olderPending])).toBe('awaiting_confirmation');
+  });
+
+  it('H6b: "expired" is not a venue.order status (082 CHECK: pending|paid|partially_refunded|refunded|cancelled) — it is unknown, never a settled line (D trace CHK-3)', () => {
+    expect(issuanceHint([order({ status: 'expired' as never })])).toBe('unknown');
+    expect(orderStatusLine(order({ status: 'expired' as never })).status).toBe('Status unavailable');
   });
 
   it('H6: an order status the client does not know is unknown, not none', () => {
@@ -100,10 +105,9 @@ describe('orderStatusLine — one honest line per order, in USD from integer min
     expect(orderStatusLine(order({ status: 'paid', atoms_issued: 0, payment_state: 'succeeded' })).status).toBe('Paid · tickets being issued');
   });
 
-  it('L3: refunded, cancelled and expired say exactly that; cancelled/expired add "no tickets issued" only when the server count is 0', () => {
+  it('L3: refunded and cancelled say exactly that; cancelled adds "no tickets issued" only when the server count is 0', () => {
     expect(orderStatusLine(order({ status: 'refunded', payment_state: 'succeeded', atoms_issued: 2 })).status).toBe('Refunded');
     expect(orderStatusLine(order({ status: 'cancelled' })).status).toBe('Cancelled · no tickets issued');
-    expect(orderStatusLine(order({ status: 'expired' })).status).toBe('Expired · no tickets issued');
     expect(orderStatusLine(order({ status: 'cancelled', atoms_issued: 1 })).status).toBe('Cancelled');
   });
 

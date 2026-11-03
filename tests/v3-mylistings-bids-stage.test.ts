@@ -42,11 +42,13 @@ const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:]
 /**
  * Run `body` with the process pinned to one zone, then put the old one back.
  *
- * `soldOnLabel` reads the DEVICE's zone on purpose — see ML7b — so any assertion on its output
- * is an assertion about where the runner happens to be unless the zone is pinned. ML7 did not
- * pin it, and the sale instant it used (21:00 at UTC−4) is already the next day in UTC: the line
+ * History: `soldOnLabel` once read the DEVICE's zone, so an assertion on its output was an
+ * assertion about where the runner happened to be unless the zone was pinned. ML7 did not pin
+ * it, and the sale instant it used (21:00 at UTC−4) is already the next day in UTC: the line
  * passed on a UTC−4 laptop and failed every CI run, which is a UTC runner. Found by Claude A in
- * run 38028668549; red on every push since at least 2026-10-07.
+ * run 38028668549; red on every push since at least 2026-10-07. Since the owner's Eastern-time
+ * ruling (2026-11-02) the label reads New York's calendar on every device — ML7b now pins THAT,
+ * by running the same instant under three process zones.
  *
  * Node applies a reassigned process.env.TZ to Dates constructed afterwards (verified on v24
  * here), so this is a real pin and not a hint.
@@ -121,7 +123,7 @@ describe('SellerListingCard — the board row', () => {
   it('ML7: sold rows date the sale on the meta line, in locale-fixed words', () => {
     // The board's sample writes "Sold Fri 17 Oct", but 17 Oct 2026 is a Saturday — the board
     // miscalendars its own fiction. The format is the board's; the weekday is the calendar's.
-    // Pinned to the seller's zone, because the label is deliberately read in the device's (ML7b).
+    // Eastern on every device (ML7b); the zone pin stays so this case reads the same as before.
     inZone('America/New_York', () => {
       expect(soldOnLabel('2026-10-17T21:00:00-04:00')).toBe('Sold Sat 17 Oct');
       expect(soldOnLabel('2026-10-16T21:00:00-04:00')).toBe('Sold Fri 16 Oct');
@@ -131,22 +133,25 @@ describe('SellerListingCard — the board row', () => {
     expect(c).toMatch(/badge === 'sold' && listing\.sold_at \? soldOnLabel\(listing\.sold_at\) : bidMeta/);
   });
 
-  it('ML7b: the sale date follows the reader\'s device, not UTC', () => {
+  it('ML7b: the sale date is New York\'s, whatever the reader\'s device says', () => {
     /*
-     * The zone-dependence ML7 pins is a product decision, so it gets a test of its own rather
-     * than living as an accident of `new Date().getDay()`.
+     * The zone ML7 reads is a product decision, so it gets a test of its own.
      *
-     * "Sold Sat 17 Oct" answers "when did my sale happen" for the seller reading their own row.
-     * A Miami seller who sold at 9pm on Saturday must read Saturday; the fact that it was already
-     * Sunday in London does not rewrite their board. Formatting in a fixed zone instead would be
-     * wrong for every seller outside it — which is why the fix for the red CI run was to pin the
-     * test's zone, not to move the helper to UTC.
+     * This test used to pin the DEVICE's zone ("a Miami seller who sold at 9pm on Saturday must
+     * read Saturday; that it was already Sunday in London does not rewrite their board"). The
+     * owner superseded that on 2026-11-02: Snatch It operates in Eastern Time, and a phone's zone
+     * must never change what the app shows (A's rulings, A/TIMEZONE-DECISION-20261102.md). So a
+     * 9pm-Saturday-in-New-York sale reads Saturday on a UTC phone and an LA phone too. Every zone
+     * case and the device-zone witnesses live in eastern-date-only-labels D4.
      *
-     * If someone later does move it to a fixed zone, this fails and says why.
+     * If someone puts the device's getters back, the UTC line fails and says why.
      */
-    const sale = '2026-10-17T21:00:00-04:00';   // 21:00 Saturday in Miami, 01:00 Sunday in UTC
+    const sale = '2026-10-17T21:00:00-04:00';   // 21:00 Saturday in New York, 01:00 Sunday in UTC
     expect(inZone('America/New_York', () => soldOnLabel(sale))).toBe('Sold Sat 17 Oct');
-    expect(inZone('UTC', () => soldOnLabel(sale))).toBe('Sold Sun 18 Oct');
+    expect(inZone('UTC', () => soldOnLabel(sale))).toBe('Sold Sat 17 Oct');
+    expect(inZone('America/Los_Angeles', () => soldOnLabel(sale))).toBe('Sold Sat 17 Oct');
+    // Witness: a UTC phone's own calendar is already on Sunday the 18th at that instant.
+    expect(inZone('UTC', () => new Date(sale).getDate())).toBe(18);
   });
 
   it('ML8: the row actions speak the action voice — no uppercase-tracked V2 label remains', () => {

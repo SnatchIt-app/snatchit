@@ -16,31 +16,44 @@
  *    state blocks instead of a track.
  *  - The deadline under "Your confirmation" comes from the server's `auto_release_at` or is the
  *    word "pending" — never a device-derived date, and never the unapproved auto-release
- *    sentence (O-1 stays out of the product).
+ *    sentence (O-1 stays out of the product). It reads in New York time, labelled EST / EDT
+ *    (owner, 2026-11-02: Snatch It operates in Eastern Time), never the phone's zone or locale.
  */
 
 import { formatCentsV3 } from '@/src/lib/money';
+import { easternClock12, easternParts, easternWallZoneLabel, easternZoneLabel } from '@/src/lib/time/eastern';
 import type { RefundRead } from '@/src/lib/transfer/refundState';
 
 // ─── The event summary lines ────────────────────────────────────────────────
 
-/** "Fri 24 Oct · 19:30 · Lantern Room" from the listing's own columns; absent parts drop out. */
+/**
+ * "Sat 24 Oct · 19:30 EDT · Lantern Room" from the listing's own columns; absent parts drop out.
+ *
+ * event_date / event_time are a STORED New York wall clock with no zone of their own. They are printed exactly as
+ * stored and only LABELLED with that date and time's EST / EDT (easternWallZoneLabel) — never converted, shifted
+ * or reinterpreted through any zone, the device's included (A, 2026-11-02: existing rows are display-labelled
+ * only). No time, or a wall clock that happens twice or never, gets no label rather than a guess. Weekday and
+ * month come from fixed en-US tables, so the device locale cannot respell them.
+ */
 export function orderWhenWhereLine(
   eventDate: string | null | undefined,
   eventTime: string | null | undefined,
   venue: string | null | undefined,
 ): string {
   const parts: string[] = [];
-  const d = parseLocalDate(eventDate);
+  const d = parseStoredDate(eventDate);
   if (d) {
-    const weekday = d.toLocaleDateString(undefined, { weekday: 'short' });
-    const month = d.toLocaleDateString(undefined, { month: 'short' });
     // Day BEFORE month — "Sat 24 Oct" — the shape every other surface and every board uses;
     // the locale default put the month first and broke rank with the rest of the app.
-    parts.push(`${weekday} ${d.getDate()} ${month}`);
+    parts.push(`${WEEKDAY[d.getUTCDay()]} ${d.getUTCDate()} ${MONTH[d.getUTCMonth()]}`);
   }
   const t = (eventTime ?? '').match(/^(\d{2}:\d{2})/);
-  if (t) parts.push(t[1]);
+  if (t) {
+    // A stored wall clock is LABELLED, never converted or reinterpreted: the stored HH:MM prints as it is.
+    const dateKey = (eventDate ?? '').match(/^\d{4}-\d{2}-\d{2}/)?.[0];
+    const zone = easternWallZoneLabel(dateKey, t[1]);
+    parts.push(zone ? `${t[1]} ${zone}` : t[1]);
+  }
   if (venue) parts.push(venue);
   return parts.join(' · ');
 }
@@ -62,11 +75,17 @@ export function orderTicketsLine(
   return parts.join(' · ');
 }
 
-/** "YYYY-MM-DD" parsed as a LOCAL date (never UTC-shifted a day); anything else is null. */
-function parseLocalDate(iso: string | null | undefined): Date | null {
+const WEEKDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
+const MONTH = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
+
+/**
+ * "YYYY-MM-DD" as a calendar date, read back with the UTC getters only — no zone touches it, so the 24th never
+ * shifts to the 23rd on any device; anything else is null.
+ */
+function parseStoredDate(iso: string | null | undefined): Date | null {
   const m = (iso ?? '').match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (!m) return null;
-  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
@@ -118,14 +137,20 @@ export const PAYOUT_NOT_RELEASED = 'not released';
 export const PAYOUT_RELEASED = 'released';
 export const CONFIRMATION_PENDING = 'pending';
 
-/** "by Sun 09:12" from the server's timestamp, in device-local form; null when unparseable. */
+/**
+ * "by Mon 09:12 PM EST" from the server's timestamp: New York's weekday and 12-hour clock (two-digit hour, as the
+ * en-US form it replaces), labelled EST / EDT — never the phone's zone or locale (owner, 2026-11-02). Display only;
+ * null when unparseable.
+ */
 export function shortDeadline(iso: string | null | undefined): string | null {
   if (!iso) return null;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
-  const weekday = d.toLocaleDateString(undefined, { weekday: 'short' });
-  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-  return `by ${weekday} ${time}`;
+  const ms = new Date(iso).getTime();
+  const p = easternParts(ms);
+  if (!p) return null;
+  // easternClock12 is "9:12 PM"; the two-digit hour of the old en-US form pads it to "09:12 PM".
+  const time = easternClock12(ms).padStart(8, '0');
+  const zone = easternZoneLabel(ms);
+  return `by ${WEEKDAY[p.weekday]} ${time}${zone ? ` ${zone}` : ''}`;
 }
 
 /**

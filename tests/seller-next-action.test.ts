@@ -4,7 +4,7 @@
  * `sellerNextAction` turns ONE seller row's server facts — the listing status and the transfer's
  * {status, expires_at, transfer_evidence_path} — plus the device clock into at most one line:
  *
- *   pending, before expires_at          "Send by <local time from expires_at>"
+ *   pending, before expires_at          "Send by <expires_at in New York, EST/EDT>"
  *   pending, expires_at missing/bad     "Send the tickets"         (no time is invented)
  *   pending, device clock past it       "Send window has passed — open this order to see its current status"
  *                                       (A signed off the exact words; pinned as a literal, SN5)
@@ -34,7 +34,10 @@ import {
 import { ATTACH_COPY } from '@/src/lib/transfer/markSent';
 import { SELLER_ORDER_CLOSED_COPY, TRANSFER_EXPIRY_COPY, transferStatusCopy } from '@/src/lib/transfer/transferState';
 
-/** The device zone is read on purpose ("local time"), so every time assertion pins it. */
+/**
+ * Pins the device zone. The deadline reads in New York time whatever the phone says (owner, 2026-11-02:
+ * Snatch It operates in Eastern Time), so SN1 asserts the same line under several zones.
+ */
 function inZone<T>(tz: string, body: () => T): T {
   const previous = process.env.TZ;
   process.env.TZ = tz;
@@ -54,16 +57,18 @@ const AFTER = Date.parse('2026-10-21T21:15:00-04:00');
 
 const sold = (transfer: Parameters<typeof sellerNextAction>[0]['transfer']) => ({ listingStatus: 'sold', transfer });
 
-describe('pending, before the deadline — "Send by <local time>"', () => {
-  it('SN1: the time is expires_at in the device zone, in the shared row format', () => {
-    inZone('America/New_York', () => {
-      const a = sellerNextAction(sold({ status: 'pending', expires_at: DEADLINE }), BEFORE);
-      expect(a).toEqual({ kind: 'send_by', line: 'Send by Wed 21 Oct · 21:14', tone: 'warning' });
-    });
-    // Same instant, a reader in London: the local clock is already Thursday 02:14 (BST).
+describe('pending, before the deadline — "Send by <New York time>"', () => {
+  it('SN1: the time is expires_at in New York, labelled EDT, in the shared row format — on every device zone', () => {
+    for (const zone of ['America/New_York', 'Europe/London', 'America/Los_Angeles', 'UTC']) {
+      inZone(zone, () => {
+        const a = sellerNextAction(sold({ status: 'pending', expires_at: DEADLINE }), BEFORE);
+        expect(a, zone).toEqual({ kind: 'send_by', line: 'Send by Wed 21 Oct · 21:14 EDT', tone: 'warning' });
+      });
+    }
+    // Witness: a reader in London has a local clock already on Thursday 02:14 (BST) — the line must not follow it.
     inZone('Europe/London', () => {
-      expect(sellerNextAction(sold({ status: 'pending', expires_at: DEADLINE }), BEFORE)?.line)
-        .toBe('Send by Thu 22 Oct · 02:14');
+      const d = new Date(DEADLINE);
+      expect([d.getDay(), d.getHours()]).toEqual([4, 2]);
     });
   });
 
@@ -71,7 +76,7 @@ describe('pending, before the deadline — "Send by <local time>"', () => {
     inZone('America/New_York', () => {
       const early = sellerNextAction(sold({ status: 'pending', expires_at: DEADLINE }), BEFORE - 6 * 3_600_000);
       const late = sellerNextAction(sold({ status: 'pending', expires_at: DEADLINE }), AFTER - 120_000);
-      expect(early?.line).toBe('Send by Wed 21 Oct · 21:14');
+      expect(early?.line).toBe('Send by Wed 21 Oct · 21:14 EDT');
       expect(late?.line).toBe(early?.line);
     });
   });

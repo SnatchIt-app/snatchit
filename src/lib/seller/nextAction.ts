@@ -1,4 +1,5 @@
 import { rowWhenLabel } from '@/src/lib/listing/feedRowState';
+import { easternParts, easternZoneLabel } from '@/src/lib/time/eastern';
 import { ATTACH_COPY } from '@/src/lib/transfer/markSent';
 import { SELLER_ORDER_CLOSED_COPY, transferStatusCopy } from '@/src/lib/transfer/transferState';
 
@@ -15,7 +16,7 @@ import { SELLER_ORDER_CLOSED_COPY, transferStatusCopy } from '@/src/lib/transfer
  *   ───────────────   ─────────────────────────────────  ──────────────────────────────────────────
  *   expired           (server fact, any clock)           SELLER_ORDER_CLOSED_COPY.expired.body
  *   pending           expires_at missing / unparseable   "Send the tickets" — no time is invented
- *   pending           device clock before expires_at     "Send by <local time from expires_at>"
+ *   pending           device clock before expires_at     "Send by <expires_at in New York, EST/EDT>"
  *   pending           device clock at/after expires_at   neutral `windowPassed` (below)
  *   seller_sent       no transfer_evidence_path          "Add proof" — no deadline: none exists
  *   anything else     reversed, disputed, buyer_confirmed, auto_released, a proofed seller_sent,
@@ -74,16 +75,21 @@ export const SELLER_NEXT_ACTION_COPY = {
   doNotSend: SELLER_ORDER_CLOSED_COPY.expired.body,
 } as const;
 
-/** "Wed 21 Oct · 21:14" — expires_at in the device zone, in the shared row format; null when unparseable. */
-function localDeadline(iso: string): string | null {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
+/**
+ * "Wed 21 Oct · 21:14 EDT" — expires_at as New York's wall clock, in the shared row format, labelled EST / EDT
+ * (owner, 2026-11-02: Snatch It operates in Eastern Time; src/lib/time/eastern.ts). Never the device zone: a
+ * seller's phone zone must not move the send deadline. Display only — the deadline comparison below stays on the
+ * instant. Null when unparseable.
+ */
+function easternDeadline(iso: string): string | null {
+  const ms = new Date(iso).getTime();
+  const p = easternParts(ms);
+  if (!p) return null;
   const pad = (n: number) => String(n).padStart(2, '0');
-  const label = rowWhenLabel(
-    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
-    `${pad(d.getHours())}:${pad(d.getMinutes())}`,
-  );
-  return label || null;
+  const label = rowWhenLabel(`${p.year}-${pad(p.month)}-${pad(p.day)}`, `${pad(p.hour)}:${pad(p.minute)}`);
+  if (!label) return null;
+  const zone = easternZoneLabel(ms);
+  return zone ? `${label} ${zone}` : label;
 }
 
 export function sellerNextAction(input: SellerNextActionInput, nowMs: number): SellerNextAction | null {
@@ -95,7 +101,7 @@ export function sellerNextAction(input: SellerNextActionInput, nowMs: number): S
 
   if (t.status === 'pending') {
     const deadlineMs = t.expires_at ? new Date(t.expires_at).getTime() : NaN;
-    const when = t.expires_at ? localDeadline(t.expires_at) : null;
+    const when = t.expires_at ? easternDeadline(t.expires_at) : null;
     if (!Number.isFinite(deadlineMs) || !when) return { kind: 'send', line: SELLER_NEXT_ACTION_COPY.send, tone: 'warning' };
     // Same boundary as the send screen's countdown (formatCountdown: diff <= 0 is past).
     if (deadlineMs - nowMs > 0) return { kind: 'send_by', line: `Send by ${when}`, tone: 'warning' };

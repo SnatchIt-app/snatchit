@@ -79,6 +79,14 @@ describe('chooseAttempt — one attempt per purchase intent (c35)', () => {
   });
 });
 
+describe('HOLD_COPY — an oversell refusal counts held stock too (D trace CHK-9)', () => {
+  it('HC1: "not enough" says available right now and that some may be held — never "left" or "sold out"', () => {
+    expect(HOLD_COPY.sold_out).toMatch(/available/i);
+    expect(HOLD_COPY.sold_out).toMatch(/held/i);
+    expect(HOLD_COPY.sold_out).not.toMatch(/\bleft\b|sold out/i);
+  });
+});
+
 describe('parsePrimaryCheckoutParams', () => {
   it('P1: valid params parse; the attempt id is optional (the screen draws one if absent)', () => {
     expect(parsePrimaryCheckoutParams({ session: SESSION, tt: TT, qty: '2', attempt: 'abc123' }))

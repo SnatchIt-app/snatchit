@@ -99,7 +99,6 @@ import {
   sellerReleaseLine,
   transferStatusMeta,
 } from '@/src/lib/transfer/transferState';
-import { rowWhenLabel } from '@/src/lib/listing/feedRowState';
 import { expandTree, findElement, HookHost, type Element } from './helpers/nav-stack-harness';
 
 const flush = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
@@ -148,11 +147,17 @@ const collect = (node: unknown, out: string[]) => {
 // The screens compose shared block components; expand them so their text is asserted through the screen.
 const texts = (host: HookHost) => { const out: string[] = []; collect(expandTree(host.output), out); return out; };
 
-// The deadline line formats the server timestamp in LOCAL time through the shared row formatter.
+// The deadline line is the server timestamp as New York reads it, labelled EST / EDT (owner, 2026-11-02) — never
+// the device zone. LITERALS, not a re-derivation: the old helper re-ran the device-zone formatter, which made the
+// expectation follow whatever zone the test process had.
+const EASTERN_DEADLINE: Record<string, string> = {
+  '2026-09-26T21:00:00Z': 'Sat 26 Sep · 17:00 EDT',
+  '2026-09-28T12:00:00Z': 'Mon 28 Sep · 08:00 EDT',
+};
 function expectedDeadline(iso: string): string {
-  const d = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return rowWhenLabel(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, `${pad(d.getHours())}:${pad(d.getMinutes())}`);
+  const when = EASTERN_DEADLINE[iso];
+  if (!when) throw new Error(`no Eastern literal for ${iso}`);
+  return when;
 }
 
 beforeEach(() => {

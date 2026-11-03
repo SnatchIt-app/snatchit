@@ -94,12 +94,13 @@ describe('feedRowState — §5 vocabulary', () => {
     expect(rowWhenLabel('not-a-date', '21:00')).toBe('');
   });
 
-  it('R1: meta lines — date · time · venue, then qty × type · bids', () => {
+  it('R1: meta lines — date · time EST/EDT · venue, then qty × type · bids', () => {
     const m = rowMeta({
       eventDate: '2026-09-26', eventTime: '22:00:00', venue: 'The Foundry',
       quantity: 2, ticketType: 'GA', bidCount: 11,
     });
-    expect(m.meta1).toBe('Sat 26 Sep · 22:00 · The Foundry');
+    // The stored wall clock, labelled — never converted (A, 2026-11-02).
+    expect(m.meta1).toBe('Sat 26 Sep · 22:00 EDT · The Foundry');
     expect(m.meta2).toBe('2 × GA · 11 bids');
   });
 
@@ -111,42 +112,44 @@ describe('feedRowState — §5 vocabulary', () => {
   });
 
   it('K1: under 15 minutes → "Ending in 11m", urgent (amber is the §5 rule)', () => {
-    const now = Date.parse('2026-09-22T20:00:00');
+    // Instants carry their New York offset: the clock reads New York's day, so a bare local string
+    // would move with the machine running the test (Eastern time, owner 2026-11-02).
+    const now = Date.parse('2026-09-22T20:00:00-04:00');
     const ends = new Date(now + 11 * 60_000).toISOString();
     expect(clockLabel(ends, now)).toEqual({ text: 'Ending in 11m', urgent: true });
   });
 
-  it('K2: same local day, 15m or more → "2h 14m left", not urgent', () => {
-    const now = Date.parse('2026-09-22T18:00:00');
+  it('K2: same New York day, 15m or more → "2h 14m left", not urgent (durations carry no label)', () => {
+    const now = Date.parse('2026-09-22T18:00:00-04:00');
     expect(clockLabel(new Date(now + (2 * 60 + 14) * 60_000).toISOString(), now))
       .toEqual({ text: '2h 14m left', urgent: false });
     expect(clockLabel(new Date(now + 44 * 60_000).toISOString(), now))
       .toEqual({ text: '44m left', urgent: false });
   });
 
-  it('K3: a later calendar day → "Ends Sat 20:30"; a dead clock is null, never "Ended −3m"', () => {
-    const now = Date.parse('2026-09-22T18:00:00');   // Tuesday
-    expect(clockLabel('2026-09-26T20:30:00', now)).toEqual({ text: 'Ends Sat 20:30', urgent: false });
+  it('K3: a later calendar day → "Ends Sat 20:30 EDT"; a dead clock is null, never "Ended −3m"', () => {
+    const now = Date.parse('2026-09-22T18:00:00-04:00');   // Tuesday
+    expect(clockLabel('2026-09-26T20:30:00-04:00', now)).toEqual({ text: 'Ends Sat 20:30 EDT', urgent: false });
     expect(clockLabel(new Date(now - 1000).toISOString(), now)).toBeNull();
   });
 
   it('K4: a weekday alone is unambiguous only inside the next six days', () => {
-    const now = Date.parse('2026-10-20T23:47:00');   // Tuesday
+    const now = Date.parse('2026-10-20T23:47:00-04:00');   // Tuesday
     // Six days out: "Mon" can only mean next Monday.
-    expect(clockLabel('2026-10-26T20:30:00', now)).toEqual({ text: 'Ends Mon 20:30', urgent: false });
+    expect(clockLabel('2026-10-26T20:30:00-04:00', now)).toEqual({ text: 'Ends Mon 20:30 EDT', urgent: false });
     // A 7-day listing published tonight ends next Tuesday: "Ends Tue 23:47" read as tonight.
-    expect(clockLabel('2026-10-27T23:47:00', now)).toEqual({ text: 'Ends 27 Oct 23:47', urgent: false });
-    // Beyond a week the weekday names a day the reader can't place either.
-    expect(clockLabel('2026-11-02T09:05:00', now)).toEqual({ text: 'Ends 2 Nov 09:05', urgent: false });
+    expect(clockLabel('2026-10-27T23:47:00-04:00', now)).toEqual({ text: 'Ends 27 Oct 23:47 EDT', urgent: false });
+    // Beyond a week the weekday names a day the reader can't place either. (After the 1 Nov fall-back: EST.)
+    expect(clockLabel('2026-11-02T09:05:00-05:00', now)).toEqual({ text: 'Ends 2 Nov 09:05 EST', urgent: false });
   });
 
   it('K5: the six-day boundary counts calendar days, not 24-hour blocks', () => {
-    const now = Date.parse('2026-10-20T23:50:00');   // Tuesday, late
+    const now = Date.parse('2026-10-20T23:50:00-04:00');   // Tuesday, late
     // Under 7×24h away but on the same weekday next week: still dated.
-    expect(clockLabel('2026-10-27T08:00:00', now)).toEqual({ text: 'Ends 27 Oct 08:00', urgent: false });
+    expect(clockLabel('2026-10-27T08:00:00-04:00', now)).toEqual({ text: 'Ends 27 Oct 08:00 EDT', urgent: false });
     // Across the month and year ends.
-    expect(clockLabel('2027-01-05T10:00:00', Date.parse('2026-12-29T10:00:00')))
-      .toEqual({ text: 'Ends 5 Jan 10:00', urgent: false });
+    expect(clockLabel('2027-01-05T10:00:00-05:00', Date.parse('2026-12-29T10:00:00-05:00')))
+      .toEqual({ text: 'Ends 5 Jan 10:00 EST', urgent: false });
   });
 
   it('P1: the price caption is the presentation label, lowercased, with the §5 "all-in"', () => {
@@ -155,11 +158,11 @@ describe('feedRowState — §5 vocabulary', () => {
     expect(priceCaption('Starting bid')).toBe('starting bid, all-in');
   });
 
-  it('F1: the feature drops the date only when the event is genuinely today', () => {
-    const now = Date.parse('2026-09-22T09:41:00');
+  it('F1: the feature drops the date only when the event is genuinely today (in New York); the time keeps its label', () => {
+    const now = Date.parse('2026-09-22T09:41:00-04:00');
     expect(featureMetaLine({ eventDate: '2026-09-22', eventTime: '19:30:00', venue: 'Lantern Room' }, now))
-      .toBe('19:30 · Lantern Room');
+      .toBe('19:30 EDT · Lantern Room');
     expect(featureMetaLine({ eventDate: '2026-09-26', eventTime: '21:00:00', venue: 'Halcyon Hall' }, now))
-      .toBe('Sat 26 Sep · 21:00 · Halcyon Hall');
+      .toBe('Sat 26 Sep · 21:00 EDT · Halcyon Hall');
   });
 });

@@ -18,6 +18,7 @@ import { ACTION_FAILED_COPY } from '@/src/lib/ui/errorCopy';
 import { useAuth } from '@/src/hooks/useAuth';
 import { Button, EmptyState, Spinner } from '@/src/components/ui';
 import { SettingsHeader } from '@/src/components/account/SettingsHeader';
+import { easternParts } from '@/src/lib/time/eastern';
 import { textStyle } from '@/src/theme/typography';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
@@ -28,6 +29,16 @@ type Row = {
   created_at: string;
   blocked: { display_name: string | null } | null;
 };
+
+/**
+ * "Blocked 11/2/2026" — the day of the block on New York's calendar (owner, 2026-11-02), in the fixed M/D/YYYY the
+ * line has always shown on an en-US phone; neither the phone's zone nor its locale moves it. A date with no clock,
+ * so no EST / EDT label. '' for an unreadable date, so the row never reads "Blocked Invalid Date".
+ */
+export function blockedOnLabel(iso: string): string {
+  const p = easternParts(Date.parse(iso));
+  return p ? `Blocked ${p.month}/${p.day}/${p.year}` : '';
+}
 
 export default function BlockedUsersScreen() {
   const { palette } = useTheme();
@@ -148,11 +159,12 @@ export default function BlockedUsersScreen() {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.brand.red} />}
           renderItem={({ item }) => {
             const name = item.blocked?.display_name?.trim() || 'Blocked user';
+            const blockedOn = blockedOnLabel(item.created_at);
             return (
               <View style={s.row}>
                 <View style={s.rowText}>
                   <Text style={[textStyle('title'), s.name]} numberOfLines={1}>{name}</Text>
-                  <Text style={[textStyle('bodySm'), s.meta]}>Blocked {new Date(item.created_at).toLocaleDateString()}</Text>
+                  {blockedOn ? <Text style={[textStyle('bodySm'), s.meta]}>{blockedOn}</Text> : null}
                 </View>
                 <Button label="Unblock" variant="secondary" size="sm" onPress={() => handleUnblock(item.blocked_id, name)} />
               </View>

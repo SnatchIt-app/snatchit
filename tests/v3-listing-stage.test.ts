@@ -324,7 +324,7 @@ describe('ListingHero — identity over the curve-scrimmed §3 hero', () => {
     const art = findElement(host.output, (el) => el.type === 'EventMedia');
     expect(art?.props.slot).toBe('LISTING_HERO_V3');
     expect(art?.props.fluid).toBe(true);
-    expect(byText(host, 'Sat 26 Sep · 19:30 · Lantern Room')).toBeDefined();
+    expect(byText(host, 'Sat 26 Sep · 19:30 EDT · Lantern Room')).toBeDefined();
     const name = findElement(host.output, (el) => (el.props as { token?: string }).token === 'nameDetail');
     expect(name?.props.children).toBe('Neon Choir');
   });

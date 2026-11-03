@@ -267,6 +267,9 @@ describe('the gallery — sandbox-only, read-only, synthetic and labelled', () =
       // certainly one of the eight unclassified failures whose output was lost: deterministic,
       // an assertion failure, not contention.
       '@/src/lib/transfer/refundState',
+      // The Eastern-time source (owner, 2026-11-02): transferState's deadline lines read New York time from it.
+      // Pure — Intl and Date arithmetic only, its one formatter built lazily on first use, no import at all.
+      '@/src/lib/time/eastern',
     ]);
     for (const rel of ['app/_dev/transfer-states.tsx', 'src/components/transfer/TransferStateBlocks.tsx']) {
       const src = await stripped(rel);
@@ -274,7 +277,8 @@ describe('the gallery — sandbox-only, read-only, synthetic and labelled', () =
       expect(imports.length, rel).toBeGreaterThan(0);
       for (const i of imports) expect(allowed.has(i), `${rel} imports ${i}`).toBe(true);
     }
-    // And the blocks' own dependency, transferState, reaches nothing but the money formatter and the row formatter.
+    // And the blocks' own dependency, transferState, reaches nothing but the money formatter, the row formatter
+    // and the Eastern-time source.
     const state = await stripped('src/lib/transfer/transferState.ts');
     for (const i of [...state.matchAll(/from '([^']+)'/g)].map((m) => m[1])) expect(allowed.has(i), `transferState imports ${i}`).toBe(true);
   });

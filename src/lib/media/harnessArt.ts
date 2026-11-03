@@ -10,7 +10,7 @@
  *
  * THE DEFECT (B, 2026-10-05). The Home harness put the feature's artwork on `rows[0]` and assumed
  * that row was the feature. The screen does not render rows in fixture order: it buckets them by
- * event date (`groupByEventDate`, keyed to local midnight), flattens the sections, and features
+ * event date (`groupByEventDate`, keyed to New York's day), flattens the sections, and features
  * `index === 0` of THAT order. `rows[0]` is the feature only when the fixture's first row happens
  * to fall in the earliest bucket.
  *

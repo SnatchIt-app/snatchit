@@ -231,10 +231,10 @@ describe('each row gets exactly the helper\'s one action', () => {
     // The row's line is the helper's line, not a second copy of the rule.
     const send = r.get('l-send')!.nextAction as { line: string };
     expect(send.line).toBe(sellerNextAction({ listingStatus: 'sold', transfer: { status: 'pending', expires_at: FUTURE } }, Date.now())?.line);
-    // ...and the words on screen are the signed-off ones, as literals (the zone is not pinned here, so
-    // "Send by <time>" is held to its shape; SN1/SN2 pin the exact time).
+    // ...and the words on screen are the signed-off ones, as literals (FUTURE moves with the clock, so
+    // "Send by <time>" is held to its shape, New York's EST/EDT label included; SN1/SN2 pin the exact time).
     const line = (id: string) => (r.get(id)!.nextAction as { line: string }).line;
-    expect(send.line).toMatch(/^Send by (Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d{1,2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) · \d{2}:\d{2}$/);
+    expect(send.line).toMatch(/^Send by (Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d{1,2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) · \d{2}:\d{2} (EST|EDT)$/);
     expect(line('l-late')).toBe('Send window has passed — open this order to see its current status');
     expect(line('l-proof')).toBe('Add proof');
     // C-owned sentences (transferState.ts) stay reuse checks, with their structure held.
@@ -308,7 +308,8 @@ describe('the line follows the clock on an open screen (E, D-2.3)', () => {
       const host = await mountMyListings();
       const tick0 = list(host).props.extraData;
       expect(kindOf(host, 'l-soon')).toBe('send_by');
-      expect(lineOf(host, 'l-soon')).toMatch(/^Send by \S+ \d{1,2} \S+ · \d{2}:\d{2}$/);
+      // 20:02Z is 16:02 in New York (EDT) — exact now that the device zone no longer moves it.
+      expect(lineOf(host, 'l-soon')).toBe('Send by Wed 21 Oct · 16:02 EDT');
 
       // Just before the deadline: no redraw yet.
       vi.advanceTimersByTime(119_000);
