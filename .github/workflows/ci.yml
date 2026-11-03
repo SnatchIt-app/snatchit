@@ -767,6 +767,45 @@ jobs:
           # no grant beyond EXECUTE on those two to authenticated (pinned by pgTAP 266 A1/A2 and 197's post-flight).
           # Read from a local PG17 replay of main 7496fee3 + 197 with the service_role function default revoked:
           # 35|133|37|49 before and after.
+          # 2026-11-02 registry 198 (D, primary checkout and finalize bound to the buyer's holds; DARK, applied
+          # nowhere): NO change to any of the four counters. 198 adds one nullable column in schema `venue`
+          # (venue.inventory_hold.order_id, FK to venue."order" ON DELETE RESTRICT, partial index where not null)
+          # and replaces three venue bodies in place (create_primary_checkout, finalize_primary_order,
+          # sweep_expired_inventory_holds: same signatures, SECURITY DEFINER, search_path and ACL, pinned by pgTAP
+          # 267 A7 and 198's post-flight). No grant: the column is outside authenticated's 9-column grant on the
+          # table (267 A4a/A4b). Nothing in `public`; venue tables 29 / functions 99 and kernel functions 157 do not
+          # move. Read from a local PG17 replay of main 7496fee3 + 198 with the service_role function default
+          # revoked: 35|133|37|49 before and after.
+          # 2026-11-02 registry 199 (D, refund ledger post-success failure + executor exclusions; DARK, applied nowhere): NO
+          # change to any of the four counters. 199 adds four kernel functions (refund_executor_hold — no grant;
+          # record_refund_stripe_failure, park_refund_execution — service_role; rearm_refund_execution — authenticated,
+          # service_role revoked) and replaces kernel.mark_refund_state, kernel.claim_refunds_for_execution,
+          # kernel.get_refund_execution_context and ops.executor_claim (same signatures/ACLs; pgTAP 268 A2-A5 + 199's
+          # post-flight). Nothing in `public`. Kernel 157 -> 161, five-schema 320 -> 324, 141 F2 69 -> 70, F3 54 -> 56.
+          # Read from a local PG17 replay of main 7496fee3 + 199 with the service_role function default revoked:
+          # 35|133|37|49 before and after.
+          # 2026-11-02 registry 200 (D, admin report day boundaries in America/New_York; repo-only, applied nowhere):
+          # NO change to any of the four counters. 200 is body-only CREATE OR REPLACE of four `ops` functions
+          # (money_overview, refresh_metrics, build_daily_summary, primary_reconciliation): same signatures, owner,
+          # ACL, SECURITY DEFINER and search_path (pinned by pgTAP 269 P1-P4 and 200's post-flight). No object, no
+          # grant, nothing in `public`. Read from a local PG17 replay of main 7496fee3 + 200 with the service_role
+          # function default revoked: 35|133|37|49 before and after.
+          # 2026-11-02 registry 201 (D, checkout-side sale eligibility, stacked on 198; DARK, applied nowhere): NO
+          # change to any of the four counters. 201 replaces three venue bodies in place (reserve_primary_inventory,
+          # create_primary_checkout, finalize_primary_order: same signatures, SECURITY DEFINER, search_path, owner)
+          # and REVOKEs EXECUTE on venue.reserve_primary_inventory from authenticated; its one live caller,
+          # public.reserve_primary_tier (SECURITY DEFINER, owner postgres), is unchanged and keeps its grants
+          # (pinned by pgTAP 270 A3-A5 and 201's post-flight). The revoked grant is on a `venue` function: nothing in
+          # `public` moves, so the manifest and expected_grants.txt are unchanged; venue tables 29 / functions 99 and
+          # kernel functions 157 do not move. Read from a local PG17 replay of main c093bada + 198 + 201 with the
+          # service_role function default revoked: 35|133|37|49 before and after.
+          # 2026-11-02 registry 202 (D, fee-read alignment; DARK, applied nowhere): NO change to any of the four
+          # counters. 202 is body-only CREATE OR REPLACE of public.get_primary_session(uuid) and
+          # catalog.publish_event(uuid,text,text) plus a COMMENT on get_primary_session (same signatures, owner, ACL,
+          # SECURITY DEFINER, search_path, volatility — pinned by pgTAP 271 A1-A4 and 202's post-flight). No object, no
+          # grant: get_primary_session's manifest row and expected_grants are unchanged; pgTAP 232 A4's body pin moves.
+          # Read from a local PG17 replay of main 7496fee3 + 202 with the service_role function default revoked:
+          # 35|133|37|49 before and after.
           # 2026-11-02 registry 203 (D, event lifecycle guards; DARK, applied nowhere): NO change to any of the four
           # counters. 203 is body-only `create or replace` of catalog.cancel_event (refuses a completed event) and
           # catalog.update_event_session (refuses a session of a completed or cancelled event); same signatures,
@@ -1796,6 +1835,10 @@ jobs:
       # entrypoint step below and listed explicitly here so a module-level type
       # error is named on its own. The four native EDGES below stay advisory
       # until the PR that first deploys each of them.
+      # 2026-11-02 (A): connect-onboarding has been live in production since
+      # 2026-10-30 (list_edge_functions: ACTIVE v1) but stayed advisory, which hid
+      # two Deno type errors in a deployed function. It moves to `deployed`
+      # (blocking) here, together with the annotation-only fix for those errors.
       - name: deno check — shared pure modules (blocking)
         run: |
           deno check \
@@ -1814,9 +1857,9 @@ jobs:
       - name: deno check — deployed + production-aligned entrypoints (blocking)
         run: |
           set -euo pipefail
-          deployed="auto-finalize-auctions confirm-and-release confirm-payment create-connect-account create-payment-intent delete-account enforce-transfer-expiry notify-report notify-transfer send-push stripe-webhook"
+          deployed="auto-finalize-auctions confirm-and-release confirm-payment connect-onboarding create-connect-account create-payment-intent delete-account enforce-transfer-expiry notify-report notify-transfer send-push stripe-webhook"
           aligned="credential-sign door-manifest door-session ops-refund-execute"
-          native="connect-onboarding payout-execute primary-checkout refund-execute"
+          native="payout-execute primary-checkout refund-execute"
           for d in supabase/functions/*/; do
             n=$(basename "$d"); [ "$n" = "_shared" ] && continue
             case " $deployed $aligned $native " in *" $n "*) ;; *) echo "::error::supabase/functions/$n is in none of the deployed/aligned/native deno-check lists — add it deliberately."; exit 1;; esac
@@ -1824,13 +1867,13 @@ jobs:
           files=""; for n in $deployed $aligned; do files="$files supabase/functions/$n/index.ts"; done
           # shellcheck disable=SC2086
           deno check $files
-          echo "deno check OK: $(echo $deployed $aligned | wc -w | tr -d ' ') entrypoints (11 deployed + 4 production-aligned)"
+          echo "deno check OK: $(echo $deployed $aligned | wc -w | tr -d ' ') entrypoints (12 deployed + 4 production-aligned)"
 
       - name: deno check — never-deployed native arm (advisory until first deploy)
         continue-on-error: true
         run: |
           set -uo pipefail
-          native="connect-onboarding payout-execute primary-checkout refund-execute"
+          native="payout-execute primary-checkout refund-execute"
           files=""; for n in $native; do [ -f "supabase/functions/$n/index.ts" ] && files="$files supabase/functions/$n/index.ts"; done
           # shellcheck disable=SC2086
           if deno check $files; then echo "native arm type-checks clean"; else
