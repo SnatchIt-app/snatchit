@@ -3537,9 +3537,17 @@ OWNER SIGNATURE REQUIRED: YES (amends a ratified closed-world set).  OWNER SIGNA
 ```
 ID:                          PFA-33  (registry 198, stem 20261102120000, pgTAP 267; PR #233)
 FROZEN RULE:                 E-40 (this file): "`venue.finalize_primary_order` MUST re-read the hold
-                             `status='active'` + `expires_at > now()`" before converting it.
+                             `status='active'` + `expires_at > now()`" before converting it. The sentence
+                             continues with a second obligation, which this amendment does NOT alter:
+                             "and re-derive capacity from the batch counter under the batch `FOR UPDATE`,
+                             honoring the 081 oversell CHECK". Only the `expires_at > now()` re-check is
+                             amended, and only for the buyer's own bound holds.
                              E-58 (this file): finalize batch attribution is HEURISTIC; exact linkage is a
                              forward obligation.
+                             Anchor: E-40 and E-58 are post-freeze forward obligations (raised by red-team C,
+                             PR #36), not text of the 06fd5ec baseline, so they have no 06fd5ec anchor. They
+                             are cited in this file by entry name (a deliberate deviation from the field's
+                             "at 06fd5ec" wording).
 IMPLEMENTATION CONFLICT:     198 binds each active hold to the pending order that reserved it. With binding,
                              finalize converts the buyer's OWN active bound holds whatever their `expires_at`.
                              The literal E-40 re-check of `expires_at > now()` would refuse a paid order whose
@@ -3561,7 +3569,9 @@ RECOMMENDATION:              (b), with these owner rulings (registry-198 design,
                                  is cancelled (the settled 10-minute checkout TTL on the payment side).
                              O14 Refunds stay manual: refund_required is ack:true + alert + review row.
 PACKAGE IMPACT:              registry 198 only (its migration, rollback, pgTAP 267, and the 258 test edits).
-DAG IMPACT:                  none.
+DAG IMPACT:                  none: no edge added or removed. Four-surface re-verification: not applicable;
+                             a docs-only policy amendment with no package or DAG change (198 itself is
+                             verified by its own CI, pgTAP 267 and the 198→205 rehearsal).
 SECURITY/MONEY IMPACT:       no double decrement (FOR UPDATE + release status re-check); a paid order that
                              cannot finalize is flagged for manual review and alerted, never auto-refunded.
                              Sales and every money executor stay OFF; enabling them is a separate owner GO.
@@ -3586,7 +3596,9 @@ RECOMMENDATION:              (b): cancel_event raises `precondition_failed: even
                              event (after the authority check); a cancelled event still answers noop_replay;
                              refunds after the event go through admin refunds.
 PACKAGE IMPACT:              registry 203 only (its migration, rollback, pgTAP 272).
-DAG IMPACT:                  none.
+DAG IMPACT:                  none: no edge added or removed. Four-surface re-verification: not applicable;
+                             a docs-only policy amendment with no package or DAG change (203 itself is
+                             verified by its own CI, pgTAP 272 and the 198→205 rehearsal).
 SECURITY/MONEY IMPACT:       removes a bulk void + refund path for completed events; no new grant or object.
 OWNER SIGNATURE REQUIRED:    YES.  OWNER SIGNATURE: RECORDED 2026-11-03. The owner answered "Ratify
                              (Recommended)" (Claude A session). Ratification record row OR-27.
