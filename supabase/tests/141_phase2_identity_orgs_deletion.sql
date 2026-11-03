@@ -161,7 +161,8 @@ SELECT is(
   -- kernel.check_signing_key_invariants (nobody-executable — revoked from public/anon/
   -- authenticated/service_role, run only as the cron job's owner). Re-derived from the live
   -- catalog, not accepted as a delta.
-  157, '077 A14: exactly 153 kernel  [131 +4 kernel: invalidate_push_bindings_for, trg_push_bindings_on_password_change, trg_push_bindings_on_sessions_gone, push_session_predates_epoch]functions (111''s three recovery fns + 109 post-090 + 093''s sixteen + 095''s seven payout-state-machine + 094''s four obligation ones + 096''s nine payout-reversal/obligation-recovery ones + 099''s check_signing_key_invariants + 102''s get_ticket_signing_context + 105''s force_close_key_manifests + 109''s force_close_session_manifests + 110''s guard_signing_key_insert (106''s revoke un-park and 108''s two scan re-creates were REPLACED, not added); settlement_royalty_lines, get_payout_execution_context, close_settlement, resolve_organization_obligation, org_outstanding_obligation_minor, settlement_primary_lines, organization_obligation_guard, settlement_payout_maturity, settlement_maturity_hold_codes, record_dispute_native, mark_dispute_state, settlement_commission_lines, pay_promoter_commission and mark_payout_transfer_state were replaced, not added)');
+  -- 2026-11-02 (registry 199): 157 -> 161 (+4 kernel: refund_executor_hold, record_refund_stripe_failure, park_refund_execution, rearm_refund_execution).
+  161, '077 A14: exactly 153 kernel  [199 +4 kernel: refund_executor_hold, record_refund_stripe_failure, park_refund_execution, rearm_refund_execution; 131 +4 kernel: invalidate_push_bindings_for, trg_push_bindings_on_password_change, trg_push_bindings_on_sessions_gone, push_session_predates_epoch]functions (111''s three recovery fns + 109 post-090 + 093''s sixteen + 095''s seven payout-state-machine + 094''s four obligation ones + 096''s nine payout-reversal/obligation-recovery ones + 099''s check_signing_key_invariants + 102''s get_ticket_signing_context + 105''s force_close_key_manifests + 109''s force_close_session_manifests + 110''s guard_signing_key_insert (106''s revoke un-park and 108''s two scan re-creates were REPLACED, not added); settlement_royalty_lines, get_payout_execution_context, close_settlement, resolve_organization_obligation, org_outstanding_obligation_minor, settlement_primary_lines, organization_obligation_guard, settlement_payout_maturity, settlement_maturity_hold_codes, record_dispute_native, mark_dispute_state, settlement_commission_lines, pay_promoter_commission and mark_payout_transfer_state were replaced, not added)');
 -- A14a: the SIXTEEN BY NAME with their grant class and definer flag, so that moving
 -- this census forces the mover to say WHICH function they added rather than bumping
 -- an integer. Grant class is included because a re-classification (say, exposing
@@ -454,7 +455,10 @@ SELECT is(
   -- the absorbing 'failed' state. platform_risk/platform_admin on aal2 inside the body, and
   -- EXPLICITLY revoked from service_role: a machine that executes money must not be able to
   -- re-arm it. Named, not counted.
-  || 'rearm_failed_payout,record_money_denial,'
+  -- 2026-11-02 (registry 199, refunds-7): +1 authenticated — rearm_refund_execution, the only exit from an executor
+  -- park. platform_risk/platform_admin on aal2 inside the body, service_role EXPLICITLY revoked (a machine that
+  -- executes money must not re-arm it; rearm_failed_payout precedent). Named, not counted.
+  || 'rearm_failed_payout,rearm_refund_execution,record_money_denial,'
   -- 2026-09-03 (package 096, R-5): +1 authenticated — record_obligation_recovery.
   -- authenticated ONLY, service_role EXPLICITLY revoked: recording a recovery receipt is a
   -- human/edge-fronted act (platform_risk|platform_admin + aal2 in body), not a machine one.
@@ -496,7 +500,7 @@ SELECT is(
   -- 2026-09-03 (package 096): 64 -> 66 — record_obligation_recovery (R-5, new) and
   -- resolve_organization_obligation (R-6, RE-CLASSIFIED from service_role-only to
   -- authenticated-only). Re-derived from the live catalog.
-  '077 F2 [RLS §11]: authenticated EXECUTE = exactly the 69 caller-authorized functions (111''s approve/execute_signing_key_recovery per E4; 59 post-090 + 093''s get_org_connect_state per A6, is_order_buyer per F, and authorize_org_payout_dashboard per H6/F-3; 095''s rearm_failed_payout per E-2 and retry_held_payout per E-3; 096''s record_obligation_recovery per R-5 and resolve_organization_obligation per R-6; 102''s get_ticket_signing_context per credential-sign; refund_primary_order is EXEC DEF per PFA-23)');
+  '077 F2 [RLS §11]: authenticated EXECUTE = exactly the 70 caller-authorized functions (199''s rearm_refund_execution per refunds-7; 111''s approve/execute_signing_key_recovery per E4; 59 post-090 + 093''s get_org_connect_state per A6, is_order_buyer per F, and authorize_org_payout_dashboard per H6/F-3; 095''s rearm_failed_payout per E-2 and retry_held_payout per E-3; 096''s record_obligation_recovery per R-5 and resolve_organization_obligation per R-6; 102''s get_ticket_signing_context per credential-sign; refund_primary_order is EXEC DEF per PFA-23)');
 -- the DEF class: service_role EXECUTE = the two sweeps + the predicate + 11 stubs
 SELECT is(
   (SELECT string_agg(p.proname, ',' ORDER BY p.proname COLLATE "C")
@@ -557,6 +561,9 @@ SELECT is(
   -- here at 094 but is RE-CLASSIFIED to authenticated-only by 096 R-6 (KD P1-1 fix) and is
   -- therefore REMOVED from this list — see F2 above, where it now lives.
   || 'org_outstanding_obligation_minor,'
+  -- 2026-11-02 (registry 199, refunds-7): +1 DEF service_role — park_refund_execution, the refund sweep's fenced
+  -- park (DB-issued key, latest claim attempt, status scope). Named, not counted.
+  || 'park_refund_execution,'
   -- 2026-09-03 (package 096, R-1): +1 DEF service_role — payout_reversed_minor, the read-only
   -- projection over kernel.payout_reversal. Named, not counted.
   || 'payout_reversed_minor,'
@@ -569,6 +576,9 @@ SELECT is(
   -- ONLY: recording a payout-reversal fact is a machine act (webhook/reconcile-driven), not a
   -- caller-initiated one. Named, not counted.
   || 'record_payout_reversal,'
+  -- 2026-11-02 (registry 199, refunds-4): +1 DEF service_role — record_refund_stripe_failure, the stripe-webhook's
+  -- single post-failure converger (resolves by the row's own ref; code from the recorded Stripe state). Named, not counted.
+  || 'record_refund_stripe_failure,'
   -- refund_primary_order joins the DEF class (PFA-23: EXEC DEF, service_role).
   -- 2026-09-02 (package 093): +1 DEF service_role — stage_org_connect_ref (ruling A7).
   -- service_role ONLY is the whole control: a caller that could stage would be able to
@@ -595,7 +605,7 @@ SELECT is(
   -- claim_failed_payouts_for_reconcile), -1 removed (resolve_organization_obligation,
   -- RE-CLASSIFIED to authenticated-only by R-6, now counted at F2 instead). Net +4: 50 -> 54.
   -- Re-derived from the live catalog (has_function_privilege), not accepted as a delta.
-  '077 F3 [RLS §11 DEF / D-F2]: service_role EXECUTE = exactly the 54 DEF functions (34 post-088 + 093''s sync_org_connect_state/get_org_connect_ref per A6/A9, stage_org_connect_ref per A7, get_refund_execution_context + claim_refunds_for_execution per D3, the payout executor''s six per H8/G2, 095''s hold_payout_transfer_reversed per E-4 + settlement_unbooked_refund_exposure per E-6, the org-obligation package''s two per J3 §5.1/E-150 (resolve_organization_obligation moved OUT to F2 per 096 R-6), and 096''s five per R-1/R-3/R-4/R-7 (obligation_outstanding_minor, payout_reversed_minor, reconcile_payout_transfer, record_payout_reversal, claim_failed_payouts_for_reconcile))');
+  '077 F3 [RLS §11 DEF / D-F2]: service_role EXECUTE = exactly the 56 DEF functions (199''s park_refund_execution per refunds-7 and record_refund_stripe_failure per refunds-4; 34 post-088 + 093''s sync_org_connect_state/get_org_connect_ref per A6/A9, stage_org_connect_ref per A7, get_refund_execution_context + claim_refunds_for_execution per D3, the payout executor''s six per H8/G2, 095''s hold_payout_transfer_reversed per E-4 + settlement_unbooked_refund_exposure per E-6, the org-obligation package''s two per J3 §5.1/E-150 (resolve_organization_obligation moved OUT to F2 per 096 R-6), and 096''s five per R-1/R-3/R-4/R-7 (obligation_outstanding_minor, payout_reversed_minor, reconcile_payout_transfer, record_payout_reversal, claim_failed_payouts_for_reconcile))');
 SELECT is(
   (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'kernel' AND NOT p.prosecdef),
