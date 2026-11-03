@@ -153,7 +153,9 @@ const CANNOT_VERIFY_COPY: Record<CannotVerifyWhy, string> = {
   timeout: "Sent, but no answer came back. The scan may or may not be recorded. Tap Check again before you decide.",
   transport: "This phone could not confirm that the scan reached the server. Tap Check again. If it keeps failing, use another phone or another connection.",
   not_enabled: "Scanning is not enabled on this project yet. Nothing can be verified here.",
-  session_not_admitting: "This session was cancelled or has ended. The server admits nobody to it.",
+  // 104:89 / 108:69 refuse a cancelled or completed session AND one whose row cannot be found (status null,
+  // "missing"). The second needs the opposite action at the door: reload and check the session, not turn guests away.
+  session_not_admitting: "This session is not admitting: it was cancelled, it has ended, or it cannot be found. Nobody can be let in with it. If you expected it to be open, reload and check you picked the right session.",
   rate_limited: "Too many requests from this account. Wait a moment, then check again.",
   server_error: "The server could not answer. Tap Check again.",
   keyring: "The scanner could not load the Snatch It security keys, so it cannot check any pass right now. Tap Check again.",

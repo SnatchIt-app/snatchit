@@ -67,6 +67,10 @@ describe("outcomeFromRpcError — dark, no role, signed out, not admitting", () 
   it("session_not_admitting and rate limits are CANNOT VERIFY; unknown errors keep the same-key retry", () => {
     const na = outcomeFromRpcError({ code: "P0001", message: "precondition_failed: session_not_admitting (status=closed)" });
     expect(na.kind === "outcome" && na.outcome.kind === "cannot_verify" && na.outcome.why).toBe("session_not_admitting");
+    // three server branches (104:89, 108:69): cancelled, completed, or a session that cannot be found (status=missing)
+    const copy = outcomeDetail({ kind: "cannot_verify", why: "session_not_admitting", retrySameKey: false }, "America/New_York");
+    expect(copy).toContain("it was cancelled, it has ended, or it cannot be found");
+    expect(copy).toContain("reload and check you picked the right session");
     expect(outcomeFromRpcError(null, 429)).toEqual({ kind: "outcome", outcome: { kind: "cannot_verify", why: "rate_limited", retrySameKey: true } });
     const other = outcomeFromRpcError({ code: "57014", message: "canceling statement due to statement timeout" });
     expect(other).toEqual({ kind: "outcome", outcome: { kind: "cannot_verify", why: "server_error", retrySameKey: true, detail: "canceling statement due to statement timeout" } });
