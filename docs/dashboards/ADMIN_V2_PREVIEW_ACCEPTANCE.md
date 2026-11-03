@@ -11,7 +11,7 @@ The owner decided admin v2 replaces the live console after an independent review
 | Source | `admin/console-v2-release` @ `e3e9fb76` (draft PR #209, base `admin/operating-console`). It contains the old head `2fc0c8f4` plus 21 later commits that touch `admin/`. The upload is the tracked `admin/` tree without `admin/docs`: 211 files. Codex's deployment matches this count. |
 | Project | `snatchit-admin` (`prj_o17cASVVqqyGKPUtiklJRvAMVgNB`), run from the export root (Root Directory is `admin`), with `admin/.vercelignore` |
 | Env | the four `NEXT_PUBLIC_*` values the production console already ships to every browser (Supabase URL, anon key, site URL, label `production`). These are public-class values, not secrets. No Preview-target env is created on the project; they are passed to the one deploy. |
-| Data | production, read as the signed-in operator through `ops.*`. This build also calls functions that the live console `dddc8e92` does not call:<br>• `ops.list_operational_config` (registry 197, **not applied**). The panel shows "Needs registry 197".<br>• `ops.list_cases/orders/listings/reports` with `p_include_test` (registry 180, **not applied**). `/system/test-data` shows "Needs registry 180".<br>• `ops.primary_reconciliation` and `ops.record_primary_refund` (migration 189, **applied**). The refund form is live.<br>• `ops.alert_ack` (migration 146, **applied**: read by A on 2026-11-02, read-only). |
+| Data | production, read as the signed-in operator through `ops.*`. This build also calls functions that the live console `dddc8e92` does not call:<br>• `ops.list_operational_config` (registry 197, **applied 2026-11-02**, ledger 190). The panel shows the Operational settings form (see C16).<br>• `ops.list_cases/orders/listings/reports` with `p_include_test` (registry 180, **not applied**). `/system/test-data` shows "Needs registry 180".<br>• `ops.primary_reconciliation` and `ops.record_primary_refund` (migration 189, **applied**). The refund form is live.<br>• `ops.alert_ack` (migration 146, **applied**: read by A on 2026-11-02, read-only). |
 | Protection | Vercel SSO, `all_except_custom_domains`: a preview URL always redirects to Vercel sign-in. No bypass link is created. |
 | Rollback | delete the preview or let it expire. Production (`dddc8e92`) is untouched. **Deleting the preview does not undo a database write.** That is why the walk is read-only. |
 
@@ -23,6 +23,7 @@ The owner decided admin v2 replaces the live console after an independent review
 ## Verified / assumed / open
 - **Verified from source:** all quoted copy, button labels, routes, and role gates below. Source citations are `path:line` at `e3e9fb76a966ed6459350af3bdfa5efdbd2cdebc`. `118:` = `supabase/migrations/118_ops_console_corrections.sql`.
 - **Verified by A (live, read-only):** 196 applied; 197 and 180 not applied; 189 applied; `refund_execute_enabled` false; sales off; flags false.
+- **Update (A, 2026-11-02 late):** **197 is now applied** (sandbox and production, 9/9 read-back; ledger 190). 180 is still not applied. C16 and the stop rule below are updated to match; the line above is kept as the record of the earlier read.
 - **Assumed:** the owner walks as `platform_admin` at aal2 on a desktop window.
 - **Read by A on 2026-11-02, live, read-only (these were open; they decide refund-resolution cases, alert acknowledge and suspend):** migrations **144** (`ops_refund_resolution_detector`) and **146** (`ops_alert_delivery_and_ack`) are **applied**; `ops.alert_ack` exists. `actions_enabled` = **true**. The current Ignored Build Step pin = `dddc8e92`.
 - **Still OPEN: migration 152 (suspend).** No function named like `%suspen%` exists in ops/kernel/public, and there is no suspension migration in the ledger. The "152" suspension dependency is unresolved: F to name the exact object, and A reads it.
@@ -50,7 +51,7 @@ The owner decided admin v2 replaces the live console after an independent review
   - **Listing page** `/marketplace/…`: Relist; Mark reviewing / Actioned / Dismiss; Open a case on this listing → Open case; Open evidence · audited.
   - **Reports**: Mark reviewing / Actioned / Dismiss. Nothing can set a report back to pending.
   - **Money → Ticket orders**: every **Record a refund** link (in the table and in "Money facts that disagree"); **Record this refund**.
-  - **System**: Run now (jobs); Acknowledge → Record acknowledgement (alerts); Approve and execute / Deny (approvals); Request change, Approve and apply, Deny (Money settings); Apply now (Operational settings; it should not appear); **Save setting** (any row; it writes at once, even with the same value).
+  - **System**: Run now (jobs); Acknowledge → Record acknowledgement (alerts); Approve and execute / Deny (approvals); Request change, Approve and apply, Deny (Money settings); Apply now (Operational settings; since 197 it appears, and must never be pressed during a walk); **Save setting** (any row; it writes at once, even with the same value).
   - **Action page** `/actions/…`: Approve and execute; Deny; Resume execution.
   - **`/mfa`**: Enrol and verify; Retry.
 
@@ -101,7 +102,7 @@ The owner decided admin v2 replaces the live console after an independent review
 - A table "Live values (N money keys)". A's read says the fee keys are unset, so they show "unset". Note any other value.
 - Under "Request a change": Money key, New value (JSON), Reason, **Request change**. Do not pick, type or press.
 
-**C16. System → "Operational settings".** Pass = a card titled **"Needs registry 197 — operational settings are not available on this server."** ending "…no write control is shown." No inputs, no **Apply now**. **Fail, then stop:** a form with **Apply now** (production would then have 197).
+**C16. System → "Operational settings".** (197 applied 2026-11-02.) Pass = a form showing **hold max**, **hold lifetime** and the native **issuance** and **scanning** flags, with **Apply now**. The flags read **off**; hold max and lifetime read **unset**, or the values the owner set (6 holds, 10 minutes). **Do not press Apply now:** it is a single-founder write that applies at once. **Fail, then stop:** the "Needs registry 197" card (the console cannot read 197), or a flag that reads **on**.
 
 **C17. System → jump link "Test records (restricted)".** Pass = title "Test records (restricted view)", a pill "Needs registry 180." beside it, and a card titled **"Needs registry 180 — the readers on this server cannot include test records."** with "No rows are shown and nothing has been classified." No tables. **Fail, then stop:** tables appear.
 
@@ -119,7 +120,7 @@ The owner decided admin v2 replaces the live console after an independent review
 
 ## Pass / fail
 - **Pass:** A1-A3, A5, B6-B13, C14-C17, D18-D20, E21, E22 as expected. "none" is allowed where a step says so.
-- **Fail, stop at once:** anything on the Do-not-press list was pressed; `/mfa` offered enrolment; C16 shows a form; C17 shows tables; C14 or C15 shows a failure card.
+- **Fail, stop at once:** anything on the Do-not-press list was pressed; `/mfa` offered enrolment; C16 shows the "Needs registry 197" card or a flag reading on; C17 shows tables; C14 or C15 shows a failure card.
 - **What a pass proves:** reads and designed states only. No v2 write ran on production. P2's write half stays open until named evidence exists (a local or rehearsal run, or an owner-gated write on a test case after cutover).
 - Anything else: write what you saw and stop. F fixes or records it; the check is re-run on a new preview.
 
