@@ -8,22 +8,20 @@
  *
  * What changed is the behaviour, not the event. It sits BELOW the header instead
  * of over it, it is `pointerEvents="none"` so it can never eat a tap on the bid
- * button underneath, it translates a short distance with the brand easing and no
- * overshoot, and under reduce motion it simply appears and disappears.
+ * button underneath, it translates a short distance with a critically damped
+ * spring (no overshoot), and under reduce motion it simply appears and disappears.
  */
 
 import { useEffect, useMemo, useRef } from 'react';
-import { Animated, Easing, StyleSheet, Text } from 'react-native';
+import { Animated, StyleSheet, Text } from 'react-native';
 import { useTopInset } from '@/src/lib/nav/navInsets';
 
 import { useReducedMotion } from '@/src/hooks/useReducedMotion';
 import { useAnnounceOnce } from '@/src/hooks/useAnnounceOnce';
-import { EASING_BEZIER, textStyle } from '@/src/theme/typography';
+import { textStyle } from '@/src/theme/typography';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
-
-const [x1, y1, x2, y2] = EASING_BEZIER;
 
 export function OutbidToast({ visible, message }: { visible: boolean; message: string }) {
   // liveRegion is Android-only and role="alert" doesn't speak on iOS: VoiceOver never heard "outbid".
@@ -36,10 +34,22 @@ export function OutbidToast({ visible, message }: { visible: boolean; message: s
   const progress = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    Animated.timing(progress, {
+    // Reduce motion: no movement at all. Snap rather than animate — a spring has no
+    // duration to collapse to zero, and `setValue` flushes straight to the native node.
+    if (reduceMotion) {
+      progress.setValue(visible ? 1 : 0);
+      return;
+    }
+    // A spring rather than a timing, so an interruption mid-flight RE-TARGETS from the
+    // current position instead of restarting a fixed 180 ms run. Verified in RN 0.81.5:
+    // `AnimatedValue.animate()` stops the previous animation and calls
+    // `animation.start(this._value, …)` (AnimatedValue.js:319-323), and
+    // `SpringAnimation.start()` sets `_startPosition = fromValue` (SpringAnimation.js:210)
+    // with `x0 = _toValue - _startPosition` (:292) — so there is no position jump.
+    // Velocity continuity across an interruption is NOT claimed; see B's status doc.
+    Animated.spring(progress, {
       toValue: visible ? 1 : 0,
-      duration: reduceMotion ? 0 : v2.motion.swift,
-      easing: Easing.bezier(x1, y1, x2, y2),
+      ...v2.motion.bannerSpring,
       useNativeDriver: true,
     }).start();
   }, [visible, reduceMotion, progress]);

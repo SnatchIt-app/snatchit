@@ -287,6 +287,19 @@ export const motion = {
    */
   easingCss: 'cubic-bezier(0.22, 1, 0.36, 1)',
   easingBezier: [0.22, 1, 0.36, 1] as const,
+  /**
+   * The outbid banner's spring (M2). DERIVED from `swift`, not invented: for a
+   * critically damped spring (zeta = 1) with mass 1, settling to ~2% of the distance
+   * takes about 5.8/omega_n, so omega_n = 5.8 / 0.180 s ~= 32 rad/s and
+   * stiffness = omega_n^2 * m = 1024. Then damping = 2 * zeta * sqrt(k * m) = 2 * 32 = 64,
+   * i.e. exactly zeta = 1, so it settles without overshoot — the same no-bounce rule
+   * `src/components/ui/press.ts` states for press feedback. `overshootClamping` is
+   * belt-and-braces: no overshoot even if these numbers are retuned later.
+   *
+   * Keys are the ones React Native's SpringAnimation accepts and forwards to the
+   * native driver (RN 0.81.5 SpringAnimation.js:186-197).
+   */
+  bannerSpring: { stiffness: 1024, damping: 64, mass: 1, overshootClamping: true } as const,
 } as const;
 
 /**

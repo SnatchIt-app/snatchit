@@ -31,7 +31,6 @@
  */
 
 import { router } from 'expo-router';
-import * as Haptics from 'expo-haptics';
 // import { Audio } from 'expo-av'; // re-enable once mallet-hit.mp3 is added
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActionSheetIOS, Alert, AppState, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
@@ -43,6 +42,7 @@ import { ACTION_FAILED_COPY } from '@/src/lib/ui/errorCopy';
 import { readServerRefusal } from '@/src/lib/moderation/serverRefusal';
 import { listingCancelFailure, listingDeleteFailure, listingDeleteNoRows } from '@/src/lib/listing/listingRefusal';
 import { blockConfirmMessage } from '@/src/lib/moderation/blockCopy';
+import { hapticSuccess, hapticWarning } from '@/src/lib/feedback/haptics';
 import { PriceDisplay } from '@/src/components/PriceDisplay';
 import { useAuth } from '@/src/hooks/useAuth';
 import { useSavedListing } from '@/src/hooks/useSavedListing';
@@ -595,7 +595,7 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
 
     // Haptics + banner: only on winning → outbid (false → true).
     if (!wasOutbidRef.current && nextIsOutbid) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+      hapticWarning();
       sendLocalNotification({
         title: "You've been outbid!",
         body: `Someone bid higher on ${listing?.event_name ?? 'this listing'}. Tap to bid again.`,
@@ -751,7 +751,7 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
     winTitleRef.current = WIN_TITLES[idx];
 
     // 1. Haptic — success pattern
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    hapticSuccess();
 
     // 2. Local notification — replaces the previous slide-in in-screen
     //    banner. The banner overlapped the screen header (looked broken)
