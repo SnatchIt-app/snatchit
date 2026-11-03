@@ -100,7 +100,7 @@ export default async function EventPage({ params, searchParams }: { params: Prom
         // Fail closed: an event you cannot read is indistinguishable from one that does not exist (spec §4.4 rule 5).
         <DeniedState
           surface="This event"
-          reason="Either it isn't yours to see, or it isn't there. The dashboard deliberately answers the same way to both, so a link can never be used to find out which."
+          reason="Either it isn't yours to see, or it isn't there. The dashboard gives the same answer for both, so a link cannot show which one it is."
           alternative={{ label: "Back to events", href: withPreview(`${basePath}/events`, ctx) }}
         />
       ) : failedRead || !loaded ? (

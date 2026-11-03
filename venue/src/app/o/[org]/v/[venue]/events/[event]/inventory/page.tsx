@@ -54,7 +54,7 @@ export default async function InventoryPage({ params, searchParams }: { params: 
             if (m.complete) ctx = { ...ctx, countersAvailable: true };
             else countersNote = "Capacity, held and sold did not load for every release, so the tables show remaining only.";
           } else {
-            countersNote = c.kind === "not_exposed" ? "Capacity, held and sold cannot be read on this project yet. Only remaining is shown." : `Couldn't load capacity, held and sold (${c.message}). Remaining is shown; nothing here is a zero.`;
+            countersNote = c.kind === "not_exposed" ? "Capacity, held and sold cannot be read on this project yet. Only remaining is shown." : `Couldn't load capacity, held and sold (${c.message}). Only remaining is shown. The missing figures are not shown as zero.`;
           }
         }
         loaded = { types: t.data, batches, holds: [] };

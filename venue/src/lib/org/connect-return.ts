@@ -94,7 +94,7 @@ export const RETURN_COPY = {
 
 export const REFRESH_COPY = {
   heading: "That setup link expired",
-  body: "Stripe links are single-use and short-lived, and this one is spent. Nothing is wrong with your account and nothing was lost. Start the setup again to get a new link.",
+  body: "Stripe setup links work once and expire quickly. This one can't be used again. Start the setup again to get a new link.",
 } as const;
 
 /** The roles that may see payouts at all (093 §6): org_owner or org_finance. No venue role, ever. */

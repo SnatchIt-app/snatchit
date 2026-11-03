@@ -58,7 +58,7 @@ export function ConnectActions({ orgId, action, mayBind, needsStepUp, stepUpHref
           <a href={stepUpHref} className="link">
             Confirm it is you
           </a>{" "}
-          first; finance can read this page and start the setup, but the binding step is the owner&apos;s.
+          first. Only the owner can name where money is paid.
         </p>
       ) : null}
 

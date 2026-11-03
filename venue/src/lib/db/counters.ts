@@ -87,7 +87,7 @@ export async function dbInventoryCounters(eventId: string): Promise<ReadResult<C
     const f = mapReadError(READ, res.error, res.status);
     // read-result.ts names F's read-views migration when an object is missing; this read's object is the
     // venue_cmd transport (provisional 161), so the hint is corrected here without touching F's mapper.
-    return f.kind === "config" ? { ...f, message: `${res.error.message ?? "Request failed"} (venue_cmd transport — provisional migration 161 not applied?)` } : f;
+    return f.kind === "config" ? { ...f, message: `${res.error.message ?? "Request failed"} (the venue_cmd counters read is missing; migration 161 may not be applied)` } : f;
   }
   // Rows or nothing: a shape this module does not recognise is a failure, never coerced to zero counters.
   if (!Array.isArray(res.data) || !res.data.every(isCounterRow)) return { ok: false, kind: "error", message: "Counters came back in an unexpected shape", read: READ };

@@ -75,7 +75,7 @@ export function inventoryWarnings(
     const rem = remaining(b);
     const av = availability(b);
     if (av === "sold_out") out.push({ ...base, kind: "sold_out", detail: `${b.sold} of ${b.capacity} sold` });
-    else if (av === "all_held") out.push({ ...base, kind: "all_held", detail: `${b.held} held, ${b.sold} sold — release holds to put tickets back on sale` });
+    else if (av === "all_held") out.push({ ...base, kind: "all_held", detail: `${b.held} held, ${b.sold} sold — a held ticket comes back only if its hold ends without a sale` });
     else if (rem < b.lowThreshold) out.push({ ...base, kind: "low", detail: `${rem} left (threshold ${b.lowThreshold})` });
     if (b.releaseKind === "door" && b.sold === 0 && opts.liveSessionIds.has(b.sessionId)) {
       out.push({ ...base, kind: "door_untouched", detail: `${b.capacity} held back for the door, none sold yet` });

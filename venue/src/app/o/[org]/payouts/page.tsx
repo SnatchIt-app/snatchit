@@ -80,7 +80,7 @@ export default async function PayoutsPage({ params, searchParams }: { params: Pr
     <Shell org={org} back={back}>
       {retry ? (
         <p role="status" className="mb-4 border-l-2 border-warning bg-warning-soft px-3 py-2 text-sm text-warning">
-          That Stripe setup link had expired, so nothing was lost. Start the setup again below to get a new one.
+          That Stripe setup link expired. Start the setup again below to get a new one.
         </p>
       ) : null}
       <section className="panel px-5 py-5" aria-labelledby="payouts-state">
@@ -114,14 +114,14 @@ export default async function PayoutsPage({ params, searchParams }: { params: Pr
 
         {!capability.mayBind && !capability.needsStepUp ? (
           <p className="mt-3 text-sm text-muted">
-            You can read this page and start the setup. {FAILURE_COPY.requires_owner}
+            {FAILURE_COPY.requires_owner}
           </p>
         ) : null}
 
         <details className="mt-5">
           <summary className="text-sm text-dim">What the next button does</summary>
           <p className="mt-2 text-sm text-muted">
-            “{ACTION_LABEL[action]}” asks the server for a one-time Stripe link and opens it in a new tab. Snatch It never sees your bank details: they go to Stripe, and Stripe tells us only whether the account can receive
+            “{ACTION_LABEL[action]}” asks the server for a one-time Stripe link and shows it here. The link opens Stripe in a new tab. Snatch It never sees your bank details: they go to Stripe. Stripe tells us the account&apos;s setup status, such as whether it can receive
             transfers. Selling cannot be turned on until Stripe says it can.
           </p>
         </details>

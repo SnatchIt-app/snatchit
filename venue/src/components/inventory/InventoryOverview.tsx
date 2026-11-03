@@ -68,7 +68,7 @@ export function InventoryOverview({ event, types, batches, holds, ctx, basePath,
       {view === "counters" && hb.total > 0 ? (
         <p className="text-sm">
           <strong>Held back for the door: {hb.door} of {hb.total}</strong>
-          <span className="text-muted"> — stock deliberately withheld from online sale so the box office has something to sell at 1 a.m.</span>
+          <span className="text-muted"> — tickets kept back from online sale for the door.</span>
         </p>
       ) : null}
 
@@ -108,7 +108,7 @@ export function InventoryOverview({ event, types, batches, holds, ctx, basePath,
                           <>
                             <CapacityBar capacity={b.capacity} held={b.held} sold={b.sold} remaining={rem} />
                             {av === "sold_out" ? <p className="mt-1 text-xs text-danger">Sold out.</p> : null}
-                            {av === "all_held" ? <p className="mt-1 text-xs text-warning">Nothing available — everything is on hold. Release holds to put tickets back on sale.</p> : null}
+                            {av === "all_held" ? <p className="mt-1 text-xs text-warning">Nothing available — everything is on hold. A held ticket comes back only if its hold ends without a sale.</p> : null}
                           </>
                         ) : (
                           <span className="tabular-nums">{rem} remaining</span>
@@ -213,7 +213,7 @@ export function InventoryOverview({ event, types, batches, holds, ctx, basePath,
         {canReadHolds(ctx.role) ? (
           <Panel title="Holds" eyebrow="Seats reserved but not sold">
             {ctx.source === "database" ? (
-              <p className="text-sm text-muted">Holds aren&apos;t readable in this mode.</p>
+              <p className="text-sm text-muted">The dashboard does not read holds.</p>
             ) : holds.filter((h) => h.status === "active").length === 0 ? (
               <p className="text-sm text-muted">No active holds</p>
             ) : (
@@ -238,7 +238,7 @@ export function InventoryOverview({ event, types, batches, holds, ctx, basePath,
                           <form method="get" action={self} className="flex items-center gap-2">
                             <input type="hidden" name="did" value="venue.release_inventory_hold" />
                             <PreviewHidden ctx={ctx} />
-                            <button className="btn btn-ghost btn-sm touch-row md:min-h-0" type="submit" title="Releasing this puts the tickets back on sale immediately.">
+                            <button className="btn btn-ghost btn-sm touch-row md:min-h-0" type="submit" title="Releasing this hold adds its tickets back to what remains.">
                               Release
                             </button>
                           </form>
@@ -251,7 +251,7 @@ export function InventoryOverview({ event, types, batches, holds, ctx, basePath,
             {mayRelease ? (
               <div className="mt-3">
                 <AuditNote />
-                <p className="mt-1 text-xs text-dim">Releasing this puts the tickets back on sale immediately. Double-release is a no-op.</p>
+                <p className="mt-1 text-xs text-dim">Releasing a hold adds its tickets back to what remains. Releasing it twice changes nothing.</p>
               </div>
             ) : null}
           </Panel>

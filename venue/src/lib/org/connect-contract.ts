@@ -169,10 +169,10 @@ export const FAILURE_COPY: Record<ConnectFailureKind, string> = {
   not_enabled: "Payout setup is not enabled on this project yet. Nothing can be sent to Stripe from here.",
   forbidden: "This account holds no role in this organization, so it cannot see or change the payout destination.",
   requires_owner:
-    "Only the organization's owner can name where money is paid. Finance can start the setup and read its state, but the binding step is the owner's.",
+    "Only the organization's owner can name where money is paid or open the Stripe dashboard. Finance can read the payout state here.",
   step_up_required: "Confirm it is you with your authenticator before naming the payout destination.",
   replacement_required:
-    "This organization already has a payout account that Stripe will not return. Replacing it is a separate, audited step with a cool-down; it is not done from this screen.",
+    "The server refused this payout setup step. If this organization already has a payout account, replacing it is a separate, audited step with a cool-down. It is not done from this screen.",
   rate_limited: "Too many attempts. Wait a moment, then try again.",
   state_unavailable: "The payout state could not be read right now. Nothing changed. Try again.",
   invalid_request: "The request was refused as malformed. Nothing changed; this is a bug in the dashboard, not your setup.",

@@ -44,7 +44,7 @@ export function EventDetailsForm({ ids, commandKey, status, currentTitle, descri
   return (
     <CommandForm action={updateEventForm} ids={ids} commandKey={commandKey} extra={{ status, current_title: currentTitle }} submitLabel="Save the details" busyLabel="Saving…">
       <Field label="Title" name="title" defaultValue={currentTitle} maxLength={200} hint={needsReason ? "Changing the title now needs a reason, which is recorded." : undefined} />
-      <Field label="Description" name="description" defaultValue={description ?? ""} maxLength={2000} />
+      <Field label="Description" name="description" defaultValue={description ?? ""} maxLength={2000} hint="This form does not show the saved description, category or genres. Saving sets all three from these boxes. An empty box clears what was saved." />
       <Field label="Category" name="category" defaultValue={category ?? ""} maxLength={60} />
       <Field label="Genres" name="genre_tags" defaultValue={(genreTags ?? []).join(", ")} hint="Separate with commas." />
       {needsReason ? <Field label="Reason for this change" name="reason_code" placeholder="renamed_for_promo" maxLength={80} /> : null}
@@ -129,7 +129,7 @@ export function SessionCapacityForm({
               ]
                 .filter(Boolean)
                 .join(" ")
-            : "Leave empty for unlimited. The current numbers are not readable on this project yet. The server refuses a pool below what is already allocated to releases, or above the venue's capacity."
+            : "Leave empty for unlimited. The current numbers could not be read. The server refuses a pool below what is already allocated to releases, or above the venue's capacity."
         }
       />
       <Field label="Reason" name="reason_code" required placeholder="opening_pool" maxLength={80} />
@@ -138,5 +138,5 @@ export function SessionCapacityForm({
 }
 
 export function NeighborhoodSelect({ value, options }: { value?: string | null; options: readonly string[] }) {
-  return <Select label="Neighbourhood" name="neighborhood" defaultValue={value ?? ""} options={[["", "Not set"], ...options.map((o) => [o, o.replace(/\b\w/g, (c) => c.toUpperCase())] as const)]} />;
+  return <Select label="Neighborhood" name="neighborhood" defaultValue={value ?? ""} options={[["", "Not set"], ...options.map((o) => [o, o.replace(/\b\w/g, (c) => c.toUpperCase())] as const)]} />;
 }

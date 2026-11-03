@@ -29,7 +29,7 @@ export function DataSourceError({ failure, loginHref, retryHref }: { failure: Re
         <div className="border border-warning bg-warning/10 p-4" role="alert">
           <p className="font-bold">Database mode is not fully configured</p>
           <p className="mt-1 text-sm">
-            The Data API does not expose the <code className="font-mono">venue_api</code> schema on this project, so <code className="font-mono">{failure.read}</code> cannot be read.{code} Snatch It has to fix this setting. Nothing is shown in its place.
+            This project does not open <code className="font-mono">venue_api</code> to the dashboard, so <code className="font-mono">{failure.read}</code> cannot be read.{code} Snatch It has to fix this setting. Nothing is shown in its place.
           </p>
         </div>
       );

@@ -53,7 +53,7 @@ export const RESALE_LABEL = {
   buy_now: "Buy now",
   auction: "Auction",
   offer: "Offer",
-  not_readable: "Resale not readable until published",
+  not_readable: "Resale not readable while the event is a draft",
 } as const;
 
 /**

@@ -175,7 +175,7 @@ const INVALID_COPY: Record<InvalidWhy, string> = {
   malformed: "This code is not a Snatch It pass.",
   stale_pass: "This pass is out of date. Ask the guest to open it again in the Snatch It app and rescan.",
   wrong_type: "This is a Snatch It code, but not a ticket pass. Not valid.",
-  not_trusted: "This pass is not signed by a trusted Snatch It key. Not valid.",
+  not_trusted: "This pass failed the Snatch It security check. Not valid.",
 };
 
 /**
