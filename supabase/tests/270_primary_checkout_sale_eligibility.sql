@@ -9,25 +9,28 @@
 --       still replays after the event is cancelled (E3); 198's hold_lapsed raise is unchanged (L1-L2); finalize
 --       gains no window / visibility / approval re-check (V8); the happy path is unchanged (H1-H2);
 --   (2) DB-4: authenticated (and anon, service_role) cannot execute venue.reserve_primary_inventory; the
---       public.reserve_primary_tier wrapper still reserves for a buyer (A5, R1-R4);
+--       public.reserve_primary_tier wrapper still reserves for a buyer (A3-A5, R1-R3);
 --   (3) DB-4: checkout coverage counts only public_sale batches of public tiers; the refusal text is kept and
---       198's DETAIL gains non_buyer_kind_units (C1-C5);
+--       198's DETAIL gains non_buyer_kind_units (C1-C5). A hold taken while its tier was public stops counting
+--       once the tier is hidden mid-sale, so it no longer checks out (198 bound it); nothing is written (C6-C7);
 --   (4) SW-4: reserve refuses door_only tiers and comp / door / presale / promoter_hold batches with
---       'precondition_failed: not_buyer_inventory', after the replay and before any write (K1-K6);
---   (5) EL-05: reserve and checkout refuse 'precondition_failed: venue is not approved' before any write; the
---       replays still answer (V1-V7); structure and provenance (A1-A9).
+--       'precondition_failed: not_buyer_inventory', after the replay and before any write (K1-K5);
+--   (5) EL-05: reserve and checkout refuse 'precondition_failed: venue is not approved' before any write, for every
+--       status that is not approved — pending (V1, V9), draft (V9) and archived (V5, V7) — and the replays still
+--       answer (V1-V7, V9-V10); structure and provenance (A1-A8).
 --
 -- Fixture (synthetic, letter-bearing ids a2010000-…-a000-…, as postgres; everything dies with the ROLLBACK): one
--- Connect-ready active org; venues VA (approved), VP (pending), VX (approved, archived mid-file); events EA, EP,
--- EX, EC (all on_sale; EC cancelled mid-file); sessions SA1, SA2 (EA; SA2 cancelled mid-file), SP, SX, SC; 2500
--- tiers, all public except TD (door_only); on SA1 tier TP carries one batch of every release_kind (the comp
--- batch's id sorts BEFORE the public_sale batch's, so 198's tie-break would bind it); the global ES256 key
--- through the live 110 guard when none resolves (its fixed id and ARN are built at run time); new config
--- versions: flag true, cap 6, TTL "10 minutes", fee 1000 bps. Buyers reserve through public.reserve_primary_tier
--- (the live path) or, where the wrapper cannot reach a batch (non-buyer kinds), through tap._eng270: a SECURITY
--- DEFINER tap helper that calls the engine in owner context with the buyer's claims still set. Holds that a
--- 201 engine cannot create (non-buyer inventory: a pre-201 or staff-placed hold) are direct inserts with held
--- raised to match. Payments are native_primary rows (succeeded). finalize runs as postgres.
+-- Connect-ready active org; venues VA (approved), VP (pending, draft mid-file), VX (approved, archived mid-file);
+-- events EA, EP, EX, EC (all on_sale; EC cancelled mid-file); sessions SA1, SA2 (EA; SA2 cancelled mid-file), SP,
+-- SX, SC; 2500 tiers, all public except TD (door_only), TV hidden mid-file; on SA1 tier TP carries one batch of
+-- every release_kind (the comp batch's id sorts BEFORE the public_sale batch's, so 198's tie-break would bind it);
+-- the global ES256 key through the live 110 guard when none resolves (its fixed id and ARN are built at run time);
+-- new config versions: flag true, cap 6, TTL "10 minutes", fee 1000 bps. Buyers reserve through
+-- public.reserve_primary_tier (the live path) or, where the wrapper cannot reach a batch (non-buyer kinds), through
+-- tap._eng270: a SECURITY DEFINER tap helper that calls the engine in owner context with the buyer's claims still
+-- set. Holds that a 201 engine cannot create (non-buyer inventory, or a venue that is not approved: a pre-201 or
+-- staff-placed hold) are direct inserts with held raised to match. Payments are native_primary rows (succeeded).
+-- finalize runs as postgres.
 -- Every call goes through tap._run270 (stores the result, or 'ERROR <SQLSTATE>|<message>|<detail>'; RETURNS
 -- void) and every value read through tap._try270 / tap._j270 (text; 'ERROR <SQLSTATE>|<message>' on error), so
 -- the file runs to the end on the tree without 201 and under every mutant. Writes and reads are separate
@@ -37,7 +40,7 @@
 --   pass (12): A5 R3 K4 K5 V3 V4 V8 H1 H2 E3 L1 L2 — non-regression pins: the dependencies, the wrapper, a public
 --              reserve, the reserve and checkout replays, finalize without a re-check, the happy path, the
 --              paid-order replay and 198's lapse raise (each is told apart from a broken 201 by a mutant below).
---   fail (29): every other assertion. A2 also carries the marker census, so it cannot pass on a block-less body.
+--   fail (33): every other assertion. A2 also carries the marker census, so it cannot pass on a block-less body.
 -- Mutants (each ONE create or replace, grant or alter after 201 applies; kills counted with A1, the md5 pin,
 -- excluded): M01 reserve without the venue gate · M02 reserve without the buyer-inventory gate · M03 / M04 that
 -- gate without its visibility / release_kind term · M05 both reserve gates ahead of the replay · M06 checkout
@@ -47,14 +50,18 @@
 -- event arm · M16 refund_required returned, not raised · M17 the gate after the conversion (text pin A6) · M18
 -- finalize re-checks venue approval · M19 EXECUTE granted back to authenticated · M20 the wrapper made SECURITY
 -- INVOKER · M21 the message carries payment_unverified · M22 checkout's venue gate after the order insert (A8) ·
--- M23 reserve's venue gate after the cap lock (A7) · M24 one byte outside the 201 blocks (A2). All 24 are killed
--- (run_201.log). Reconciled with the prediction: C5 does not fail under M07 or M09 — no single batch covers 2, so
--- the refusal fires either way, and BLOCK N computes the DETAIL independently of BLOCK C (C1-C4 kill both).
+-- M23 reserve's venue gate after the cap lock (A7) · M24 one byte outside the 201 blocks (A2) · M25 checkout's
+-- venue gate refuses only an archived venue · M26 the coverage filter counts a hidden tier (visibility <>
+-- 'door_only') · M27 / M28 checkout's / reserve's venue gate lets a draft venue through. M25 and M26 are the review
+-- mutants that the 41-assertion revision of this file let through; V9-V10 and C6-C7 were added for them. All 28
+-- are killed (fix/run_201_fix.log). Reconciled with the prediction: C5 does not fail under M07 or M09 — no single
+-- batch covers 2, so the refusal fires either way, and BLOCK N computes the DETAIL independently of BLOCK C (C1-C4
+-- kill both).
 -- Extras, each explained: V6 under M01 (the archived-venue reserve then lands, so BX holds 3); A2 under M18 (its
 -- lines sit outside the 201 blocks); M20 fails every wrapper-driven assertion.
 -- ============================================================================
 BEGIN;
-SELECT plan(41);
+SELECT plan(45);
 
 -- ── harness ──────────────────────────────────────────────────────────────────
 CREATE TABLE tap.memo_270 (k text PRIMARY KEY, v text);
@@ -87,10 +94,10 @@ CREATE FUNCTION tap._id270(k text) RETURNS uuid LANGUAGE sql IMMUTABLE AS $m$
     ('ORG','a01'), ('VA','a11'), ('VP','a12'), ('VX','a13'),
     ('EA','e01'), ('EP','e02'), ('EX','e03'), ('EC','e04'),
     ('SA1','f01'), ('SA2','f02'), ('SP','f03'), ('SX','f04'), ('SC','f05'),
-    ('TP','d01'), ('TD','d02'), ('TL','d03'), ('TH','d04'), ('TPP','d05'), ('TX','d06'), ('TC','d07'),
+    ('TP','d01'), ('TD','d02'), ('TL','d03'), ('TH','d04'), ('TPP','d05'), ('TX','d06'), ('TC','d07'), ('TV','d08'),
     ('BCOMP','c01'), ('BDOOR','c02'), ('BPRE','c03'), ('BPROMO','c04'), ('BP','c05'), ('BDO','c06'), ('BP2','c07'),
-    ('BL','c08'), ('BH','c09'), ('BPP','c0a'), ('BX','c0b'), ('BC','c0c'),
-    ('HC','ab1'), ('HDO','ab2'), ('HC2','ab3'), ('HPRE','ab4'),
+    ('BL','c08'), ('BH','c09'), ('BPP','c0a'), ('BX','c0b'), ('BC','c0c'), ('BV','c0d'),
+    ('HC','ab1'), ('HDO','ab2'), ('HC2','ab3'), ('HPRE','ab4'), ('HPP','ab5'),
     ('PH','fa1'), ('PX','fa2'), ('PC1','fa3'), ('PC2','fa4'), ('PS','fa5'), ('PL','fa6')) AS t(n, v) WHERE t.n = k $m$;
 -- the engine in owner context with the caller's claims still set (auth.uid() resolves the buyer)
 CREATE FUNCTION tap._eng270(p_batch uuid, p_qty integer, p_key text) RETURNS jsonb LANGUAGE sql SECURITY DEFINER AS
@@ -189,13 +196,14 @@ INSERT INTO catalog.event_session (session_id, event_id, starts_at, status) VALU
 INSERT INTO venue.ticket_type (ticket_type_id, event_id, kind, name, price_minor, visibility)
 SELECT tap._id270(t.t), tap._id270(t.e), 'admission', 'GA ' || t.t || ' 270', 2500, t.vis
   FROM (VALUES ('TP','EA','public'), ('TD','EA','door_only'), ('TL','EA','public'), ('TH','EA','public'),
-               ('TPP','EP','public'), ('TX','EX','public'), ('TC','EC','public')) AS t(t, e, vis);
+               ('TPP','EP','public'), ('TX','EX','public'), ('TC','EC','public'), ('TV','EA','public')) AS t(t, e, vis);
 INSERT INTO venue.inventory_batch (batch_id, ticket_type_id, event_session_id, release_kind, capacity, held, sold)
 SELECT tap._id270(b.b), tap._id270(b.t), tap._id270(b.s), b.k, b.cap, 0, 0
   FROM (VALUES ('BCOMP','TP','SA1','comp',50), ('BDOOR','TP','SA1','door',50), ('BPRE','TP','SA1','presale',50),
                ('BPROMO','TP','SA1','promoter_hold',50), ('BP','TP','SA1','public_sale',50), ('BDO','TD','SA1','public_sale',50),
                ('BP2','TP','SA2','public_sale',50), ('BL','TL','SA1','public_sale',1), ('BH','TH','SA1','public_sale',50),
-               ('BPP','TPP','SP','public_sale',50), ('BX','TX','SX','public_sale',50), ('BC','TC','SC','public_sale',50)) AS b(b, t, s, k, cap);
+               ('BPP','TPP','SP','public_sale',50), ('BX','TX','SX','public_sale',50), ('BC','TC','SC','public_sale',50),
+               ('BV','TV','SA1','public_sale',50)) AS b(b, t, s, k, cap);
 -- the global ES256 bootstrap key THROUGH THE LIVE 110 GUARD (B's recipe), only when no active global key resolves
 INSERT INTO kernel.signing_key (key_id, scope, public_key, kms_handle_ref, algorithm, status, not_before)
 SELECT (repeat('0', 30) || 'b0')::uuid, 'global', tap._pem270(),
@@ -373,6 +381,25 @@ SELECT tap._run270('v_fin', tap._fin270('v_ck1', 'PX', 'k270-v-fin'));
 SELECT is(tap._j270('v_fin', '{status}') || '|' || tap._ostate270('v_ck1') || '|' || tap._hold270(tap._j270('v_hx1', '{hold_id}')),
   'ok|paid|1|1|converted|' || tap._j270('v_ck1', '{order_id}'),
   'V8: finalize of the order checked out while VX was approved still issues after VX is archived and the tier is hidden with its window closed (paid, 1 atom, payment_native, its hold converted)');
+-- the other two statuses that are not approved (V5 / V7 cover archived): a hold of B3's on VP's batch that predates
+-- the status (direct insert; a 201 engine refuses a reserve there) is named by a checkout while VP is pending, and by
+-- another checkout (new key) once VP is draft; a reserve is tried on the draft venue's session as well
+SELECT tap._hold_direct270('HPP', 'BPP', 'B3', 'k270-v-hpp');
+SELECT tap.login(tap._id270('B3'));
+SELECT tap._run270('v_ckp', tap._ck270('SP', 'TPP', 1, ARRAY['HPP'], 'k270-v-ckp'));
+SELECT tap.logout();
+UPDATE catalog.venue SET approval_status = 'draft' WHERE venue_id = tap._id270('VP');
+SELECT tap.login(tap._id270('B3'));
+SELECT tap._run270('v_ckd', tap._ck270('SP', 'TPP', 1, ARRAY['HPP'], 'k270-v-ckd'));
+SELECT tap._run270('v_rsv_d', tap._wrap270('SP', 'TPP', 1, 'k270-v-d'));
+SELECT tap.logout();
+SELECT is(ARRAY[tap._get270('v_ckp'), tap._get270('v_ckd'), tap._get270('v_rsv_d')],
+          ARRAY['ERROR P0001|precondition_failed: venue is not approved|', 'ERROR P0001|precondition_failed: venue is not approved|',
+                'ERROR P0001|precondition_failed: venue is not approved|'],
+  'V9: a checkout naming the buyer''s own hold is refused precondition_failed: venue is not approved on a pending venue''s session and again (new key) once the venue is draft; a reserve on the draft venue''s session is refused the same way');
+SELECT is(tap._nord270('k270-v-ckp') || '|' || tap._nord270('k270-v-ckd') || '|' || tap._hold270(tap._id270('HPP')::text) || '|' || tap._nholds270(ARRAY['BPP']),
+  '0|0|active|-|1|1|0',
+  'V10: …no order for either key, the named hold stays active and unbound, and BPP is unchanged (that one hold, held 1, no movement)');
 
 -- ── Section C — checkout coverage counts only buyer inventory (DB-4) ─────────
 -- pre-201 / staff-placed holds on non-buyer inventory (a 201 engine refuses them)
@@ -401,6 +428,21 @@ SELECT is(tap._j270('c_4', '{status}') || '|' || tap._hold270(tap._j270('c_hp', 
 SELECT is(tap._get270('c_5'),
   'ERROR P0001|precondition_failed: holds do not cover item (type ' || tap._id270('TP') || ', need 2, held 1)|bound_to_pending_order_units=0 other_batch_units=0 non_buyer_kind_units=1',
   'C5: a public_sale hold of 1 plus a comp hold of 1 for 2 is refused (held 1); the comp unit is reported as non_buyer_kind_units, not other_batch_units');
+-- a tier hidden mid-sale: B1 takes a hold on TV while it is public, then TV is hidden (185's window refuses a NEW
+-- reserve on a hidden tier, so a hold taken before the hide is the one way a hidden-tier hold reaches checkout)
+SELECT tap.login(tap._id270('B1'));
+SELECT tap._run270('c_hv', tap._wrap270('SA1', 'TV', 1, 'k270-c-hv'));
+SELECT tap.logout();
+UPDATE venue.ticket_type SET visibility = 'hidden' WHERE ticket_type_id = tap._id270('TV');
+SELECT tap.login(tap._id270('B1'));
+SELECT tap._run270('c_6', tap._ck270('SA1', 'TV', 1, ARRAY['c_hv'], 'k270-c-6'));
+SELECT tap.logout();
+SELECT is(tap._get270('c_6'),
+  'ERROR P0001|precondition_failed: holds do not cover item (type ' || tap._id270('TV') || ', need 1, held 0)|bound_to_pending_order_units=0 other_batch_units=0 non_buyer_kind_units=1',
+  'C6: a hold taken while its tier was public no longer covers once the tier is hidden mid-sale — refused with the unchanged coverage text (held 0) and DETAIL non_buyer_kind_units=1');
+SELECT is(tap._j270('c_hv', '{status}') || '|' || tap._nord270('k270-c-6') || '|' || tap._hold270(tap._j270('c_hv', '{hold_id}')) || '|' || tap._batch270('BV'),
+  'ok|0|active|-|1|0',
+  'C7: …the hold had been taken (ok); no order for that key, the hold stays active and unbound, BV unchanged (held 1, sold 0)');
 
 -- ── Section H — the accepted happy path, unchanged ───────────────────────────
 SELECT tap.login(tap._id270('B5'));

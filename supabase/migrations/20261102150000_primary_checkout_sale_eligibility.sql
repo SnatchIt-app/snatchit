@@ -52,7 +52,11 @@
 --             not_buyer_inventory'; a direct call as authenticated is refused 42501. Buyers use
 --             public.reserve_primary_tier, whose not_found filter already hides non-buyer inventory.
 --   checkout  new refusal 'precondition_failed: venue is not approved'; the coverage refusal's DETAIL gains
---             non_buyer_kind_units.
+--             non_buyer_kind_units. Holds on a tier hidden mid-sale no longer check out: a hold taken while its
+--             tier was public (185's window refuses a new reserve on a hidden tier, so this is the one way such a
+--             hold reaches checkout) stops counting toward coverage once the tier is made hidden (or door_only),
+--             and checkout refuses with the unchanged coverage text, DETAIL non_buyer_kind_units; under 198 it
+--             bound and checked out. An order checked out before the change still finalizes (no re-check).
 --
 -- MD5 TABLE (md5(pg_get_functiondef(...)) under the default search_path; predecessors measured on a clone of the
 -- CI chain at main c093bada plus registry 198)
