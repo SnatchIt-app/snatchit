@@ -51,10 +51,11 @@ export interface PrimaryCheckoutViewProps {
   /** Display text for the hold's server expiry, already formatted; null hides the line. */
   heldUntil: string | null;
   onPay: () => void;
-  /** After a check that could not be made: ask the server again (never pays). */
-  onCheckAgain?: () => void;
-  /** After a check that could not be made: the ticket page, which reads the server. */
-  onViewTickets?: () => void;
+  /** After a check that could not be made: ask the server again (never pays). Required: the unverified state has
+   *  no Pay, so these two are its only ways forward (E, review of #214). */
+  onCheckAgain: () => void;
+  /** After a check that could not be made: the ticket page, which reads the server. Required, as above. */
+  onViewTickets: () => void;
   onReviewAgain: () => void;
   onRetry: () => void;
   onSignIn: () => void;

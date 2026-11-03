@@ -220,6 +220,14 @@ describe('primary checkout screen — a payments surface (A reviews)', () => {
     expect(view.slice(view.indexOf("case 'unverified':"), view.indexOf("case 'review'"))).not.toContain('props.onPay');
   });
 
+  it('K15: the unverified state\u2019s two ways forward are REQUIRED props — a caller cannot render it with dead buttons (E, review of #214 @ 52f4f226)', () => {
+    expect(view).toMatch(/^\s*onCheckAgain: \(\) => void;$/m);
+    expect(view).toMatch(/^\s*onViewTickets: \(\) => void;$/m);
+    expect(view).not.toMatch(/onCheckAgain\?:|onViewTickets\?:/);
+    expect(native).toContain("onCheckAgain={() => { if (state.kind === 'unverified') void checkAfterSheet(state.quote, state.outcome); }}");
+    expect(native).toContain('onViewTickets={submitted}');
+  });
+
   it('K13: a quote refusal offers a retry only for offline, unavailable or rate limited; every other one goes Back (D14)', () => {
     expect(view).toMatch(/case 'quote_refused':[\s\S]{0,250}action=\{state\.reason === 'offline' \|\| state\.reason === 'unavailable' \|\| state\.reason === 'rate_limited'\s*\?/);
   });
