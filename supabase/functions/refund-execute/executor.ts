@@ -429,6 +429,7 @@ export type RefundErrorClass =
   | 'charge_disputed'
   | 'resource_missing'
   | 'balance_insufficient'
+  | 'auth_error'
   | 'invalid_request'
   | 'unknown';
 
@@ -492,6 +493,14 @@ export function classifyStripeRefundError(
   }
   if (status >= 500 || type === 'api_error' || type === 'api_connection_error') {
     return { ...base, class: 'api_error', retryable: true, page: false };
+  }
+  if (status === 401 || status === 403 || type === 'authentication_error' || type === 'permission_error') {
+    // The KEY is wrong — revoked, rotated, restricted or the wrong mode. That
+    // says nothing about this refund. Not retryable (the same key would spin),
+    // but planPark never parks it and the sweep halts on it: one instantly
+    // fixable config fault must not become N rows of durable state, each
+    // needing its own aal2 re-arm (E review of ed7e4a8a).
+    return { ...base, class: 'auth_error', retryable: false, page: true };
   }
   if (type === 'invalid_request_error' || (status >= 400 && status < 500)) {
     return { ...base, class: 'invalid_request', retryable: false, page: true };
@@ -632,6 +641,63 @@ export function planClaimedBatch(rows: ClaimedRefund[] | null | undefined): Clai
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Parking (registry 199, refunds-7, DESIGN-199-FINAL §3.6, §5.2)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Exactly the arguments of `kernel.park_refund_execution` (199 §3.6). */
+export interface ParkRequest {
+  p_refund_id: string;
+  /** The claim's attempt: the fencing token. A stale holder's park is `stale_attempt`. */
+  p_attempt: number;
+  p_outcome: 'refused' | 'stripe_error' | 'state_sync_deferred';
+  p_reason_code: string;
+  /** The claim's DB-issued `refund.execute:<refund_id>`; the verb refuses any other key. */
+  p_command_key: string;
+}
+
+const PARKABLE_OUTCOMES: ReadonlyArray<string> = ['refused', 'stripe_error', 'state_sync_deferred'];
+/** The verb's own reason_code check (199 §3.6), so no free text reaches the immutable audit. */
+const PARK_REASON_RE = /^[a-z][a-z0-9_]{0,63}$/;
+
+/**
+ * Should the sweep park this row after executing it, and with what?
+ *
+ * Before 199 a non-retryable outcome (charge_disputed, a binding refusal,
+ * reconcile_ambiguous, state_sync_conflict, …) left the row `pending` or
+ * `submitted`, so every tick re-claimed it, re-ran it and paged again, and
+ * after 20h re-ran it in reconcile mode (refunds-7). Parking excludes it from
+ * the claim until a human re-arms it (199 §3.3, §3.7). Rules (§5.2):
+ *   • only `retryable === false`; true OR undefined is never parked, because an
+ *     unclassified failure (e.g. context_read_failed) may be a DB blip;
+ *   • only refused / stripe_error / state_sync_deferred, never noop_replay or a
+ *     recorded state (a converged race is not a fault);
+ *   • never `executor_hold`: the row is already held, so parking it again adds
+ *     nothing. (In the sweep the claim already wrote its execute_claim audit, so
+ *     the verb would pass its checks, see refund_executor_hold and answer
+ *     noop_replay, 199 §3.6. Skipping it saves a round trip; it is not to dodge an error.)
+ *   • never `auth_error`: a 401/403 is a fault of the key, not of the row, so
+ *     there is nothing for a human to adjudicate per refund. The row is left
+ *     exactly as found and runs again once the key is fixed.
+ *   • only the sweep: `action:execute` has no claim attempt and no
+ *     `refund.execute:<id>` key, which the verb refuses (§3.6).
+ */
+export function planPark(
+  row: ClaimedRefund,
+  res: { outcome: string; code?: string; retryable?: boolean },
+): ParkRequest | null {
+  if (res.retryable !== false) return null;
+  if (!PARKABLE_OUTCOMES.includes(res.outcome)) return null;
+  if (res.code === 'executor_hold' || res.code === 'auth_error') return null;
+  return {
+    p_refund_id: row.refund_id,
+    p_attempt: row.attempt,
+    p_outcome: res.outcome as ParkRequest['p_outcome'],
+    p_reason_code: PARK_REASON_RE.test(res.code ?? '') ? (res.code as string) : 'unclassified',
+    p_command_key: row.command_key,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // mark_refund_state error classification
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -704,6 +770,27 @@ export function classifyArm(commandKey: string): RefundArm {
 /** The four money-denial codes the edge spec routes to `record_money_denial`. */
 export function isMoneyDenial(message: string): boolean {
   return /insufficient_privilege|sod_violation|step_up_required|step_up_unavailable/.test(message);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Executor holds (registry 199, DESIGN-199-FINAL §3.1, §3.4, §5.3)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** `kernel.refund_executor_hold`'s two answers (199 §3.1). */
+export type ExecutorHold = 'manual_record' | 'parked';
+
+/**
+ * Read the hold out of `get_refund_execution_context`'s raise. Since 199 the
+ * context RAISES `precondition_failed: executor_hold <hold> (refund <id>)` for
+ * a pending/submitted row that is a manual-rail record or is parked (199 §3.4,
+ * §4), instead of projecting it, so a held row cannot reach Stripe whether or
+ * not this edge looks. This only NAMES it: any other text, including a hold
+ * kind 199 does not define, returns null and stays `context_read_failed`
+ * (409, still no Stripe call), which is the fail-closed direction.
+ */
+export function executorHoldOf(message: string): ExecutorHold | null {
+  const m = /executor_hold (manual_record|parked)/.exec(message);
+  return m ? (m[1] as ExecutorHold) : null;
 }
 
 /** Map a Postgres RPC error onto an HTTP status, per the edge spec's failure table. */

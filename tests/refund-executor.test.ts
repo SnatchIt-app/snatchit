@@ -8,7 +8,8 @@
  *   PROTOCOL the edge implements, simulated against a Stripe mock with real
  *   idempotency-key semantics and a `kernel.mark_refund_state` mock that
  *   reproduces 085:1737-1789 line for line (forward-only, write-once ref,
- *   noop-replay, mandatory failure_code).
+ *   noop-replay, mandatory failure_code) plus registry 199's one addition, the
+ *   Stripe-truth guard on `succeeded` (DESIGN-199-FINAL §3.2).
  *
  * CASES THAT CANNOT BE UNIT-TESTED WITHOUT A LIVE DB are called out inline and
  * are written as pure-logic tests against the extracted helper instead:
@@ -29,13 +30,16 @@ import {
   classifyArm,
   classifyStateSyncError,
   classifyStripeRefundError,
+  executorHoldOf,
   httpStatusForRpcError,
   isMoneyDenial,
   isUuid,
   planRefund,
   planStateSync,
   planClaimedBatch,
+  planPark,
   planReconcile,
+  type ClaimedRefund,
   type RefundExecutionContext,
 } from '../supabase/functions/refund-execute/executor';
 
@@ -123,7 +127,7 @@ class StripeMock {
   }
 }
 
-// ── kernel.refund + mark_refund_state mock (085:74-95, 085:1737-1789) ───────
+// ── kernel.refund + mark_refund_state mock (085:74-95, 085:1737-1789, 199 §3.2) ──
 
 interface RefundRow {
   refund_id: string;
@@ -138,6 +142,11 @@ class KernelMock {
   rows = new Map<string, RefundRow>();
   /** Set true to make the next mark_refund_state call fail (DB outage). */
   failNextStateSync = false;
+  /**
+   * `public.payment_refund_state.status` by `stripe_refund_id` (150): what the
+   * webhook has RECORDED Stripe saying about a ref. 199 §3.2's guard reads it.
+   */
+  stripeState = new Map<string, string>();
 
   insertRefund(row: RefundRow) {
     // `refund_idempotency_uq` (085:92): the delegated key is single-use.
@@ -150,7 +159,14 @@ class KernelMock {
     return { status: 'ok', refund_id: row.refund_id };
   }
 
-  /** Faithful port of kernel.mark_refund_state (085:1737-1789). */
+  /**
+   * Faithful port of kernel.mark_refund_state (085:1737-1789) as registry 199
+   * replaces it (DESIGN-199-FINAL §3.2, G1): 085's body byte for byte plus ONE
+   * check, the Stripe-truth guard, placed after the failure-code check and
+   * before the write. The order is otherwise unchanged (noop → direction → ref
+   * mandatory → write-once → failure code → guard), so refund_state_backwards
+   * still reaches classifyStateSyncError as `converged`.
+   */
   markRefundState(
     refundId: string,
     newStatus: 'submitted' | 'succeeded' | 'failed',
@@ -175,6 +191,14 @@ class KernelMock {
       throw new Error('conflict_locked: stripe_refund_ref is write-once');
     }
     if (newStatus === 'failed' && !failureCode) throw new Error('invalid_input: failure_code is mandatory for failed');
+    // 199 §3.2 (I-R1): never succeeded for a ref Stripe has recorded failed or
+    // canceled. SQL keys on p_stripe_refund_ref; write-once above makes it the row's.
+    if (newStatus === 'succeeded') {
+      const stripe = this.stripeState.get(ref);
+      if (stripe === 'failed' || stripe === 'canceled') {
+        throw new Error(`precondition_failed: refund_failed_at_stripe (${ref} is ${stripe})`);
+      }
+    }
     row.status = newStatus;
     row.stripe_refund_ref = row.stripe_refund_ref ?? ref;
     return { status: 'ok' };
@@ -964,5 +988,190 @@ describe('uuid discipline', () => {
     expect(isUuid('order-1')).toBe(false);
     expect(isUuid(null)).toBe(false);
     expect(isUuid(12)).toBe(false);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// 199 — executor holds (DESIGN-199-FINAL §3.4, §4, §5.3)
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('executor holds — get_refund_execution_context raises for a held row (199 §3.4)', () => {
+  // The exact texts D's body raises (§4): `precondition_failed: executor_hold %
+  // (refund %)`, errcode P0001, for a pending/submitted row whose
+  // kernel.refund_executor_hold is manual_record or parked.
+  it('names the hold from the raise, for both holds D defines', () => {
+    expect(executorHoldOf(`precondition_failed: executor_hold manual_record (refund ${REFUND})`)).toBe('manual_record');
+    expect(executorHoldOf(`precondition_failed: executor_hold parked (refund ${REFUND})`)).toBe('parked');
+  });
+
+  it('anything else is not a hold: a transient read failure must never be mistaken for one', () => {
+    expect(executorHoldOf('canceling statement due to statement timeout')).toBeNull();
+    expect(executorHoldOf('precondition_failed: over_refund')).toBeNull();
+    // An unknown hold kind is not mapped; it stays context_read_failed (409,
+    // still no Stripe call), which is the fail-closed direction.
+    expect(executorHoldOf(`precondition_failed: executor_hold quarantined (refund ${REFUND})`)).toBeNull();
+    expect(executorHoldOf('')).toBeNull();
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// 199 — the Stripe-truth guard on succeeded (DESIGN-199-FINAL §3.2, §5.4, §6 R7/R8)
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('mark_refund_state never writes succeeded over a recorded Stripe failure (199 §3.2) — the port', () => {
+  function submitted(ref = 're_1'): KernelMock {
+    const kernel = new KernelMock();
+    kernel.insertRefund({ refund_id: REFUND, payment_id: PAYMENT, amount_minor: 100, status: 'pending', stripe_refund_ref: null, idempotency_key: 'k' });
+    kernel.markRefundState(REFUND, 'submitted', ref, null);
+    return kernel;
+  }
+  const thrown = (fn: () => unknown): string => {
+    try { fn(); } catch (err) { return (err as Error).message; }
+    return '';
+  };
+
+  it.each(['failed', 'canceled'])('refuses submitted → succeeded while Stripe has recorded the ref %s, with D\'s exact text; the row stays submitted', (stripeStatus) => {
+    const kernel = submitted();
+    kernel.stripeState.set('re_1', stripeStatus);
+    expect(thrown(() => kernel.markRefundState(REFUND, 'succeeded', 're_1', null)))
+      .toBe(`precondition_failed: refund_failed_at_stripe (re_1 is ${stripeStatus})`);
+    expect(kernel.rows.get(REFUND)).toMatchObject({ status: 'submitted', stripe_refund_ref: 're_1' });
+  });
+
+  it('the executor classes that refusal as retry and pages (§3.2): the row stays submitted for the next reconcile', () => {
+    expect(classifyStateSyncError('precondition_failed: refund_failed_at_stripe (re_1 is failed)')).toEqual({ kind: 'retry', page: true });
+  });
+
+  it('control: no observation, or a succeeded one, and succeeded lands exactly as before; failed is never guarded', () => {
+    const none = submitted();
+    expect(none.markRefundState(REFUND, 'succeeded', 're_1', null)).toEqual({ status: 'ok' });
+    const ok = submitted();
+    ok.stripeState.set('re_1', 'succeeded');
+    expect(ok.markRefundState(REFUND, 'succeeded', 're_1', null)).toEqual({ status: 'ok' });
+    const failed = submitted();
+    failed.stripeState.set('re_1', 'failed');
+    expect(failed.markRefundState(REFUND, 'failed', 're_1', 'expired_or_canceled_card')).toEqual({ status: 'ok' });
+  });
+
+  it('check order is 085\'s, the guard last: direction first, so a backwards write is still refund_state_backwards → converged (G1)', () => {
+    // pending → succeeded over a failed observation: direction refuses first.
+    const pending = new KernelMock();
+    pending.insertRefund({ refund_id: REFUND, payment_id: PAYMENT, amount_minor: 100, status: 'pending', stripe_refund_ref: null, idempotency_key: 'k' });
+    pending.stripeState.set('re_1', 'failed');
+    const msg = thrown(() => pending.markRefundState(REFUND, 'succeeded', 're_1', null));
+    expect(msg).toMatch(/refund_state_backwards \(pending → succeeded\)/);
+    expect(classifyStateSyncError(msg).kind).toBe('converged');
+    // §6 R8: the webhook verb already set failed; the executor replays submitted.
+    const done = submitted();
+    done.stripeState.set('re_1', 'failed');
+    done.markRefundState(REFUND, 'failed', 're_1', 'expired_or_canceled_card');
+    const replay = thrown(() => done.markRefundState(REFUND, 'submitted', 're_1', null));
+    expect(classifyStateSyncError(replay).kind).toBe('converged');
+    expect(done.rows.get(REFUND)!.status).toBe('failed');
+  });
+
+  it('check order: noop and write-once still precede the guard', () => {
+    // An identical terminal is noop_replay before any guard is consulted.
+    const settled = submitted();
+    settled.markRefundState(REFUND, 'succeeded', 're_1', null);
+    settled.stripeState.set('re_1', 'failed');
+    expect(settled.markRefundState(REFUND, 'succeeded', 're_1', null)).toEqual({ status: 'noop_replay' });
+    // A different ref is the write-once conflict, not the guard.
+    const other = submitted('re_1');
+    other.stripeState.set('re_2', 'failed');
+    expect(thrown(() => other.markRefundState(REFUND, 'succeeded', 're_2', null))).toMatch(/write-once/);
+  });
+
+  it('§6 R7: Stripe fails the refund before the executor binds it — the kernel never says succeeded, and the next sweep fetches the ref', () => {
+    const kernel = new KernelMock();
+    const stripe = new StripeMock();               // the create answers succeeded (a cached / stale response)
+    const c = ctx();
+    seed(kernel, c);
+    kernel.stripeState.set('re_1', 'failed');      // the webhook recorded re_1 failed first
+    const r = runExecutor(kernel, stripe, c);
+    expect(r).toEqual({ outcome: 'state_sync_deferred', code: 'mark_refund_state_failed', ref: 're_1' });
+    expect(kernel.rows.get(REFUND)).toMatchObject({ status: 'submitted', stripe_refund_ref: 're_1' });
+    expect(planReconcile(reload(kernel, c))).toEqual({ kind: 'fetch_ref', stripe_refund_ref: 're_1' });
+    expect(stripe.created).toBe(1);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// 199 — parking what the sweep must stop re-claiming (DESIGN-199-FINAL §3.6, §5.2)
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('park planning — only a non-retryable sweep outcome is parked (199 §5.2, refunds-7)', () => {
+  const row: ClaimedRefund = {
+    refund_id: REFUND, created_at: '2026-10-01T00:00:00Z', status: 'pending',
+    execution_mode: 'create', attempt: 3, command_key: `refund.execute:${REFUND}`,
+  };
+
+  it.each([
+    ['refused', 'reconcile_ambiguous'],
+    ['refused', 'binding_order_mismatch'],
+    ['stripe_error', 'charge_disputed'],
+    ['stripe_error', 'resource_missing'],
+    ['state_sync_deferred', 'state_sync_conflict'],
+  ])('%s / %s with retryable:false → park under the DB-issued key, fenced by the claim attempt', (outcome, code) => {
+    expect(planPark(row, { outcome, code, retryable: false })).toEqual({
+      p_refund_id: REFUND, p_attempt: 3, p_outcome: outcome, p_reason_code: code, p_command_key: `refund.execute:${REFUND}`,
+    });
+  });
+
+  it('never parks a retryable outcome, or one whose retryability is unknown (undefined)', () => {
+    expect(planPark(row, { outcome: 'stripe_error', code: 'rate_limited', retryable: true })).toBeNull();
+    expect(planPark(row, { outcome: 'refused', code: 'context_read_failed' })).toBeNull();
+    expect(planPark(row, { outcome: 'state_sync_deferred', code: 'state_sync_unverified', retryable: true })).toBeNull();
+  });
+
+  it('never parks a converged or recorded outcome, even one marked retryable:false', () => {
+    for (const outcome of ['noop_replay', 'submitted', 'succeeded', 'failed']) {
+      expect(planPark(row, { outcome, code: 'converged_elsewhere', retryable: false })).toBeNull();
+    }
+  });
+
+  it('never parks an executor_hold refusal: the row is already held, so a park would only be a noop_replay', () => {
+    expect(planPark(row, { outcome: 'refused', code: 'executor_hold', retryable: false })).toBeNull();
+  });
+
+  it('a code outside the verb\'s reason_code shape (^[a-z][a-z0-9_]{0,63}$) is parked as unclassified, never sent raw', () => {
+    for (const code of [undefined, '', 'Bad-Code', '9lives', 'x'.repeat(65)]) {
+      expect(planPark(row, { outcome: 'stripe_error', code, retryable: false })?.p_reason_code).toBe('unclassified');
+    }
+    expect(planPark(row, { outcome: 'stripe_error', code: 'x'.repeat(64), retryable: false })?.p_reason_code).toBe('x'.repeat(64));
+  });
+});
+
+// E review of ed7e4a8a: `retryable: false` carried two unrelated meanings. "This
+// refund is wrong" (charge_disputed, resource_missing, idempotency_conflict) is
+// per-row and needs a human, so parking is right. "We cannot talk to Stripe at
+// all" (401/403: a revoked, rotated, restricted or wrong-mode key) says nothing
+// about the row, and parking it turns one instantly fixable config fault into N
+// rows of durable state, each needing its own aal2 re-arm.
+describe('a Stripe auth fault is non-retryable but never parked', () => {
+  it.each([
+    [401, { type: 'invalid_request_error', message: 'Invalid API Key provided' }],
+    [403, { type: 'invalid_request_error', message: 'The provided key does not have the required permissions' }],
+    [403, { type: 'permission_error' }],
+  ] as const)('HTTP %i is auth_error: not retried with the same key, always paged', (status, error) => {
+    const v = classifyStripeRefundError({ status, error: { ...error } });
+    expect(v).toMatchObject({ class: 'auth_error', retryable: false, page: true, writesState: false });
+  });
+
+  it('control: the per-row 4xx classes are unchanged (they still park)', () => {
+    expect(classifyStripeRefundError({ status: 400, error: { code: 'charge_disputed' } }).class).toBe('charge_disputed');
+    expect(classifyStripeRefundError({ status: 404, error: { code: 'resource_missing' } }).class).toBe('resource_missing');
+    expect(classifyStripeRefundError({ status: 400, error: { type: 'invalid_request_error' } }).class).toBe('invalid_request');
+  });
+
+  it('a non-2xx with no JSON error body is classified on its status alone (a proxy-generated 502)', () => {
+    expect(classifyStripeRefundError({ status: 502, error: undefined })).toMatchObject({ class: 'api_error', retryable: true });
+    expect(classifyStripeRefundError({ status: 401, error: undefined })).toMatchObject({ class: 'auth_error', retryable: false });
+  });
+
+  it('planPark never parks an auth_error (the executor_hold shape: non-retryable, not parked)', () => {
+    const row = { refund_id: 'r1', created_at: '2026-10-01T00:00:00Z', status: 'pending' as const, execution_mode: 'create' as const, attempt: 2, command_key: 'refund.execute:r1' };
+    expect(planPark(row, { outcome: 'stripe_error', code: 'auth_error', retryable: false })).toBeNull();
+    expect(planPark(row, { outcome: 'stripe_error', code: 'charge_disputed', retryable: false })).not.toBeNull();   // control
   });
 });
