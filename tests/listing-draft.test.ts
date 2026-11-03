@@ -40,7 +40,7 @@ import {
 } from '@/src/lib/sell/listingDraft';
 import { REPO_ROOT } from './helpers/nav-stack-harness';
 
-const NOW = new Date(2026, 9, 21, 12, 0, 0);            // 21 Oct 2026, noon, device-local
+const NOW = new Date('2026-10-21T16:00:00Z');   // 21 Oct 2026 // noon in New York (EDT) as an INSTANT, so the machine's zone cannot move New York's "today" (review of ebbadf51)
 const IOS_COVER = 'file:///var/mobile/Containers/Data/Application/0A1B2C3D/Library/Caches/ImagePicker/5E6F7A8B.jpeg';
 const ANDROID_COVER = 'file:///data/user/0/com.snatchit.app/cache/ImagePicker/0c1d2e3f.jpg';
 
@@ -319,7 +319,7 @@ describe('LD6 · the offer', () => {
   });
 
   it('LD6a2 (LD-R2): a date the seller never picked comes back as the day of the offer; a picked one comes back as picked', () => {
-    const later = new Date(2026, 9, 28, 9, 15);
+    const later = new Date('2026-10-28T13:15:00Z');   // 28 Oct, 9:15 in New York (EDT) — an instant
     const unpicked = listingDraftOffer(draft({ eventDate: new Date(2026, 9, 21), dateChosen: false }), true, later);
     expect(unpicked.fields.eventDate.getTime()).toBe(new Date(2026, 9, 28).getTime());
     expect(unpicked.fields.dateChosen).toBe(false);

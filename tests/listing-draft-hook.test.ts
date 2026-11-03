@@ -86,7 +86,7 @@ vi.mock('@/src/theme/appearance', async () => {
 vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}) }));
 vi.mock('@/src/components/ui', () => ({ Button: 'Button' }));
 
-const NOW = new Date(2026, 9, 21, 12, 0, 0);
+const NOW = new Date('2026-10-21T16:00:00Z');   // noon in New York (EDT) as an INSTANT, so the machine's zone cannot move New York's "today" (review of ebbadf51)
 const COVER = 'file:///var/mobile/Containers/Data/Application/0A1B/Library/Caches/ImagePicker/5E6F.jpeg';
 const KEY = listingDraftKey('u-1');
 

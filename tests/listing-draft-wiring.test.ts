@@ -125,7 +125,7 @@ vi.mock('@/src/theme/appearance', async () => {
   return { useTheme: () => ({ scheme: 'dark', palette: dark }) };
 });
 
-const NOW = new Date(2026, 9, 21, 12, 0, 0);
+const NOW = new Date('2026-10-21T16:00:00Z');   // noon in New York (EDT) as an INSTANT, so the machine's zone cannot move New York's "today" (review of ebbadf51)
 const COVER = 'file:///var/mobile/Containers/Data/Application/0A1B/Library/Caches/ImagePicker/5E6F.jpeg';
 const PROOF = 'file:///var/mobile/Containers/Data/Application/0A1B/Library/Caches/ImagePicker/PROOF.jpeg';
 const KEY = listingDraftKey('u-1');
@@ -362,7 +362,7 @@ describe('W8 · only a date the seller picked expires a draft (LD-R2)', () => {
     expect(storedJson()!.fields).toMatchObject({ eventName: 'Rolling Loud Saturday', eventDate: '2026-10-21', dateChosen: false });
     first.host.unmount();
 
-    vi.setSystemTime(new Date(2026, 9, 22, 9, 0));            // the next morning: a relaunch
+    vi.setSystemTime(new Date('2026-10-22T13:00:00Z'));            // the next morning: a relaunch
     vi.resetModules();
     const { host, step } = await mountScreen();
     expect(banner(host)).toBeDefined();
@@ -383,7 +383,7 @@ describe('W8 · only a date the seller picked expires a draft (LD-R2)', () => {
     expect(storedJson()!.fields).toMatchObject({ eventName: 'Tonight only', eventDate: '2026-10-21', dateChosen: true });
     first.host.unmount();
 
-    vi.setSystemTime(new Date(2026, 9, 22, 9, 0));
+    vi.setSystemTime(new Date('2026-10-22T13:00:00Z'));
     vi.resetModules();
     const { host } = await mountScreen();
     expect(banner(host)).toBeUndefined();

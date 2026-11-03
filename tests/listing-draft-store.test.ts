@@ -36,7 +36,7 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
 }));
 vi.mock('@/src/lib/supabase', () => ({ supabase: { auth: { onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }) } } }));
 
-const NOW = new Date(2026, 9, 21, 12, 0, 0);
+const NOW = new Date('2026-10-21T16:00:00Z');   // noon in New York (EDT) as an INSTANT, so the machine's zone cannot move New York's "today" (review of ebbadf51)
 const fields = (over: Partial<ListingDraftFields> = {}): ListingDraftFields => ({
   eventName: 'Weekend pool party', venue: 'LIV Miami', neighborhood: 'south beach', category: 'nightlife',
   eventDate: new Date(2026, 9, 25), eventTime: new Date(2026, 9, 21, 22), dateChosen: true, ticketType: 'GA', quantity: 1,
@@ -132,7 +132,7 @@ describe('DS2 · what is refused on read is also removed', () => {
     const store = createListingDraftStore(storage, { now: () => clock });
     store.handleAuthChange('INITIAL_SESSION', session('user-a'));
     expect(await store.save('user-a', fields({ eventName: 'Rolling Loud Saturday', eventDate: new Date(2026, 9, 21), dateChosen: false }))).toBe(true);
-    clock = new Date(2026, 9, 22, 9, 0);
+    clock = new Date('2026-10-22T13:00:00Z');   // the next morning, 9:00 in New York (EDT) — an instant
     const d = await store.load('user-a');
     expect(d?.fields.eventName).toBe('Rolling Loud Saturday');
     expect(mem.has(KEY_A)).toBe(true);
@@ -453,7 +453,7 @@ describe('DS6 · against the real auth client', () => {
     // later where the signal is poor. The tabs layout (the launch route) has armed the purge before
     // auth-js reports the launch session, so the store hears INITIAL_SESSION with no session.
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
-    vi.setSystemTime(new Date(2026, 9, 21, 12, 0, 0));
+    vi.setSystemTime(new Date('2026-10-21T16:00:00Z'));   // noon in New York (EDT), an instant
     const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
       let online = false;
