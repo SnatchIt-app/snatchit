@@ -2135,11 +2135,15 @@ serve(async (req: Request) => {
               p_command_key:       `webhook:${event.id}`,
             });
             const decision = classifyRefundFailureResult(converged, {
-              metadata:   r.metadata ?? null,
-              ageSeconds: eventAgeSeconds(event.created, Date.now()),
+              metadata:        r.metadata ?? null,
+              ageSeconds:      eventAgeSeconds(event.created, Date.now()),
+              stripeRefundRef: evRefund.id,
             });
             if (!decision.ack) {
               console.error('Webhook: refund failure not converged (Stripe will retry):', { refund_id: evRefund.id, reason: decision.reason });
+              if (decision.page) {
+                await captureException(decision.page.tag, new Error(`${decision.reason}: ${evRefund.id}`), decision.page.facts);
+              }
               return await finish(false, { refund_id: evRefund.id }, decision.reason);
             }
             if (decision.page) {

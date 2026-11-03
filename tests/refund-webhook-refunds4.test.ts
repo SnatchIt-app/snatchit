@@ -52,7 +52,7 @@ describe('C: which observations reach the verb', () => {
 });
 
 describe('C: what the verb\'s answer means for the delivery', () => {
-  const fresh = { metadata: OURS, ageSeconds: 5 };
+  const fresh = { metadata: OURS, ageSeconds: 5, stripeRefundRef: 're_1' };
 
   it('C4 succeeded→failed is ACKed and pages failed_after_success with ids and counts only', () => {
     const d = classifyRefundFailureResult({ data: SUCCEEDED_TO_FAILED, error: null }, fresh);
@@ -80,19 +80,19 @@ describe('C: what the verb\'s answer means for the delivery', () => {
     expect(classifyRefundFailureResult({ data: { status: 'not_bound' }, error: null }, fresh)).toMatchObject({ ack: false });
   });
   it('C8 not_bound on OUR refund past the grace window is ACKed and paged failure_unbound', () => {
-    const d = classifyRefundFailureResult({ data: { status: 'not_bound' }, error: null }, { metadata: OURS, ageSeconds: REFUND_FAILURE_UNBOUND_GRACE_SECONDS });
+    const d = classifyRefundFailureResult({ data: { status: 'not_bound' }, error: null }, { metadata: OURS, ageSeconds: REFUND_FAILURE_UNBOUND_GRACE_SECONDS, stripeRefundRef: 're_1' });
     expect(d).toMatchObject({ ack: true, page: { tag: 'refund-webhook:failure_unbound', facts: { refund_id: REFUND_ID } } });
   });
   it('C9 not_bound on an undatable event is treated as past the window (never an unbounded retry)', () => {
-    const d = classifyRefundFailureResult({ data: { status: 'not_bound' }, error: null }, { metadata: OURS, ageSeconds: Number.POSITIVE_INFINITY });
+    const d = classifyRefundFailureResult({ data: { status: 'not_bound' }, error: null }, { metadata: OURS, ageSeconds: Number.POSITIVE_INFINITY, stripeRefundRef: 're_1' });
     expect(d).toMatchObject({ ack: true, page: { tag: 'refund-webhook:failure_unbound' } });
   });
   it('C10 not_bound on a refund that is NOT ours (Dashboard, expiry, ops rail) is ACKed silently', () => {
-    expect(classifyRefundFailureResult({ data: { status: 'not_bound' }, error: null }, { metadata: {}, ageSeconds: 5 })).toMatchObject({ ack: true, page: null });
-    expect(classifyRefundFailureResult({ data: { status: 'not_bound' }, error: null }, { metadata: null, ageSeconds: 5 })).toMatchObject({ ack: true, page: null });
+    expect(classifyRefundFailureResult({ data: { status: 'not_bound' }, error: null }, { metadata: {}, ageSeconds: 5, stripeRefundRef: 're_1' })).toMatchObject({ ack: true, page: null });
+    expect(classifyRefundFailureResult({ data: { status: 'not_bound' }, error: null }, { metadata: null, ageSeconds: 5, stripeRefundRef: 're_1' })).toMatchObject({ ack: true, page: null });
   });
   it('C11 not_bound with source refund-execute but no uuid refund_id is not retried', () => {
-    const d = classifyRefundFailureResult({ data: { status: 'not_bound' }, error: null }, { metadata: { source: 'refund-execute', refund_id: 'nope' }, ageSeconds: 5 });
+    const d = classifyRefundFailureResult({ data: { status: 'not_bound' }, error: null }, { metadata: { source: 'refund-execute', refund_id: 'nope' }, ageSeconds: 5, stripeRefundRef: 're_1' });
     expect(d).toMatchObject({ ack: true, page: { tag: 'refund-webhook:failure_unbound', facts: { refund_id: null } } });
   });
 
@@ -104,9 +104,31 @@ describe('C: what the verb\'s answer means for the delivery', () => {
   ])('C12 a deterministic refusal (%s) is ACKed and paged — it must not loop for 3 days', (message) => {
     expect(classifyRefundFailureResult({ data: null, error: { message, code: 'P0001' } }, fresh)).toMatchObject({ ack: true, page: { tag: 'refund-webhook:verb_refused' } });
   });
-  it('C13 the verb missing (PGRST202, e.g. after a SQL rollback) is ACKed and paged verb_missing', () => {
+  // E review of ab41ab78 (d): PGRST202 is the one error that is guaranteed to
+  // heal itself (the moment 199 applies, the same call succeeds). ACKing it would
+  // make a deploy-order mistake permanent, so it is retried AND paged, with the ref.
+  it('C13 the verb missing (PGRST202: webhook deployed before 199) is RETRIED and paged verb_missing with the ref', () => {
     expect(classifyRefundFailureResult({ data: null, error: { message: 'Could not find the function kernel.record_refund_stripe_failure', code: 'PGRST202' } }, fresh))
-      .toMatchObject({ ack: true, page: { tag: 'refund-webhook:verb_missing' } });
+      .toMatchObject({ ack: false, page: { tag: 'refund-webhook:verb_missing', facts: { stripe_refund_ref: 're_1' } } });
+  });
+
+  // E review of ab41ab78 (a): classify on SQLSTATE, not on message text. Every raise
+  // in the verb sets it (P0001 refusals, P0002 not_found); the regex is only a
+  // fallback for an error that carries no code.
+  it('C16 a P0002 refusal is deterministic even when its message carries no token', () => {
+    expect(classifyRefundFailureResult({ data: null, error: { message: 'refund vanished', code: 'P0002' } }, fresh))
+      .toMatchObject({ ack: true, page: { tag: 'refund-webhook:verb_refused', facts: { stripe_refund_ref: 're_1' } } });
+  });
+  it('C17 a transient code is RETRIED even when its message happens to contain a refusal token', () => {
+    expect(classifyRefundFailureResult({ data: null, error: { message: 'canceling statement due to statement timeout while checking not_found', code: '57014' } }, fresh))
+      .toMatchObject({ ack: false });
+    expect(classifyRefundFailureResult({ data: null, error: { message: 'deadlock detected (precondition_failed path)', code: '40P01' } }, fresh))
+      .toMatchObject({ ack: false });
+  });
+  it('C18 with NO code, the message regex is the fallback', () => {
+    expect(classifyRefundFailureResult({ data: null, error: { message: 'conflict_locked: refund_payment_mismatch (x)' } }, fresh))
+      .toMatchObject({ ack: true, page: { tag: 'refund-webhook:verb_refused' } });
+    expect(classifyRefundFailureResult({ data: null, error: { message: 'fetch failed' } }, fresh)).toMatchObject({ ack: false });
   });
   it.each([
     [{ message: 'terminating connection due to administrator command', code: '57P01' }],
@@ -225,6 +247,16 @@ describe('R: stripe-webhook refund.* calls the converger', () => {
     expect((await h.send('refund.failed')).status).toBe(200);
     expect(h.names().at(-1)).toBe('complete_stripe_webhook_event');
     expect(h.edge.sentry.map((s) => s.tag)).toEqual(['refund-webhook:verb_refused']);
+  });
+
+  it('R11 the verb missing (PGRST202) answers non-2xx, pages once with the ref, and never completes — it heals when 199 applies', async () => {
+    const h = await webhook({ refund: refundObj('re_11', 'failed', { metadata: OURS }), verbAnswer: { data: null, error: { message: 'Could not find the function kernel.record_refund_stripe_failure(text, text) in the schema cache', code: 'PGRST202' } } });
+    const res = await h.send('refund.failed');
+    expect(res.status).toBeGreaterThanOrEqual(500);
+    expect(h.names()).toContain('fail_stripe_webhook_event');
+    expect(h.names()).not.toContain('complete_stripe_webhook_event');
+    expect(h.edge.sentry.map((s) => s.tag)).toEqual(['refund-webhook:verb_missing']);
+    expect(h.edge.sentry[0].ctx).toEqual({ stripe_refund_ref: 're_11' });
   });
 
   it('R10 a failed record_refund_state still answers non-2xx BEFORE the verb is tried (unchanged)', async () => {
