@@ -283,9 +283,19 @@ Added 2026-11-02 by A (release integration). It supersedes nothing above; it ins
 1. **[MIGRATE — before S-6/S-7]** Apply **198 then 199** through their owner-gated packages. migrations-guard's monotonic order forces 198 to merge first anyway.
    - Pre-flight per D's package: zero pending orders, zero active holds, and an md5 read-back of every body 198 pins.
    - 199 must be live **before** `refund-execute` (S-7) and before the stripe-webhook build in item 2, which calls 199's `kernel.record_refund_stripe_failure`.
-   - **The 199 that is APPLIED must be the revision WITHOUT the `^re_` shape check** in `record_refund_stripe_failure` (A's decision, 2026-11-02; it is D's delta over 45708aec). Merged is not enough; the post-flight md5 read-back of that function must match the delta's pinned body.
-     - Against the 45708aec body, a validly stored refund ref not shaped `re_…` is refused `invalid_input` before the lookup. The webhook ACKs and pages that as `verb_refused`, so the ledger stays `succeeded` and the settlement-review cascade never runs (E's #234/#236 reviews).
-     - That is behaviour-neutral while primary checkout is card-only, but it must not be what ships.
+   - **The 199 that is APPLIED must be the FINAL revision, 20261102130000 at #234 @ `c6883f8a`.** Merged is not enough. After the apply, read back the md5 of both functions and require exactly these values:
+
+     | Function | Required md5 (final, @ `c6883f8a`) | Superseded, must NOT match |
+     |---|---|---|
+     | `kernel.record_refund_stripe_failure(text,text)` | `3e7b649b80286f4be2c459dde43ace59` | `8a443bd8ee3444ba11b6097eeda6fd9a` (@ `25e0df05`); `ba2de45d6283db5afcc954b7d401596d` (@ `45708aec`) |
+     | `kernel.mark_refund_state(uuid,text,text,text,text)` | `ab215b7b939c8843376161b2a35dadd3` | `a14aafa2040db639a18f64aa30e5b6f1` (@ `45708aec` / `25e0df05`) |
+
+     - **Why this read-back is not redundant with 199's own post-flight check:** each revision's post-flight pins the body THAT revision applies. Applying an older 199 therefore passes its own post-flight cleanly and silently, and nothing inside either revision can detect that the other was wanted. Only this external comparison against the named sums can (E's #238 review). If the delta is ever revised, its sha changes and these literals visibly stop matching. A mismatch is a stop, never a judgement call.
+     - What the final revision fixes:
+       - (a) the `^re_` shape check is gone. Against the 45708aec body, a validly stored ref not shaped `re_…` is refused `invalid_input` before the lookup; the webhook ACKs and pages it as `verb_refused`, the ledger stays `succeeded`, and the settlement-review cascade never runs (E's #234/#236 reviews).
+       - (b) `mark_refund_state` refuses a blank ref.
+       - (c) `record_refund_stripe_failure` fails closed on a duplicated ref (`conflict_locked: duplicate stripe_refund_ref`, P0001, before any write).
+     - Duplicates are already impossible to store: `kernel.refund_stripe_ref_uq` (085:96-97) is a unique partial index, confirmed present in production by a read-only read-back on 2026-11-03. So (c) is defence in depth.
    - Applying both before the edges is safe while sales are OFF. The live webhook v46 cannot reach 198's new refusal: no hold or bound order can exist with `feature.native_issuance_enabled` false.
 2. **[S-6 amended — webhook version]** The deployed `stripe-webhook` must contain **#216** (A-5: classifyFinalizeError ACKs `refund_required` with a refund review row) **and #236** (refunds-4: a failed or canceled refund converges `kernel.refund`). Record the deployed version in the step evidence.
    - A webhook without #216 answers 198's `refund_required: hold_lapsed` with 500, and Stripe retries for three days: the buyer is charged, holds no ticket, and gets no review row.
