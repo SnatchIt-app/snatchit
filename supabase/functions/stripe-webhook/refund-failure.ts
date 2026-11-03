@@ -38,11 +38,21 @@ export function needsRefundFailureConvergence(status: string | null | undefined,
   return (recordResult as { reason?: unknown } | null)?.reason === 'stale_observation';
 }
 
-export type RefundFailureDecision =
-  | { ack: true; page: { tag: string; facts: Record<string, unknown> } | null; log: string }
-  | { ack: false; reason: string };
+type Page = { tag: string; facts: Record<string, unknown> };
 
-/** The verb's own refusals: deterministic, so a redelivery cannot change them. */
+export type RefundFailureDecision =
+  | { ack: true; page: Page | null; log: string }
+  | { ack: false; reason: string; page?: Page };
+
+/**
+ * The verb's own refusals: deterministic, so a redelivery cannot change them.
+ * Classified on SQLSTATE: every raise in the verb sets it (P0001 for
+ * invalid_input / precondition_failed / conflict_locked, P0002 for not_found).
+ * A code is stabler than the text PostgREST relays, which it may wrap or
+ * truncate. The message tokens are only a fallback for an error with no code.
+ * (E review of ab41ab78.)
+ */
+const REFUSAL_SQLSTATES = new Set(['P0001', 'P0002']);
 const DETERMINISTIC_REFUSAL = /precondition_failed|conflict_locked|invalid_input|not_found/;
 
 type Obj = Record<string, unknown>;
@@ -56,17 +66,30 @@ const count = (v: unknown): number => (Array.isArray(v) ? v.length : 0);
  */
 export function classifyRefundFailureResult(
   res: { data: unknown; error: { message?: string; code?: string } | null },
-  ctx: { metadata: Record<string, string> | null | undefined; ageSeconds: number },
+  ctx: { metadata: Record<string, string> | null | undefined; ageSeconds: number; stripeRefundRef: string },
 ): RefundFailureDecision {
   if (res.error) {
     const message = res.error.message ?? '';
-    if (res.error.code === 'PGRST202') {
-      // The function is gone (a SQL rollback): redelivery cannot bring it back.
-      return { ack: true, page: { tag: 'refund-webhook:verb_missing', facts: {} }, log: 'record_refund_stripe_failure missing' };
+    const code = res.error.code ?? '';
+    if (code === 'PGRST202') {
+      // The verb is not there: this webhook was deployed before 199 was
+      // applied, or 199 was rolled back. The one error that heals itself — the
+      // same call succeeds the moment 199 is live — so it is retried, never
+      // ACKed (which would lose this refund's convergence for good), and paged
+      // with the ref so the gap is visible.
+      return {
+        ack: false,
+        reason: 'record_refund_stripe_failure missing (199 not applied?)',
+        page: { tag: 'refund-webhook:verb_missing', facts: { stripe_refund_ref: ctx.stripeRefundRef } },
+      };
     }
-    const refusal = DETERMINISTIC_REFUSAL.exec(message);
+    const refusal = code ? (REFUSAL_SQLSTATES.has(code) ? code : null) : DETERMINISTIC_REFUSAL.exec(message)?.[0] ?? null;
     if (refusal) {
-      return { ack: true, page: { tag: 'refund-webhook:verb_refused', facts: { refusal: refusal[0] } }, log: message };
+      return {
+        ack: true,
+        page: { tag: 'refund-webhook:verb_refused', facts: { refusal, stripe_refund_ref: ctx.stripeRefundRef } },
+        log: message,
+      };
     }
     // Transport, 5xx, 57P01, a statement timeout: both SQL steps replay
     // idempotently, so let Stripe deliver again.
