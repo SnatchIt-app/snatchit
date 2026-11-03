@@ -149,6 +149,10 @@ describe('parseHoldReply — public.reserve_primary_tier (167)', () => {
     // `primary-checkout` (#221 @3642ba0d) answers 409 sales_unavailable for an unapproved venue AND for
     // org_not_active, so the hold path maps the raw phrase to the same reason the buyer already sees.
     expect(err('precondition_failed: venue is not approved')).toEqual({ ok: false, reason: 'sales_unavailable' });
+    // The TOKEN is what D's 201 actually raises, and it is matched first because a token is stable
+    // where prose is not. Both shapes must land on the same reason: token alone, and token + prose.
+    expect(err('precondition_failed: venue_not_approved')).toEqual({ ok: false, reason: 'sales_unavailable' });
+    expect(err('precondition_failed: venue_not_approved — venue is not approved')).toEqual({ ok: false, reason: 'sales_unavailable' });
     // A DISTINCT reason: the tier exists but is not public inventory, so the screen says "choose
     // different tickets" rather than offering a retry that cannot succeed.
     expect(err('precondition_failed: not_buyer_inventory')).toEqual({ ok: false, reason: 'not_public' });

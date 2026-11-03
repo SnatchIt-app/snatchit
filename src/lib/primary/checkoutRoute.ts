@@ -99,9 +99,12 @@ export function parseHoldReply(res: HoldRpcResult): HoldResult {
     if (/hold_limit|per_user_active_hold|hold_cap/.test(msg)) return { ok: false, reason: 'hold_limit' };
     if (/hold_ttl_unset|feature_disabled/.test(msg)) return { ok: false, reason: 'sales_unavailable' };
     // 201: the venue is not approved for sales. `primary-checkout` answers 409 `sales_unavailable`
-    // for this and for org_not_active; the hold RPC surfaces the raw phrase, so it is matched here.
-    // The server phrase itself is never rendered — only the reason travels.
-    if (/venue is not approved/.test(msg)) return { ok: false, reason: 'sales_unavailable' };
+    // for this and for org_not_active; the hold RPC surfaces the raw message, so it is matched here.
+    // The TOKEN comes first: D's 201 raises `precondition_failed: venue_not_approved — venue is not
+    // approved`, and a token is stable in a way prose is not. The prose alternative stays only to
+    // cover a 201 body that carries the sentence without the token (E's review of c78788d9).
+    // Neither the token nor the sentence is ever rendered — only the reason travels.
+    if (/venue_not_approved|venue is not approved/.test(msg)) return { ok: false, reason: 'sales_unavailable' };
     // 201: the tier exists but is not public buyer inventory. A distinct terminal refusal, so the
     // screen can say "choose different tickets" rather than offer a retry that cannot succeed.
     if (/not_buyer_inventory/.test(msg)) return { ok: false, reason: 'not_public' };
