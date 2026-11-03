@@ -58,7 +58,7 @@ export default async function ScanPage({ params, searchParams }: { params: Promi
         sessions={sessions}
         defaultSessionId={defaultSessionId}
         staff={{ label: p.signedInAs, role: PRINCIPAL_LABEL[p.ctx.role] }}
-        timeZone={p.ctx.source === "database" ? null : p.timeZone}
+        timeZone={p.timeZone}
         loginHref={loginHref}
       />
     </Shell>

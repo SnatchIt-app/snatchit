@@ -1,4 +1,5 @@
 import { CREDENTIAL_TYP, decodeCredentialWire, type CredentialClaims } from "@/lib/scan/wire";
+import { PLATFORM_TIME_ZONE, venueTime } from "@/lib/format";
 
 /**
  * The five things a door person can be told, and nothing else. Every outcome
@@ -175,20 +176,25 @@ const INVALID_COPY: Record<InvalidWhy, string> = {
   not_trusted: "This pass is not signed by a trusted Snatch It key. Not valid.",
 };
 
-/** HH:MM in the given zone (the venue's where known, else the phone's). */
-export function clock(iso: string | null, timeZone: string | null): string | null {
+/**
+ * "10:05 PM EST": the time of day in the venue's zone, with its EST/EDT label. Never the phone's zone. A venue zone
+ * Intl does not recognise falls back to the platform zone (still labelled), so the door keeps the time (E, #219).
+ */
+export function clock(iso: string | null, timeZone: string): string | null {
   if (!iso) return null;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
-  try {
-    return new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit", hour12: false, ...(timeZone ? { timeZone } : {}) }).format(d);
-  } catch {
-    return null;
+  if (Number.isNaN(new Date(iso).getTime())) return null;
+  for (const zone of [timeZone, PLATFORM_TIME_ZONE]) {
+    try {
+      return venueTime(iso, zone, { date: false, zone: true });
+    } catch {
+      // try the next zone
+    }
   }
+  return null;
 }
 
 /** The one line under the big word. */
-export function outcomeDetail(o: ScanOutcome, timeZone: string | null): string {
+export function outcomeDetail(o: ScanOutcome, timeZone: string): string {
   switch (o.kind) {
     case "admitted":
       return "Let them in.";

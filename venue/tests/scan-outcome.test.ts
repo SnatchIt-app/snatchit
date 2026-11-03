@@ -43,7 +43,7 @@ describe("outcomeFromRpc — the server's receipt is the only source of a green"
     expect(outcomeFromRpc({ status: "ok", scan_id: null, result: "invalid", reason: "unknown_atom" }, ATOM, false)).toEqual({ kind: "invalid", why: "unknown_atom", reason: "unknown_atom" });
     expect(outcomeFromRpc({ status: "ok", scan_id: "s7", result: "invalid", reason: "something_new" }, ATOM, false)).toEqual({ kind: "invalid", why: "other", reason: "something_new" });
     for (const why of ["voided", "expired", "not_active", "listed_locked", "credential_stale", "credential_claims_malformed", "unknown_atom", "other", "not_trusted"] as const) {
-      expect(outcomeDetail({ kind: "invalid", why }, null).toLowerCase()).toMatch(/not valid|ask the guest/);
+      expect(outcomeDetail({ kind: "invalid", why }, "America/New_York").toLowerCase()).toMatch(/not valid|ask the guest/);
     }
   });
   it("anything else is CANNOT VERIFY with a retry on the same key — never admitted", () => {
@@ -81,16 +81,16 @@ describe("copy — five words, one tone each, the prior rendered as a clock", ()
     expect(OUTCOME_TONE.cannot_verify).toBe("neutral");
   });
   it("'Already admitted at HH:MM (Door A phone)' in the venue's zone, and the retry caveat only when it may be this phone", () => {
-    expect(clock("2026-11-30T03:05:00Z", "America/New_York")).toBe("22:05");
+    expect(clock("2026-11-30T03:05:00Z", "America/New_York")).toBe("10:05 PM EST");
     const prior = { scanId: "s1", occurredAt: "2026-11-30T03:05:00Z", actorLabel: null, deviceLabel: "Door A phone" };
-    expect(outcomeDetail({ kind: "already_used", atomId: ATOM, prior, possiblyThisPhone: false }, "America/New_York")).toBe("Already admitted at 22:05 (Door A phone).");
-    expect(outcomeDetail({ kind: "already_used", atomId: ATOM, prior: null, possiblyThisPhone: true }, null)).toContain("this phone's previous attempt");
-    expect(outcomeDetail({ kind: "cannot_verify", why: "timeout", retrySameKey: true }, null)).toContain("may or may not");
-    expect(outcomeDetail({ kind: "cannot_verify", why: "demo", retrySameKey: false }, null)).toContain("Demo");
+    expect(outcomeDetail({ kind: "already_used", atomId: ATOM, prior, possiblyThisPhone: false }, "America/New_York")).toBe("Already admitted at 10:05 PM EST (Door A phone).");
+    expect(outcomeDetail({ kind: "already_used", atomId: ATOM, prior: null, possiblyThisPhone: true }, "America/New_York")).toContain("this phone's previous attempt");
+    expect(outcomeDetail({ kind: "cannot_verify", why: "timeout", retrySameKey: true }, "America/New_York")).toContain("may or may not");
+    expect(outcomeDetail({ kind: "cannot_verify", why: "demo", retrySameKey: false }, "America/New_York")).toContain("Demo");
   });
   it("no detail line claims a timeout or an error was admitted", () => {
     for (const why of ["offline", "timeout", "transport", "not_enabled", "session_not_admitting", "rate_limited", "server_error", "demo"] as const) {
-      expect(outcomeDetail({ kind: "cannot_verify", why, retrySameKey: false }, null).toLowerCase()).not.toMatch(/\badmitted\b|\blet them in\b/);
+      expect(outcomeDetail({ kind: "cannot_verify", why, retrySameKey: false }, "America/New_York").toLowerCase()).not.toMatch(/\badmitted\b|\blet them in\b/);
     }
   });
 });
