@@ -17,6 +17,9 @@
 --     of 120's 'uncertain'; an empty window is a KNOWN zero (126 acceptance A5).
 --     A2/A5/A6/A10/A14/B4 updated in place; their intent — an unrecorded amount is
 --     never stated as fact — is unchanged. 126's own contract: pgTAP 193.
+--   200 (2026-11-02, D): the daily_summary job summarizes the PREVIOUS full ET day, so the fixture's
+--     paid/refunded times sit on ET yesterday (09:00 / 11:00 ET) instead of the last 3 hours, and B3's
+--     expected count uses money_overview's ET window. Assertions unchanged.
 -- ============================================================================
 BEGIN;
 SELECT plan(27);
@@ -32,8 +35,10 @@ VALUES ('88888888-0000-0000-0000-000000000186', 'buyer186@example.test', 'authen
 INSERT INTO public.payments (id, listing_id, buyer_id, seller_id, amount, buyer_fee, total, stripe_payment_intent_id,
                              status, mode, created_at, paid_at, refunded_at, seller_fee, stripe_livemode, stripe_refund_id)
 VALUES ('bbbbbbbb-0000-0000-0000-000000000186', tap.listing_c(), '88888888-0000-0000-0000-000000000186', tap.seller(),
-        9091, 909, 10000, 'pi_test_186', 'refunded', 'buy_now', now() - interval '3 hours', now() - interval '3 hours',
-        now() - interval '1 hour', 909, false, 're_test_186_partial');
+        9091, 909, 10000, 'pi_test_186', 'refunded', 'buy_now',
+        ((now() AT TIME ZONE 'America/New_York')::date - 1 + time '09:00') AT TIME ZONE 'America/New_York',
+        ((now() AT TIME ZONE 'America/New_York')::date - 1 + time '09:00') AT TIME ZONE 'America/New_York',
+        ((now() AT TIME ZONE 'America/New_York')::date - 1 + time '11:00') AT TIME ZONE 'America/New_York', 909, false, 're_test_186_partial');
 
 -- ── Section A — build_daily_summary ─────────────────────────────────────────
 SELECT tap.login_service();
@@ -87,7 +92,7 @@ SELECT tap.logout();
 -- session); relative to the data present, since fixtures may hold refunded rows.
 CREATE TABLE tap.memo_186 (k text PRIMARY KEY, v int);
 INSERT INTO tap.memo_186 SELECT 'expected_refunded', count(*)::int FROM public.payments
-   WHERE status = 'refunded' AND refunded_at >= ((now() at time zone 'UTC')::date - 30)::timestamp at time zone 'UTC';
+   WHERE status = 'refunded' AND refunded_at >= ((now() at time zone 'America/New_York')::date - 30)::timestamp at time zone 'America/New_York';
 CREATE FUNCTION tap._fetch186(k text) RETURNS int LANGUAGE sql SECURITY DEFINER AS $m$ SELECT v FROM tap.memo_186 WHERE k=$1 $m$;
 SELECT tap.login(tap.admin_user()); SELECT tap._aal2_186();
 SELECT is(jsonb_typeof(ops.money_overview(NULL, NULL) #> '{metrics,refunded_volume,value_cents}'), 'null',

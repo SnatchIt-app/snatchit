@@ -91,7 +91,8 @@ SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polr
 
 -- function closed world
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'kernel'), 157,
+           WHERE n.nspname = 'kernel'), 161,
+  -- 2026-11-02 (registry 199): 157 -> 161 (+4 kernel: refund_executor_hold, record_refund_stripe_failure, park_refund_execution, rearm_refund_execution).
   -- 2026-09-03 (package 095, payout state machine): 125 -> 132. SEVEN added, zero removed
   -- (get_payout_execution_context was RE-CREATED body-only by 095 E-6, not added). The seven:
   -- guard_payout_org_payable and guard_settlement_forward_only (the two new trigger functions —
@@ -122,7 +123,7 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.
   -- their grant class, and 141 F3 moves 39 -> 45 by exactly these six.
   -- 2026-09-03 (package 096): +9. 097/098: +0 (body-only re-creates). 099: +1.
   -- 136 -> 146, re-derived from the live catalog, not accepted as a delta.
-  'A14: kernel holds EXACTLY 157 functions [131 +4 kernel: invalidate_push_bindings_for, trg_push_bindings_on_password_change, trg_push_bindings_on_sessions_gone, push_session_predates_epoch] (111''s three + 109 post-090 + 093''s sixteen + 095''s seven + 094''s four + 096''s nine + 099''s one + 102''s one + 105''s one + 109''s one + 110''s one)');
+  'A14: kernel holds EXACTLY 161 functions [199 +4 kernel: refund_executor_hold, record_refund_stripe_failure, park_refund_execution, rearm_refund_execution; 131 +4 kernel: invalidate_push_bindings_for, trg_push_bindings_on_password_change, trg_push_bindings_on_sessions_gone, push_session_predates_epoch] (111''s three + 109 post-090 + 093''s sixteen + 095''s seven + 094''s four + 096''s nine + 099''s one + 102''s one + 105''s one + 109''s one + 110''s one)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
            WHERE n.nspname = 'venue'), 99,
   -- 2026-10-26 (registry 166): 96 -> 98 (+get_session_capacity, list_session_capacity).
