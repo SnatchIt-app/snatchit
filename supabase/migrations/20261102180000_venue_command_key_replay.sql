@@ -74,8 +74,15 @@
 -- DOWNSTREAM. (1) Roll back 204 FIRST: 202's rollback asserts publish_event = f30eaca2, 187's asserts
 -- allocate_comp = 73ad103d, e76's asserts create_event_session's 165 body, and 162's rollback drops the setter.
 -- (2) The open registries 198-203 and 205 replace none of these five except 202 (publish_event, this file's base);
--- 203 replaces cancel_event and update_event_session, which this file does not touch, and edits pgTAP 232 A8's
--- shared pin string (textual conflict: whoever lands second rebases that string). (3) B's 191 must not re-create
+-- 203 replaces cancel_event and update_event_session, which this file does not touch (its pre-flight relies on none
+-- of the five, so 203 and 204 apply in either order), but it pins two of these bodies in tests: (a) it edits pgTAP
+-- 232 A8's shared pin string (textual conflict: whoever lands second rebases that string); (b) its new pgTAP 272 A7
+-- pins md5(prosrc) of create_event_session (ee243b12, e76) and publish_event (b31abddf, e76). That is a SEMANTIC
+-- conflict git merges without a marker (272 is not in this tree), so the second lander would go red in CI. With
+-- 202 + 204 applied A7 reads create_event_session=33b0d32e2a3b4269ad2fc9ae173066e1 and
+-- publish_event=fe9bc5f0f91611a064b1cdef5143efec (update_event unchanged). Whichever of 203 / 204 lands second moves
+-- 272 A7 to those two values in its own commit, with a comment naming registry 204 (203 sorts first, so 204 is the
+-- likely second lander; D/s18-204/conflict-with-203.txt has the combined-chain run). (3) B's 191 must not re-create
 -- these five; the guest-list delta is handed to it (design section 5.6). (4) Pins moved in this commit (values
 -- only, plan counts unchanged): pgTAP 232 A2, A4 and A8's create_event part, 271 A6, 229 W49, and 271 S3 (an exact
 -- event.status `after` comparison the design did not list; it now compares the status without the two digests).

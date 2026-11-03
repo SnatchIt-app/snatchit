@@ -16,14 +16,20 @@
 --      and the E-76 conjunct; allocate_comp keeps one live operator assert and checks the key after it.
 --   Z1 no auth.uid() (the NULL-claims arm, before any tap.login): 42501 on all five.
 --   K  create_event   S  create_event_session   P  publish_event   W  set_ticket_type_sale_window   C  allocate_comp
---   X  scope: another actor with the same key is independent; one key on two verbs is independent.
+--      Every field of each request digest is varied alone under the same key (conflict): W4 sale_ends_at, W10
+--      sale_starts_at, W9 ticket_type_id, W5 reason; C5 quantity, C6 batch, C10 session, C9 reason. W3b pins the
+--      values a sale-window replay returns (the original request's, not the current window).
+--   X  scope: another actor with the same key is independent, for all five verbs (X1/X5 create_event and its
+--      implicit session, X4 publish_event, X6 the sale window, X7 allocate_comp); one key on two verbs is
+--      independent (X3).
 --   Z2-Z4  a fan guessing a key, a manager whose role was deleted after a first call, an unknown event: the existing
 --      refusals answer first (no receipt or conflict signal before authority / existence).
 -- NOT in-suite (evidence dir D/s18-204/): the pre-flight / post-flight / rollback refusals, idempotent re-apply, the
 -- apply / rollback cycle, the mutants and the concurrent-session race harness (lock waits need two sessions).
 --
 -- Fixture: synthetic rows as postgres with letter-bearing ids (a2730000-…); everything dies with the ROLLBACK.
--- Org A (active) owners UA and UB; venue_manager UM bound to room VA; fan UF; rooms VA and VB (Org A, approved).
+-- Org A (active) owners UA and UB; venue_managers UM and UM2 bound to room VA; fan UF; rooms VA and VB (Org A,
+-- approved).
 -- Every call goes through tap._run273, which keeps the call's jsonb text, or 'ERROR <SQLSTATE>|<SQLERRM>', under a
 -- key; the assertions read the kept values in later statements, so a refusal or a mutant never aborts the file.
 --
@@ -31,13 +37,13 @@
 -- chain (signing_key_insert_refused: scoped_key_parked), issue_comp is not changed by 204, and pgTAP 257 P10 already
 -- issues an allocate_comp allocation.
 --
--- Expected on main + 202 WITHOUT 204 (RED, predicted before the run; all 73 emitted): not ok (44) — A1-A5; B1 B2 B3
--- B4 B6; K2 K3 K4 K5 K6 K7 K9 K11; S2 S3 S5 S6 S8 S10; P1b P2 P3 P5 P6 P8; W1b W1c W3 W4 W5 W8; C1 C3 C4 C5 C6 C8;
--- X2 X5. Passing on RED by design (29): A6-A9 B5 Z1 K1 K8 K10 S1 S3a S4 S9 S7 P1 P4 P7 W1 W2 W6 W7 C2 X1 X3 X4 Z2
--- Z3a Z3 Z4 (first calls, refusals and residual R6, which 204 must leave as they were).
+-- Expected on main + 202 WITHOUT 204 (RED, predicted before the run; all 80 emitted): not ok (51) — A1-A5; B1 B2 B3
+-- B4 B6; K2 K3 K4 K5 K6 K7 K9 K11; S2 S3 S5 S6 S8 S10; P1b P2 P3 P5 P6 P8; W1b W1c W3 W3b W4 W5 W8 W9 W10; C1 C3 C4
+-- C5 C6 C9 C10 C8; X2 X5 X6 X7. Passing on RED by design (29): A6-A9 B5 Z1 K1 K8 K10 S1 S3a S4 S9 S7 P1 P4 P7 W1 W2
+-- W6 W7 C2 X1 X3 X4 Z2 Z3a Z3 Z4 (first calls, refusals and residual R6, which 204 must leave as they were).
 -- ============================================================================
 BEGIN;
-SELECT plan(73);
+SELECT plan(80);
 
 CREATE TABLE tap.memo_273 (k text PRIMARY KEY, v text);
 -- RETURNS void: a kept value never reaches the TAP stream (pg_prove reads an output line starting "ok" as a test).
@@ -83,7 +89,8 @@ INSERT INTO auth.users (id, instance_id, aud, role, email, raw_app_meta_data, ra
   ('a2730000-0000-4000-a000-0000000000a1', repeat('0', 32)::uuid, 'authenticated', 'authenticated', 'owner.a.273@test.local', '{"provider":"email","providers":["email"]}', '{}', now(), now(), now()),
   ('a2730000-0000-4000-a000-0000000000a2', repeat('0', 32)::uuid, 'authenticated', 'authenticated', 'owner.b.273@test.local', '{"provider":"email","providers":["email"]}', '{}', now(), now(), now()),
   ('a2730000-0000-4000-a000-0000000000a3', repeat('0', 32)::uuid, 'authenticated', 'authenticated', 'mgr.273@test.local',     '{"provider":"email","providers":["email"]}', '{}', now(), now(), now()),
-  ('a2730000-0000-4000-a000-0000000000a4', repeat('0', 32)::uuid, 'authenticated', 'authenticated', 'fan.273@test.local',     '{"provider":"email","providers":["email"]}', '{}', now(), now(), now())
+  ('a2730000-0000-4000-a000-0000000000a4', repeat('0', 32)::uuid, 'authenticated', 'authenticated', 'fan.273@test.local',     '{"provider":"email","providers":["email"]}', '{}', now(), now(), now()),
+  ('a2730000-0000-4000-a000-0000000000a5', repeat('0', 32)::uuid, 'authenticated', 'authenticated', 'mgr2.273@test.local',    '{"provider":"email","providers":["email"]}', '{}', now(), now(), now())
 ON CONFLICT (id) DO NOTHING;
 INSERT INTO kernel.organization (org_id, legal_name, display_name, status) VALUES
   ('a2730000-0000-4000-a000-0000000000c1', 'Org A 273', 'Org A 273', 'active');
@@ -94,7 +101,8 @@ INSERT INTO catalog.venue (venue_id, org_id, name, neighborhood, approval_status
   ('a2730000-0000-4000-a000-0000000000d1', 'a2730000-0000-4000-a000-0000000000c1', 'Room VA 273', 'wynwood',  'approved'),
   ('a2730000-0000-4000-a000-0000000000d2', 'a2730000-0000-4000-a000-0000000000c1', 'Room VB 273', 'brickell', 'approved');
 INSERT INTO venue.staff_role (venue_id, identity_id, role) VALUES
-  ('a2730000-0000-4000-a000-0000000000d1', 'a2730000-0000-4000-a000-0000000000a3', 'venue_manager');
+  ('a2730000-0000-4000-a000-0000000000d1', 'a2730000-0000-4000-a000-0000000000a3', 'venue_manager'),
+  ('a2730000-0000-4000-a000-0000000000d1', 'a2730000-0000-4000-a000-0000000000a5', 'venue_manager');
 INSERT INTO catalog.event (event_id, venue_id, org_id, title, status) VALUES
   ('a2730000-0000-4000-a000-00000000e101', 'a2730000-0000-4000-a000-0000000000d1', 'a2730000-0000-4000-a000-0000000000c1', 'P 273',       'draft'),
   ('a2730000-0000-4000-a000-00000000e102', 'a2730000-0000-4000-a000-0000000000d1', 'a2730000-0000-4000-a000-0000000000c1', 'P twin 273',  'draft'),
@@ -107,9 +115,11 @@ INSERT INTO catalog.event (event_id, venue_id, org_id, title, status) VALUES
   ('a2730000-0000-4000-a000-00000000e109', 'a2730000-0000-4000-a000-0000000000d1', 'a2730000-0000-4000-a000-0000000000c1', 'P7 273',      'draft');
 INSERT INTO catalog.event_session (session_id, event_id, session_label, starts_at, status) VALUES
   ('a2730000-0000-4000-a000-00000000f104', 'a2730000-0000-4000-a000-00000000e104', NULL, '2027-07-04 01:00:00+00', 'scheduled'),
-  ('a2730000-0000-4000-a000-00000000f109', 'a2730000-0000-4000-a000-00000000e109', NULL, '2027-07-09 01:00:00+00', 'scheduled');
+  ('a2730000-0000-4000-a000-00000000f109', 'a2730000-0000-4000-a000-00000000e109', NULL, '2027-07-09 01:00:00+00', 'scheduled'),
+  ('a2730000-0000-4000-a000-00000000f1c4', 'a2730000-0000-4000-a000-00000000e104', 'Late C 273', '2027-07-05 01:00:00+00', 'scheduled');
 INSERT INTO venue.ticket_type (ticket_type_id, event_id, kind, name, price_minor, visibility) VALUES
   ('a2730000-0000-4000-a000-00000000aa03', 'a2730000-0000-4000-a000-00000000e103', 'admission', 'GA W 273', 2500, 'public'),
+  ('a2730000-0000-4000-a000-00000000aa05', 'a2730000-0000-4000-a000-00000000e103', 'admission', 'VIP W 273', 5000, 'public'),
   ('a2730000-0000-4000-a000-00000000aa04', 'a2730000-0000-4000-a000-00000000e104', 'admission', 'GA C 273', 2500, 'public');
 INSERT INTO venue.inventory_batch (batch_id, ticket_type_id, event_session_id, release_kind, capacity) VALUES
   ('a2730000-0000-4000-a000-00000000bb01', 'a2730000-0000-4000-a000-00000000aa04', 'a2730000-0000-4000-a000-00000000f104', 'comp', 100),
@@ -370,14 +380,25 @@ SELECT tap.logout();
 SELECT is(tap._st273('w3') || '|' || (SELECT (sale_starts_at = '2036-12-01 00:00+00' AND sale_ends_at = '2036-12-02 00:00+00')::text FROM venue.ticket_type WHERE ticket_type_id = 'a2730000-0000-4000-a000-00000000aa03')
           || '|rows=' || (SELECT count(*) FROM kernel.admin_audit a WHERE a.action = 'ticket_type.sale_window_change' AND a.subject_id = 'a2730000-0000-4000-a000-00000000aa03'),
   'noop_replay|true|rows=4', 'W3: UA''s original key replays and does NOT re-apply its old window over the current one (W1, W2, W7b, W7c rows only)');
+SELECT is(tap._st273('w3') || '|' || tap._f273('w3', 'sale_starts_at') || '|' || tap._f273('w3', 'sale_ends_at'),
+  'noop_replay|2036-11-01T00:00:00+00:00|2036-11-02T00:00:00+00:00',
+  'W3b: that replay returns the ORIGINAL request''s window (W1''s), not the current window UB set (session TimeZone UTC)');
 SELECT tap.login('a2730000-0000-4000-a000-0000000000a1');
 SELECT tap._run273('w4',  $$SELECT venue.set_ticket_type_sale_window('a2730000-0000-4000-a000-00000000aa03', '2036-11-01 00:00+00', '2036-11-03 00:00+00', 'presale', 'ck273-w1')$$);
 SELECT tap._run273('w5',  $$SELECT venue.set_ticket_type_sale_window('a2730000-0000-4000-a000-00000000aa03', '2036-11-01 00:00+00', '2036-11-02 00:00+00', 'presale-2', 'ck273-w1')$$);
+SELECT tap._run273('w9',  $$SELECT venue.set_ticket_type_sale_window('a2730000-0000-4000-a000-00000000aa05', '2036-11-01 00:00+00', '2036-11-02 00:00+00', 'presale', 'ck273-w1')$$);
+SELECT tap._run273('w10', $$SELECT venue.set_ticket_type_sale_window('a2730000-0000-4000-a000-00000000aa03', '2036-10-25 00:00+00', '2036-11-02 00:00+00', 'presale', 'ck273-w1')$$);
 SELECT tap.logout();
 SELECT is(tap._get273('w4'), 'ERROR P0001|precondition_failed: idempotency_conflict — command key reused with different parameters',
   'W4: the same key with another window is refused (conflict)');
 SELECT is(tap._get273('w5'), 'ERROR P0001|precondition_failed: idempotency_conflict — command key reused with different parameters',
   'W5: the same key with another reason is refused (conflict)');
+SELECT is(tap._get273('w9') || ' / ' || (SELECT (sale_starts_at IS NULL AND sale_ends_at IS NULL)::text FROM venue.ticket_type WHERE ticket_type_id = 'a2730000-0000-4000-a000-00000000aa05'),
+  'ERROR P0001|precondition_failed: idempotency_conflict — command key reused with different parameters / true',
+  'W9: the same key and window on ANOTHER ticket type of the event is refused (conflict) and that tier''s window stays unset');
+SELECT is(tap._get273('w10') || ' / ' || (SELECT (sale_starts_at = '2036-12-01 00:00+00' AND sale_ends_at = '2036-12-02 00:00+00')::text FROM venue.ticket_type WHERE ticket_type_id = 'a2730000-0000-4000-a000-00000000aa03'),
+  'ERROR P0001|precondition_failed: idempotency_conflict — command key reused with different parameters / true',
+  'W10: the same key with only sale_starts_at changed is refused (conflict) and the current window is untouched');
 SET LOCAL timezone = 'America/New_York';
 SELECT tap.login('a2730000-0000-4000-a000-0000000000a1');
 SELECT tap._run273('w8',  $$SELECT venue.set_ticket_type_sale_window('a2730000-0000-4000-a000-00000000aa03', '2036-10-31 20:00:00-04', '2036-11-01 20:00:00-04', 'presale', 'ck273-w1')$$);
@@ -399,6 +420,8 @@ SELECT tap._run273('c4',  $$SELECT venue.allocate_comp('a2730000-0000-4000-a000-
 SELECT tap._run273('c5',  $$SELECT venue.allocate_comp('a2730000-0000-4000-a000-00000000f104', 'a2730000-0000-4000-a000-00000000bb01', 3, 'press', 'ck273-c1')$$);
 SELECT tap._run273('c6',  $$SELECT venue.allocate_comp('a2730000-0000-4000-a000-00000000f104', 'a2730000-0000-4000-a000-00000000bb02', 2, 'press', 'ck273-c1')$$);
 SELECT tap._run273('c8',  $$SELECT venue.allocate_comp('a2730000-0000-4000-a000-00000000f104', 'a2730000-0000-4000-a000-00000000bb01', 1, NULL, 'ck273-c8')$$);
+SELECT tap._run273('c9',  $$SELECT venue.allocate_comp('a2730000-0000-4000-a000-00000000f104', 'a2730000-0000-4000-a000-00000000bb01', 2, 'staff', 'ck273-c1')$$);
+SELECT tap._run273('c10', $$SELECT venue.allocate_comp('a2730000-0000-4000-a000-00000000f1c4', 'a2730000-0000-4000-a000-00000000bb01', 2, 'press', 'ck273-c1')$$);
 SELECT tap.logout();
 SELECT is(tap._get273('c1a') || ' / ' || tap._get273('c1b'),
   'ERROR P0001|precondition_failed: command key required / ERROR P0001|precondition_failed: command key required',
@@ -412,11 +435,16 @@ SELECT is(tap._st273('c3') || '|' || (SELECT count(*) || '|' || string_agg(a.rea
   'ok|1|press|true|true|true', 'C3: the first allocation is ok and writes one comp.allocate audit row (reason, actor, digests)');
 SELECT is(tap._st273('c4') || '|' || (tap._f273('c4', 'comp_allocation_id') = tap._f273('c3', 'comp_allocation_id'))::text || '|rows='
           || (SELECT count(*) FROM venue.comp_allocation c WHERE c.event_session_id = 'a2730000-0000-4000-a000-00000000f104' AND c.batch_id = 'a2730000-0000-4000-a000-00000000bb01' AND c.quantity = 2),
-  'noop_replay|true|rows=1', 'C4: the resend replays the same allocation id; the refused C1 calls and the replay wrote no row');
+  'noop_replay|true|rows=1', 'C4: the resend replays the same allocation id; the refused C1 / C9 calls and the replay wrote no row');
 SELECT is(tap._get273('c5'), 'ERROR P0001|precondition_failed: idempotency_conflict — command key reused with different parameters',
   'C5: the same key with another quantity is refused (conflict)');
 SELECT is(tap._get273('c6'), 'ERROR P0001|precondition_failed: idempotency_conflict — command key reused with different parameters',
   'C6: the same key with another batch is refused (conflict)');
+SELECT is(tap._get273('c9'), 'ERROR P0001|precondition_failed: idempotency_conflict — command key reused with different parameters',
+  'C9: the same key with only another reason_code is refused (conflict)');
+SELECT is(tap._get273('c10') || ' / ' || (SELECT count(*) FROM venue.comp_allocation c WHERE c.event_session_id = 'a2730000-0000-4000-a000-00000000f1c4')::text,
+  'ERROR P0001|precondition_failed: idempotency_conflict — command key reused with different parameters / 0',
+  'C10: the same key with only another session_id is refused (conflict) and writes no allocation on that session');
 SELECT is(tap._st273('c8') || '|' || (SELECT a.reason_code FROM kernel.admin_audit a WHERE a.action = 'comp.allocate' AND a.subject_id::text = tap._f273('c8', 'comp_allocation_id')),
   'ok|unspecified', 'C8: a NULL reason is recorded as unspecified (the audit reason_code is NOT NULL)');
 
@@ -431,6 +459,10 @@ SELECT tap._run273('x3b', $$SELECT catalog.create_event_session('a2730000-0000-4
 SELECT tap.logout();
 SELECT tap.login('a2730000-0000-4000-a000-0000000000a2');
 SELECT tap._run273('x4',  $$SELECT catalog.publish_event('a2730000-0000-4000-a000-00000000e107', 'announced', 'ck273-x3')$$);
+SELECT tap._run273('x6',  $$SELECT venue.set_ticket_type_sale_window('a2730000-0000-4000-a000-00000000aa03', '2036-11-01 00:00+00', '2036-11-02 00:00+00', 'presale', 'ck273-w1')$$);
+SELECT tap.logout();
+SELECT tap.login('a2730000-0000-4000-a000-0000000000a5');
+SELECT tap._run273('x7',  $$SELECT venue.allocate_comp('a2730000-0000-4000-a000-00000000f104', 'a2730000-0000-4000-a000-00000000bb01', 2, 'press', 'ck273-c1')$$);
 SELECT tap.logout();
 SELECT is(tap._st273('x1') || '|' || (tap._f273('x1', 'event_id') <> tap._f273('k1', 'event_id'))::text, 'ok|true',
   'X1: another actor with UA''s key and request makes an independent first call (a new event)');
@@ -441,6 +473,15 @@ SELECT is(tap._get273('x4'), 'ERROR P0001|precondition_failed: illegal_transitio
   'X4: another actor with UA''s publish key gets no replay — illegal_transition, as before 204');
 SELECT is('UA=' || tap._rc273('a2730000-0000-4000-a000-0000000000a1', 'event.create', 'ck273-k1') || ' UB=' || tap._rc273('a2730000-0000-4000-a000-0000000000a2', 'event.create', 'ck273-k1'),
   'UA=1 UB=1', 'X5: one event.create receipt per actor for the shared key digest');
+SELECT is(tap._st273('x6') || '|' || (SELECT (sale_starts_at = '2036-11-01 00:00+00' AND sale_ends_at = '2036-11-02 00:00+00')::text FROM venue.ticket_type WHERE ticket_type_id = 'a2730000-0000-4000-a000-00000000aa03')
+          || '|UA=' || tap._rc273('a2730000-0000-4000-a000-0000000000a1', 'ticket_type.sale_window_change', 'ck273-w1')
+          || ' UB=' || tap._rc273('a2730000-0000-4000-a000-0000000000a2', 'ticket_type.sale_window_change', 'ck273-w1'),
+  'ok|true|UA=1 UB=1', 'X6: UB sending UA''s sale-window key and request is an independent first call — applied, with its own receipt');
+SELECT is(tap._st273('x7') || '|' || (tap._f273('x7', 'comp_allocation_id') <> tap._f273('c3', 'comp_allocation_id'))::text || '|rows='
+          || (SELECT count(*) FROM venue.comp_allocation c WHERE c.event_session_id = 'a2730000-0000-4000-a000-00000000f104' AND c.batch_id = 'a2730000-0000-4000-a000-00000000bb01' AND c.quantity = 2)
+          || '|UM=' || tap._rc273('a2730000-0000-4000-a000-0000000000a3', 'comp.allocate', 'ck273-c1')
+          || ' UM2=' || tap._rc273('a2730000-0000-4000-a000-0000000000a5', 'comp.allocate', 'ck273-c1'),
+  'ok|true|rows=2|UM=1 UM2=1', 'X7: a second bound manager sending UM''s comp key and request gets a NEW allocation and its own receipt');
 
 -- ── Z2-Z4 — refusals answer before any receipt ──────────────────────────────
 SELECT tap.login('a2730000-0000-4000-a000-0000000000a4');
