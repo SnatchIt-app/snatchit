@@ -70,6 +70,17 @@ function screenFeatured(rows: Row[]): Row | null {
   return eligible ? first : null;
 };
 
+describe('Home harness — its day is New York\u2019s, the basis the screen buckets on (review of b7d190e0)', () => {
+  const harness = readFileSync(resolve(__dirname, '../app/_dev/v3-home.tsx'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+
+  it('HD1: no device-day arithmetic is left: fixture dates and the feature pick both start from easternDayKey / Date.now()', () => {
+    expect(harness).not.toMatch(/\.setHours\(|\.setDate\(|\.getDate\(\)|\.getMonth\(\)|\.getFullYear\(\)/);
+    expect(harness).toContain('easternDayKey(Date.now())');
+    expect(harness).toMatch(/withArt\(withLongAmounts\(base\.rows, amounts\), art, Date\.now\(\)\)/);
+  });
+});
+
 describe('Home — the feature artwork reaches the FEATURE', () => {
   it('HA1: with a fixture whose first row is NOT the earliest, the poster still lands on the feature', async () => {
     const { withArt } = await import('@/src/lib/media/harnessArt');

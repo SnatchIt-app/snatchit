@@ -305,11 +305,14 @@ describe('home wiring — feature + rows (source pins; behaviour is the load-sta
 
   it('HW2: the section rule is total, stable, and never names a bucket it cannot back', async () => {
     const { groupByEventDate, sectionFor } = await import('@/src/lib/home/sections');
-    const now = Date.parse('2026-09-24T18:00:00');
+    // An instant and New York's calendar (the sections' basis since the ET change), so the rule cannot read the
+    // machine's zone: before, this failed under TZ=Pacific/Honolulu (review of b7d190e0).
+    const { easternDayKey } = await import('@/src/lib/time/eastern');
+    const now = Date.parse('2026-09-24T18:00:00-04:00');
     const at = (days: number) => {
-      const d = new Date(now);
-      d.setDate(d.getDate() + days);
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const [y, m, d] = (easternDayKey(now) as string).split('-').map(Number);
+      const t = new Date(Date.UTC(y, m - 1, d + days));
+      return `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, '0')}-${String(t.getUTCDate()).padStart(2, '0')}`;
     };
     expect(sectionFor(at(0), now)).toBe('tonight');
     expect(sectionFor(at(1), now)).toBe('week');
