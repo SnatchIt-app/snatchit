@@ -1,0 +1,26 @@
+#!/bin/bash
+# CI-scoped pg_dump shim: forward the call to the PostgreSQL-17 pg_dump inside the
+# running disposable Supabase database container. The host's pg_dump is 16 and
+# refuses to dump a 17 server. Transparent passthrough of the caller's flags:
+#   pg_dump [flags] <connection-URI>
+set -euo pipefail
+
+DB_CONTAINER="${DB_CONTAINER:-}"
+if [ -z "$DB_CONTAINER" ]; then
+  DB_CONTAINER=$(docker ps --format '{{.Names}}' | grep -E '^supabase_db_' | head -1)
+fi
+[ -n "$DB_CONTAINER" ] || { echo "::error::no Supabase database container for pg_dump shim" >&2; exit 1; }
+
+flags=()
+uri=""
+for arg in "$@"; do
+  case "$arg" in
+    -*) flags+=("$arg") ;;
+    *) uri="$arg" ;;
+  esac
+done
+[ -n "$uri" ] || { echo "::error::pg_dump shim: no connection URI in args" >&2; exit 1; }
+dbname="${uri##*/}"
+[ -n "$dbname" ] || { echo "::error::pg_dump shim: cannot parse database from URI" >&2; exit 1; }
+
+docker exec "$DB_CONTAINER" pg_dump "${flags[@]}" -U postgres -d "$dbname"
