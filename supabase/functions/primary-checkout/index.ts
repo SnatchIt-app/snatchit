@@ -1257,7 +1257,7 @@ serve(async (req: Request) => {
           // persisted attempt and mark that attempt canceled before refusing, so
           // recovery never leaves an open attempt pointing at a dead PI.
           await attachPaymentAttempt((name, params) => venueServiceClient().rpc(name, params), {
-            attemptId: rec.attemptId, attemptKey: rec.attemptKey, piId: rp.id,
+            attemptId: rec.attemptId, piId: rp.id,
             orderId, buyerId, sessionId: session_id, faceMinor: rec.faceMinor,
             buyerFeeMinor: rec.buyerFeeMinor, chargeMinor: rec.chargeMinor, currency: 'USD',
           });
@@ -1274,7 +1274,7 @@ serve(async (req: Request) => {
         }
         try {
           await attachPaymentAttempt((name, params) => venueServiceClient().rpc(name, params), {
-            attemptId: rec.attemptId, attemptKey: rec.attemptKey, piId: rp.id,
+            attemptId: rec.attemptId, piId: rp.id,
             orderId, buyerId, sessionId: session_id, faceMinor: rec.faceMinor,
             buyerFeeMinor: rec.buyerFeeMinor, chargeMinor: rec.chargeMinor, currency: 'USD',
           });

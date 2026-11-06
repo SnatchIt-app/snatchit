@@ -9,9 +9,8 @@ export type RpcCaller = (name: string, params: Record<string, unknown>) => Promi
   error?: { message?: string; code?: string } | null;
 }>;
 
-export interface BeginAttemptInput {
+interface AttemptQuote {
   orderId: string;
-  attemptKey: string;
   buyerId: string;
   sessionId: string;
   faceMinor: number;
@@ -20,7 +19,11 @@ export interface BeginAttemptInput {
   currency: string;
 }
 
-export interface AttachAttemptInput extends BeginAttemptInput {
+export interface BeginAttemptInput extends AttemptQuote {
+  attemptKey: string;
+}
+
+export interface AttachAttemptInput extends AttemptQuote {
   attemptId: string;
   piId: string;
 }
@@ -114,7 +117,7 @@ export async function markPaymentAttemptByPi(
   }
 }
 
-export interface ReplayBindingInput extends BeginAttemptInput {
+export interface ReplayBindingInput extends AttemptQuote {
   piId: string;
 }
 
