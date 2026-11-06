@@ -140,6 +140,7 @@ selfcheck_clone() {
     "docker exec \"\$DB_CONTAINER\" createdb" \
     "docker exec -i \"\$DB_CONTAINER\" psql" \
     "PATH=\"\$HERE/bin:\$PATH\"" \
+    "pg_dump -U postgres -d postgres --no-owner" \
     "-T \"\$TEMPLATE_DB\"" \
     "::error::no Supabase database container" \
     "::error::pg_dump major" \
@@ -148,6 +149,13 @@ selfcheck_clone() {
     "::error::clone" ; do
     grep -qF -- "$want" "$src" || { echo "::error::clone-safety marker missing: $want" >&2; return 1; }
   done
+  # ACLs must be retained: the snapshot dump drops ownership only, never privileges.
+  local tmpl_body
+  tmpl_body=$(sed -n '/^prepare_template() {/,/^}/p' "$src")
+  if printf '%s\n' "$tmpl_body" | grep -qF -- "--no-privileges"; then
+    echo "::error::snapshot dump drops ACLs; only ownership may be dropped" >&2
+    return 1
+  fi
   [ -x "$HERE/bin/pg_dump" ] || { echo "::error::pg_dump shim missing or not executable at $HERE/bin/pg_dump" >&2; return 1; }
   grep -qF -- 'docker exec "$DB_CONTAINER" pg_dump "${flags[@]}" -U postgres -d "$dbname"' "$HERE/bin/pg_dump" \
     || { echo "::error::pg_dump shim does not forward to the container tool" >&2; return 1; }
@@ -205,7 +213,7 @@ prepare_template() {
   detect_db_container || return 1
   verify_pg_version || return 1
 
-  docker exec "$DB_CONTAINER" pg_dump -U postgres -d postgres > "$SNAPSHOT" \
+  docker exec "$DB_CONTAINER" pg_dump -U postgres -d postgres --no-owner > "$SNAPSHOT" \
     || { echo "::error::snapshot of post-forward postgres failed" >&2; return 1; }
 
   docker exec "$DB_CONTAINER" createdb -U postgres "$TEMPLATE_DB" \
