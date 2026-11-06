@@ -4,7 +4,7 @@
  * is registered/reviewed; when they are absent, every call throws and no PI
  * POST/client_secret follows.
  */
-export type RpcCaller = (name: string, params: Record<string, unknown>) => Promise<{
+export type RpcCaller = (name: string, params: Record<string, unknown>) => PromiseLike<{
   data?: unknown;
   error?: { message?: string; code?: string } | null;
 }>;
