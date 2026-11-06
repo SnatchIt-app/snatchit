@@ -135,25 +135,32 @@ selfcheck_clone() {
   for want in \
     "detect_db_container" \
     "verify_pg_version" \
+    "verify_superuser_connection" \
+    "compare_payment_rpc_acls" \
     "supabase_db_" \
     "docker exec \"\$DB_CONTAINER\" pg_dump" \
     "docker exec \"\$DB_CONTAINER\" createdb" \
-    "docker exec -i \"\$DB_CONTAINER\" psql" \
+    "docker exec -i \"\$DB_CONTAINER\" psql -U supabase_admin" \
     "PATH=\"\$HERE/bin:\$PATH\"" \
-    "pg_dump -U postgres -d postgres --no-owner --exclude-extension=pg_cron" \
+    "pg_dump -U postgres -d postgres --exclude-extension=pg_cron" \
     "-T \"\$TEMPLATE_DB\"" \
     "::error::no Supabase database container" \
     "::error::pg_dump major" \
+    "::error::cannot authenticate as supabase_admin" \
     "::error::snapshot of post-forward postgres failed" \
     "::error::template" \
     "::error::clone" ; do
     grep -qF -- "$want" "$src" || { echo "::error::clone-safety marker missing: $want" >&2; return 1; }
   done
-  # ACLs must be retained: the snapshot dump drops ownership only, never privileges.
+  # Ownership is restored by the superuser restore: no --no-owner, no --no-privileges.
   local tmpl_body
   tmpl_body=$(sed -n '/^prepare_template() {/,/^}/p' "$src")
+  if printf '%s\n' "$tmpl_body" | grep -qF -- "--no-owner"; then
+    echo "::error::snapshot dump still uses --no-owner (ownership must be restored)" >&2
+    return 1
+  fi
   if printf '%s\n' "$tmpl_body" | grep -qF -- "--no-privileges"; then
-    echo "::error::snapshot dump drops ACLs; only ownership may be dropped" >&2
+    echo "::error::snapshot dump drops ACLs" >&2
     return 1
   fi
   # Only pg_cron is excluded (it is database-restricted); pg_net must stay.
@@ -164,7 +171,7 @@ selfcheck_clone() {
   [ -x "$HERE/bin/pg_dump" ] || { echo "::error::pg_dump shim missing or not executable at $HERE/bin/pg_dump" >&2; return 1; }
   grep -qF -- 'docker exec "$DB_CONTAINER" pg_dump "${flags[@]}" -U postgres -d "$dbname"' "$HERE/bin/pg_dump" \
     || { echo "::error::pg_dump shim does not forward to the container tool" >&2; return 1; }
-  echo "PASS clone self-check: container PG tools + version check + pg_dump shim, idle template, never live postgres, failures stop"
+  echo "PASS clone self-check: container PG tools + supabase_admin superuser restore + pg_dump shim, idle template, never live postgres, failures stop"
 }
 
 # --- DB-dependent helpers (DB_URL required) -----------------------------------
@@ -210,22 +217,63 @@ verify_pg_version() {
   echo "OK: PostgreSQL $server_major client matches server in $DB_CONTAINER"
 }
 
+# Verify the container's local connection can act as the superuser `supabase_admin`
+# against the target template DB before restoring ownership-bearing objects.
+verify_superuser_connection() {
+  local target="$1" out role super db
+  if ! out=$(docker exec "$DB_CONTAINER" psql -U supabase_admin -d "$target" -tAc \
+        "select current_user || '|' || current_setting('is_superuser') || '|' || current_database()" 2>&1); then
+    echo "::error::cannot authenticate as supabase_admin: $out" >&2
+    return 1
+  fi
+  role=$(printf '%s\n' "$out" | cut -d'|' -f1)
+  super=$(printf '%s\n' "$out" | cut -d'|' -f2)
+  db=$(printf '%s\n' "$out" | cut -d'|' -f3)
+  [ "$role" = "supabase_admin" ] || { echo "::error::connected role is $role, expected supabase_admin" >&2; return 1; }
+  [ "$super" = "on" ] || { echo "::error::supabase_admin is_superuser=$super, expected on" >&2; return 1; }
+  [ "$db" = "$target" ] || { echo "::error::target database is $db, expected $target" >&2; return 1; }
+  echo "OK: supabase_admin (superuser=$super) connected to $db"
+}
+
+# After restore, the payment RPCs under test must keep their original owner and ACL.
+compare_payment_rpc_acls() {
+  local fn
+  for fn in \
+    'venue.begin_payment_attempt(uuid,text,uuid,uuid,integer,integer,integer,text)' \
+    'venue.cancel_pending_order(uuid,text,text)' \
+    'venue.guard_order_cancel_attempts()'; do
+    local o_src o_tpl a_src a_tpl
+    o_src=$(docker exec "$DB_CONTAINER" psql -U supabase_admin -d postgres -tAc "select proowner::regrole::text from pg_proc where oid = to_regprocedure('$fn')")
+    o_tpl=$(docker exec "$DB_CONTAINER" psql -U supabase_admin -d "$TEMPLATE_DB" -tAc "select proowner::regrole::text from pg_proc where oid = to_regprocedure('$fn')")
+    a_src=$(docker exec "$DB_CONTAINER" psql -U supabase_admin -d postgres -tAc "select coalesce(proacl::text,'<null>') from pg_proc where oid = to_regprocedure('$fn')")
+    a_tpl=$(docker exec "$DB_CONTAINER" psql -U supabase_admin -d "$TEMPLATE_DB" -tAc "select coalesce(proacl::text,'<null>') from pg_proc where oid = to_regprocedure('$fn')")
+    [ "$o_src" = "$o_tpl" ] || { echo "::error::owner mismatch for $fn: postgres=$o_src $TEMPLATE_DB=$o_tpl" >&2; return 1; }
+    [ "$a_src" = "$a_tpl" ] || { echo "::error::ACL mismatch for $fn: postgres=$a_src $TEMPLATE_DB=$a_tpl" >&2; return 1; }
+  done
+  echo "OK: payment RPC owners and grants match between postgres and $TEMPLATE_DB"
+}
+
 # Take one consistent logical snapshot of the live post-forward `postgres` DB using
-# the container's matching PostgreSQL tools, restore it into a dedicated IDLE
-# template, then clone each scenario from that template. The live `postgres` DB is
-# never used as a CREATE DATABASE template — it is busy.
+# the container's matching PostgreSQL tools, restore it (as the superuser
+# `supabase_admin`, which alone can re-own objects and set superuser GUCs) into a
+# dedicated IDLE template, then clone each scenario from that template. The live
+# `postgres` DB is never used as a CREATE DATABASE template — it is busy.
 prepare_template() {
   detect_db_container || return 1
   verify_pg_version || return 1
 
-  docker exec "$DB_CONTAINER" pg_dump -U postgres -d postgres --no-owner --exclude-extension=pg_cron > "$SNAPSHOT" \
+  docker exec "$DB_CONTAINER" pg_dump -U postgres -d postgres --exclude-extension=pg_cron > "$SNAPSHOT" \
     || { echo "::error::snapshot of post-forward postgres failed" >&2; return 1; }
 
   docker exec "$DB_CONTAINER" createdb -U postgres "$TEMPLATE_DB" \
     || { echo "::error::template $TEMPLATE_DB create failed" >&2; return 1; }
 
-  docker exec -i "$DB_CONTAINER" psql -U postgres -d "$TEMPLATE_DB" -X -v ON_ERROR_STOP=1 -q < "$SNAPSHOT" \
+  verify_superuser_connection "$TEMPLATE_DB" || return 1
+
+  docker exec -i "$DB_CONTAINER" psql -U supabase_admin -d "$TEMPLATE_DB" -X -v ON_ERROR_STOP=1 -q < "$SNAPSHOT" \
     || { echo "::error::template $TEMPLATE_DB restore failed" >&2; return 1; }
+
+  compare_payment_rpc_acls || return 1
 
   echo "OK: post-forward snapshot restored into idle template $TEMPLATE_DB"
 }
