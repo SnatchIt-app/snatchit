@@ -1318,7 +1318,7 @@ serve(async (req: Request) => {
             {
               orderId, piId: rp.id, buyerId, sessionId: session_id,
               faceMinor: rec.faceMinor, buyerFeeMinor: rec.buyerFeeMinor,
-              chargeMinor: rec.chargeMinor, currency: 'USD', attemptKey: rec.attemptKey,
+              chargeMinor: rec.chargeMinor, currency: 'USD',
             },
           );
         } catch (recoverErr) {
