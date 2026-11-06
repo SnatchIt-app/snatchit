@@ -10,6 +10,7 @@
 #   --verify-inputs      file presence + authoritative hash pinning
 #   --tamper-proof       prove one-byte mutation of a named migration fails
 #   --selfcheck-wiring   prove scenario isolation / exact-refusal wiring markers
+#   --selfcheck-clone    prove idle-template clone + never live-postgres-as-template + fail-closed
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -18,6 +19,8 @@ MIGDIR="$ROOT/supabase/migrations"
 DOCS="$ROOT/docs/release/payment-attempt-coordination"
 SEED="$HERE/payment_attempt_seed.sql"
 PINS="$DOCS/tests/local-pg/migrations.pins"
+SNAPSHOT="${RUNNER_TEMP:-/tmp}/oc-forward-snapshot.sql"
+TEMPLATE_DB="oc_template"
 
 CHAIN_198_205="20261102120000_primary_checkout_hold_binding
 20261102130000_refund_ledger_post_success_failure_and_executor_exclusions
@@ -101,7 +104,7 @@ selfcheck_wiring() {
     "sqlstate <> 'P0001'" \
     "order should remain pending after refusal" \
     "ci-cancel-positive" \
-    "--maintenance-db=template1 -T postgres" \
+    "--maintenance-db=template1" \
     "oc_cancel" "oc_conc_main" "oc_conc_neg" \
     "assert_active_hold_preconditions" \
     "precondition_failed: active inventory holds exist; rollback refused" \
@@ -117,6 +120,27 @@ selfcheck_wiring() {
     grep -qF -- "$mode" "$src" || { echo "::error::rollback mode missing: $mode" >&2; return 1; }
   done
   echo "PASS wiring self-check: dedicated clones, exact cancel/active-hold refusals, 8 rollback modes"
+}
+
+# Offline clone-safety self-check: never clone from live `postgres` (busy), and
+# snapshot/restore/clone failures must stop the job before any scenario or PASS.
+selfcheck_clone() {
+  local src="$0" want clone_body
+  clone_body=$(sed -n '/^clone() {/,/^}/p' "$src")
+  if printf '%s\n' "$clone_body" | grep -qF -- "-T postgres"; then
+    echo "::error::clone still uses live postgres as a CREATE DATABASE template" >&2
+    return 1
+  fi
+  for want in \
+    "pg_dump \"\$DB_URL\" -f \"\$SNAPSHOT\"" \
+    "TEMPLATE_DB=\"oc_template\"" \
+    "-T \"\$TEMPLATE_DB\"" \
+    "::error::snapshot of post-forward postgres failed" \
+    "::error::template" \
+    "::error::clone" ; do
+    grep -qF -- "$want" "$src" || { echo "::error::clone-safety marker missing: $want" >&2; return 1; }
+  done
+  echo "PASS clone self-check: idle template snapshot/restore, never live postgres as template, failures stop the job"
 }
 
 # --- DB-dependent helpers (DB_URL required) -----------------------------------
@@ -135,9 +159,27 @@ parse_db() {
   DB_PORT="${rp%%/*}"; DB_NAME="${rp#*/}"
 }
 
-clone() { # name -> clone from the CLEAN post-forward `postgres` database
+# Take one consistent logical snapshot of the live post-forward `postgres` DB
+# (pg_dump works even while Supabase services hold connections), restore it into
+# a dedicated IDLE template, then clone each scenario from that template. The
+# live `postgres` DB is never used as a CREATE DATABASE template — it is busy.
+prepare_template() {
+  pg_dump "$DB_URL" -f "$SNAPSHOT" \
+    || { echo "::error::snapshot of post-forward postgres failed" >&2; return 1; }
+
+  PGPASSWORD="$DB_PASS" createdb -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" "$TEMPLATE_DB" >/dev/null \
+    || { echo "::error::template $TEMPLATE_DB create failed" >&2; return 1; }
+
+  PGPASSWORD="$DB_PASS" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$TEMPLATE_DB" \
+    -X -v ON_ERROR_STOP=1 -q -f "$SNAPSHOT" \
+    || { echo "::error::template $TEMPLATE_DB restore failed" >&2; return 1; }
+
+  echo "OK: post-forward snapshot restored into idle template $TEMPLATE_DB"
+}
+
+clone() { # name -> clone from the idle post-forward template (never live postgres)
   PGPASSWORD="$DB_PASS" createdb -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" \
-    --maintenance-db=template1 -T postgres "$1" >/dev/null \
+    --maintenance-db=template1 -T "$TEMPLATE_DB" "$1" >/dev/null \
     || { echo "::error::clone $1 failed" >&2; return 1; }
 }
 dburl() { echo "postgresql://${DB_USER}:${DB_PASS}@${DB_HOST}:${DB_PORT}/$1"; }
@@ -284,6 +326,7 @@ case "${1:-}" in
   --verify-inputs) verify_inputs; exit 0 ;;
   --tamper-proof)  verify_inputs; tamper_proof; exit 0 ;;
   --selfcheck-wiring) selfcheck_wiring; exit 0 ;;
+  --selfcheck-clone) selfcheck_clone; exit 0 ;;
 esac
 
 require_db
@@ -292,6 +335,7 @@ verify_inputs
 assert_chain_applied
 apply_forward
 assert_rpc_signatures
+prepare_template
 assert_cancellation_refusals
 run_concurrency
 run_rollback_modes
