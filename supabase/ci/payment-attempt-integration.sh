@@ -137,13 +137,16 @@ selfcheck_clone() {
     "verify_pg_version" \
     "verify_superuser_connection" \
     "compare_payment_rpc_acls" \
+    "restore_template" \
     "supabase_db_" \
     "docker exec \"\$DB_CONTAINER\" pg_dump" \
     "docker exec \"\$DB_CONTAINER\" createdb" \
     "docker exec -i \"\$DB_CONTAINER\" psql -U supabase_admin" \
+    "-f - < \"\$SNAPSHOT\"" \
     "PATH=\"\$HERE/bin:\$PATH\"" \
-    "pg_dump -U postgres -d postgres --exclude-extension=pg_cron" \
+    "pg_dump -U postgres -d postgres --exclude-extension=pg_cron --exclude-schema=cron" \
     "-T \"\$TEMPLATE_DB\"" \
+    "restore failed at snapshot line" \
     "::error::no Supabase database container" \
     "::error::pg_dump major" \
     "::error::cannot authenticate as supabase_admin" \
@@ -166,6 +169,13 @@ selfcheck_clone() {
   # Only pg_cron is excluded (it is database-restricted); pg_net must stay.
   if printf '%s\n' "$tmpl_body" | grep -qF -- "exclude-extension=pg_net"; then
     echo "::error::snapshot dump excludes pg_net; keep pg_net unless it blocks restore" >&2
+    return 1
+  fi
+  # Restore must stream stdin via `-f -` (psql line numbers), never `-b` echo-errors.
+  local restore_body
+  restore_body=$(sed -n '/^restore_template() {/,/^}/p' "$src")
+  if printf '%s\n' "$restore_body" | grep -qF -- ' -b '; then
+    echo "::error::restore still uses -b (echo-errors); use -f -" >&2
     return 1
   fi
   [ -x "$HERE/bin/pg_dump" ] || { echo "::error::pg_dump shim missing or not executable at $HERE/bin/pg_dump" >&2; return 1; }
@@ -253,6 +263,37 @@ compare_payment_rpc_acls() {
   echo "OK: payment RPC owners and grants match between postgres and $TEMPLATE_DB"
 }
 
+# Restore the snapshot into the template as the superuser. psql reads stdin as a
+# script (`-f -`) so it reports the failing input line; stderr is captured privately
+# and only the line number + sanitized ERROR summary are logged (no raw SQL, row
+# data, DETAIL or CONTEXT).
+restore_template() {
+  local rc err errf line found
+  errf="${SNAPSHOT}.restore-err"
+  set +e
+  docker exec -i "$DB_CONTAINER" psql -U supabase_admin -d "$TEMPLATE_DB" -X \
+    -v ON_ERROR_STOP=1 -f - < "$SNAPSHOT" >/dev/null 2>"$errf"
+  rc=$?
+  set -e
+  if [ "$rc" -eq 0 ]; then
+    rm -f "$errf"
+    return 0
+  fi
+  err="restore exited $rc"
+  if found=$(grep -m1 -E '(ERROR|FATAL):' "$errf" 2>/dev/null); then
+    err=$(printf '%s\n' "$found" | sed -E 's/^.*(ERROR|FATAL):[[:space:]]*//')
+    [ -n "$err" ] || err="restore exited $rc"
+  fi
+  # psql reports the failing input line as  psql:<file>:<line>: ERROR ...
+  line="unknown"
+  if found=$(grep -m1 -oE ':[0-9]+: (ERROR|FATAL)' "$errf" 2>/dev/null); then
+    line=$(printf '%s\n' "$found" | grep -oE '[0-9]+' | head -1)
+  fi
+  echo "::error::template $TEMPLATE_DB restore failed at snapshot line ${line:-unknown}: $err" >&2
+  rm -f "$errf"
+  return 1
+}
+
 # Take one consistent logical snapshot of the live post-forward `postgres` DB using
 # the container's matching PostgreSQL tools, restore it (as the superuser
 # `supabase_admin`, which alone can re-own objects and set superuser GUCs) into a
@@ -262,17 +303,14 @@ prepare_template() {
   detect_db_container || return 1
   verify_pg_version || return 1
 
-  docker exec "$DB_CONTAINER" pg_dump -U postgres -d postgres --exclude-extension=pg_cron > "$SNAPSHOT" \
+  docker exec "$DB_CONTAINER" pg_dump -U postgres -d postgres --exclude-extension=pg_cron --exclude-schema=cron > "$SNAPSHOT" \
     || { echo "::error::snapshot of post-forward postgres failed" >&2; return 1; }
 
   docker exec "$DB_CONTAINER" createdb -U postgres "$TEMPLATE_DB" \
     || { echo "::error::template $TEMPLATE_DB create failed" >&2; return 1; }
 
   verify_superuser_connection "$TEMPLATE_DB" || return 1
-
-  docker exec -i "$DB_CONTAINER" psql -U supabase_admin -d "$TEMPLATE_DB" -X -v ON_ERROR_STOP=1 -q < "$SNAPSHOT" \
-    || { echo "::error::template $TEMPLATE_DB restore failed" >&2; return 1; }
-
+  restore_template || return 1
   compare_payment_rpc_acls || return 1
 
   echo "OK: post-forward snapshot restored into idle template $TEMPLATE_DB"
