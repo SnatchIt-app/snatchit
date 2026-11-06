@@ -473,8 +473,9 @@ describe('198 A-5 review row — a refund_required ACK names the order, the paym
   // tests/helpers/edge-vm.ts, as stripe-webhook-native-routing.test.ts:46-99 does.
   async function deliverFinalizeRefusal(refusal: { message: string; code: string }, reviewWriteFails = false) {
     const sb = mockSupabase({
-      rpc: (name) => {
+      rpc: (name, params) => {
         if (name === 'finalize_primary_order') return { error: refusal };
+        if (name === 'mark_payment_attempt_by_pi') return { data: { attempt_id: `att_${String(params.p_pi_id)}`, state: params.p_state, pi_id: params.p_pi_id } };
         if (name === 'claim_stripe_webhook_event') return { data: 'claimed' };
         return { data: true };
       },
@@ -513,7 +514,7 @@ describe('198 A-5 review row — a refund_required ACK names the order, the paym
     expect(d.res.status).toBe(200);
     expect(d.body).toMatchObject({ reason: 'finalize_refund_required', order_id: ORDER, payment_id: PAY, pi_id: PI });
     expect(d.sentryTags).toEqual(['stripe-webhook:finalize_refund_required']);
-    expect(d.rpcNames).toEqual(['claim_stripe_webhook_event', 'finalize_primary_order', 'complete_stripe_webhook_event']);
+    expect(d.rpcNames).toEqual(['claim_stripe_webhook_event', 'mark_payment_attempt_by_pi', 'finalize_primary_order', 'complete_stripe_webhook_event']);
     expect(d.reviewRows).toEqual([{
       payment_id:    null, // the id rides in the text — index.ts:485-488 (MAJOR-1)
       listing_id:    null,
@@ -526,7 +527,7 @@ describe('198 A-5 review row — a refund_required ACK names the order, the paym
   it('end to end: refund_required whose review row cannot be written is NOT acknowledged', async () => {
     const d = await deliverFinalizeRefusal({ message: REFUND_REQUIRED_198, code: 'P0001' }, true);
     expect(d.res.status).toBe(500);
-    expect(d.rpcNames).toEqual(['claim_stripe_webhook_event', 'finalize_primary_order', 'fail_stripe_webhook_event']);
+    expect(d.rpcNames).toEqual(['claim_stripe_webhook_event', 'mark_payment_attempt_by_pi', 'finalize_primary_order', 'fail_stripe_webhook_event']);
     expect(d.reviewRows).toHaveLength(1);
   });
 
@@ -535,7 +536,7 @@ describe('198 A-5 review row — a refund_required ACK names the order, the paym
     expect(d.res.status).toBe(500);
     expect(d.body).toMatchObject({ reason: 'finalize_feature_disabled' });
     expect(d.sentryTags).toEqual(['stripe-webhook:finalize_feature_disabled']);
-    expect(d.rpcNames).toEqual(['claim_stripe_webhook_event', 'finalize_primary_order', 'fail_stripe_webhook_event']);
+    expect(d.rpcNames).toEqual(['claim_stripe_webhook_event', 'mark_payment_attempt_by_pi', 'finalize_primary_order', 'fail_stripe_webhook_event']);
     expect(d.reviewRows).toHaveLength(0);
   });
 });

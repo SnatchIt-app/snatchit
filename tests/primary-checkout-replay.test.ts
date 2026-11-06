@@ -73,7 +73,7 @@ interface PayRow {
   status: string; stripe_payment_intent_id: string | null; created_at: string;
   [k: string]: unknown;
 }
-interface Pi { id: string; client_secret: string; status: string; livemode: boolean; amount: number; metadata: Record<string, string> }
+interface Pi { id: string; client_secret: string; status: string; livemode: boolean; amount: number; currency: string; customer: string; metadata: Record<string, string> }
 type Probe = (piId: string) => { ok: boolean; status: number; data: unknown } | null;
 
 interface WorldOpts {
@@ -87,6 +87,20 @@ interface WorldOpts {
   ephemeralKeyFails?: boolean;
   /** merged over ENV; an undefined value unsets the key */
   env?: Record<string, string | undefined>;
+  binding?: 'ok'|'missing'|'error'|'malformed'|'wrong-pi'|'wrong-buyer'|'wrong-session'|'wrong-amount'|'invalid-state';
+  lostFirstPost?: boolean;
+  recoveryFailure?: string;
+  missingLivemode?: boolean;
+  badSecret?: boolean;
+  knownRecoveryPi?: string;
+  knownPiOverride?: Partial<{ id: string; client_secret: unknown; status: string; livemode: unknown; amount: number; currency: string; customer: string; metadata: Record<string, string> }>;
+  replayOnly?: boolean;
+  replayHoldsLive?: false | null | 'missing';
+  insertRace?: 'exact' | 'wrong-total' | 'wrong-buyer' | 'wrong-fee' | 'wrong-mode' | 'wrong-seller' | 'wrong-listing';
+  persistRace?: 'wrong-total' | 'wrong-buyer' | 'wrong-fee' | 'wrong-mode' | 'wrong-seller' | 'succeeded';
+  attachLoss?: 'commit-lost' | 'no-commit';
+  firstPiCanceled?: boolean;
+  loseSaltedPost?: boolean;
 }
 
 function deferred<T = void>() {
@@ -120,6 +134,21 @@ async function world(opts: WorldOpts = {}) {
   const rows: PayRow[] = [];
   const pis = new Map<string, Pi>();
   const piByIdemKey = new Map<string, string>();
+  let lostKey: string | null = null;
+  let lostBody: Record<string, string> | null = null;
+  let lostPiId: string | null = null;
+  let currentCustomer = CUSTOMER;
+  let currentFeeMinor = FEE;
+  let replayHoldsLive: boolean | null | 'missing' = true;
+  let insertRace: WorldOpts['insertRace'] | null = null;
+  let persistRace: WorldOpts['persistRace'] | null = null;
+  let persistReadError = false;
+  let attachLoss: WorldOpts['attachLoss'] | null = null;
+  let firstPiCanceled = opts.firstPiCanceled === true;
+  let loseSaltedPost = opts.loseSaltedPost === true;
+  let saltedLostKey: string | null = null;
+  let saltedLostBody: Record<string, string> | null = null;
+  const events: string[] = [];
   const orders = new Map<string, string>(); // `${buyer}|${command_key}` → order_id
   let probe: Probe | null = null;
   /** Date.now() of each replay candidate read, in order */
@@ -132,7 +161,7 @@ async function world(opts: WorldOpts = {}) {
   for (let i = 1; i <= (opts.history ?? 0); i++) {
     const id = `pi_test_hist_${i}`;
     pis.set(id, {
-      id, client_secret: `${id}_secret_x`, status: 'succeeded', livemode: false, amount: CHARGE,
+      id, client_secret: `${id}_secret_x`, status: 'succeeded', livemode: false, amount: CHARGE, currency: 'usd', customer: CUSTOMER,
       metadata: { rail: 'native_primary', mode: 'native_primary', order_id: orderUuid(900 + i), buyer_id: BUYER, org_id: ORG, session_id: SESSION },
     });
     rows.push({
@@ -146,7 +175,63 @@ async function world(opts: WorldOpts = {}) {
     rpc: (name, params) => {
       if (name === 'check_rate_limit') return { data: true };
       if (name === 'is_deletion_pending') return { data: false };
+      if (name === 'read_payment_attempt_recovery') {
+        events.push('recovery');
+        if (opts.recoveryFailure) return { error: { message: opts.recoveryFailure } };
+        if (opts.knownRecoveryPi) {
+          return { data: { attempt_id: 'att_known', attempt_key: 'known-key', order_id: params.p_order_id,
+            buyer_id: params.p_buyer_id, session_id: params.p_session_id, pi_id: opts.knownRecoveryPi, state: 'open',
+            face_minor: FACE, buyer_fee_minor: FEE, amount_minor: CHARGE, currency: 'USD',
+            create_request: { amount: String(CHARGE), currency: 'usd', 'payment_method_types[0]': 'card', customer: CUSTOMER, setup_future_usage: 'on_session', 'metadata[rail]': 'native_primary', 'metadata[mode]': 'native_primary', 'metadata[order_id]': params.p_order_id, 'metadata[buyer_id]': params.p_buyer_id, 'metadata[org_id]': ORG, 'metadata[session_id]': params.p_session_id } } };
+        }
+        if (saltedLostKey && saltedLostBody) {
+          return { data: { attempt_id: 'att_salted', attempt_key: saltedLostKey, order_id: params.p_order_id,
+            buyer_id: params.p_buyer_id, session_id: params.p_session_id, pi_id: null, state: 'creating',
+            face_minor: FACE, buyer_fee_minor: FEE, amount_minor: CHARGE, currency: 'USD', create_request: saltedLostBody } };
+        }
+        if (lostKey && lostBody && lostPiId !== null) {
+          return { data: { attempt_id: 'att_lost', attempt_key: lostKey, order_id: params.p_order_id,
+            buyer_id: params.p_buyer_id, session_id: params.p_session_id, pi_id: lostPiId, state: 'open',
+            face_minor: FACE, buyer_fee_minor: FEE, amount_minor: CHARGE, currency: 'USD', create_request: lostBody } };
+        }
+        if (lostKey && lostBody && lostPiId === null) {
+          return { data: { attempt_id: 'att_lost', attempt_key: lostKey, order_id: params.p_order_id,
+            buyer_id: params.p_buyer_id, session_id: params.p_session_id, pi_id: null, state: 'creating',
+            face_minor: FACE, buyer_fee_minor: FEE, amount_minor: CHARGE, currency: 'USD', create_request: lostBody } };
+        }
+        return { error: { message: 'precondition_failed: recovery needs exactly one non-canceled attempt (found 0)' } };
+      }
+      if (name === 'store_payment_attempt_request') {
+        events.push('store');
+        return { data: {
+          attempt_id: params.p_attempt_id, order_id: params.p_order_id, buyer_id: params.p_buyer_id,
+          session_id: params.p_session_id, pi_id: null, state: 'creating',
+          face_minor: FACE, buyer_fee_minor: Number((params.p_create_request as Record<string, string>).amount) - FACE,
+          amount_minor: Number((params.p_create_request as Record<string, string>).amount), currency: 'USD',
+          create_request: params.p_create_request,
+        } };
+      }
+      if (name === 'read_payment_attempt_binding') {
+        events.push('binding');
+
+        if (opts.binding === 'error') return { error: { message: 'binding read failed (test)' } };
+        if (opts.binding === 'missing') return { data: null };
+        if (opts.binding === 'malformed') return { data: { attempt_id: 'att' } };
+        const b = opts.binding ?? 'ok';
+        return { data: {
+          attempt_id: 'att_replay', order_id: params.p_order_id,
+          buyer_id: b === 'wrong-buyer' ? 'buyer-other' : params.p_buyer_id,
+          session_id: b === 'wrong-session' ? 'session-other' : params.p_session_id,
+          pi_id: b === 'wrong-pi' ? 'pi_other' : params.p_pi_id,
+          state: b === 'invalid-state' ? 'creating' : 'open',
+          face_minor: FACE, buyer_fee_minor: FEE,
+          amount_minor: b === 'wrong-amount' ? CHARGE + 1 : CHARGE, currency: 'USD',
+        } };
+      }
       if (name === 'create_primary_checkout') {
+        if (opts.replayOnly) {
+          return { data: { status: 'idempotency_replay', order_id: orderUuid(1), total_minor: FACE, currency: 'USD', order_status: 'pending', holds_live: true } };
+        }
         const k = `${BUYER}|${String(params.p_command_key)}`;
         const existing = orders.get(k);
         // 20261027031000:190-191 (and the unique_violation loser, :496-497):
@@ -161,7 +246,7 @@ async function world(opts: WorldOpts = {}) {
           return {
             data: {
               status: 'idempotency_replay', order_id: existing, total_minor: FACE, currency: 'USD',
-              order_status: 'pending', holds_live: true,
+              order_status: 'pending', ...(replayHoldsLive === 'missing' ? {} : { holds_live: replayHoldsLive }),
             },
           };
         }
@@ -171,9 +256,25 @@ async function world(opts: WorldOpts = {}) {
         return {
           data: {
             status: 'ok', order_id: orderId, ...(opts.omitOrgId ? {} : { org_id: ORG }),
-            total_minor: FACE, currency: 'USD', buyer_fee_minor: FEE, charge_total_minor: CHARGE,
+            total_minor: FACE, currency: 'USD', buyer_fee_minor: currentFeeMinor, charge_total_minor: FACE + currentFeeMinor,
           },
         };
+      }
+      if (name === 'begin_payment_attempt') {
+        return { data: { attempt_id: `att_${String(params.p_attempt_key)}`, attempt_key: params.p_attempt_key, state: 'creating', pi_id: null } };
+      }
+      if (name === 'attach_payment_attempt') {
+        events.push('attach');
+        if (attachLoss) {
+          const mode = attachLoss; attachLoss = null;
+          if (mode === 'commit-lost') lostPiId = String(params.p_pi_id);
+          return { error: { message: 'attach response lost (test)' } };
+        }
+        return { data: { attempt_id: params.p_attempt_id, state: 'open', pi_id: params.p_pi_id, replay: false } };
+      }
+      if (name === 'mark_payment_attempt_by_pi') {
+        events.push('mark');
+        return { data: { attempt_id: `att_${String(params.p_pi_id)}`, state: params.p_state, pi_id: params.p_pi_id } };
       }
       // cancel_pending_order is DELIBERATELY unmodelled: it answers this error,
       // so A-3's abort-cancel (DESIGN-198-FINAL §4.2 A-3) fails and a dead
@@ -183,7 +284,7 @@ async function world(opts: WorldOpts = {}) {
       return { error: { message: `unmocked rpc ${name}` } };
     },
     tables: {
-      profiles: (q: QueryCall) => (q.op === 'select' ? { data: { stripe_customer_id: opts.noCustomer ? null : CUSTOMER } } : { data: null }),
+      profiles: (q: QueryCall) => (q.op === 'select' ? { data: { stripe_customer_id: opts.noCustomer ? null : currentCustomer } } : { data: null }),
       payments: async (q: QueryCall) => {
         if (isCandidateRead(q)) {
           candidateReadAt.push(Date.now());
@@ -194,7 +295,20 @@ async function world(opts: WorldOpts = {}) {
           if (pending) await pending;
         }
         if (q.op === 'insert') {
+          events.push('payments_write');
           const b = q.body as Record<string, unknown>;
+          if (insertRace) {
+            const row = { ...(b as PayRow), id: `pay_${rows.length + 1}`, created_at: tick() } as PayRow;
+            if (insertRace === 'wrong-total') row.total = CHARGE + 1;
+            if (insertRace === 'wrong-buyer') row.buyer_id = 'buyer-other';
+            if (insertRace === 'wrong-fee') row.buyer_fee = FEE + 1;
+            if (insertRace === 'wrong-mode') row.mode = 'legacy';
+            if (insertRace === 'wrong-seller') row.seller_id = 'seller-other';
+            if (insertRace === 'wrong-listing') row.listing_id = 'listing-other';
+            rows.push(row);
+            insertRace = null;
+            return { error: { message: 'duplicate key value violates unique constraint', code: '23505' } };
+          }
           if (rows.some((r) => r.stripe_payment_intent_id === b.stripe_payment_intent_id)) {
             return { error: { message: 'duplicate key value violates unique constraint', code: '23505' } };
           }
@@ -202,6 +316,27 @@ async function world(opts: WorldOpts = {}) {
           return { data: null };
         }
         if (q.op === 'select') {
+          const piFilter = q.filters.find((f) => f[0] === 'eq' && f[1] === 'stripe_payment_intent_id');
+          if (piFilter) {
+            events.push('payments_select_pi');
+            if (persistReadError) return { error: { message: 'payments read failed (test)' } };
+            const piId = piFilter[2] as string;
+            if (persistRace && !rows.some((r) => r.stripe_payment_intent_id === piId)) {
+              const row: PayRow = {
+                id: `pay_race_${rows.length + 1}`, buyer_id: BUYER, mode: 'native_primary', amount: FACE,
+                buyer_fee: FEE, seller_fee: 0, total: CHARGE, status: 'pending',
+                stripe_payment_intent_id: piId, created_at: tick(), listing_id: null, seller_id: null,
+              };
+              if (persistRace === 'wrong-total') row.total = CHARGE + 1;
+              if (persistRace === 'wrong-buyer') row.buyer_id = 'buyer-other';
+              if (persistRace === 'wrong-fee') row.buyer_fee = FEE + 1;
+              if (persistRace === 'wrong-mode') row.mode = 'legacy';
+              if (persistRace === 'wrong-seller') row.seller_id = 'seller-other';
+              if (persistRace === 'succeeded') row.status = 'succeeded';
+              rows.push(row);
+              persistRace = null;
+            }
+          }
           let out = rows.filter((r) => q.filters.every((f) => matches(r, f)));
           // last .order() is the least significant key: apply in reverse, stable sort
           for (const [col, o] of [...q.order].reverse()) {
@@ -217,8 +352,11 @@ async function world(opts: WorldOpts = {}) {
     },
   });
 
+  if (opts.knownRecoveryPi) {
+    pis.set(opts.knownRecoveryPi, { id: opts.knownRecoveryPi, client_secret: `${opts.knownRecoveryPi}_secret`, status: 'requires_payment_method', livemode: false, amount: CHARGE, currency: 'usd', customer: CUSTOMER, metadata: { rail: 'native_primary', mode: 'native_primary', order_id: orderUuid(1), buyer_id: BUYER, org_id: ORG, session_id: SESSION }, ...opts.knownPiOverride } as Pi);
+  }
   const stripe = mockStripe(async (c: StripeCall) => {
-    if (c.method === 'GET' && c.path === `/customers/${CUSTOMER}`) return { ok: true, data: { id: CUSTOMER } };
+    if (c.method === 'GET' && c.path.startsWith('/customers/')) return { ok: true, data: { id: c.path.split('/')[2] } };
     if (c.method === 'POST' && c.path === '/customers') return { ok: true, data: { id: CUSTOMER } };
     if (c.method === 'POST' && c.path === `/customers/${CUSTOMER}`) return { ok: true, data: { id: CUSTOMER } };
     if (c.method === 'POST' && c.path === '/ephemeral_keys') {
@@ -227,6 +365,7 @@ async function world(opts: WorldOpts = {}) {
         : { ok: true, data: { secret: 'ek_test_secret' } };
     }
     if (c.method === 'POST' && c.path === '/payment_intents') {
+      events.push('stripe_post');
       if (mintHold) { mintHold.reached(); await mintHold.gate; }
       // Stripe idempotency: the same key replays the same object.
       const prior = c.idempotencyKey ? piByIdemKey.get(c.idempotencyKey) : undefined;
@@ -235,12 +374,22 @@ async function world(opts: WorldOpts = {}) {
       const id = `pi_test_native_${pis.size + 1}`;
       const metadata: Record<string, string> = {};
       for (const [k, v] of Object.entries(body)) if (k.startsWith('metadata[')) metadata[k.slice('metadata['.length, -1)] = v;
-      const pi: Pi = { id, client_secret: `${id}_secret_x`, status: 'requires_payment_method', livemode: false, amount: Number(body.amount), metadata };
+      const pi: Pi = { id, client_secret: opts.badSecret ? ({ bad: true } as unknown as string) : `${id}_secret_x`, status: firstPiCanceled ? 'canceled' : 'requires_payment_method', livemode: opts.missingLivemode ? undefined as unknown as boolean : false, amount: Number(body.amount), currency: 'usd', customer: CUSTOMER, metadata };
+      firstPiCanceled = false;
       pis.set(id, pi);
       if (c.idempotencyKey) piByIdemKey.set(c.idempotencyKey, id);
+      if (loseSaltedPost && c.idempotencyKey?.includes('_u')) {
+        loseSaltedPost = false; saltedLostKey = c.idempotencyKey; saltedLostBody = body;
+        return { ok: false, status: 500, data: { error: { message: 'salted response lost (test)' } } };
+      }
+      if (opts.lostFirstPost && lostKey === null) {
+        lostKey = c.idempotencyKey ?? null; lostBody = body; lostPiId = null;
+        return { ok: false, status: 500, data: { error: { message: 'response lost after create' } } };
+      }
       return { ok: true, data: { ...pi } };
     }
     if (c.method === 'GET' && c.path.startsWith('/payment_intents/')) {
+      events.push('stripe_get');
       const id = c.path.split('/')[2];
       const forced = probe?.(id) ?? null;
       if (forced) return forced;
@@ -261,7 +410,7 @@ async function world(opts: WorldOpts = {}) {
     const res = await edge.handler(authedJsonRequest({
       session_id: SESSION, items: [{ ticket_type_id: TICKET_TYPE, quantity: 1 }], hold_ids: [HOLD], command_key: commandKey, ...extra,
     }));
-    return { res, body: await json(res) };
+    const body = await json(res); events.push('response'); return { res, body };
   };
   const piMints = () => stripe.calls.filter((c) => c.method === 'POST' && c.path === '/payment_intents');
   const blockerAlerts = () => edge.sentry.filter((s) => (s.ctx as { activation_blocker?: boolean } | undefined)?.activation_blocker === true);
@@ -269,7 +418,15 @@ async function world(opts: WorldOpts = {}) {
   const piGets = (piId: string) => stripe.calls.filter((c) => c.method === 'GET' && c.path === `/payment_intents/${piId}`).length;
 
   return {
-    run, rows, pis, stripe, sb, edge, piMints, piGets, blockerAlerts, candidateReadAt,
+    run, rows, pis, stripe, sb, edge, piMints, piGets, blockerAlerts, candidateReadAt, events,
+    setCurrentCustomer: (c: string) => { currentCustomer = c; },
+    setCurrentFee: (n: number) => { currentFeeMinor = n; },
+    getCurrentFee: () => currentFeeMinor,
+    setReplayHoldsLive: (h: false | null | 'missing') => { replayHoldsLive = h; },
+    setInsertRace: (v: WorldOpts['insertRace'] | null) => { insertRace = v; },
+    setPersistRace: (v: WorldOpts['persistRace'] | null) => { persistRace = v; },
+    setPersistReadError: (v: boolean) => { persistReadError = v; },
+    setAttachLoss: (v: WorldOpts['attachLoss'] | null) => { attachLoss = v; },
     setProbe: (p: Probe | null) => { probe = p; },
     setOnCandidateRead: (h: ((n: number) => Promise<unknown> | void) | null) => { onCandidateRead = h; },
     holdMint: (gate: Promise<void>, reached: () => void) => { mintHold = { gate, reached }; },
@@ -286,7 +443,7 @@ describe('primary-checkout-1 — an idempotency_replay is never answered 503 org
     expect(w.pis.get(piId)?.metadata.org_id).toBe(ORG);
 
     const second = await w.run('cmd-double-tap');
-    expect(second.body.code).toBeUndefined();
+    console.log('ALL_RPCS', w.sb.rpcs.map((r:any)=>r.name)); expect(second.body.code).toBeUndefined();
     expect(second.res.status).toBe(200);
     expect(second.body.order_id).toBe(first.body.order_id);
     expect(second.body.paymentIntentId).toBe(piId);
@@ -518,4 +675,353 @@ describe('review follow-up — the in-flight same-key race: ONE re-read before a
     expect(w.candidateReadAt).toHaveLength(2);
     expect(w.candidateReadAt[1] - w.candidateReadAt[0]).toBeGreaterThanOrEqual(1900);
   }, 30_000);
+
+describe('lost POST recovery negative controls', () => {
+  it('generic recovery RPC failure on real replay is 503, after first lost POST, with no extra PI POST/secret', async () => {
+    const w = await world({ lostFirstPost: true, recoveryFailure: 'read unavailable (test)' });
+    const first = await w.run('cmd-rec-fail');
+    expect(first.res.status).toBe(500);
+    const second = await w.run('cmd-rec-fail');
+    expect(second.res.status).toBe(503);
+    expect(second.body).not.toHaveProperty('clientSecret');
+    expect(w.events).toContain('recovery');
+    expect(w.stripe.calls.filter((c) => c.method === 'POST' && c.path === '/payment_intents')).toHaveLength(1);
+  });
+  it('found-zero recovery remains 409 quote_unavailable on real replay', async () => {
+    const w = await world({ lostFirstPost: true, recoveryFailure: 'precondition_failed: recovery needs exactly one non-canceled attempt (found 0)' });
+    await w.run('cmd-found-zero');
+    const second = await w.run('cmd-found-zero');
+    expect(second.res.status).toBe(409);
+    expect(second.body.code).toBe('quote_unavailable');
+    expect(w.events).toContain('recovery');
+    expect(w.stripe.calls.filter((c) => c.method === 'POST' && c.path === '/payment_intents')).toHaveLength(1);
+  });
+  it('final binding missing/malformed/wrong PI after recovery POST/attach/paymentswrite returns no secret', async () => {
+    for (const binding of ['missing', 'malformed', 'wrong-pi'] as const) {
+      const w = await world({ lostFirstPost: true, binding });
+      await w.run('cmd-binding-fail');
+      const second = await w.run('cmd-binding-fail');
+      expect(second.res.status).not.toBe(200);
+      expect(second.body).not.toHaveProperty('clientSecret');
+      expect(w.events).toContain('recovery');
+      expect(w.events).toContain('stripe_post');
+      expect(w.events).toContain('attach');
+      expect(w.events).toContain('payments_write');
+      expect(w.events).toContain('binding');
+    }
+  });
+  it('missing livemode, invalid client_secret object fail closed', async () => {
+    for (const opts of [{ lostFirstPost: true, missingLivemode: true }, { lostFirstPost: true, badSecret: true }]) {
+      const w = await world(opts);
+      await w.run('cmd-bad-pi');
+      const r = await w.run('cmd-bad-pi');
+      expect(r.res.status).not.toBe(200);
+      expect(r.body).not.toHaveProperty('clientSecret');
+    }
+  });
+});
+
+describe('lost POST recovery with no payments row', () => {
+  it('same key/body recovers exactly one PI, attaches, persists, returns secret with stored customer', async () => {
+    const w = await world({ lostFirstPost: true });
+    const first = await w.run('cmd-lost-recover');
+    expect(first.res.status).toBe(500);
+    expect(first.body).not.toHaveProperty('clientSecret');
+    expect(w.rows).toHaveLength(0);
+    const second = await w.run('cmd-lost-recover');
+    expect(second.res.status).toBe(200);
+    expect(second.body.clientSecret).toBe('pi_test_native_1_secret_x');
+    expect(second.body.customerEphemeralKeySecret).toBe('ek_test_secret');
+    const posts = w.stripe.calls.filter((c) => c.method === 'POST' && c.path === '/payment_intents');
+    expect(posts).toHaveLength(2);
+    expect(posts[0].idempotencyKey).toBe(posts[1].idempotencyKey);
+    expect(posts[1].body).toEqual(posts[0].body);
+    expect([...w.pis.keys()]).toHaveLength(1);
+    expect(w.rows).toHaveLength(1);
+    expect(w.rows[0]).toMatchObject({ amount: FACE, buyer_fee: FEE, total: CHARGE, stripe_livemode: false });
+    expect(w.events).toEqual(['store', 'stripe_post', 'response', 'recovery', 'stripe_post', 'attach', 'payments_select_pi', 'payments_write', 'binding', 'response']);
+  });
+});
+
+describe('known open PI recovery with no payments row', () => {
+  it('GETs the exact PI and makes ZERO new POST before secret', async () => {
+    const w = await world({ replayOnly: true, knownRecoveryPi: 'pi_known_recovery' });
+    const r = await w.run('cmd-known');
+    expect(r.res.status).toBe(200);
+    expect(r.body.clientSecret).toBe('pi_known_recovery_secret');
+    expect(w.stripe.calls.filter((c) => c.method === 'POST' && c.path === '/payment_intents')).toHaveLength(0);
+    expect(w.events).toContain('recovery');
+    expect(w.events).toContain('stripe_get');
+    expect(w.events).toContain('attach');
+    expect(w.events).toContain('payments_write');
+    expect(w.events).toContain('binding');
+  });
+});
+
+describe('recovery current customer and holds gates', () => {
+  it('changed current customer refuses before any recovery PI POST/secret/paymentwrite', async () => {
+    const w = await world({ lostFirstPost: true });
+    await w.run('cmd-customer');
+    w.setCurrentCustomer('cus_changed');
+    const r = await w.run('cmd-customer');
+    expect(r.res.status).toBe(503);
+    expect(r.body).not.toHaveProperty('clientSecret');
+    expect(w.stripe.calls.filter((c) => c.method === 'POST' && c.path === '/payment_intents')).toHaveLength(1);
+    expect(w.events).not.toContain('payments_write');
+  });
+  for (const [label, holds] of [['false', false], ['null', null], ['missing', 'missing']] as const) {
+    it(`replay holds_live ${label} uses hold-invalid with zero recovery PI POST/secret`, async () => {
+      const w = await world({ lostFirstPost: true });
+      await w.run(`cmd-holds-${label}`);
+      w.setReplayHoldsLive(holds as false | null | 'missing');
+      const r = await w.run(`cmd-holds-${label}`);
+      expect(r.res.status).toBe(409);
+      expect(r.body.code).toBe('hold_invalid');
+      expect(r.body).not.toHaveProperty('clientSecret');
+      expect(w.stripe.calls.filter((c) => c.method === 'POST' && c.path === '/payment_intents')).toHaveLength(1);
+    });
+  }
+});
+
+describe('recovery preserves the stored quote', () => {
+  it('new current fee affects a separate fresh checkout, not the lost-POST original quote', async () => {
+    const w = await world({ lostFirstPost: true });
+    await w.run('cmd-fee');
+    const firstPosts = w.stripe.calls.filter((c) => c.method === 'POST' && c.path === '/payment_intents');
+    const firstKey = firstPosts[0].idempotencyKey;
+    const firstBody = firstPosts[0].body as Record<string, string>;
+    w.setCurrentFee(FEE + 777);
+
+    const fresh = await w.run('cmd-fee-fresh');
+    expect(fresh.res.status).toBe(200);
+    expect(fresh.body.buyer_fee).toBe(FEE + 777);
+    expect(fresh.body.total).toBe(FACE + FEE + 777);
+
+    const replay = await w.run('cmd-fee');
+    expect(replay.res.status).toBe(200);
+    expect(replay.body.buyer_fee).toBe(FEE);
+    expect(replay.body.total).toBe(CHARGE);
+    const originalPosts = w.stripe.calls.filter((c) => c.method === 'POST' && c.path === '/payment_intents' && c.idempotencyKey === firstKey);
+    expect(originalPosts).toHaveLength(2);
+    expect(originalPosts[1].body).toEqual(firstBody);
+    expect(firstBody.amount).toBe(String(CHARGE));
+
+    const before = w.stripe.calls.filter((c) => c.method === 'POST' && c.path === '/payment_intents').length;
+    const r = await w.run('cmd-fee', { expected_total_cents: CHARGE + 1 });
+    expect(r.res.status).toBe(409);
+    expect(r.body.code).toBe('total_mismatch');
+    expect(r.body).not.toHaveProperty('clientSecret');
+    expect(w.stripe.calls.filter((c) => c.method === 'POST' && c.path === '/payment_intents')).toHaveLength(before);
+  });
+});
+
+describe('known-PI recovery payments-row controls', () => {
+  const base = { replayOnly: true, knownRecoveryPi: 'pi_known_recovery' } as const;
+  const posts = (w: Awaited<ReturnType<typeof world>>) => w.stripe.calls.filter((c) => c.method === 'POST' && c.path === '/payment_intents');
+  const idx = (w: Awaited<ReturnType<typeof world>>, e: string, from = 0) => w.events.indexOf(e, from);
+
+  it('exact pending row created by INSERT 23505 is reread, never upserted; secret only after binding', async () => {
+    const w = await world({ ...base });
+    w.setInsertRace('exact');
+    const r = await w.run('cmd-row-race-ok');
+    expect(r.res.status).toBe(200);
+    expect(r.body.clientSecret).toBeDefined();
+    expect(rowsCount(w)).toBe(1);
+    expect(posts(w)).toHaveLength(0);
+    const firstSelect = idx(w, 'payments_select_pi');
+    const insert = idx(w, 'payments_write');
+    const reread = idx(w, 'payments_select_pi', firstSelect + 1);
+    const binding = idx(w, 'binding');
+    expect(firstSelect).toBeGreaterThan(-1);
+    expect(insert).toBeGreaterThan(firstSelect);
+    expect(reread).toBeGreaterThan(insert);
+    expect(binding).toBeGreaterThan(reread);
+    expect(idx(w, 'response', binding)).toBeGreaterThan(binding);
+  });
+
+  for (const race of ['wrong-buyer', 'wrong-fee', 'wrong-total', 'wrong-mode', 'wrong-seller', 'wrong-listing'] as const) {
+    it(`23505 reread with ${race} refuses 503, no secret, one row, no extra PI POST`, async () => {
+      const w = await world({ ...base });
+      w.setInsertRace(race);
+      const r = await w.run(`cmd-row-race-${race}`);
+      expect(r.res.status).toBe(503);
+      expect(r.body).not.toHaveProperty('clientSecret');
+      expect(rowsCount(w)).toBe(1);
+      expect(posts(w)).toHaveLength(0);
+    });
+  }
+
+  it('row inserted between candidate scan and persist select hits mismatch branch; no blind insert/overwrite', async () => {
+    const w = await world({ ...base });
+    w.setPersistRace('wrong-total');
+    const r = await w.run('cmd-row-persist-race');
+    expect(w.candidateReadAt.length).toBeGreaterThan(0);
+    expect(r.res.status).toBe(503);
+    expect(r.body).not.toHaveProperty('clientSecret');
+    expect(rowsCount(w)).toBe(1);
+    expect(posts(w)).toHaveLength(0);
+    expect(w.events).not.toContain('payments_write');
+    expect(idx(w, 'payments_select_pi')).toBeGreaterThan(-1);
+  });
+
+  it('exact succeeded row answers already_paid and is never overwritten', async () => {
+    const w = await world({ ...base });
+    w.setPersistRace('succeeded');
+    const r = await w.run('cmd-row-terminal');
+    expect(r.res.status).toBe(409);
+    expect(r.body.code).toBe('already_paid');
+    expect(r.body).not.toHaveProperty('clientSecret');
+    expect(rowsCount(w)).toBe(1);
+    expect(w.rows[0].status).toBe('succeeded');
+    expect(w.events).not.toContain('payments_write');
+    expect(posts(w)).toHaveLength(0);
+  });
+
+  it('payments persist read error refuses 503 with no secret/insert/POST', async () => {
+    const w = await world({ ...base });
+    w.setPersistReadError(true);
+    const r = await w.run('cmd-row-read-error');
+    expect(r.res.status).toBe(503);
+    expect(r.body).not.toHaveProperty('clientSecret');
+    expect(rowsCount(w)).toBe(0);
+    expect(w.events).not.toContain('payments_write');
+    expect(posts(w)).toHaveLength(0);
+  });
+});
+
+function rowsCount(w: { rows: unknown[] }): number { return w.rows.length; }
+
+describe('lost attach and authoritative canceled remint', () => {
+  const posts = (w: Awaited<ReturnType<typeof world>>) => w.stripe.calls.filter((c) => c.method === 'POST' && c.path === '/payment_intents');
+
+  it('attach commits but response is lost: retry is GET-only, idempotent attach, then one secret', async () => {
+    const w = await world({ lostFirstPost: true });
+    expect((await w.run('cmd-attach-lost')).res.status).toBe(500);
+    w.setAttachLoss('commit-lost');
+    expect((await w.run('cmd-attach-lost')).res.status).toBe(503);
+    const before = posts(w).length;
+    const r = await w.run('cmd-attach-lost');
+    expect(r.res.status).toBe(200);
+    expect(r.body.clientSecret).toBeDefined();
+    expect(posts(w)).toHaveLength(before);
+    expect(w.rows).toHaveLength(1);
+    expect(w.events.filter((e) => e === 'attach').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('attach never commits: retry uses the same POST key/body and only one Stripe PI', async () => {
+    const w = await world({ lostFirstPost: true });
+    expect((await w.run('cmd-attach-nocommit')).res.status).toBe(500);
+    w.setAttachLoss('no-commit');
+    expect((await w.run('cmd-attach-nocommit')).res.status).toBe(503);
+    const r = await w.run('cmd-attach-nocommit');
+    expect(r.res.status).toBe(200);
+    const ps = posts(w);
+    expect(ps.length).toBeGreaterThanOrEqual(3);
+    expect(new Set(ps.map((p) => p.idempotencyKey)).size).toBe(1);
+    expect(ps.every((p) => JSON.stringify(p.body) === JSON.stringify(ps[0].body))).toBe(true);
+    expect(w.pis.size).toBe(1);
+    expect(w.rows).toHaveLength(1);
+  });
+
+  it('fresh canceled PI remints deterministically; lost salted POST retries the SAME salted key/body, one live PI', async () => {
+    const w = await world({ firstPiCanceled: true, loseSaltedPost: true });
+    expect((await w.run('cmd-remint')).res.status).toBe(500);
+    const first = posts(w);
+    expect(first).toHaveLength(2);
+    expect(first[1].idempotencyKey).toBe(`${first[0].idempotencyKey}_upi_test_native_1`);
+    const r = await w.run('cmd-remint');
+    expect(r.res.status).toBe(200);
+    const all = posts(w);
+    expect(all[all.length - 1].idempotencyKey).toBe(first[1].idempotencyKey);
+    expect(all[all.length - 1].body).toEqual(first[1].body);
+    expect([...w.pis.values()].filter((p) => p.status !== 'canceled')).toHaveLength(1);
+    expect([...w.pis.values()].filter((p) => p.status === 'canceled')).toHaveLength(1);
+  });
+
+  it('confirmed canceled PI is attached/marked canceled before 409, never open forever, no secret', async () => {
+    const w = await world({ replayOnly: true, knownRecoveryPi: 'pi_known_recovery', knownPiOverride: { status: 'canceled' } });
+    const r = await w.run('cmd-canceled-recovery');
+    expect(r.res.status).toBe(409);
+    expect(r.body.code).toBe('replay_state_unavailable');
+    expect(r.body).not.toHaveProperty('clientSecret');
+    expect(w.events).toContain('attach');
+    expect(w.events).toContain('mark');
+    expect(w.events).not.toContain('payments_write');
+    expect(posts(w)).toHaveLength(0);
+  });
+});
+
+describe('replay abort isolation', () => {
+  it('a successful fresh checkout and its replay never call cancel_pending_order for the owner order', async () => {
+    const w = await world();
+    expect((await w.run('cmd-replay-isolation')).res.status).toBe(200);
+    expect((await w.run('cmd-replay-isolation')).res.status).toBe(200);
+    expect(w.sb.rpcs.some((r: { name: string }) => r.name === 'cancel_pending_order')).toBe(false);
+  });
+});
+
+describe('known PI recovery identity/quote matrix', () => {
+  const base = { replayOnly: true, knownRecoveryPi: 'pi_known_recovery' } as const;
+  const cases: Array<[string, Record<string, unknown>, number]> = [
+    ['wrong id', { id: 'pi_other' }, 503],
+    ['wrong customer', { customer: 'cus_other' }, 503],
+    ['wrong amount', { amount: CHARGE + 1 }, 503],
+    ['wrong currency', { currency: 'eur' }, 503],
+    ['wrong order metadata', { metadata: { rail: 'native_primary', mode: 'native_primary', order_id: 'other', buyer_id: BUYER, org_id: ORG, session_id: SESSION } }, 503],
+    ['wrong buyer metadata', { metadata: { rail: 'native_primary', mode: 'native_primary', order_id: orderUuid(1), buyer_id: 'other', org_id: ORG, session_id: SESSION } }, 503],
+    ['wrong session metadata', { metadata: { rail: 'native_primary', mode: 'native_primary', order_id: orderUuid(1), buyer_id: BUYER, org_id: ORG, session_id: 'other' } }, 503],
+    ['wrong org metadata', { metadata: { rail: 'native_primary', mode: 'native_primary', order_id: orderUuid(1), buyer_id: BUYER, org_id: 'other', session_id: SESSION } }, 503],
+    ['wrong rail', { metadata: { rail: 'other', mode: 'native_primary', order_id: orderUuid(1), buyer_id: BUYER, org_id: ORG, session_id: SESSION } }, 503],
+    ['wrong mode', { metadata: { rail: 'native_primary', mode: 'other', order_id: orderUuid(1), buyer_id: BUYER, org_id: ORG, session_id: SESSION } }, 503],
+    ['canceled', { status: 'canceled' }, 409],
+    ['processing', { status: 'processing' }, 409],
+    ['succeeded', { status: 'succeeded' }, 409],
+    ['missing secret', { client_secret: undefined }, 409],
+    ['number secret', { client_secret: 123 }, 409],
+    ['object secret', { client_secret: { x: 1 } }, 409],
+    ['whitespace secret', { client_secret: '   ' }, 409],
+    ['missing livemode', { livemode: undefined }, 503],
+    ['nonboolean livemode', { livemode: 'false' }, 503],
+  ];
+  for (const [label, override, status] of cases) {
+    it(`${label} refuses with status ${status}, no POST/secret/paymentswrite`, async () => {
+      const w = await world({ ...base, knownPiOverride: override as never });
+      const r = await w.run(`cmd-known-${label}`);
+      expect(r.res.status).toBe(status);
+      expect(r.body).not.toHaveProperty('clientSecret');
+      expect(w.stripe.calls.filter((c) => c.method === 'POST' && c.path === '/payment_intents')).toHaveLength(0);
+      expect(w.events).toContain('recovery');
+      expect(w.events).toContain('stripe_get');
+      expect(w.events).not.toContain('payments_write');
+    });
+  }
+  for (const live of [false, true]) {
+    it(`valid known PI persists livemode ${live}`, async () => {
+      const w = await world({ ...base, knownPiOverride: { livemode: live } as never });
+      const r = await w.run(`cmd-known-live-${live}`);
+      expect(r.res.status).toBe(200);
+      expect(w.rows[0].stripe_livemode).toBe(live);
+      expect(w.stripe.calls.filter((c) => c.method === 'POST' && c.path === '/payment_intents')).toHaveLength(0);
+    });
+  }
+});
+
+describe('replay attempt binding gate', () => {
+  const cases: Array<[string, 'missing'|'error'|'malformed'|'wrong-pi'|'wrong-buyer'|'wrong-session'|'wrong-amount'|'invalid-state']> = [
+    ['missing', 'missing'], ['error', 'error'], ['malformed', 'malformed'], ['wrong PI', 'wrong-pi'],
+    ['wrong buyer', 'wrong-buyer'], ['wrong session', 'wrong-session'],
+    ['wrong charge', 'wrong-amount'], ['invalid state', 'invalid-state'],
+  ];
+  for (const [label, binding] of cases) {
+    it(`${label} binding sends NO client secret and makes NO new PI POST`, async () => {
+      const w = await world({ binding });
+      await w.run('cmd-bind');
+      const postsAfterFirst = w.stripe.calls.filter((c) => c.method === 'POST' && c.path === '/payment_intents').length;
+      const second = await w.run('cmd-bind');
+      expect(second.res.status).not.toBe(200);
+      expect(second.body).not.toHaveProperty('clientSecret');
+      expect(w.stripe.calls.filter((c) => c.method === 'POST' && c.path === '/payment_intents')).toHaveLength(postsAfterFirst);
+    });
+  }
+});
 });

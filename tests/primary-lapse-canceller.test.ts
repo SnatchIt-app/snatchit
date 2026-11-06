@@ -53,6 +53,7 @@ interface WorldOpts {
   probeFails?: Record<string, number>;
   /** POST /payment_intents/{id}/cancel on these PI ids answers this status */
   cancelFails?: Record<string, number>;
+  cancelBodies?: Record<string, unknown>;
 }
 
 function matches(row: Record<string, unknown>, f: [string, ...unknown[]]): boolean {
@@ -97,6 +98,9 @@ async function world(opts: WorldOpts = {}) {
         if (opts.report === undefined) return { data: base };
         return { data: { ...base, skipped_busy: 0, lapsed_orders: params.p_limit === 0 ? opts.report : null } };
       }
+      if (name === 'mark_payment_attempt_by_pi') {
+        return { data: { attempt_id: `att_${String(params.p_pi_id)}`, state: params.p_state, pi_id: params.p_pi_id } };
+      }
       if (name === 'cancel_pending_order') {
         expect(schema).toBe('venue');
         return { data: { status: 'cancelled', order_id: params.p_order_id } };
@@ -130,6 +134,7 @@ async function world(opts: WorldOpts = {}) {
     },
   });
 
+  let cancelBodies: Record<string, unknown> | undefined;
   const stripe = mockStripe(async (c: StripeCall) => {
     const cancelM = c.method === 'POST' ? c.path.match(/^\/payment_intents\/([^/]+)\/cancel$/) : null;
     if (cancelM) {
@@ -138,6 +143,7 @@ async function world(opts: WorldOpts = {}) {
       const refused = opts.cancelFails?.[pi.id];
       if (refused) return { ok: false, status: refused, data: { error: { code: 'payment_intent_unexpected_state' } } };
       pi.status = 'canceled';
+      if (cancelBodies?.[pi.id] !== undefined) return { ok: true, data: cancelBodies[pi.id] };
       return { ok: true, data: { ...pi } };
     }
     if (c.method === 'GET' && c.path.startsWith('/payment_intents/')) {
@@ -166,7 +172,7 @@ async function world(opts: WorldOpts = {}) {
   const orderCancels = () => sb.rpcs.filter((r) => r.name === 'cancel_pending_order');
   const alerts = (needle: string) => edge.sentry.filter((s) => String((s.error as Error).message ?? s.error).includes(needle));
 
-  return { run, addPi, pis, rows, reviews, sb, stripe, edge, piCancels, orderCancels, alerts, setMarkerReads };
+  return { run, addPi, pis, rows, reviews, sb, stripe, edge, piCancels, orderCancels, alerts, setMarkerReads, setCancelBodies: (b: Record<string, unknown> | undefined) => { cancelBodies = b; } };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -305,6 +311,10 @@ describe('A-6 steps 2-3 — per lapsed order, act on the PaymentIntent\'s status
     const pi = w.addPi(1, 'canceled', { rowStatus: 'failed' });
     await w.run();
     expect(w.piCancels()).toEqual([]);
+    const markIdx = w.sb.rpcs.findIndex((r) => r.name === 'mark_payment_attempt_by_pi');
+    const cancelIdx = w.sb.rpcs.findIndex((r) => r.name === 'cancel_pending_order');
+    expect(markIdx).toBeGreaterThanOrEqual(0);
+    expect(markIdx).toBeLessThan(cancelIdx);
     expect(w.orderCancels().map((c) => c.params)).toEqual([
       { p_order_id: orderUuid(1), p_reason_code: 'payment_failed', p_command_key: buildCancelCommandKey(orderUuid(1), pi) },
     ]);
@@ -544,5 +554,37 @@ describe('A-6 anomaly alert — once per order, the paid alert\'s marker idiom, 
     expect(r.res.status).toBe(200);
     expect(r.body.results).toEqual([{ order_id: orderUuid(1), outcome: needle === 'anomaly' ? 'anomaly' : 'paid' }]);
     expect(w.alerts(needle)).toHaveLength(2);
+  });
+});
+
+describe('lapse cancel body confirmation', () => {
+  const cases: Array<[string, unknown]> = [
+    ['processing body', { id: 'pi_test_lapse_1', status: 'processing' }],
+    ['succeeded body', { id: 'pi_test_lapse_1', status: 'succeeded' }],
+    ['missing status', { id: 'pi_test_lapse_1' }],
+    ['null body', null],
+    ['wrong id', { id: 'pi_other', status: 'canceled' }],
+  ];
+  for (const [label, body] of cases) {
+    it(`${label} does NOT mark canceled or cancel the order`, async () => {
+      const w = await world({ report: [lapsed(1)] });
+      const pi = w.addPi(1, 'requires_payment_method');
+      // The id is deterministic; inject the body for this PI.
+      w.setCancelBodies({ [pi]: body });
+      const r = await w.run();
+      expect(r.res.status).toBe(200);
+      expect(w.orderCancels()).toEqual([]);
+      expect(w.sb.rpcs.some((x) => x.name === 'mark_payment_attempt_by_pi')).toBe(false);
+    });
+  }
+  it('a confirmed canceled body marks before any order cancellation', async () => {
+    const w = await world({ report: [lapsed(1)] });
+    const pi = w.addPi(1, 'requires_payment_method');
+    w.setCancelBodies({ [pi]: { id: pi, status: 'canceled' } });
+    const r = await w.run();
+    expect(r.res.status).toBe(200);
+    expect(w.orderCancels()).toEqual([]);
+    const names = w.sb.rpcs.map((x) => x.name);
+    expect(names.indexOf('mark_payment_attempt_by_pi')).toBeGreaterThanOrEqual(0);
   });
 });

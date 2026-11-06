@@ -7,6 +7,8 @@ import { stripeFetchRaw } from '../_shared/stripe.ts';
 // organization arm. Import-free by construction so vitest can exercise every
 // branch below without loading a single https specifier — see native.ts's
 // header and tests/stripe-webhook-native.test.ts.
+import { decideSiblingInspection, inspectTerminalSiblings } from './sibling-guard.ts';
+import { markPaymentAttemptByPi } from './payment-attempts.ts';
 import {
   type Decision,
   type PaymentRow,
@@ -563,6 +565,13 @@ serve(async (req: Request) => {
         db:   { schema: 'kernel' },
       });
 
+    const markAttempt = (piId: string, state: 'processing' | 'succeeded' | 'failed' | 'canceled' | 'unknown',
+                         stripeStatus: string) =>
+      markPaymentAttemptByPi(
+        (name, params) => venueService().rpc(name, params),
+        piId, state, stripeStatus,
+      );
+
     /**
      * The alert half of `finishDecision`, WITHOUT ending the request. Used by
      * the native dispute / reversal arms on their ACK paths: the native work is
@@ -970,6 +979,18 @@ serve(async (req: Request) => {
           });
         }
 
+        // Coordination is fail-closed: a missing attempt/RPC or a stale
+        // mark failure retries the event BEFORE finalize. It never proves money.
+        try {
+          await markAttempt(piId, 'succeeded', 'succeeded');
+        } catch (markErr) {
+          return await finishDecision(
+            { ack: false, alert: true, reason: 'native_attempt_mark_succeeded_error' },
+            { stage: 'native_attempt_mark', order_id: ref.orderId, pi_id: piId },
+            markErr instanceof Error ? markErr : new Error(String(markErr)),
+          );
+        }
+
         // ── 3. Instrument fingerprint — advisory, never blocking ────────
         const fingerprint = await readInstrumentFingerprint(paymentIntent);
 
@@ -1233,6 +1254,52 @@ serve(async (req: Request) => {
           return await finishDecision(
             { ack: true, alert: false, reason: 'native_attempt_failed_order_pending' },
             { order_id: ref.orderId, pi_id: piId },
+          );
+        }
+
+        // Only a Stripe-terminal canceled PI may mark its attempt canceled.
+        // A local failed payment is never used here. Missing attempt/RPC or a
+        // mark error keeps the order pending and the event retryable.
+        try {
+          await markAttempt(piId, 'canceled', 'canceled');
+        } catch (markErr) {
+          return await finishDecision(
+            { ack: false, alert: true, reason: 'native_attempt_mark_canceled_error' },
+            { stage: 'native_attempt_mark', order_id: ref.orderId, pi_id: piId },
+            markErr instanceof Error ? markErr : new Error(String(markErr)),
+          );
+        }
+
+        // A terminal PI is not proof that the ORDER is dead. Read every sibling
+        // before cancelling: a succeeded/processing attempt means finalize owns
+        // this order; a live attempt means the lapse job must cancel it first.
+        // Errors and ambiguous/foreign candidates are fail-closed (never cancel).
+        const siblingGuard = await inspectTerminalSiblings(
+          { service: supabase, stripeFetchRaw },
+          {
+            orderId: ref.orderId,
+            buyerId: ref.buyerId,
+            faceMinor: (paymentIntent as { amount?: unknown })?.amount as number,
+            currency: (paymentIntent as { currency?: unknown })?.currency as string,
+            currentPiId: piId,
+          },
+        );
+        if (siblingGuard.kind !== 'clear') {
+          const decision = decideSiblingInspection(siblingGuard);
+          console.error('Webhook: native terminal PI has sibling state; order left pending', {
+            order_id: ref.orderId, pi_id: piId, guard: siblingGuard.kind,
+            sibling_pi: 'piId' in siblingGuard ? siblingGuard.piId : null,
+            detail: siblingGuard.detail,
+            reason: decision.reason, ack: decision.ack, alert: decision.alert,
+          });
+          return await finishDecision(
+            decision,
+            {
+              stage: 'native_sibling_guard', order_id: ref.orderId, pi_id: piId,
+              guard: siblingGuard.kind,
+              sibling_pi: 'piId' in siblingGuard ? siblingGuard.piId : null,
+            },
+            decision.ack ? undefined : new Error(siblingGuard.detail),
           );
         }
 

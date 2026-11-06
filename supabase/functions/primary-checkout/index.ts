@@ -156,6 +156,7 @@ import {
   REPLAY_CANDIDATE_STATUSES,
   searchOrderPaymentIntents,
 } from './order-pis.ts';
+import { attachPaymentAttempt, beginPaymentAttempt, markPaymentAttemptByPi, readPaymentAttemptRecovery, requireReplayAttemptBinding, storePaymentAttemptRequest, type RpcCaller } from './payment-attempts.ts';
 
 const SUPABASE_URL              = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_ANON_KEY         = Deno.env.get('SUPABASE_ANON_KEY')!;
@@ -651,10 +652,43 @@ serve(async (req: Request) => {
   // `abortFreshOrder` runs on each explicit refusal and, as a backstop, in the
   // top-level catch (a thrown Customer step lands there).
   let a3OrderId: string | null = null;
+  let a3PiId: string | null = null;
+  let a3AttemptMayExist = false;
   const abortFreshOrder = async (stage: string): Promise<void> => {
     const id = a3OrderId;
+    const piId = a3PiId;
+    const attemptMayExist = a3AttemptMayExist;
     a3OrderId = null;
-    if (id !== null) await cancelJustCreatedOrder(id, stage);
+    a3PiId = null;
+    a3AttemptMayExist = false;
+    if (id === null) return;
+    // No PI id after begin means the create response was lost/unknown. The
+    // attempt may be creating, so the order is NOT safe to cancel: keep it
+    // pending and let the same-key replay recover it.
+    if (attemptMayExist && piId === null) {
+      logStage('abort-blocked-unknown-pi', { order_id: id, abort_at: stage });
+      return;
+    }
+    if (piId !== null) {
+      const cancelled = await cancelOrphanPi(piId);
+      if (cancelled.kind !== 'canceled') {
+        logStage('abort-blocked-pi-cancel', { order_id: id, abort_at: stage, pi_id: piId, detail: cancelled.detail });
+        return;
+      }
+      try {
+        await markPaymentAttemptByPi(
+          (name, params) => venueServiceClient().rpc(name, params),
+          piId, 'canceled', 'canceled',
+        );
+      } catch (markErr) {
+        logStage('abort-blocked-attempt-mark', {
+          order_id: id, abort_at: stage, pi_id: piId,
+          error: markErr instanceof Error ? markErr.message : String(markErr),
+        });
+        return;
+      }
+    }
+    await cancelJustCreatedOrder(id, stage);
   };
 
   try {
@@ -1162,41 +1196,141 @@ serve(async (req: Request) => {
         return json({ error: 'Checkout could not be completed. Please contact support.', code: 'order_inconsistent' }, 500, H);
       }
       if (recovered.kind === 'none') {
-        // The order exists but no usable PaymentIntent does — the original
-        // attempt died between the RPC and the PI, or its PI was cancelled.
-        // (An attempt still in flight gets one re-read first; see THE
-        // IN-FLIGHT RACE in recoverReplayQuote.)
-        // The quote CANNOT be reconstructed: the fee is derived, never stored,
-        // and the RPC will not re-derive it for a replay. Inventing one here is
-        // exactly the failure this branch exists to prevent.
-        //
-        // So: refuse. Documented as RES-1.
-        //
-        // A-4 (DESIGN-198-FINAL §4.2 A-4, §5 scenario 13, §10 risk 6). Before
-        // 198 the way out was a NEW command_key on the same holds. After 198
-        // that is refused: the holds are BOUND to this stranded pending order
-        // (§3.1 BLOCK B, O6) until their TTL. So the client is told to restart
-        // from TICKET SELECTION with a new reserve. The response contract is
-        // kept exactly — 409, `code: 'quote_unavailable'`, no Retry-After, the
-        // same two keys — and only the human text changes to say where to
-        // restart; the client keys on `code`.
-        //
-        // A-4's OPTION (cancel the stranded order after a Stripe search proves
-        // no PI exists) is deliberately NOT taken: the only exact search we
-        // have is the capped candidate read above, Stripe's search API was
-        // rejected as eventually consistent, and §10 risk 6 calls
-        // cancel-after-proof unsafe without an authoritative one. The order
-        // stays `pending`; its holds return at TTL and A-6 leaves a PI-less
-        // lapsed order alone (order-pis.ts `no_pi`).
-        logStage('replay-no-quote', { order_id: orderId });
-        return json(
-          {
-            error: 'This checkout expired. Please select your tickets again.',
-            code:  'quote_unavailable',
-          },
-          409,
-          H,
-        );
+        // A missing public.payments row is not proof that no PI exists.
+        let rec;
+        try {
+          rec = await readPaymentAttemptRecovery(
+            (name, params) => venueServiceClient().rpc(name, params),
+            { orderId, buyerId, sessionId: session_id },
+          );
+        } catch (recErr) {
+          logStage('replay-recovery-unavailable', { order_id: orderId, error: recErr instanceof Error ? recErr.message : String(recErr) });
+          const msg = recErr instanceof Error ? recErr.message : String(recErr);
+          if (/recovery needs exactly one non-canceled attempt \(found 0\)|not_found/i.test(msg)) {
+            return json({ error: 'This checkout expired. Please select your tickets again.', code: 'quote_unavailable' }, 409, H);
+          }
+          return json({ error: 'Checkout could not be resumed. Please try again.', code: 'replay_recovery_unavailable' }, 503, { ...H, 'Retry-After': '10' });
+        }
+        if (rec.faceMinor !== faceMinor) {
+          return json({ error: 'This checkout expired. Please select your tickets again.', code: 'quote_unavailable' }, 409, H);
+        }
+        if (customerCtx.customerId !== rec.createRequest['customer']) {
+          logStage('replay-recovery-customer-mismatch', { order_id: orderId, attempt_id: rec.attemptId });
+          return json({ error: 'Checkout could not be resumed. Please try again.', code: 'replay_recovery_unavailable' }, 503, { ...H, 'Retry-After': '10' });
+        }
+        if (totalMismatch(expected_total_cents, rec.chargeMinor)) {
+          return json({ error: 'Price changed. Please review the updated total and try again.', server_total_cents: rec.chargeMinor, code: 'total_mismatch' }, 409, H);
+        }
+
+        type RecoveredPi = { id?: string; client_secret?: string; status?: string; amount?: number; currency?: string; customer?: string; livemode?: boolean; metadata?: Record<string, string> };
+        let rp: RecoveredPi | null = null;
+        if (rec.piId !== null) {
+          try {
+            const got = await stripeFetchRaw(`/payment_intents/${rec.piId}`);
+            if (!got.ok || !got.data || typeof got.data !== 'object') throw new Error(`stripe GET ${got.status}`);
+            rp = got.data as RecoveredPi;
+          } catch (e) {
+            return json({ error: 'Checkout could not be resumed. Please try again.', code: 'replay_recovery_unavailable' }, 503, { ...H, 'Retry-After': '10' });
+          }
+        } else {
+          try {
+            const res = await stripeFetchRaw('/payment_intents', { method: 'POST', idempotencyKey: rec.attemptKey, body: rec.createRequest });
+            if (!res.ok || !res.data || typeof res.data !== 'object') throw new Error(`stripe POST ${res.status}`);
+            rp = res.data as RecoveredPi;
+          } catch (e) {
+            return json({ error: 'Checkout could not be resumed. Please try again.', code: 'replay_recovery_unavailable' }, 503, { ...H, 'Retry-After': '10' });
+          }
+        }
+        if (!rp || typeof rp.id !== 'string' || rp.id.trim() === ''
+            || (rec.piId !== null && rp.id !== rec.piId)
+            || typeof rp.livemode !== 'boolean'
+            || rp.amount !== rec.chargeMinor || rp.currency !== 'usd'
+            || rp.customer !== rec.createRequest['customer']
+            || rp.metadata?.order_id !== orderId || rp.metadata?.rail !== RAIL_NATIVE_PRIMARY
+            || rp.metadata?.mode !== RAIL_NATIVE_PRIMARY || rp.metadata?.buyer_id !== buyerId
+            || rp.metadata?.session_id !== session_id || rp.metadata?.org_id !== rec.createRequest['metadata[org_id]']) {
+          return json({ error: 'Checkout could not be resumed. Please try again.', code: 'replay_recovery_unavailable' }, 503, { ...H, 'Retry-After': '10' });
+        }
+        if (rp.status === 'succeeded') return json({ error: 'Payment already completed for this order.', code: 'already_paid' }, 409, H);
+        if (rp.status === 'canceled') {
+          // A confirmed canceled PI is a terminal fact. Attach it to the exact
+          // persisted attempt and mark that attempt canceled before refusing, so
+          // recovery never leaves an open attempt pointing at a dead PI.
+          await attachPaymentAttempt((name, params) => venueServiceClient().rpc(name, params), {
+            attemptId: rec.attemptId, attemptKey: rec.attemptKey, piId: rp.id,
+            orderId, buyerId, sessionId: session_id, faceMinor: rec.faceMinor,
+            buyerFeeMinor: rec.buyerFeeMinor, chargeMinor: rec.chargeMinor, currency: 'USD',
+          });
+          await markPaymentAttemptByPi(
+            (name, params) => venueServiceClient().rpc(name, params),
+            rp.id, 'canceled', 'canceled',
+          );
+          return json({ error: 'This checkout cannot be resumed. Please start again.', code: 'replay_state_unavailable' }, 409, H);
+        }
+        if (rp.status === 'processing'
+            || typeof rp.client_secret !== 'string' || rp.client_secret.trim() === ''
+            || !['requires_payment_method','requires_confirmation','requires_action'].includes(rp.status ?? '')) {
+          return json({ error: 'This checkout cannot be resumed. Please start again.', code: 'replay_state_unavailable' }, 409, H);
+        }
+        try {
+          await attachPaymentAttempt((name, params) => venueServiceClient().rpc(name, params), {
+            attemptId: rec.attemptId, attemptKey: rec.attemptKey, piId: rp.id,
+            orderId, buyerId, sessionId: session_id, faceMinor: rec.faceMinor,
+            buyerFeeMinor: rec.buyerFeeMinor, chargeMinor: rec.chargeMinor, currency: 'USD',
+          });
+          const existing = await service.from('payments')
+            .select('id, buyer_id, status, mode, listing_id, seller_id, amount, buyer_fee, total')
+            .eq('stripe_payment_intent_id', rp.id).maybeSingle();
+          if (existing.error) throw new Error(existing.error.message);
+          if (existing.data) {
+            const row = existing.data as Record<string, unknown>;
+            if (row.buyer_id !== buyerId || row.mode !== PAYMENTS_MODE_NATIVE_PRIMARY
+                || row.listing_id !== null || row.seller_id !== null
+                || row.amount !== rec.faceMinor || row.buyer_fee !== rec.buyerFeeMinor
+                || row.total !== rec.chargeMinor) {
+              throw new Error('foreign/malformed payments row');
+            }
+            if (row.status === 'succeeded') return json({ error: 'Payment already completed for this order.', code: 'already_paid' }, 409, H);
+            if (row.status !== 'pending') throw new Error(`payments row state ${String(row.status)}`);
+          } else {
+            const { error: insertErr } = await service.from('payments').insert({
+              listing_id: null, buyer_id: buyerId, seller_id: null,
+              amount: rec.faceMinor, buyer_fee: rec.buyerFeeMinor, seller_fee: 0,
+              total: rec.chargeMinor, stripe_payment_intent_id: rp.id, status: 'pending',
+              mode: PAYMENTS_MODE_NATIVE_PRIMARY, stripe_livemode: rp.livemode,
+            });
+            if (insertErr) {
+              if ((insertErr as { code?: string }).code !== '23505') throw new Error(insertErr.message);
+              const again = await service.from('payments')
+                .select('id, buyer_id, status, mode, listing_id, seller_id, amount, buyer_fee, total')
+                .eq('stripe_payment_intent_id', rp.id).maybeSingle();
+              const row = again.data as Record<string, unknown> | null;
+              if (again.error || !row || row.buyer_id !== buyerId || row.mode !== PAYMENTS_MODE_NATIVE_PRIMARY
+                  || row.listing_id !== null || row.seller_id !== null
+                  || row.amount !== rec.faceMinor || row.buyer_fee !== rec.buyerFeeMinor
+                  || row.total !== rec.chargeMinor || row.status !== 'pending') {
+                throw new Error('payments insert race did not resolve to the exact pending row');
+              }
+            }
+          }
+          await requireReplayAttemptBinding(
+            (name, params) => venueServiceClient().rpc(name, params),
+            {
+              orderId, piId: rp.id, buyerId, sessionId: session_id,
+              faceMinor: rec.faceMinor, buyerFeeMinor: rec.buyerFeeMinor,
+              chargeMinor: rec.chargeMinor, currency: 'USD', attemptKey: rec.attemptKey,
+            },
+          );
+        } catch (recoverErr) {
+          logStage('replay-recovery-persist-failed', { order_id: orderId, pi_id: rp.id, error: recoverErr instanceof Error ? recoverErr.message : String(recoverErr) });
+          return json({ error: 'Checkout could not be resumed. Please try again.', code: 'replay_recovery_unavailable' }, 503, { ...H, 'Retry-After': '10' });
+        }
+        return json({
+          order_id: orderId, clientSecret: rp.client_secret, paymentIntentId: rp.id,
+          amount: rec.faceMinor, buyer_fee: rec.buyerFeeMinor, seller_fee: 0,
+          total: rec.chargeMinor, currency, customerId: customerCtx.customerId,
+          customerEphemeralKeySecret: customerCtx.ephemeralKeySecret,
+        }, 200, H);
       }
 
       // kind === 'reusable' — the original quote, read back, not recomputed.
@@ -1251,6 +1385,29 @@ serve(async (req: Request) => {
           },
           409,
           H,
+        );
+      }
+      // Binding is an authorization precondition for the replay secret. A
+      // missing/foreign/malformed attempt is never backfilled or adopted.
+      try {
+        const replayVenue = venueServiceClient();
+        await requireReplayAttemptBinding(
+          (name, params) => replayVenue.rpc(name, params),
+          {
+            orderId, piId: recovered.piId, buyerId, sessionId: session_id,
+            faceMinor: recovered.amount, buyerFeeMinor: recovered.buyerFee,
+            chargeMinor: recovered.total, currency,
+          },
+        );
+      } catch (bindErr) {
+        logStage('replay-binding-refused', {
+          order_id: orderId, pi_id: recovered.piId,
+          error: bindErr instanceof Error ? bindErr.message : String(bindErr),
+        });
+        return json(
+          { error: 'Checkout could not be resumed. Please try again.', code: 'replay_binding_unavailable' },
+          503,
+          { ...H, 'Retry-After': '10' },
         );
       }
       logStage('replay-pi-reused', {
@@ -1391,27 +1548,62 @@ serve(async (req: Request) => {
       // payments row by the 093 rail-pairing CHECK, so neither exists to carry.
     };
 
-    type PiResponse = { id: string; client_secret: string; status?: string; livemode?: boolean };
+    type PiResponse = {
+      id: string; client_secret: string; status?: string; livemode?: boolean;
+      amount?: number; currency?: string; metadata?: Record<string, string>;
+    };
+    const attemptRpc: RpcCaller = (name, params) => venueServiceClient().rpc(name, params);
+    const attemptInput = {
+      orderId, buyerId, sessionId: session_id, faceMinor, buyerFeeMinor: feeMinor,
+      chargeMinor: totalMinor, currency: 'USD',
+    };
+    a3AttemptMayExist = true;
+    let attempt = await beginPaymentAttempt(attemptRpc, { ...attemptInput, attemptKey: piIdempotencyKey });
+    if (attempt.state === 'canceled') {
+      const remintKey = `${piIdempotencyKey}_u${attempt.piId ?? 'unknown'}`;
+      attempt = await beginPaymentAttempt(attemptRpc, { ...attemptInput, attemptKey: remintKey });
+    }
+    let activeAttemptKey = attempt.attemptKey;
+    // Persist the exact create body BEFORE every Stripe POST. No mutation after
+    // this point; the posted object is the stored object.
+    await storePaymentAttemptRequest(attemptRpc, {
+      ...attemptInput, attemptId: attempt.attemptId, attemptKey: attempt.attemptKey,
+      createRequest: piBody,
+    });
+
     let pi: PiResponse;
     try {
       pi = await stripeFetch<PiResponse>('/payment_intents', {
         method:         'POST',
-        idempotencyKey: piIdempotencyKey,
+        idempotencyKey: activeAttemptKey,
         body:           piBody,
       });
       if (pi.status === 'canceled') {
-        // A canceled PI can never be confirmed, and returning its client_secret
-        // hard-fails PaymentSheet. One uniquely-salted retry escapes the 24h
-        // idempotency replay window. (The resale rail salts with a stored
-        // failed-attempt count; this rail cannot, because `public.payments`
-        // carries no order linkage by ruling — so the salt is applied
-        // reactively, on observing the dead replay, instead of predictively.)
+        // The canceled PI is a confirmed terminal fact. Attach it to its
+        // persisted attempt, mark that attempt canceled, then create a NEW
+        // persisted attempt/key before the salted POST. Never randomize a retry.
+        if (pi.amount !== totalMinor || pi.currency !== 'usd'
+            || pi.metadata?.order_id !== orderId || pi.metadata?.rail !== RAIL_NATIVE_PRIMARY
+            || pi.metadata?.buyer_id !== buyerId || pi.metadata?.session_id !== session_id) {
+          throw new Error('canceled PaymentIntent identity/amount mismatch');
+        }
+        await attachPaymentAttempt(attemptRpc, { ...attemptInput, attemptId: attempt.attemptId, piId: pi.id });
+        await markPaymentAttemptByPi(attemptRpc, pi.id, 'canceled', 'canceled');
         logStage('pi-replay-canceled', { order_id: orderId, pi_id: pi.id });
+        const remintKey = `${activeAttemptKey}_u${pi.id}`;
+        attempt = await beginPaymentAttempt(attemptRpc, { ...attemptInput, attemptKey: remintKey });
+        if (attempt.state === 'canceled') throw new Error('salted remint already canceled');
+        activeAttemptKey = attempt.attemptKey;
+        await storePaymentAttemptRequest(attemptRpc, {
+          ...attemptInput, attemptId: attempt.attemptId, attemptKey: attempt.attemptKey,
+          createRequest: piBody,
+        });
         pi = await stripeFetch<PiResponse>('/payment_intents', {
           method:         'POST',
-          idempotencyKey: `${piIdempotencyKey}_u${crypto.randomUUID()}`,
+          idempotencyKey: activeAttemptKey,
           body:           piBody,
         });
+        if (pi.status === 'canceled') throw new Error('salted remint PaymentIntent is canceled');
       }
     } catch (stripeErr) {
       const detail = stripeErr instanceof Error ? stripeErr.message : String(stripeErr);
@@ -1423,12 +1615,22 @@ serve(async (req: Request) => {
       return json({ error: 'Failed to create payment intent' }, 500, H);
     }
 
+    if (pi.amount !== totalMinor || pi.currency !== 'usd'
+        || pi.metadata?.order_id !== orderId || pi.metadata?.rail !== RAIL_NATIVE_PRIMARY
+        || pi.metadata?.buyer_id !== buyerId || pi.metadata?.session_id !== session_id) {
+      throw new Error('PaymentIntent identity/amount mismatch');
+    }
+    await attachPaymentAttempt(attemptRpc, { ...attemptInput, attemptId: attempt.attemptId, piId: pi.id });
+    a3PiId = pi.id;
+
     if (pi.status === 'succeeded') {
       // The idempotent replay handed back an already-paid PI. The webhook owns
       // issuance from here; handing PaymentSheet a spent client_secret would
       // only produce a confusing client error.
       // A-3: disarmed — money won; cancelling would strand that payment.
       a3OrderId = null;
+      a3PiId = null;
+      a3AttemptMayExist = false;
       logStage('pi-already-succeeded', { order_id: orderId, pi_id: pi.id });
       return json({ error: 'Payment already completed for this order.', code: 'already_paid' }, 409, H);
     }
@@ -1522,8 +1724,7 @@ serve(async (req: Request) => {
             await captureException('primary-checkout', new Error('23505 on payments with no recoverable winner'), {
               order_id: orderId, pi_id: pi.id,
             });
-            await cancelOrphanPi(pi.id);
-            await abortFreshOrder('payments-insert-race'); // A-3, after cancelOrphanPi (§4.2 A-3)
+            await abortFreshOrder('payments-insert-race'); // cancel→mark→order, all inside abort
             return json({ error: 'Failed to record payment. Please try again.' }, 500, H);
           }
         } else {
@@ -1537,8 +1738,7 @@ serve(async (req: Request) => {
             new Error(`payments insert failed: code=${e.code ?? '?'} ${e.message ?? ''} ${e.details ?? ''}`),
             { order_id: orderId, pi_id: pi.id, activation_blocker: isShapeWall },
           );
-          await cancelOrphanPi(pi.id);
-          await abortFreshOrder('payments-insert'); // A-3, after cancelOrphanPi (§4.2 A-3)
+          await abortFreshOrder('payments-insert'); // cancel→mark→order, all inside abort
           return json(
             isShapeWall
               ? { error: 'Ticket sales are not available yet for this event.', code: 'payments_shape_unmigrated' }
@@ -1565,6 +1765,8 @@ serve(async (req: Request) => {
     // `buyer_fee` exist to itemize the total on a receipt, never to be displayed
     // as "the price".
     a3OrderId = null; // A-3: the PI is handed back — the order is no longer this request's to abort
+    a3PiId = null;
+    a3AttemptMayExist = false;
     return json(
       {
         order_id:                   orderId,
@@ -1741,13 +1943,35 @@ async function recoverReplayQuote(
  * card and leave a chargeable object with no `payments` row behind it — the
  * webhook would then receive a `payment_intent.succeeded` it cannot reconcile.
  */
-async function cancelOrphanPi(piId: string): Promise<void> {
-  try {
-    await stripeFetch(`/payment_intents/${piId}/cancel`, { method: 'POST' });
-    logStage('orphan-pi-canceled', { pi_id: piId });
-  } catch (cancelErr) {
-    console.warn('primary-checkout: PI cancel after failed record:', cancelErr);
+type OrphanCancelResult =
+  | { kind: 'canceled'; piId: string }
+  | { kind: 'not_canceled'; piId: string; detail: string };
+
+/**
+ * Cancel a PI we created but could not record, and prove the exact Stripe
+ * answer before anything else changes. A transport error, 404, malformed body,
+ * wrong id, or any status other than canceled is NOT a cancellation.
+ */
+async function cancelOrphanPi(piId: string): Promise<OrphanCancelResult> {
+  if (typeof piId !== 'string' || piId.trim() === '') {
+    return { kind: 'not_canceled', piId: String(piId), detail: 'empty PI id' };
   }
+  let res;
+  try {
+    res = await stripeFetchRaw(`/payment_intents/${piId}/cancel`, { method: 'POST' });
+  } catch (cancelErr) {
+    return {
+      kind: 'not_canceled', piId,
+      detail: cancelErr instanceof Error ? cancelErr.message : String(cancelErr),
+    };
+  }
+  if (!res.ok) return { kind: 'not_canceled', piId, detail: `stripe cancel answered ${res.status}` };
+  const body = res.data as { id?: unknown; status?: unknown } | null;
+  if (!body || typeof body.id !== 'string' || body.id !== piId || body.status !== 'canceled') {
+    return { kind: 'not_canceled', piId, detail: 'stripe cancel did not confirm exact id/status canceled' };
+  }
+  logStage('orphan-pi-canceled', { pi_id: piId });
+  return { kind: 'canceled', piId };
 }
 
 /**

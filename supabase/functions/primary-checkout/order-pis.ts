@@ -32,6 +32,7 @@
  * second is a `noop_replay` under the same audit identity.
  */
 import { buildCancelCommandKey, CANCEL_REASON_PAYMENT_FAILED } from '../stripe-webhook/native.ts';
+import { markPaymentAttemptByPi } from './payment-attempts.ts';
 
 export { CANCEL_REASON_PAYMENT_FAILED };
 
@@ -269,7 +270,27 @@ async function postLapseCancel(stripeFetchRaw: StripeRawFetch, piId: string): Pr
   } catch (err) {
     return `stripe cancel ${piId} threw: ${err instanceof Error ? err.message : String(err)}`;
   }
-  return res.ok ? null : `stripe cancel ${piId} answered ${res.status}`;
+  if (!res.ok) return `stripe cancel ${piId} answered ${res.status}`;
+  const body = res.data as { id?: unknown; status?: unknown } | null;
+  if (!body || body.id !== piId || body.status !== 'canceled') {
+    return `stripe cancel ${piId} did not confirm canceled`;
+  }
+  return null;
+}
+
+async function markCanceledAttempt(
+  deps: { venueService: () => RpcClient },
+  piId: string,
+): Promise<string | null> {
+  try {
+    await markPaymentAttemptByPi(
+      (name, params) => deps.venueService().rpc(name, params),
+      piId, 'canceled', 'canceled',
+    );
+    return null;
+  } catch (err) {
+    return `mark_payment_attempt_by_pi ${piId}: ${err instanceof Error ? err.message : String(err)}`;
+  }
 }
 
 /** §4.2 A-3: "p_command_key:'edge_abort:'+order_id". */
@@ -384,6 +405,10 @@ export async function cancelLapsedOrderPaymentIntents(
     for (const c of held) {
       const why = await postLapseCancel(deps.stripeFetchRaw, c.piId);
       if (why !== null) refused.push(why);
+      else {
+        const markErr = await markCanceledAttempt(deps, c.piId);
+        if (markErr !== null) return { kind: 'error', detail: markErr };
+      }
     }
     if (refused.length > 0) {
       return {
@@ -404,13 +429,20 @@ export async function cancelLapsedOrderPaymentIntents(
     for (const c of live) {
       const why = await postLapseCancel(deps.stripeFetchRaw, c.piId);
       if (why !== null) return { kind: 'error', detail: why };
+      const markErr = await markCanceledAttempt(deps, c.piId);
+      if (markErr !== null) return { kind: 'error', detail: markErr };
     }
     return { kind: 'cancel_requested', piIds: live.map((c) => c.piId) };
   }
 
   // Every confirmed PI is canceled and the order is still pending (it is in the
   // lapse report, or the replay said so): the webhook's cancel either has not
-  // landed or failed. Newest first (the candidate read's order), so pis[0].
+  // landed or failed. Mark each confirmed-canceled attempt before the order
+  // cancel; a missing/error mark must not reach cancel_pending_order.
+  for (const c of pis) {
+    const markErr = await markCanceledAttempt(deps, c.piId);
+    if (markErr !== null) return { kind: 'error', detail: markErr };
+  }
   const dead = pis[0];
   try {
     const { data, error } = await deps.venueService().rpc('cancel_pending_order', {

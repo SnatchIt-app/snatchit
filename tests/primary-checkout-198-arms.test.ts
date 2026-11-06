@@ -51,7 +51,7 @@ interface PayRow {
   status: string; stripe_payment_intent_id: string | null; created_at: string;
   [k: string]: unknown;
 }
-interface Pi { id: string; client_secret: string; status: string; livemode: boolean; amount: number; metadata: Record<string, string> }
+interface Pi { id: string; client_secret: string; status: string; livemode: boolean; amount: number; currency: string; metadata: Record<string, string> }
 interface OrderState { orderId: string; status: string; holdsLive: boolean | null; holds: string[] }
 
 interface WorldOpts {
@@ -143,6 +143,27 @@ async function world(opts: WorldOpts = {}) {
           },
         };
       }
+      if (name === 'read_payment_attempt_recovery') {
+        return { error: { message: 'precondition_failed: recovery needs exactly one non-canceled attempt (found 0)' } };
+      }
+      if (name === 'read_payment_attempt_binding') {
+
+        return { data: { attempt_id: 'att_replay', order_id: params.p_order_id, buyer_id: params.p_buyer_id,
+          session_id: params.p_session_id, pi_id: params.p_pi_id, state: 'open',
+          face_minor: FACE, buyer_fee_minor: FEE, amount_minor: CHARGE, currency: 'USD' } };
+      }
+      if (name === 'begin_payment_attempt') {
+        return { data: { attempt_id: `att_${String(params.p_attempt_key)}`, attempt_key: params.p_attempt_key, state: 'creating', pi_id: null } };
+      }
+      if (name === 'store_payment_attempt_request') {
+        return { data: { attempt_id: params.p_attempt_id, order_id: params.p_order_id, buyer_id: params.p_buyer_id, session_id: params.p_session_id, pi_id: null, state: 'creating', face_minor: FACE, buyer_fee_minor: FEE, amount_minor: CHARGE, currency: 'USD', create_request: params.p_create_request } };
+      }
+      if (name === 'attach_payment_attempt') {
+        return { data: { attempt_id: params.p_attempt_id, state: 'open', pi_id: params.p_pi_id, replay: false } };
+      }
+      if (name === 'mark_payment_attempt_by_pi') {
+        return { data: { attempt_id: `att_${String(params.p_pi_id)}`, state: params.p_state, pi_id: params.p_pi_id } };
+      }
       if (name === 'cancel_pending_order') {
         if (opts.cancelFails) return { error: { message: 'connection reset (test)' } };
         const o = byId(String(params.p_order_id));
@@ -196,7 +217,7 @@ async function world(opts: WorldOpts = {}) {
       const id = `pi_test_native198_${pis.size + 1}`;
       const metadata: Record<string, string> = {};
       for (const [k, v] of Object.entries(body)) if (k.startsWith('metadata[')) metadata[k.slice('metadata['.length, -1)] = v;
-      const pi: Pi = { id, client_secret: `${id}_secret_x`, status: 'requires_payment_method', livemode: false, amount: Number(body.amount), metadata };
+      const pi: Pi = { id, client_secret: `${id}_secret_x`, status: 'requires_payment_method', livemode: false, amount: Number(body.amount), currency: 'usd', metadata };
       pis.set(id, pi);
       if (c.idempotencyKey) piByIdemKey.set(c.idempotencyKey, id);
       return { ok: true, data: { ...pi } };
@@ -639,12 +660,13 @@ describe('A-3 — a success-path abort cancels the order it just created (§4.2 
     expect(w.cancels().map((c) => c.params.p_command_key)).toEqual([abortKey(w.order('cmd-a3-customer').orderId)]);
   });
 
-  it('a PaymentIntent create failure → cancelled', async () => {
+  it('a PaymentIntent create failure with unknown PI → order stays pending/recoverable, never blind-cancelled', async () => {
     const w = await world({ piCreateFails: true });
     const r = await w.run('cmd-a3-pi');
     expect(r.res.status).toBe(500);
     expect(r.body).toEqual({ error: 'Failed to create payment intent' });
-    expect(w.cancels().map((c) => c.params.p_command_key)).toEqual([abortKey(w.order('cmd-a3-pi').orderId)]);
+    expect(w.cancels()).toEqual([]);
+    expect(w.order('cmd-a3-pi').status).toBe('pending');
   });
 
   it('a payments insert failure → the orphan PI is cancelled FIRST, then the order', async () => {
