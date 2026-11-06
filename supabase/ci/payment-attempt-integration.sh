@@ -140,7 +140,7 @@ selfcheck_clone() {
     "docker exec \"\$DB_CONTAINER\" createdb" \
     "docker exec -i \"\$DB_CONTAINER\" psql" \
     "PATH=\"\$HERE/bin:\$PATH\"" \
-    "pg_dump -U postgres -d postgres --no-owner" \
+    "pg_dump -U postgres -d postgres --no-owner --exclude-extension=pg_cron" \
     "-T \"\$TEMPLATE_DB\"" \
     "::error::no Supabase database container" \
     "::error::pg_dump major" \
@@ -154,6 +154,11 @@ selfcheck_clone() {
   tmpl_body=$(sed -n '/^prepare_template() {/,/^}/p' "$src")
   if printf '%s\n' "$tmpl_body" | grep -qF -- "--no-privileges"; then
     echo "::error::snapshot dump drops ACLs; only ownership may be dropped" >&2
+    return 1
+  fi
+  # Only pg_cron is excluded (it is database-restricted); pg_net must stay.
+  if printf '%s\n' "$tmpl_body" | grep -qF -- "exclude-extension=pg_net"; then
+    echo "::error::snapshot dump excludes pg_net; keep pg_net unless it blocks restore" >&2
     return 1
   fi
   [ -x "$HERE/bin/pg_dump" ] || { echo "::error::pg_dump shim missing or not executable at $HERE/bin/pg_dump" >&2; return 1; }
@@ -213,7 +218,7 @@ prepare_template() {
   detect_db_container || return 1
   verify_pg_version || return 1
 
-  docker exec "$DB_CONTAINER" pg_dump -U postgres -d postgres --no-owner > "$SNAPSHOT" \
+  docker exec "$DB_CONTAINER" pg_dump -U postgres -d postgres --no-owner --exclude-extension=pg_cron > "$SNAPSHOT" \
     || { echo "::error::snapshot of post-forward postgres failed" >&2; return 1; }
 
   docker exec "$DB_CONTAINER" createdb -U postgres "$TEMPLATE_DB" \
