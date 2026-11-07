@@ -41,20 +41,16 @@ verify_hashes() {
   local pins="$base/docs/release/payment-attempt-coordination/tests/local-pg/migrations.pins"
   local m rel want got
   [ -f "$pins" ] || { echo "::error::migrations.pins missing at $pins" >&2; return 1; }
-  for m in $CHAIN_198_205; do
-    rel="supabase/migrations/${m}.sql"
+  for rel in $(for m in $CHAIN_198_205; do
+    printf '%s\n' "supabase/migrations/${m}.sql" "supabase/rollbacks/${m}_rollback.sql"
+  done) docs/release/payment-attempt-coordination/forward.sql docs/release/payment-attempt-coordination/rollback.sql; do
+    [ -f "$base/$rel" ] || { echo "::error::pinned input missing: $rel" >&2; return 1; }
     want=$(awk -v r="$rel" '$2==r{print $1}' "$pins")
     [ -n "$want" ] || { echo "::error::no authoritative pin for $rel" >&2; return 1; }
     got=$(shasum -a 256 "$base/$rel" | awk '{print $1}')
     [ "$got" = "$want" ] || { echo "::error::hash drift in $rel (expected $want, got $got)" >&2; return 1; }
   done
-  for rel in docs/release/payment-attempt-coordination/forward.sql docs/release/payment-attempt-coordination/rollback.sql; do
-    want=$(awk -v r="$rel" '$2==r{print $1}' "$pins")
-    [ -n "$want" ] || { echo "::error::no authoritative pin for $rel" >&2; return 1; }
-    got=$(shasum -a 256 "$base/$rel" | awk '{print $1}')
-    [ "$got" = "$want" ] || { echo "::error::hash drift in $rel (expected $want, got $got)" >&2; return 1; }
-  done
-  echo "OK: 8 migration files + forward/rollback match the authoritative hashes"
+  echo "OK: 8 migrations, 8 migration rollbacks and payment-attempt forward/rollback match the authoritative hashes"
 }
 
 verify_inputs() {
@@ -81,12 +77,16 @@ verify_inputs() {
 tamper_proof() {
   T=$(mktemp -d "${TMPDIR:-/tmp}/oc-tamper.XXXXXX")
   trap 'rm -rf "$T"' EXIT
-  mkdir -p "$T/supabase/migrations" "$T/docs/release/payment-attempt-coordination/tests/local-pg" "$T/docs/release/payment-attempt-coordination"
+  mkdir -p "$T/supabase/migrations" "$T/supabase/rollbacks" "$T/docs/release/payment-attempt-coordination/tests/local-pg" "$T/docs/release/payment-attempt-coordination"
   local m f
-  for m in $CHAIN_198_205; do cp "$MIGDIR/${m}.sql" "$T/supabase/migrations/"; done
+  for m in $CHAIN_198_205; do
+    cp "$MIGDIR/${m}.sql" "$T/supabase/migrations/"
+    cp "$ROOT/supabase/rollbacks/${m}_rollback.sql" "$T/supabase/rollbacks/"
+  done
   cp "$DOCS/forward.sql" "$T/docs/release/payment-attempt-coordination/forward.sql"
   cp "$DOCS/rollback.sql" "$T/docs/release/payment-attempt-coordination/rollback.sql"
   cp "$PINS" "$T/docs/release/payment-attempt-coordination/tests/local-pg/migrations.pins"
+  verify_hashes "$T" || return 1
   f="$T/supabase/migrations/20261102140000_ops_report_et_day_boundaries.sql"
   printf '\n-- tamper\n' >> "$f"
   if verify_hashes "$T"; then
@@ -563,6 +563,37 @@ run_rollback_modes() {
   done
 }
 
+run_migration_chain_rollback() {
+  local url migration
+  url=$(dburl oc_chain_rollback)
+  clone oc_chain_rollback || return 1
+  # The coordination schema is installed after 205, so retire it before
+  # restoring the numbered migration predecessors on this isolated clone.
+  psql "$url" -X -v ON_ERROR_STOP=1 -q -f "$DOCS/rollback.sql" || return 1
+  assert_legacy_payment_contract "$url" before-numbered-rollbacks || return 1
+
+  while IFS= read -r migration; do
+    psql "$url" -X -v ON_ERROR_STOP=1 -q -f "$ROOT/supabase/rollbacks/${migration}_rollback.sql" \
+      || { echo "::error::numbered rollback failed: $migration" >&2; return 1; }
+    echo "OK: numbered rollback $migration passed its predecessor checks"
+  done < <(printf '%s\n' "$CHAIN_198_205" | sort -r)
+
+  psql "$url" -X -v ON_ERROR_STOP=1 -q <<'SQL' || return 1
+do $$
+begin
+  if md5(pg_get_functiondef(to_regprocedure('venue.create_primary_checkout(uuid,jsonb,uuid[],text)')))
+       is distinct from '77004331198b9dad2e51e1ed2ceaef35'
+     or exists (select 1 from pg_attribute
+                where attrelid = 'venue.inventory_hold'::regclass
+                  and attname = 'order_id' and not attisdropped) then
+    raise exception 'numbered rollback chain did not restore the pre-198 checkout contract';
+  end if;
+end
+$$;
+SQL
+  echo "OK: reverse migration chain restored the pre-198 checkout contract"
+}
+
 case "${1:-}" in
   --verify-inputs) verify_inputs; exit 0 ;;
   --tamper-proof)  verify_inputs; tamper_proof; exit 0 ;;
@@ -586,4 +617,5 @@ assert_cancellation_refusals
 assert_payment_attempt_lifecycle
 run_concurrency
 run_rollback_modes
+run_migration_chain_rollback
 echo "PASS payment-attempt integration"
