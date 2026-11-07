@@ -784,6 +784,12 @@ jobs:
           # post-flight). Nothing in `public`. Kernel 157 -> 161, five-schema 320 -> 324, 141 F2 69 -> 70, F3 54 -> 56.
           # Read from a local PG17 replay of main 7496fee3 + 199 with the service_role function default revoked:
           # 35|133|37|49 before and after.
+          # 2026-11-02 registry 200 (D, admin report day boundaries in America/New_York; repo-only, applied nowhere):
+          # NO change to any of the four counters. 200 is body-only CREATE OR REPLACE of four `ops` functions
+          # (money_overview, refresh_metrics, build_daily_summary, primary_reconciliation): same signatures, owner,
+          # ACL, SECURITY DEFINER and search_path (pinned by pgTAP 269 P1-P4 and 200's post-flight). No object, no
+          # grant, nothing in `public`. Read from a local PG17 replay of main 7496fee3 + 200 with the service_role
+          # function default revoked: 35|133|37|49 before and after.
           EXPECT_TABLES: 35
           # 2026-09-15 migration 130 (L1 concurrency, B): functions 94 -> 96 —
           # +2 public.claim_checkout_supersede, public.release_checkout_supersede
