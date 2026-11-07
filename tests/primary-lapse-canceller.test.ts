@@ -36,7 +36,7 @@ const FACE = 2500;
 const CHARGE = 2800;
 
 interface PayRow { buyer_id: string; mode: string; amount: number; buyer_fee: number; total: number; status: string; stripe_payment_intent_id: string; created_at: string }
-interface Pi { id: string; client_secret: string; status: string; metadata: Record<string, string> }
+interface Pi { id: string; amount: number; currency: string; client_secret: string; status: string; metadata: Record<string, string> }
 interface ReviewRow { payment_id: null; listing_id: null; rpc_name: string; error_message: string; resolved: boolean }
 
 type Lapsed = Record<string, unknown>;
@@ -54,6 +54,7 @@ interface WorldOpts {
   /** POST /payment_intents/{id}/cancel on these PI ids answers this status */
   cancelFails?: Record<string, number>;
   cancelBodies?: Record<string, unknown>;
+  attemptReadError?: boolean;
   binding?: 'missing-rpc' | 'missing' | 'wrong-pi' | 'wrong-quote' | 'unsafe-state';
 }
 
@@ -69,25 +70,33 @@ async function world(opts: WorldOpts = {}) {
   const tick = () => new Date((clock += 60_000)).toISOString();
   const rows: PayRow[] = [];
   const pis = new Map<string, Pi>();
+  const attempts: Array<Record<string, unknown>> = [];
   const reviews: ReviewRow[] = [];
   /** null → marker reads work; 'error' → the read answers an error; 'throw' → it rejects */
   let markerReads: null | 'error' | 'throw' = null;
   const setMarkerReads = (mode: null | 'error' | 'throw') => { markerReads = mode; };
 
   /** a PI minted for order n (metadata exactly as primary-checkout writes it) and its payments row */
-  const addPi = (n: number, piStatus: string, o: { rowStatus?: string; session?: string; metaOrder?: string; face?: number } = {}) => {
+  const addPi = (n: number, piStatus: string, o: { rowStatus?: string; session?: string; metaOrder?: string; face?: number; orphan?: boolean } = {}) => {
     const id = `pi_test_lapse_${pis.size + 1}`;
     pis.set(id, {
-      id, client_secret: `${id}_secret_x`, status: piStatus,
+      id, amount: CHARGE, currency: 'usd', client_secret: `${id}_secret_x`, status: piStatus,
       metadata: {
         rail: 'native_primary', mode: 'native_primary', order_id: o.metaOrder ?? orderUuid(n), buyer_id: BUYER,
         org_id: ORG, session_id: o.session ?? SESSION,
       },
     });
-    rows.push({
-      buyer_id: BUYER, mode: 'native_primary', amount: o.face ?? FACE, buyer_fee: CHARGE - FACE, total: CHARGE,
-      status: o.rowStatus ?? (piStatus === 'succeeded' ? 'succeeded' : 'pending'), stripe_payment_intent_id: id, created_at: tick(),
-    });
+    if (o.orphan) {
+      attempts.push({
+        order_id: orderUuid(n), buyer_id: BUYER, session_id: SESSION, pi_id: id,
+        state: 'open', face_minor: FACE, buyer_fee_minor: CHARGE - FACE, amount_minor: CHARGE, currency: 'USD',
+      });
+    } else {
+      rows.push({
+        buyer_id: BUYER, mode: 'native_primary', amount: o.face ?? FACE, buyer_fee: CHARGE - FACE, total: CHARGE,
+        status: o.rowStatus ?? (piStatus === 'succeeded' ? 'succeeded' : 'pending'), stripe_payment_intent_id: id, created_at: tick(),
+      });
+    }
     return id;
   };
 
@@ -99,20 +108,29 @@ async function world(opts: WorldOpts = {}) {
         if (opts.report === undefined) return { data: base };
         return { data: { ...base, skipped_busy: 0, lapsed_orders: params.p_limit === 0 ? opts.report : null } };
       }
+      if (name === 'read_lapse_payment_attempts') {
+        expect(schema).toBe('venue');
+        return opts.attemptReadError
+          ? { error: { code: 'PGRST202', message: 'function not found' } }
+          : { data: attempts.filter((a) => a.order_id === params.p_order_id) };
+      }
       if (name === 'mark_payment_attempt_by_pi') {
+        const attempt = attempts.find((a) => a.pi_id === params.p_pi_id);
+        if (attempt) attempt.state = params.p_state;
         return { data: { attempt_id: `att_${String(params.p_pi_id)}`, state: params.p_state, pi_id: params.p_pi_id } };
       }
       if (name === 'read_payment_attempt_binding') {
         if (opts.binding === 'missing-rpc') return { error: { code: 'PGRST202', message: 'function not found' } };
         if (opts.binding === 'missing') return { data: null };
         const row = rows.find((r) => r.stripe_payment_intent_id === params.p_pi_id);
+        const attempt = attempts.find((a) => a.pi_id === params.p_pi_id);
         return { data: {
           attempt_id: 'attempt-fixture', order_id: params.p_order_id,
           buyer_id: params.p_buyer_id, session_id: params.p_session_id,
           pi_id: opts.binding === 'wrong-pi' ? 'pi_other' : params.p_pi_id,
           state: opts.binding === 'unsafe-state' ? 'processing' : row?.status === 'failed' ? 'failed' : 'open',
-          face_minor: row?.amount, buyer_fee_minor: row?.buyer_fee,
-          amount_minor: opts.binding === 'wrong-quote' ? CHARGE + 1 : row?.total, currency: 'USD',
+          face_minor: row?.amount ?? attempt?.face_minor, buyer_fee_minor: row?.buyer_fee ?? attempt?.buyer_fee_minor,
+          amount_minor: opts.binding === 'wrong-quote' ? CHARGE + 1 : row?.total ?? attempt?.amount_minor, currency: 'USD',
         } };
       }
       if (name === 'cancel_pending_order') {
@@ -186,7 +204,7 @@ async function world(opts: WorldOpts = {}) {
   const orderCancels = () => sb.rpcs.filter((r) => r.name === 'cancel_pending_order');
   const alerts = (needle: string) => edge.sentry.filter((s) => String((s.error as Error).message ?? s.error).includes(needle));
 
-  return { run, addPi, pis, rows, reviews, sb, stripe, edge, piCancels, orderCancels, alerts, setMarkerReads, setCancelBodies: (b: Record<string, unknown> | undefined) => { cancelBodies = b; } };
+  return { run, addPi, pis, rows, attempts, reviews, sb, stripe, edge, piCancels, orderCancels, alerts, setMarkerReads, setCancelBodies: (b: Record<string, unknown> | undefined) => { cancelBodies = b; } };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -295,6 +313,72 @@ describe('A-6 steps 2-3 — per lapsed order, act on the PaymentIntent\'s status
     w.addPi(1, 'requires_capture');
     const r = await w.run();
     expect(r.body.results).toEqual([{ order_id: orderUuid(1), outcome: 'anomaly' }]);
+    expect(w.piCancels()).toEqual([]);
+    expect(w.orderCancels()).toEqual([]);
+  });
+
+  it('recovers an attached attempt with no public payment row and cancels only after Stripe confirms', async () => {
+    const w = await world({ report: [lapsed(1)] });
+    const id = w.addPi(1, 'requires_payment_method', { orphan: true });
+    expect(w.rows).toHaveLength(0);
+    const first = await w.run();
+    expect(first.body.results).toEqual([{ order_id: orderUuid(1), outcome: 'cancel_requested' }]);
+    expect(w.orderCancels()).toEqual([]);
+    const second = await w.run();
+    expect(second.body.results).toEqual([{ order_id: orderUuid(1), outcome: 'order_cancelled' }]);
+    expect(w.piCancels().map((c) => c.path)).toEqual([`/payment_intents/${id}/cancel`]);
+    expect(w.orderCancels()).toHaveLength(1);
+  });
+
+  it('a succeeded attempt without a payment row protects a visible live sibling', async () => {
+    const w = await world({ report: [lapsed(1)] });
+    w.addPi(1, 'requires_payment_method');
+    w.addPi(1, 'succeeded', { orphan: true });
+    const r = await w.run();
+    expect(r.body.results).toEqual([{ order_id: orderUuid(1), outcome: 'paid' }]);
+    expect(w.piCancels()).toEqual([]);
+    expect(w.orderCancels()).toEqual([]);
+  });
+
+  it('refuses when Stripe returns a different quote for an attached attempt', async () => {
+    const w = await world({ report: [lapsed(1)] });
+    const id = w.addPi(1, 'requires_payment_method', { orphan: true });
+    w.pis.get(id)!.amount += 1;
+    const r = await w.run();
+    expect(r.body.results).toEqual([{ order_id: orderUuid(1), outcome: 'error' }]);
+    expect(w.piCancels()).toEqual([]);
+    expect(w.orderCancels()).toEqual([]);
+  });
+
+  it('also validates Stripe quote when a tracked attempt has a public payment row', async () => {
+    const w = await world({ report: [lapsed(1)] });
+    const id = w.addPi(1, 'requires_payment_method', { orphan: true });
+    w.rows.push({
+      buyer_id: BUYER, mode: 'native_primary', amount: FACE, buyer_fee: CHARGE - FACE, total: CHARGE,
+      status: 'pending', stripe_payment_intent_id: id, created_at: '2026-11-02T09:00:00Z',
+    });
+    w.pis.get(id)!.amount += 1;
+    const r = await w.run();
+    expect(r.body.results).toEqual([{ order_id: orderUuid(1), outcome: 'error' }]);
+    expect(w.piCancels()).toEqual([]);
+    expect(w.orderCancels()).toEqual([]);
+  });
+
+  it('keeps the order open and never mints a PI when a stranded attempt has no attached Stripe id', async () => {
+    const w = await world({ report: [lapsed(1)] });
+    w.addPi(1, 'requires_payment_method', { orphan: true });
+    Object.assign(w.attempts[0], { state: 'creating', pi_id: null });
+    const r = await w.run();
+    expect(r.body.results).toEqual([{ order_id: orderUuid(1), outcome: 'error' }]);
+    expect(w.stripe.calls).toEqual([]);
+    expect(w.orderCancels()).toEqual([]);
+  });
+
+  it('refuses to cancel even a visible payment if the attempt roster cannot be read', async () => {
+    const w = await world({ report: [lapsed(1)], attemptReadError: true });
+    w.addPi(1, 'requires_payment_method');
+    const r = await w.run();
+    expect(r.body.results).toEqual([{ order_id: orderUuid(1), outcome: 'error' }]);
     expect(w.piCancels()).toEqual([]);
     expect(w.orderCancels()).toEqual([]);
   });

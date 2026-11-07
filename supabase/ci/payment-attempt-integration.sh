@@ -465,6 +465,8 @@ assert_rpc_signatures() {
       if to_regprocedure('venue.mark_payment_attempt_by_pi(text,text,text)') is null then raise exception 'missing mark_payment_attempt_by_pi'; end if;
       if to_regprocedure('venue.read_payment_attempt_recovery(uuid,uuid,uuid)') is null then raise exception 'missing read_payment_attempt_recovery'; end if;
       if to_regprocedure('venue.read_payment_attempt_binding(uuid,text,uuid,uuid)') is null then raise exception 'missing read_payment_attempt_binding'; end if;
+      if not coalesce(has_function_privilege('service_role', to_regprocedure('venue.read_lapse_payment_attempts(uuid,uuid,uuid)'), 'EXECUTE'), false) then raise exception 'lapse attempt read missing or not executable by service_role'; end if;
+      if has_function_privilege('anon', 'venue.read_lapse_payment_attempts(uuid,uuid,uuid)', 'EXECUTE') or has_function_privilege('authenticated', 'venue.read_lapse_payment_attempts(uuid,uuid,uuid)', 'EXECUTE') then raise exception 'client roles must not read lapse attempts'; end if;
       if md5(pg_get_functiondef(to_regprocedure('venue.cancel_pending_order(uuid,text,text)'))) is distinct from '3d7fef64c44483586f46b568cb92c610' then raise exception 'cancel_pending_order pin mismatch or missing'; end if;
       if not has_function_privilege('service_role', 'venue.begin_payment_attempt(uuid,text,uuid,uuid,integer,integer,integer,text)', 'EXECUTE') then raise exception 'begin grant missing for service_role'; end if;
       if not has_function_privilege('service_role', 'venue.cancel_pending_order(uuid,text,text)', 'EXECUTE') then raise exception 'cancel grant missing for service_role'; end if;

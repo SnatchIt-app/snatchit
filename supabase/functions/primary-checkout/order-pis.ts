@@ -66,6 +66,7 @@ export type CandidateRow = {
 
 export type ConfirmedPi = {
   row: CandidateRow; piId: string; status: string; clientSecret: string | null; sessionId: string | null;
+  stripeQuote: { amount: unknown; currency: unknown; buyerId: unknown };
 };
 
 export type PiSearch = { kind: 'error'; detail: string } | { kind: 'looked'; confirmed: ConfirmedPi[] };
@@ -187,6 +188,7 @@ export async function searchOrderPaymentIntents(
     }
     const pi = probe.data as {
       id?: string; status?: string; client_secret?: string; metadata?: Record<string, string>;
+      amount?: unknown; currency?: unknown;
     };
     // THE AUTHORITATIVE CHECK. Both must match: the order this PI was minted
     // for, and the rail that minted it.
@@ -197,6 +199,7 @@ export async function searchOrderPaymentIntents(
     confirmed.push({
       row, piId: pi.id, status: pi.status ?? 'unknown', clientSecret: pi.client_secret ?? null,
       sessionId: pi.metadata?.session_id ?? null,
+      stripeQuote: { amount: pi.amount, currency: pi.currency, buyerId: pi.metadata?.buyer_id },
     });
   }
   return { kind: 'looked', confirmed };
@@ -298,6 +301,80 @@ export function edgeAbortCommandKey(orderId: string): string {
   return `edge_abort:${orderId}`;
 }
 
+// The scheduler has the order's session from the lapse report. Use it to
+// recover tracked intents independently of the legacy payments-row lookup.
+const TRACKED_LAPSE_STATES = new Set(['open', 'failed', 'processing', 'succeeded', 'canceled']);
+
+async function includeTrackedLapseAttempts(
+  deps: { venueService: () => RpcClient; stripeFetchRaw: StripeRawFetch },
+  t: LapseTarget,
+  sessionId: string,
+  existing: ConfirmedPi[],
+): Promise<ConfirmedPi[]> {
+  const { data, error } = await deps.venueService().rpc('read_lapse_payment_attempts', {
+    p_order_id: t.orderId, p_buyer_id: t.buyerId, p_session_id: sessionId,
+  });
+  if (error) throw new Error('lapse attempt roster unavailable');
+  if (!Array.isArray(data) || data.length > 100) throw new Error('malformed lapse attempt roster');
+  const confirmed = new Map(existing.map((pi) => [pi.piId, pi]));
+  const seen = new Set<string>();
+
+  for (const row of data) {
+    if (!row || row.order_id !== t.orderId || row.buyer_id !== t.buyerId || row.session_id !== sessionId
+        || row.face_minor !== t.faceMinor || row.currency !== 'USD'
+        || !Number.isSafeInteger(row.buyer_fee_minor) || row.buyer_fee_minor < 0
+        || !Number.isSafeInteger(row.amount_minor) || row.amount_minor !== t.faceMinor + row.buyer_fee_minor) {
+      throw new Error('lapse attempt identity or quote mismatch');
+    }
+    // With no attached PI there is no safe Stripe operation. Replaying the
+    // persisted create request after expiry could create a new intent.
+    if (!TRACKED_LAPSE_STATES.has(row.state) || typeof row.pi_id !== 'string'
+        || !/^pi_[A-Za-z0-9_]+$/.test(row.pi_id) || seen.has(row.pi_id)) {
+      throw new Error('lapse attempt requires reconciliation before cancellation');
+    }
+    seen.add(row.pi_id);
+    const known = confirmed.get(row.pi_id);
+    if (known) {
+      if (known.row.total !== row.amount_minor || known.row.buyer_fee !== row.buyer_fee_minor
+          || known.row.stripe_payment_intent_id !== row.pi_id || known.sessionId !== sessionId
+          || known.stripeQuote.amount !== row.amount_minor || known.stripeQuote.currency !== 'usd'
+          || known.stripeQuote.buyerId !== t.buyerId) {
+        throw new Error('lapse payment row or Stripe quote does not match its attempt');
+      }
+      if (row.state === 'succeeded') known.row = { ...known.row, status: 'succeeded' };
+      if ((row.state === 'processing' && !['processing', 'succeeded'].includes(known.status))
+          || (row.state === 'canceled' && known.status !== 'canceled')) {
+        throw new Error('lapse attempt state disagrees with Stripe');
+      }
+      continue;
+    }
+
+    const result = await deps.stripeFetchRaw(`/payment_intents/${row.pi_id}`);
+    const pi = result.data as {
+      id?: unknown; amount?: unknown; currency?: unknown; status?: unknown; metadata?: Record<string, unknown>;
+    } | null;
+    if (!result.ok || !pi || pi.id !== row.pi_id || pi.amount !== row.amount_minor
+        || pi.currency !== 'usd' || typeof pi.status !== 'string'
+        || pi.metadata?.rail !== NATIVE_PRIMARY || pi.metadata.order_id !== t.orderId
+        || pi.metadata.buyer_id !== t.buyerId || pi.metadata.session_id !== sessionId) {
+      throw new Error('Stripe did not confirm the stranded lapse attempt');
+    }
+    if ((row.state === 'processing' && !['processing', 'succeeded'].includes(pi.status))
+        || (row.state === 'canceled' && pi.status !== 'canceled')) {
+      throw new Error('lapse attempt state disagrees with Stripe');
+    }
+    confirmed.set(row.pi_id, {
+      piId: row.pi_id, status: pi.status, clientSecret: null, sessionId,
+      stripeQuote: { amount: pi.amount, currency: pi.currency, buyerId: pi.metadata.buyer_id },
+      row: {
+        amount: row.face_minor, buyer_fee: row.buyer_fee_minor, total: row.amount_minor,
+        status: row.state, stripe_payment_intent_id: row.pi_id,
+      },
+    });
+  }
+  return [...confirmed.values()];
+}
+
 /**
  * §4.2 A-6 steps 2-3 for ONE lapsed order.
  *
@@ -372,7 +449,16 @@ export async function cancelLapsedOrderPaymentIntents(
     { orderId: t.orderId, faceMinor: t.faceMinor, buyerId: t.buyerId, statuses: LAPSE_CANDIDATE_STATUSES },
   );
   if (found.kind === 'error') return found;
-  const pis = found.confirmed;
+  let pis = found.confirmed;
+  // Checkout replay may only know the incoming request's session, which can
+  // differ from the order. The scheduler supplies the authoritative session.
+  if (t.sessionId !== null) {
+    try {
+      pis = await includeTrackedLapseAttempts(deps, t, t.sessionId, pis);
+    } catch (err) {
+      return { kind: 'error', detail: err instanceof Error ? err.message : String(err) };
+    }
+  }
   if (pis.length === 0) return { kind: 'no_pi' };
 
   async function checkCancellationBindings(candidates: ConfirmedPi[]): Promise<string | null> {

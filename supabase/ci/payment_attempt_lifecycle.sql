@@ -56,6 +56,21 @@ begin
     if sqlerrm <> 'precondition_failed: canceled requires Stripe status canceled' then raise; end if;
   end;
 
+  result := venue.read_lapse_payment_attempts(order_key, buyer_key, session_key);
+  if jsonb_array_length(result) is distinct from 1
+     or result->0->>'pi_id' is distinct from pi_key
+     or result->0->>'state' is distinct from 'open'
+     or result->0->>'amount_minor' is distinct from '2750'
+     or result->0 ? 'create_request' then
+    raise exception 'lapse read must return the attached attempt without its create request';
+  end if;
+  begin
+    perform venue.read_lapse_payment_attempts(order_key, buyer_key, order_key);
+    raise exception 'lapse read accepted the wrong session';
+  exception when raise_exception then
+    if sqlerrm <> 'precondition_failed: lapse order identity or state mismatch' then raise; end if;
+  end;
+
   result := venue.mark_payment_attempt_by_pi(pi_key, 'canceled', 'canceled');
   if result->>'state' is distinct from 'canceled'
      or result->>'order_id' is distinct from order_key::text

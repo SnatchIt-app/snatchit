@@ -587,6 +587,39 @@ $fn$;
 revoke all on function venue.read_payment_attempt_binding(uuid, text, uuid, uuid) from public, anon, authenticated, service_role;
 grant execute on function venue.read_payment_attempt_binding(uuid, text, uuid, uuid) to service_role;
 
+-- Read every tracked attempt for the scheduler's exact order. No create
+-- request, customer data, or secret is returned. The cancel trigger remains
+-- the final check for concurrent writers after this read.
+create function venue.read_lapse_payment_attempts(p_order_id uuid, p_buyer_id uuid, p_session_id uuid)
+returns jsonb
+language plpgsql stable
+security definer
+set search_path = ''
+as $fn$
+declare
+  v_result jsonb;
+begin
+  perform 1 from venue."order" o
+   where o.order_id = p_order_id and o.buyer_id = p_buyer_id
+     and o.event_session_id = p_session_id and o.status = 'pending';
+  if not found then
+    raise exception 'precondition_failed: lapse order identity or state mismatch' using errcode = 'P0001';
+  end if;
+  select coalesce(jsonb_agg(to_jsonb(a)), '[]'::jsonb) into v_result
+    from (
+      select order_id, buyer_id, session_id, pi_id, state, face_minor, buyer_fee_minor, amount_minor, currency
+        from venue.payment_attempt where order_id = p_order_id
+       order by attempt_id limit 101
+    ) a;
+  if jsonb_array_length(v_result) > 100 then
+    raise exception 'precondition_failed: lapse attempt limit exceeded' using errcode = 'P0001';
+  end if;
+  return v_result;
+end;
+$fn$;
+revoke all on function venue.read_lapse_payment_attempts(uuid, uuid, uuid) from public, anon, authenticated, service_role;
+grant execute on function venue.read_lapse_payment_attempts(uuid, uuid, uuid) to service_role;
+
 create function venue.guard_order_cancel_attempts()
 returns trigger
 language plpgsql
