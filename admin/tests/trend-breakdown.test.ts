@@ -204,7 +204,7 @@ describe("MoneyKpis renders the period comparison from the current and previous 
     mocks.readPeriod.mockImplementation(async (f: string) => (f === "2026-09-23" ? period("2026-09-23", "2026-10-21", CUR) : period("2026-08-25", "2026-09-22", PREV)));
     const html = h(await MoneyKpis({ from: "2026-09-23", to: "2026-10-21", compact: true }));
     expect(html).not.toContain("<table");
-    expect(html).toContain("Compared with Aug 25 – Sep 22 (UTC)");
+    expect(html).toContain("Compared with Aug 25 – Sep 22 (ET)");
   });
 });
 

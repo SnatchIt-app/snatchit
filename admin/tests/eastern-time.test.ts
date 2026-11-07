@@ -33,7 +33,8 @@ async function load(tz: string) {
     import("@/components/charts/FigureMeta"),
     import("@/components/generic/GenericRpc"),
   ]);
-  return { ...format, ...figureMeta, ...dateTime, ...figure, ...generic };
+  const analytics = await import("@/lib/analytics-core");
+  return { ...format, ...figureMeta, ...dateTime, ...figure, ...generic, resolveRange: analytics.resolveRange };
 }
 
 const ORIGINAL_TZ = process.env.TZ;
@@ -113,17 +114,53 @@ for (const tz of ZONES) {
       expect(html(m.renderValue("resolved_by", "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d", 1))).not.toContain("<time");
     });
 
-    it("the figure line: the as-of time is Eastern; the report DAY stays the server's UTC day (registry 200 not applied)", () => {
+    it("the figure line ships WITH registry 200: Eastern as-of time, Eastern report days, the Eastern 'today'", () => {
       expect(m.asOfLabel("2026-11-02T04:59:59Z", new Date())).toBe("as of 2026-11-01 23:59:59 EST");
-      expect(m.REPORT_DAY_BASIS).toBe("UTC");
-      const out = html(createElement(m.FigureMeta, { range: { from: "2026-10-03", to: "2026-11-01" }, computedAt: "2026-11-02T04:59:59Z", readAt: new Date("2026-11-02T05:00:00Z") }));
-      expect(out).toContain("UTC calendar days");
-      expect(out).toContain("as of 2026-11-01 23:59:59 EST");
-      // never relabel UTC report data as Eastern before the server counts Eastern days
-      expect(out).not.toMatch(/(ET|EST|EDT|Eastern) calendar day/);
+      expect(m.REPORT_DAY_BASIS).toBe("ET");
+      const out = html(createElement(m.FigureMeta, { range: { from: "2026-10-03", to: "2026-11-01" }, computedAt: "2026-11-02T04:59:59Z", readAt: new Date("2026-11-02T04:59:59Z") }));
+      expect(out).toContain("ET calendar days");
+      expect(out).not.toContain("UTC calendar days");
+      // 04:59:59Z on Nov 2 is still Nov 1 in ET: a range ending Nov 1 is today, so it is partial …
+      expect(out).toContain("includes today so far (partial)");
+      // … and one second later (05:00Z = 00:00 EST, Nov 2) it is complete
+      const next = html(createElement(m.FigureMeta, { range: { from: "2026-10-03", to: "2026-11-01" }, computedAt: "2026-11-02T05:00:00Z", readAt: new Date("2026-11-02T05:00:00Z") }));
+      expect(next).not.toContain("includes today so far (partial)");
+      expect(m.etToday(new Date("2026-11-01T03:59:59Z"))).toBe("2026-10-31");
+      expect(m.etToday(new Date("2026-11-01T04:00:00Z"))).toBe("2026-11-01");
+    });
+
+    it("the money range's default 'to' is the Eastern date, and 'last 30 days' counts back from it", () => {
+      expect(m.resolveRange({}, new Date("2026-11-02T04:59:59Z"))).toMatchObject({ from: "2026-10-03", to: "2026-11-01", days: 30 });
+      expect(m.resolveRange({}, new Date("2026-11-02T05:00:00Z"))).toMatchObject({ from: "2026-10-04", to: "2026-11-02", days: 30 });
+      // a typed range ending after today (ET) is clamped to the ET date
+      expect(m.resolveRange({ from: "2026-10-01", to: "2026-11-05" }, new Date("2026-11-02T04:59:59Z")).to).toBe("2026-11-01");
     });
   });
 }
+
+describe("the daily summary covers one Eastern calendar day (registry 200), not a rolling 24 h", () => {
+  it("labels the *_24h counts as that day and names the ET basis", async () => {
+    const { SummaryView } = await import("@/components/system/SummaryView");
+    const out = html(
+      createElement(SummaryView, {
+        summary: {
+          summary_date: "2026-11-01",
+          generated_at: "2026-11-02T13:00:05Z",
+          delivery_state: "portal_only",
+          body: { period: { from: "2026-11-01T04:00:00+00:00", to: "2026-11-02T05:00:00+00:00" }, cases: { opened_24h: 3, resolved_24h: 1 }, money: { currency: "USD", basis: "ET", live_24h: {} }, jobs: { runs_24h: { succeeded: 2, failed: 0, skipped: 0 } } },
+        },
+      }),
+    );
+    expect(out).toContain("one Eastern Time calendar day");
+    expect(out).toContain("Opened that day");
+    expect(out).toContain("Runs succeeded (that day)");
+    expect(out).toContain("ET calendar day");
+    expect(out).not.toMatch(/last 24 h|\(24 h\)/);
+    // the 25 h ET day of Nov 1 is shown as its own instants
+    expect(out).toContain("2026-11-01 00:00 EDT");
+    expect(out).toContain("2026-11-02 00:00 EST");
+  });
+});
 
 describe("the cron label states a fact that holds all year", () => {
   it("13:00 UTC is 8:00 AM EST in winter and 9:00 AM EDT in summer", () => {

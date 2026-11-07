@@ -54,8 +54,8 @@ export default async function MoneyPage({ searchParams }: { searchParams: Promis
       <PageHeader
         eyebrow="Money"
         title="Money analytics"
-        description="Captured sales, platform fees, refunds and seller payouts are separate measures and are never netted against each other. USD, UTC calendar days."
-        meta={<>Showing {shortDay(from)} – {shortDay(to)} (UTC)</>}
+        description="Captured sales, platform fees, refunds and seller payouts are separate measures and are never netted against each other. USD, Eastern Time (ET) calendar days."
+        meta={<>Showing {shortDay(from)} – {shortDay(to)} (ET)</>}
       />
       <SampleDataNotice />
 
@@ -75,10 +75,10 @@ export default async function MoneyPage({ searchParams }: { searchParams: Promis
           ))}
         </nav>
         <form method="get" action="/money" className="flex flex-wrap items-end gap-2 sm:ml-auto">
-          <FilterField label="From (UTC)">
+          <FilterField label="From (ET)">
             <input type="date" name="from" defaultValue={from} className="field py-1 text-[0.8125rem]" />
           </FilterField>
-          <FilterField label="To (UTC)">
+          <FilterField label="To (ET)">
             <input type="date" name="to" defaultValue={to} className="field py-1 text-[0.8125rem]" />
           </FilterField>
           {state ? <input type="hidden" name="state" value={state} /> : null}

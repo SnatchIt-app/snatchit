@@ -2,7 +2,8 @@
  * Business analytics — pure, unit-tested helpers. No I/O.
  *
  * Every figure here comes from `ops.money_overview(from, to)` evaluated over a
- * real UTC period. A trend is a sequence of such periods, each aggregated from
+ * real Eastern Time (ET) calendar period — the server counts ET days since
+ * registry 200. A trend is a sequence of such periods, each aggregated from
  * transactions by the database; nothing is interpolated, projected or derived
  * from a current total. Measures keep the database's definitions and are never
  * netted against each other:
@@ -14,6 +15,7 @@
  *   bank payouts        not tracked
  */
 import type { MoneyOverview } from "@/lib/types";
+import { etToday } from "@/lib/format";
 
 export const DAY_MS = 86_400_000;
 
@@ -201,9 +203,12 @@ export const RANGE_PRESETS = [
 
 export type RangeSelection = { from: string; to: string; preset: string | null; days: number };
 
-/** Resolve ?range=30d or ?from=&to= (UTC, inclusive, ≤ 366 days, never in the future). Default: last 30 days. */
+/**
+ * Resolve ?range=30d or ?from=&to= (Eastern calendar days, inclusive, ≤ 366 days, never after today in ET).
+ * Default: last 30 days. "Today" is the ET date, because ops.money_overview counts ET days (registry 200).
+ */
 export function resolveRange(sp: { range?: string; from?: string; to?: string }, now: Date): RangeSelection {
-  const today = isoDay(now);
+  const today = etToday(now);
   const preset = RANGE_PRESETS.find((p) => p.key === sp.range);
   if (!preset && sp.from && sp.to) {
     const f = parseIsoDay(sp.from);

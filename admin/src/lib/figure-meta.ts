@@ -6,22 +6,22 @@
  *
  * Every claim here is taken from the formatters the console already uses:
  * `formatMoney` prints "… USD", `formatEt` prints "… EST" / "… EDT", and the
- * analytics buckets are UTC calendar days (`isoDay` / `shortDay` read the UTC fields).
+ * report days are Eastern calendar days (registry 200; `isoDay` / `shortDay` only
+ * hold the date, so they read the UTC fields of a 00:00Z holder).
  */
-import { formatEt, parseDate } from "@/lib/format";
-import { isoDay, parseIsoDay } from "@/lib/analytics-core";
+import { etToday, formatEt, parseDate } from "@/lib/format";
+import { parseIsoDay } from "@/lib/analytics-core";
 
 /** The platform is single-currency; `formatMoney` prints this code after every amount. */
 export const CURRENCY = "USD";
 
 /**
- * The calendar day the money and report figures are counted in. The server decides it: ops.money_overview,
- * ops.refresh_metrics, ops.build_daily_summary and ops.primary_reconciliation count UTC calendar days
- * (118:783,797-798; 118:875; 120:32,36). Registry 200 moves them to Eastern days. Change this only in the
- * same release that applies 200 — a label must say what the server counted, not what we want it to count.
- * Timestamps are a separate thing: they are shown in Eastern Time (`formatEt`) now.
+ * The calendar day the money and report figures are counted in. The server decides it: registry 200
+ * (PR #220) makes ops.money_overview, ops.refresh_metrics, ops.build_daily_summary and
+ * ops.primary_reconciliation count Eastern Time (America/New_York) calendar days ("paid_at, ET calendar day").
+ * THIS RELEASE SHIPS WITH 200, never before or after it: a label must say what the server counted.
  */
-export const REPORT_DAY_BASIS = "UTC";
+export const REPORT_DAY_BASIS = "ET";
 
 /** The current report day (REPORT_DAY_BASIS) is still accumulating rows; a period that includes it is not final. */
 export const PARTIAL_LABEL = "includes today so far (partial)";
@@ -67,11 +67,11 @@ export function readFailedLabel(readAt: Date): string {
   return `read at ${formatEt(readAt, true)} failed — nothing is shown`;
 }
 
-/** True when the range's last day is today (in REPORT_DAY_BASIS, UTC until registry 200) or later, i.e. still accumulating. */
+/** True when the range's last day is today (the Eastern date, REPORT_DAY_BASIS) or later, i.e. still accumulating. */
 export function isPartialPeriod(to: string, now: Date): boolean {
   if (!parseIsoDay(to)) return false;
   // ISO days compare lexically.
-  return to >= isoDay(now);
+  return to >= etToday(now);
 }
 
 /**

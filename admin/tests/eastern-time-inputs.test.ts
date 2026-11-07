@@ -143,6 +143,7 @@ describe("every date-time input in the console is Eastern", () => {
       expect(s, rel).not.toMatch(/Due \(UTC\)|New end \(UTC\)|From \(UTC\)|To \(UTC\)|\(UTC\)`/);
       expect(s, rel).toMatch(/Eastern Time|\(ET\)/);
     }
-    expect(readFileSync(resolve(__dirname, "../src/app/(console)/money/page.tsx"), "utf8")).toContain('label="From (UTC)"');
+    // this release ships with registry 200, so /money's report days are Eastern too
+    expect(readFileSync(resolve(__dirname, "../src/app/(console)/money/page.tsx"), "utf8")).toContain('label="From (ET)"');
   });
 });
