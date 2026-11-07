@@ -38,6 +38,7 @@ export interface QueryCall {
   terminal: 'single' | 'maybeSingle' | 'list';
   limit: number | null;
   order: Array<[string, unknown]>;
+  range?: [number, number] | null;
   schema: string | null;
 }
 export type TableHandler = (q: QueryCall) => { data?: unknown; error?: { message: string; code?: string } | null; count?: number } | Promise<{ data?: unknown; error?: { message: string; code?: string } | null; count?: number }>;
@@ -79,6 +80,7 @@ export function mockSupabase(opts: MockSupabaseOptions = {}): MockSupabase {
         b[f] = (...a: unknown[]) => { q.filters.push([f, ...a]); return b; };
       }
       b.limit = (n: number) => { q.limit = n; return b; };
+      b.range = (from: number, to: number) => { q.range = [from, to]; return b; };
       b.order = (c: string, o?: unknown) => { q.order.push([c, o]); return b; };
       b.single = () => { q.terminal = 'single'; return b; };
       b.maybeSingle = () => { q.terminal = 'maybeSingle'; return b; };

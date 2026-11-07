@@ -67,6 +67,7 @@ function harness(opts: {
     const scripted = opts.rpc?.[name];
     if (scripted) return scripted(params, schema);
     if (name === 'claim_stripe_webhook_event') return { data: 'claimed' };
+    if (name === 'mark_payment_attempt_by_pi') return { data: { attempt_id: `att_${String(params.p_pi_id)}`, state: params.p_state, pi_id: params.p_pi_id } };
     if (name === 'complete_stripe_webhook_event' || name === 'fail_stripe_webhook_event') return { data: true };
     return { data: null };
   };
@@ -92,7 +93,7 @@ function harness(opts: {
     const res = await edge.handler(signedStripeWebhookRequest(opts.signWith ?? SECRET, event));
     return { res, body: await json(res), edge };
   };
-  const rpcNames = () => sb.rpcs.map((r) => r.name);
+  const rpcNames = () => sb.rpcs.map((r) => r.name).filter((n) => n !== 'mark_payment_attempt_by_pi');
   const rpcOf = (name: string) => sb.rpcs.find((r) => r.name === name);
   const reviewRows = () => sb.queries.filter((q) => q.table === 'webhook_retries' && q.op === 'insert').map((q) => q.body as Record<string, unknown>);
   return { sb, deliver, rpcNames, rpcOf, reviewRows };
@@ -247,6 +248,44 @@ describe('a native row the router cannot classify is never ACKed silently', () =
 });
 
 describe('native payment_failed / canceled', () => {
+  it('marks the attempt succeeded BEFORE finalize; a mark failure never finalizes', async () => {
+    const ok = harness({ rpc: finalizeOk });
+    const first = await ok.deliver(piEvent('evt_mark_ok', 'payment_intent.succeeded', NATIVE_META));
+    expect(first.res.status).toBe(200);
+    const raw = ok.sb.rpcs.map((r) => r.name);
+    expect(raw.indexOf('mark_payment_attempt_by_pi')).toBeLessThan(raw.indexOf('finalize_primary_order'));
+
+    const bad = harness({
+      rpc: {
+        ...finalizeOk,
+        mark_payment_attempt_by_pi: () => ({ error: { message: 'mark failed (test)' } }),
+      },
+    });
+    const blocked = await bad.deliver(piEvent('evt_mark_bad', 'payment_intent.succeeded', NATIVE_META));
+    expect(blocked.res.status).toBe(500);
+    expect(bad.sb.rpcs.map((r) => r.name)).not.toContain('finalize_primary_order');
+  });
+
+  it('marks a terminal canceled attempt BEFORE cancel_pending_order; a mark failure never cancels', async () => {
+    const payments = (q: any) => q.op === 'select' ? { data: [{ ...NATIVE_ROW, stripe_payment_intent_id: PI, status: 'failed' }] } : { data: null };
+    const ok = harness({ rpc: { cancel_pending_order: () => ({ data: { status: 'cancelled' } }) }, payments });
+    const first = await ok.deliver(piEvent('evt_mark_cancel_ok', 'payment_intent.canceled', NATIVE_META, { status: 'canceled' }));
+    expect(first.res.status).toBe(200);
+    const raw = ok.sb.rpcs.map((r) => r.name);
+    expect(raw.indexOf('mark_payment_attempt_by_pi')).toBeLessThan(raw.indexOf('cancel_pending_order'));
+
+    const bad = harness({
+      payments,
+      rpc: {
+        cancel_pending_order: () => ({ data: { status: 'cancelled' } }),
+        mark_payment_attempt_by_pi: () => ({ error: { message: 'mark failed (test)' } }),
+      },
+    });
+    const blocked = await bad.deliver(piEvent('evt_mark_cancel_bad', 'payment_intent.canceled', NATIVE_META, { status: 'canceled' }));
+    expect(blocked.res.status).toBe(500);
+    expect(bad.sb.rpcs.map((r) => r.name)).not.toContain('cancel_pending_order');
+  });
+
   it('a per-attempt decline records the failure and cancels NOTHING (the buyer may retry the same sheet)', async () => {
     const h = harness();
     const { res, body } = await h.deliver(piEvent('evt_f1', 'payment_intent.payment_failed', NATIVE_META));
@@ -260,7 +299,12 @@ describe('native payment_failed / canceled', () => {
   });
 
   it('a terminal (canceled) PaymentIntent cancels the pending order on the venue schema; the L1 resale claim never runs', async () => {
-    const h = harness({ rpc: { cancel_pending_order: () => ({ data: { status: 'cancelled' } }) } });
+    const h = harness({
+      rpc: { cancel_pending_order: () => ({ data: { status: 'cancelled' } }) },
+      payments: (q) => q.op === 'select'
+        ? { data: [{ ...NATIVE_ROW, stripe_payment_intent_id: PI, status: 'failed' }] }
+        : { data: null },
+    });
     const { res, body } = await h.deliver(piEvent('evt_f2', 'payment_intent.canceled', NATIVE_META, { status: 'canceled' }));
     expect(res.status).toBe(200);
     expect(body).toMatchObject({ reason: 'native_order_cancelled' });
@@ -271,6 +315,195 @@ describe('native payment_failed / canceled', () => {
     });
     expect(h.rpcNames()).not.toContain('release_reservation_for_payment');
     expect(h.sb.queries.some((q) => q.filters.some((f) => f[0] === 'in'))).toBe(false);
+  });
+});
+
+describe('native terminal cancellation sibling guard', () => {
+  const SIB = 'pi_native_sibling';
+  const THIRD = 'pi_native_sibling_3';
+  const row = (id: string, status: string, over: Record<string, unknown> = {}) => ({
+    buyer_id: BUYER, mode: 'native_primary', amount: 5500, status,
+    stripe_payment_intent_id: id, created_at: '2026-11-03T10:00:00Z', ...over,
+  });
+  const pi = (id: string, status: string, metadata: Record<string, unknown> = NATIVE_META) => ({
+    id, object: 'payment_intent', status, amount: 5500, currency: 'usd', metadata,
+  });
+  const match = (r: Record<string, unknown>, f: [string, ...unknown[]]) => {
+    const [op, col, val] = f as [string, string, unknown];
+    if (op === 'eq') return r[col] === val;
+    if (op === 'neq') return r[col] !== val;
+    throw new Error(`sibling fake: unmodelled filter ${op}`);
+  };
+  const world = (
+    siblings: Array<Record<string, unknown>>,
+    opts: { piStatus?: Record<string, string>; meta?: Record<string, Record<string, unknown>>; failGet?: Set<string>; notFound?: Set<string>; paymentsError?: boolean; paymentsRaw?: unknown; hasPaymentsRaw?: boolean; raceAfterInspection?: boolean; databaseAttemptGuard?: boolean } = {},
+  ) => {
+    const current = row(PI, 'failed');
+    const rows = [current, ...siblings];
+    let raceInjected = false;
+    const pis = new Map<string, Record<string, unknown>>();
+    for (const r of rows) pis.set(String(r.stripe_payment_intent_id), pi(String(r.stripe_payment_intent_id), opts.piStatus?.[String(r.stripe_payment_intent_id)] ?? String(r.status), opts.meta?.[String(r.stripe_payment_intent_id)] ?? NATIVE_META));
+    const h = harness({
+      rpc: {
+        cancel_pending_order: () => opts.databaseAttemptGuard && raceInjected
+          ? { error: { code: 'P0001', message: 'precondition_failed: order has an unresolved payment attempt' } }
+          : { data: { status: 'cancelled' } },
+      },
+      payments: (q) => {
+        if (q.op !== 'select') return { data: null };
+        if (opts.paymentsError) return { error: { message: 'payments read failed' } };
+        if (opts.hasPaymentsRaw) return { data: opts.paymentsRaw };
+        let out = rows.filter((r) => q.filters.every((f) => match(r, f)));
+        if (q.range) out = out.slice(q.range[0], q.range[1] + 1);
+        if (opts.raceAfterInspection && !raceInjected) {
+          // Simulate a sibling becoming visible AFTER the guard's read but before
+          // cancel_pending_order. The guard must not be credited with seeing it.
+          raceInjected = true;
+          rows.push(row(SIB, 'succeeded'));
+        }
+        return { data: out };
+      },
+      stripe: (path) => {
+        const id = path.replace(/^\/payment_intents\//, '');
+        if (opts.failGet?.has(id)) return { ok: false, status: 500, data: { error: { message: 'stripe unavailable' } } };
+        if (opts.notFound?.has(id)) return { ok: false, status: 404, data: { error: { code: 'resource_missing' } } };
+        const found = pis.get(id);
+        return found ? { ok: true, status: 200, data: found } : { ok: false, status: 404, data: { error: { code: 'resource_missing' } } };
+      },
+    });
+    return h;
+  };
+  const deliver = (h: ReturnType<typeof world>, id = 'evt_sib') =>
+    h.deliver(piEvent(id, 'payment_intent.canceled', NATIVE_META, { status: 'canceled' }));
+
+  it('cancelled B + succeeded A: no order cancel, B money fact retained', async () => {
+    const h = world([row(SIB, 'succeeded')], { piStatus: { [SIB]: 'succeeded' } });
+    const { res, body } = await deliver(h);
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({ reason: 'native_sibling_succeeded_order_pending' });
+    expect(h.rpcNames()).not.toContain('cancel_pending_order');
+    expect(h.sb.queries.some((q) => q.table === 'payments' && q.op === 'update' && (q.body as { status?: string } | undefined)?.status === 'failed')).toBe(true);
+  });
+
+  it('cancelled B + processing A: no order cancel', async () => {
+    const h = world([row(SIB, 'processing')], { piStatus: { [SIB]: 'processing' } });
+    const { body } = await deliver(h);
+    expect(body).toMatchObject({ reason: 'native_sibling_processing_order_pending' });
+    expect(h.rpcNames()).not.toContain('cancel_pending_order');
+  });
+
+  it('a delayed/reordered local success is protected even when Stripe still says requires_payment_method', async () => {
+    const h = world([row(SIB, 'succeeded')], { piStatus: { [SIB]: 'requires_payment_method' } });
+    const { body } = await deliver(h);
+    expect(body).toMatchObject({ reason: 'native_sibling_unknown_order_pending' });
+    expect(h.rpcNames()).not.toContain('cancel_pending_order');
+  });
+
+  it('a candidate-list read failure retries and never cancels', async () => {
+    const h = world([row(SIB, 'failed')], { paymentsError: true });
+    const { res, body } = await deliver(h);
+    expect(res.status).toBe(500);
+    expect(body).toMatchObject({ reason: 'native_sibling_lookup_error' });
+    expect(h.rpcNames()).not.toContain('cancel_pending_order');
+  });
+
+  it('a retrieval failure retries and never cancels', async () => {
+    const h = world([row(SIB, 'failed')], { piStatus: { [SIB]: 'canceled' }, failGet: new Set([SIB]) });
+    const { res, body } = await deliver(h);
+    expect(res.status).toBe(500);
+    expect(body).toMatchObject({ reason: 'native_sibling_lookup_error' });
+    expect(h.rpcNames()).not.toContain('cancel_pending_order');
+    expect(h.rpcNames()).toContain('fail_stripe_webhook_event');
+  });
+
+  it('a null/ malformed candidate page is retryable, never clear', async () => {
+    const h = world([], { hasPaymentsRaw: true, paymentsRaw: null });
+    const { res, body } = await deliver(h);
+    expect(res.status).toBe(500);
+    expect(body).toMatchObject({ reason: 'native_sibling_lookup_error' });
+    expect(h.rpcNames()).not.toContain('cancel_pending_order');
+    expect(h.rpcNames()).toContain('fail_stripe_webhook_event');
+    expect(h.rpcNames()).not.toContain('complete_stripe_webhook_event');
+  });
+
+  it('a non-array candidate page and malformed row are retryable, never clear', async () => {
+    for (const raw of [{}, [null], [{ stripe_payment_intent_id: null, status: 'failed' }], [{ stripe_payment_intent_id: SIB }]]) {
+      const h = world([], { hasPaymentsRaw: true, paymentsRaw: raw });
+      const { res, body } = await deliver(h);
+      expect(res.status).toBe(500);
+      expect(body).toMatchObject({ reason: 'native_sibling_lookup_error' });
+      expect(h.rpcNames()).not.toContain('cancel_pending_order');
+      expect(h.rpcNames()).toContain('fail_stripe_webhook_event');
+    }
+  });
+
+  it('a 404 for a stale failed candidate is explicit review, never clear', async () => {
+    const h = world([row(SIB, 'failed')], { notFound: new Set([SIB]) });
+    const { res, body } = await deliver(h);
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({ reason: 'native_sibling_unknown_order_pending' });
+    expect(h.rpcNames()).not.toContain('cancel_pending_order');
+    expect(h.rpcNames()).toContain('complete_stripe_webhook_event');
+    expect(h.reviewRows().length).toBeGreaterThan(0);
+    expect(h.sb.queries.some((q) => q.table === 'payments' && q.op === 'update' && (q.body as { status?: string } | undefined)?.status === 'failed')).toBe(true);
+  });
+
+  it('a foreign/mismatched candidate fails closed, no cancel', async () => {
+    const h = world([row(SIB, 'canceled')], { piStatus: { [SIB]: 'canceled' }, meta: { [SIB]: { ...NATIVE_META, order_id: '00000000-0000-4000-8000-000000000999' } } });
+    const { body } = await deliver(h);
+    expect(body).toMatchObject({ reason: 'native_sibling_unknown_order_pending' });
+    expect(h.rpcNames()).not.toContain('cancel_pending_order');
+  });
+
+  it('all siblings confirmed cancelled: the existing terminal cancellation still runs (replay-safe)', async () => {
+    const h = world([row(SIB, 'failed')], { piStatus: { [SIB]: 'canceled' } });
+    const first = await deliver(h, 'evt_sib_1');
+    const second = await deliver(h, 'evt_sib_2');
+    expect(first.body).toMatchObject({ reason: 'native_order_cancelled' });
+    expect(second.body).toMatchObject({ reason: 'native_order_cancelled' });
+    expect(h.rpcNames().filter((n) => n === 'cancel_pending_order')).toHaveLength(2);
+  });
+
+  it('a live sibling prevents cancel; the lapse job must cancel it first', async () => {
+    const h = world([row(SIB, 'pending')], { piStatus: { [SIB]: 'requires_payment_method' } });
+    const { body } = await deliver(h);
+    expect(body).toMatchObject({ reason: 'native_sibling_live_order_pending' });
+    expect(h.rpcNames()).not.toContain('cancel_pending_order');
+  });
+
+  it('retries a terminal webhook when the database refuses cancellation after a sibling appears', async () => {
+    const h = world([], { raceAfterInspection: true, databaseAttemptGuard: true });
+    const { res, body } = await deliver(h);
+    expect(res.status).toBe(500);
+    expect(body).toMatchObject({ reason: 'cancel_unclassified', stage: 'cancel_pending_order' });
+    expect(h.rpcNames()).toContain('cancel_pending_order');
+    expect(h.rpcNames()).toContain('fail_stripe_webhook_event');
+    expect(h.rpcNames()).not.toContain('complete_stripe_webhook_event');
+  });
+
+  it('negative control: without the database guard the same race reports cancellation', async () => {
+    const h = world([], { raceAfterInspection: true });
+    const { body } = await deliver(h);
+    expect(body).toMatchObject({ reason: 'native_order_cancelled' });
+    expect(h.rpcNames()).toContain('cancel_pending_order');
+  });
+
+  it('a valid empty candidate array still permits the sole-PI cancel', async () => {
+    const h = world([], { hasPaymentsRaw: true, paymentsRaw: [] });
+    const { body } = await deliver(h);
+    expect(body).toMatchObject({ reason: 'native_order_cancelled' });
+    expect(h.rpcNames()).toContain('cancel_pending_order');
+  });
+
+  it('reads every paginated candidate page before deciding', async () => {
+    const many = Array.from({ length: 50 }, (_, i) => row(`pi_cancelled_${i}`, 'failed'));
+    const last = row(THIRD, 'succeeded');
+    const h = world([...many, last], {
+      piStatus: Object.fromEntries([...many.map((r) => [String(r.stripe_payment_intent_id), 'canceled']), [THIRD, 'succeeded']]),
+    });
+    const { body } = await deliver(h);
+    expect(body).toMatchObject({ reason: 'native_sibling_succeeded_order_pending' });
+    expect(h.rpcNames()).not.toContain('cancel_pending_order');
   });
 });
 
