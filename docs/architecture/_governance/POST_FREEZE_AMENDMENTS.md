@@ -3534,6 +3534,8 @@ OWNER SIGNATURE REQUIRED: YES (amends a ratified closed-world set).  OWNER SIGNA
 
 ## PFA-33 — registry 198 (primary checkout hold binding): E-40 amended for bound holds, E-58 discharged for bound orders, owner rulings O2 / O11 / O14 (OWNER-RATIFIED 2026-11-03)
 
+The original O11 wording below is superseded by **PFA-35 / OR-28**.
+
 ```
 ID:                          PFA-33  (registry 198, stem 20261102120000, pgTAP 267; PR #233)
 FROZEN RULE:                 E-40 (this file): "`venue.finalize_primary_order` MUST re-read the hold
@@ -3603,3 +3605,11 @@ SECURITY/MONEY IMPACT:       removes a bulk void + refund path for completed eve
 OWNER SIGNATURE REQUIRED:    YES.  OWNER SIGNATURE: RECORDED 2026-11-03. The owner answered "Ratify
                              (Recommended)" (Claude A session). Ratification record row OR-27.
 ```
+
+## PFA-35 — O11 cancellation after confirmed payment cancellation (owner decision, 2026-11-03)
+
+This corrects only O11 in PFA-33 / OR-26. A lapsed native primary checkout order may be cancelled after every PaymentIntent for the order is confirmed cancelled. The Stripe webhook can process a terminal cancellation event. The lapse job or a checkout retry can complete cancellation after confirming the same payment state. A failed attempt, an unavailable read, or an unresolved payment is insufficient.
+
+The checkout limit remains 10 minutes. This entry records the policy decision. The release candidate must pass its separate review and cutover gates.
+
+Owner decision: on 2026-11-03, Jose confirmed he had already selected the first option in Claude, accepting the reviewed cancellation rule and correcting the webhook-only record. See OR-28.
