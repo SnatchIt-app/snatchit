@@ -366,6 +366,37 @@ SQL
   echo "OK: forward refused $fixture with no fixture or schema changes"
 }
 
+assert_cutover_refuses_live_writer() (
+  local url="$1" file="$2" relation="$3" work pid='' output rc i lock_line
+  lock_line=$(awk '/^lock table venue\./ { print NR }' "$file")
+  [[ "$lock_line" =~ ^[0-9]+$ ]] || { echo "::error::expected one cutover lock statement in ${file##*/}" >&2; return 1; }
+  work=$(mktemp -d)
+  trap 'exec 3>&-; if [ -n "$pid" ]; then wait "$pid" || true; fi; rm -f "$work/input" "$work/writer.log"; rmdir "$work"' EXIT
+  mkfifo "$work/input"
+  psql "$url" -X -v ON_ERROR_STOP=1 -qAt <"$work/input" >"$work/writer.log" 2>&1 &
+  pid=$!
+  exec 3>"$work/input"
+  printf 'begin;\nlock table %s in row exclusive mode;\nselect %s;\n' "$relation" "'writer-ready'" >&3
+  for ((i=0; i<100; i++)); do
+    if grep -qx 'writer-ready' "$work/writer.log"; then break; fi
+    sleep 0.1
+  done
+  grep -qx 'writer-ready' "$work/writer.log" || { echo "::error::writer lock probe never became ready" >&2; return 1; }
+
+  if output=$(psql "$url" -X -v ON_ERROR_STOP=1 -v VERBOSITY=verbose -q -f "$file" 2>&1); then
+    echo "::error::${file##*/} ran while a writer held $relation" >&2
+    return 1
+  else
+    rc=$?
+  fi
+  if [ "$rc" -ne 3 ] || ! grep -qF "psql:$file:$lock_line: ERROR:  55P03: canceling statement due to lock timeout" <<<"$output"; then
+    printf '%s\n' "$output" >&2
+    echo "::error::${file##*/} did not fail at the writer lock" >&2
+    return 1
+  fi
+  echo "OK: ${file##*/} refused a live writer on $relation"
+)
+
 apply_forward() {
   psql "$DB_URL" -X -v ON_ERROR_STOP=1 -q -f "$DOCS/forward.sql"
   echo "OK: forward.sql applied"
@@ -567,6 +598,7 @@ run_migration_chain_rollback() {
   local url migration
   url=$(dburl oc_chain_rollback)
   clone oc_chain_rollback || return 1
+  assert_cutover_refuses_live_writer "$url" "$DOCS/rollback.sql" venue.inventory_hold || return 1
   # The coordination schema is installed after 205, so retire it before
   # restoring the numbered migration predecessors on this isolated clone.
   psql "$url" -X -v ON_ERROR_STOP=1 -q -f "$DOCS/rollback.sql" || return 1
@@ -606,6 +638,8 @@ parse_db
 verify_inputs
 assert_chain_applied
 assert_legacy_payment_contract "$DB_URL" pre-forward
+assert_cutover_refuses_live_writer "$DB_URL" "$DOCS/forward.sql" 'venue."order"'
+assert_cutover_refuses_live_writer "$DB_URL" "$DOCS/forward.sql" venue.inventory_hold
 assert_forward_preflight_refusal pending-order 'pending venue orders' \
   -f "$HERE/payment_attempt_seed_cancel.sql"
 assert_forward_preflight_refusal active-hold 'active inventory holds' \

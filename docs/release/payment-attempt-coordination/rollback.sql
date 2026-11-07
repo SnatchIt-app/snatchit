@@ -6,6 +6,10 @@
 -- retained intentionally; only the active RPCs and cancel trigger are removed.
 begin;
 
+-- Keep concurrent writers out between the drain check and trigger removal.
+set local lock_timeout = '3s';
+lock table venue."order", venue.inventory_hold in share row exclusive mode;
+
 do $rollback$
 declare
   v_active_attempt boolean := to_regclass('venue.payment_attempt') is not null;

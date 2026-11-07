@@ -13,6 +13,10 @@
 
 begin;
 
+-- Keep concurrent writers out between the drain check and trigger installation.
+set local lock_timeout = '3s';
+lock table venue."order", venue.inventory_hold in share row exclusive mode;
+
 -- Cutover preflight: refuse to install over an ambiguous legacy state. No row is
 -- backfilled and no missing PI is assumed canceled.
 do $preflight$
