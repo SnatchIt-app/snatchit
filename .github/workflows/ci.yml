@@ -799,6 +799,13 @@ jobs:
           # `public` moves, so the manifest and expected_grants.txt are unchanged; venue tables 29 / functions 99 and
           # kernel functions 157 do not move. Read from a local PG17 replay of main c093bada + 198 + 201 with the
           # service_role function default revoked: 35|133|37|49 before and after.
+          # 2026-11-02 registry 202 (D, fee-read alignment; DARK, applied nowhere): NO change to any of the four
+          # counters. 202 is body-only CREATE OR REPLACE of public.get_primary_session(uuid) and
+          # catalog.publish_event(uuid,text,text) plus a COMMENT on get_primary_session (same signatures, owner, ACL,
+          # SECURITY DEFINER, search_path, volatility — pinned by pgTAP 271 A1-A4 and 202's post-flight). No object, no
+          # grant: get_primary_session's manifest row and expected_grants are unchanged; pgTAP 232 A4's body pin moves.
+          # Read from a local PG17 replay of main 7496fee3 + 202 with the service_role function default revoked:
+          # 35|133|37|49 before and after.
           EXPECT_TABLES: 35
           # 2026-09-15 migration 130 (L1 concurrency, B): functions 94 -> 96 —
           # +2 public.claim_checkout_supersede, public.release_checkout_supersede

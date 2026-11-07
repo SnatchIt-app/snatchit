@@ -139,8 +139,11 @@ SELECT is((SELECT md5(prosrc) FROM pg_proc WHERE oid = to_regprocedure('catalog.
   'ee243b12a8b51c7692a8f6ed22506a34', 'A2: catalog.create_event_session carries 165''s body (078 + the E-76 conjunct)');
 SELECT is((SELECT md5(prosrc) FROM pg_proc WHERE oid = to_regprocedure('catalog.update_event_session(uuid, jsonb, text)')),
   '9e834d57e7810f81d1f9ed11c79dcd24', 'A3: catalog.update_event_session carries 165''s body (093 + the E-76 conjunct)');
+-- A4 moved with registry 202 (20261102160000): publish_event's SALEABLE gate 4 now reads the rate as checkout does;
+-- 165's body (prosrc md5 b31abddf9aad2cb7b119d517424bb494) + 202's gate-4 block = the pin below. The E-76 conjunct is
+-- unchanged (pgTAP 271 A6 pins 202's full definition).
 SELECT is((SELECT md5(prosrc) FROM pg_proc WHERE oid = to_regprocedure('catalog.publish_event(uuid, text, text)')),
-  'b31abddf9aad2cb7b119d517424bb494', 'A4: catalog.publish_event carries 165''s body (102 + the E-76 conjunct)');
+  '0f7d65e79fc24cc5feed1048575d3e27', 'A4: catalog.publish_event carries 165''s body (102 + the E-76 conjunct) with 202''s fee gate');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace JOIN pg_language l ON l.oid = p.prolang
             WHERE n.nspname = 'catalog' AND p.prosecdef AND l.lanname = 'plpgsql'
               AND 'search_path=""' = ANY (coalesce(p.proconfig, '{}'))
