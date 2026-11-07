@@ -137,8 +137,10 @@ SELECT is((SELECT md5(prosrc) FROM pg_proc WHERE oid = to_regprocedure('catalog.
   '1bf2a04bf1ffccfdbed04d8b067dd2df', 'A1: catalog.update_event carries 165''s body (078 + the E-76 conjunct)');
 SELECT is((SELECT md5(prosrc) FROM pg_proc WHERE oid = to_regprocedure('catalog.create_event_session(uuid, jsonb, text)')),
   'ee243b12a8b51c7692a8f6ed22506a34', 'A2: catalog.create_event_session carries 165''s body (078 + the E-76 conjunct)');
+-- 2026-11-02 registry 203 (pgTAP 272) moves this pin: update_event_session now carries 165's text plus 203's
+-- event_terminal guard (a session of a completed / cancelled event); the E-76 conjunct is unchanged (A10).
 SELECT is((SELECT md5(prosrc) FROM pg_proc WHERE oid = to_regprocedure('catalog.update_event_session(uuid, jsonb, text)')),
-  '9e834d57e7810f81d1f9ed11c79dcd24', 'A3: catalog.update_event_session carries 165''s body (093 + the E-76 conjunct)');
+  '702b35c6ff4a71bcfa0f9d489168c2b0', 'A3: catalog.update_event_session carries 165''s body (093 + the E-76 conjunct) plus 203''s event_terminal guard');
 -- A4 moved with registry 202 (20261102160000): publish_event's SALEABLE gate 4 now reads the rate as checkout does;
 -- 165's body (prosrc md5 b31abddf9aad2cb7b119d517424bb494) + 202's gate-4 block = the pin below. The E-76 conjunct is
 -- unchanged (pgTAP 271 A6 pins 202's full definition).
@@ -169,8 +171,10 @@ SELECT is((SELECT string_agg(p.proname || '(' || pg_catalog.oidvectortypes(p.pro
 SELECT is((SELECT string_agg(p.proname || '=' || md5(p.prosrc), ' ' ORDER BY p.proname)
              FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
             WHERE n.nspname = 'catalog' AND p.proname IN ('create_event','cancel_event','update_venue')),
-  'cancel_event=d1ce1b824338a3293e9fa882ab7f068a create_event=e48b7093e3a92f3b396450565d9f3261 update_venue=d286ada0e16854918622627994873d3b',
-  'A8: create_event (078), cancel_event (088) and update_venue (093) are untouched by 165');
+  -- 2026-11-02 registry 203 (pgTAP 272) moves the cancel_event part of this pin: 088's body plus 203's
+  -- event_completed guard. create_event and update_venue are unchanged.
+  'cancel_event=d48699416433f288b1a0aa87d919b8a5 create_event=e48b7093e3a92f3b396450565d9f3261 update_venue=d286ada0e16854918622627994873d3b',
+  'A8: create_event (078) and update_venue (093) are untouched by 165; cancel_event carries 088''s body plus 203''s event_completed guard');
 SELECT is((SELECT a.attnotnull::text || '|' || (SELECT count(*) FROM pg_constraint c
                                                  WHERE c.conrelid = 'catalog.event'::regclass AND c.contype = 'f'
                                                    AND c.confrelid = 'catalog.venue'::regclass AND c.conkey = ARRAY[a.attnum])::text
