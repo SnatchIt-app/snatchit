@@ -46,6 +46,8 @@ async function webhook(opts: { refunds?: Record<string, Record<string, unknown>>
         if (opts.rpcFail) return { data: null, error: { message: opts.rpcFail } };
         return { data: { recorded: true, payment_id: 'p1' } };
       }
+      // refunds-4: these fixtures are Dashboard refunds with no kernel row (199 answers not_bound).
+      if (name === 'record_refund_stripe_failure') return { data: { status: 'not_bound' } };
       return { data: true };
     },
   });

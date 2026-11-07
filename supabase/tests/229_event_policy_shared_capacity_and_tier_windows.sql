@@ -271,11 +271,12 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.
   'A23: venue holds NINETY-NINE functions — 90 (160) + set_ticket_type_sale_window + ticket_type_on_sale + 163''s four + 166''s two + 187''s one (144 A15 / 145 A4 / 148 B5 / 179 A8 / 180 A5 / 227 A12 / 230 A19 move with it)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'catalog'), 20,
   'A24: catalog holds TWENTY functions — 17 + set_venue_timezone, set_event_age_policy, set_session_sales_capacity (154 A10 moves with it)');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 320,
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 324,
+  -- 2026-11-02 (registry 199): 320 -> 324 (+4 kernel: refund_executor_hold, record_refund_stripe_failure, park_refund_execution, rearm_refund_execution).
   -- 2026-10-26 (registry 166): 317 -> 319 (+2 venue: get_session_capacity, list_session_capacity).
   -- 2026-10-27 (package 187, beneath 164-167): 319 -> 320 (+1 venue.assert_session_operator, the E-76 door-plane helper).
   -- 2026-10-26 (registry 163): 313 -> 317 (+4 venue: get_session_scan_counters, list_session_scan_counters, record_scan_staff, filter_staff_scan_meta; 315 if 163's PART B is dropped).
-  'A25: five-schema routine census 320 — 308 post-160 + 162''s five + 163''s four + 166''s two + 187''s one (148 B2 / 156 A20 / 157 A46 / 179 A9 / 180 A6 move with it)');
+  'A25: five-schema routine census 324 — 308 post-160 + 162''s five + 163''s four + 166''s two + 187''s one + 199''s four (kernel) (148 B2 / 156 A20 / 157 A46 / 179 A9 / 180 A6 move with it)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue_cmd'), 23,
   -- 2026-10-29 (registry 192): 22 -> 23 (+venue_cmd.create_inventory_batch).
   -- 2026-10-26 (stack 164 -> 166 on #170 13d46b22, measured): 21 -> 22 (166's get_session_capacity over 164's seven).
@@ -913,11 +914,15 @@ SELECT throws_ok($$SELECT venue.set_ticket_type_sale_window('22900000-0000-4000-
 SELECT is((SELECT count(*)::int FROM kernel.admin_audit WHERE action = 'ticket_type.sale_window_change' AND subject_kind = 'ticket_type'
             AND subject_id = '22900000-0000-4000-8000-000000000021'), 6,
   'W48: exactly SIX audit rows for t21 — W2, W10, W13, W16, W35, W36; none for the noop W18 or the refusals');
-SELECT is((SELECT before::text || ' -> ' || after::text || ' / ' || reason_code || ' / ' || actor_identity::text
+-- W49 moved with registry 204 (pgTAP 273, venue_command_key_replay): the audit row is the command-key receipt, so
+-- after also carries command_key_sha256 and request_sha256; the bounds are compared without them, and the key digest
+-- is checked as well (same intent, same plan count).
+SELECT is((SELECT before::text || ' -> ' || (after - 'command_key_sha256' - 'request_sha256')::text || ' / ' || reason_code || ' / ' || actor_identity::text
+                  || ' / ' || (after ->> 'command_key_sha256' = encode(sha256(convert_to('ck229-w-2', 'UTF8')), 'hex'))::text
              FROM kernel.admin_audit WHERE action = 'ticket_type.sale_window_change'
               AND subject_id = '22900000-0000-4000-8000-000000000021' AND reason_code = 'presale_day'),
-  '{"sale_ends_at": null, "sale_starts_at": null} -> {"sale_ends_at": "' || (to_json('2036-11-02 00:00+00'::timestamptz) #>> '{}') || '", "sale_starts_at": "' || (to_json('2036-11-01 00:00+00'::timestamptz) #>> '{}') || '"} / presale_day / 22900000-0000-4000-8000-000000000101',
-  'W49: the W2 audit row carries before NULL/NULL, after both bounds, the reason and the actor');
+  '{"sale_ends_at": null, "sale_starts_at": null} -> {"sale_ends_at": "' || (to_json('2036-11-02 00:00+00'::timestamptz) #>> '{}') || '", "sale_starts_at": "' || (to_json('2036-11-01 00:00+00'::timestamptz) #>> '{}') || '"} / presale_day / 22900000-0000-4000-8000-000000000101 / true',
+  'W49: the W2 audit row carries before NULL/NULL, after both bounds, the reason, the actor and the key digest');
 
 -- ── Section W (TZ) — a window is a pair of absolute instants; the session TimeZone never enters ─
 -- A's readiness question ("are session start and sale windows evaluated in the venue's timezone?"):

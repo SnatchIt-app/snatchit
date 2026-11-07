@@ -213,7 +213,7 @@ SELECT is(ARRAY[coalesce(has_function_privilege('authenticated', to_regprocedure
 SELECT is(md5(pg_get_functiondef(to_regprocedure('ops.record_primary_refund(uuid, integer, text, text)'))),
   '337a8f19d11a482e47437eb968dab40b', 'A5: ops.record_primary_refund body = 189''s (md5(pg_get_functiondef) 337a8f19)');
 SELECT is(md5(pg_get_functiondef(to_regprocedure('ops.primary_reconciliation(date, date)'))),
-  '4ee4fc15337e895cf180d9d6ce0dc121', 'A6: ops.primary_reconciliation body = 189''s (md5(pg_get_functiondef) 4ee4fc15)');
+  'bc708b9977a9b2da5dac908f0f3f87d0', 'A6: ops.primary_reconciliation body = 189''s with 200''s ET day window (md5(pg_get_functiondef) bc708b99; 189 alone was 4ee4fc15)');
 SELECT is((SELECT count(*)::integer FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
             WHERE n.nspname = 'ops' AND p.proname IN ('record_primary_refund', 'primary_reconciliation')), 2,
   'A7: one overload each');
@@ -454,9 +454,9 @@ SELECT is(ARRAY[(SELECT count(*)::int FROM jsonb_array_elements(tap._fetch259('s
 SELECT tap.login('25900000-0000-4000-8000-000000000a01'); SELECT tap._aal259('aal2');
 SELECT throws_ok($q$SELECT ops.primary_reconciliation('2026-10-02', '2026-10-01')$q$, 'P0001', 'invalid_input: from must not be after to', 'R22: from after to is refused');
 SELECT is((tap._try259($q$SELECT ops.primary_reconciliation('2000-01-01', '2000-01-02')$q$) ->> 'count')::int, 0, 'R23: a window with no linked payment reads zero rows');
-SELECT is((SELECT count(*)::int FROM jsonb_array_elements(tap._try259($q$SELECT ops.primary_reconciliation(((now() - interval '1 day') AT TIME ZONE 'UTC')::date, (now() AT TIME ZONE 'UTC')::date)$q$) -> 'rows') e
+SELECT is((SELECT count(*)::int FROM jsonb_array_elements(tap._try259($q$SELECT ops.primary_reconciliation(((now() - interval '1 day') AT TIME ZONE 'America/New_York')::date, (now() AT TIME ZONE 'America/New_York')::date)$q$) -> 'rows') e
             WHERE e ->> 'payment_id' LIKE '25900000-%'), 9,
-  'R24: a closed window yesterday..today (UTC) holds the nine linked fixture payments');
+  'R24: a closed window yesterday..today (ET days, 200) holds the nine linked fixture payments');
 SELECT tap.logout();
 -- no writes from the reader
 SELECT tap._store259('w0', tap._writes259()::text);

@@ -19,6 +19,8 @@
  *       property of the migrations, not of the classifier. The classifier is
  *       tested against the EXACT strings 082/085/093 raise, quoted inline.
  */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   CANCEL_REASON_PAYMENT_FAILED,
@@ -42,6 +44,7 @@ import {
   isTerminalPaymentIntent,
   isUuid,
   latestChargeId,
+  nativeReviewRef,
   observedAtIso,
   readNativeMetadata,
   resolveRail,
@@ -49,6 +52,7 @@ import {
   verifyNativePaymentRow,
   type PaymentRow,
 } from '../supabase/functions/stripe-webhook/native';
+import { json, loadEdgeHandler, mockSupabase, signedStripeWebhookRequest } from './helpers/edge-vm';
 
 const ORDER = '11111111-1111-4111-8111-111111111111';
 const BUYER = '22222222-2222-4222-8222-222222222222';
@@ -303,6 +307,13 @@ describe('payments-row verification — one PaymentIntent maps to exactly one pr
   });
 });
 
+// 198 is D's SQL and is not merged: the 198 tests below pin the agreed contract
+// (DESIGN-198-FINAL §3.2 BLOCK K3), not a migration in this tree. This is K3's
+// exact text with `%` rendered the way Postgres renders a uuid and an integer.
+const ITEM_198  = '9c1e4a7b-3d2f-4e8a-b6c5-7f0a1d2e3b4c';
+const BATCH_198 = '4b8d2e6f-1a3c-4d5e-9f7a-0b1c2d3e4f5a';
+const REFUND_REQUIRED_198 = `refund_required: hold_lapsed — order ${ORDER} item ${ITEM_198} needs 2 but its bound hold lapsed before payment and batch ${BATCH_198} has no headroom; the charge must be refunded`;
+
 // ─────────────────────────────────────────────────────────────────────────────
 describe('finalize_primary_order error classification (085:1881-2082)', () => {
   // The exact strings 085 raises.
@@ -352,10 +363,181 @@ describe('finalize_primary_order error classification (085:1881-2082)', () => {
     expect(classifyFinalizeError(null).ack).toBe(false);
   });
 
+  // ── 198 A-5 (DESIGN-198-FINAL §3.2 BLOCK K3, §4.1, §4.2 A-5) ──────────────
+  /** The substring every ACK arm of classifyFinalizeError matches on, other than refund_required. */
+  const ACK_ARM_SUBSTRINGS = [
+    'payment_unverified', 'identity is erased', 'only a pending order finalizes',
+    'oversell_rejected', 'no reservation names a batch', 'not_found', 'invalid_input',
+  ];
+  /** The substring every RETRY arm matches on (the transient arm keys on the SQLSTATE, not text). */
+  const RETRY_ARM_SUBSTRINGS = ['insufficient_privilege', 'permission denied', 'no_active_signing_key', 'feature_disabled'];
+
+  it('the ACK substring list is COMPLETE: every ack:true arm in the source is refund_required or listed (E review of #216)', () => {
+    // A hand-kept list proves precedence only for the arms it names. Read the
+    // classifier's own source and require that its ack:true arms are exactly
+    // refund_required plus ACK_ARM_SUBSTRINGS, so a new ACK arm added without
+    // updating the list fails here instead of silently escaping the precedence pins.
+    const src: string = readFileSync(resolve(__dirname, '..', 'supabase/functions/stripe-webhook/native.ts'), 'utf8');
+    const start = src.indexOf('export function classifyFinalizeError');
+    const body = src.slice(start, src.indexOf('\n}\n', start));
+    const ackArms = [...body.matchAll(/message\.includes\('([^']+)'\)\)\s*\{\s*return \{ ack: true/g)].map((m) => m[1]);
+    expect(ackArms.length).toBeGreaterThan(0);
+    expect(new Set(ackArms)).toEqual(new Set(['refund_required', ...ACK_ARM_SUBSTRINGS]));
+    expect(ackArms.length).toBe(ACK_ARM_SUBSTRINGS.length + 1);
+    // An ACK arm of ANY shape (e.g. keyed on the SQLSTATE alone) must be counted too,
+    // or a code-only arm escapes this test and every precedence pin (E review of d9cd501b).
+    expect((body.match(/return \{ ack: true/g) ?? []).length).toBe(ACK_ARM_SUBSTRINGS.length + 1);
+  });
+
+  it('ACKs and alerts refund_required (198 K3) — no redelivery creates capacity; a human refunds the charge', () => {
+    expect(classifyFinalizeError({ message: REFUND_REQUIRED_198, code: 'P0001' }))
+      .toEqual({ ack: true, alert: true, reason: 'finalize_refund_required' });
+  });
+
+  it('K3 text carries no other arm\'s substring (§3.2 "Text deliberately avoids every classifier substring")', () => {
+    const lower = REFUND_REQUIRED_198.toLowerCase();
+    for (const s of [...ACK_ARM_SUBSTRINGS, ...RETRY_ARM_SUBSTRINGS]) expect(lower).not.toContain(s);
+  });
+
+  it('refund_required is matched BEFORE oversell_rejected and every other ACK arm (§4.2 A-5)', () => {
+    // Defence in depth: if K3's text ever grows one of these substrings, the
+    // row that says "refund this charge" is still the one written.
+    for (const s of ACK_ARM_SUBSTRINGS) {
+      expect(classifyFinalizeError({ message: `refund_required: hold_lapsed — ${s}`, code: 'P0001' }).reason)
+        .toBe('finalize_refund_required');
+    }
+  });
+
+  it('201: the cancelled-event / cancelled-session refusals ride the same refund_required arm (D, registry 201)', () => {
+    // D's exact 201 texts start with the literal `refund_required:` and contain
+    // `cancel`. No arm ahead of refund_required may match `cancel`, so both must
+    // classify as refund_required: ACK + alert + review row, a human refunds.
+    for (const kind of ['event_cancelled', 'session_cancelled']) {
+      const message = `refund_required: ${kind} — order ${ORDER} was paid after its ${kind.split('_')[0]} was cancelled; the charge must be refunded`;
+      expect(classifyFinalizeError({ message, code: 'P0001' }))
+        .toEqual({ ack: true, alert: true, reason: 'finalize_refund_required' });
+    }
+  });
+
+  it('every RETRY cause still outranks refund_required — never ACK what a redelivery could fix', () => {
+    for (const s of RETRY_ARM_SUBSTRINGS) {
+      expect(classifyFinalizeError({ message: `refund_required: hold_lapsed — ${s}`, code: 'P0001' }).ack).toBe(false);
+    }
+    expect(classifyFinalizeError({ message: REFUND_REQUIRED_198, code: '40001' }).ack).toBe(false);
+  });
+
+  it('RETRIES the mint\'s feature_disabled (093:4936; 198 §4.1, A-5, O2) — the flag can return inside the window', () => {
+    expect(classifyFinalizeError({ message: 'precondition_failed: feature_disabled', code: 'P0001' }))
+      .toEqual({ ack: false, alert: true, reason: 'finalize_feature_disabled' });
+  });
+
+  it('feature_disabled outranks every ACK arm — a dark flag never acknowledges a paid, unminted order', () => {
+    for (const s of [...ACK_ARM_SUBSTRINGS, 'refund_required']) {
+      expect(classifyFinalizeError({ message: `precondition_failed: feature_disabled — ${s}`, code: 'P0001' }))
+        .toEqual({ ack: false, alert: true, reason: 'finalize_feature_disabled' });
+    }
+  });
+
   it('a terminal refusal is ALWAYS alerted — a silent ACK would lose the incident', () => {
     for (const [message] of TERMINAL) {
       expect(classifyFinalizeError({ message, code: 'P0001' }).alert).toBe(true);
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+describe('198 A-5 review row — a refund_required ACK names the order, the payment and the PI (§4.2 A-5)', () => {
+  const PAY = nativePaymentRow().id;
+  const FINALIZE_BODY = { stage: 'finalize_primary_order', order_id: ORDER, payment_id: PAY, pi_id: PI };
+
+  it('a refund_required row carries all three identifiers, labelled, with no `:` inside', () => {
+    expect(nativeReviewRef('finalize_refund_required', FINALIZE_BODY))
+      .toBe(`order_id=${ORDER},payment_id=${PAY},pi_id=${PI}`);
+  });
+
+  it('a missing identifier is written as none, never dropped — the row is still written', () => {
+    expect(nativeReviewRef('finalize_refund_required', { order_id: ORDER, pi_id: PI }))
+      .toBe(`order_id=${ORDER},payment_id=none,pi_id=${PI}`);
+  });
+
+  it('every other reason keeps the first-identifier rule (routing pins: finalize_order_not_pending → order id)', () => {
+    expect(nativeReviewRef('finalize_order_not_pending', FINALIZE_BODY)).toBe(ORDER);
+    expect(nativeReviewRef('native_row_unrouted', { stage: 'settle', pi_id: PI })).toBe(PI);
+    expect(nativeReviewRef('org_deauthorized', { account_id: ACCT })).toBe(ACCT);
+    expect(nativeReviewRef('payment_row_absent_terminal', { order_id: '', payment_id: PAY })).toBe(PAY);
+    expect(nativeReviewRef('anything', {})).toBe('none');
+  });
+
+  // index.ts writes the row (finishDecision → recordNativeReview) and cannot be
+  // imported by vitest, so these drive the REAL handler through
+  // tests/helpers/edge-vm.ts, as stripe-webhook-native-routing.test.ts:46-99 does.
+  async function deliverFinalizeRefusal(refusal: { message: string; code: string }, reviewWriteFails = false) {
+    const sb = mockSupabase({
+      rpc: (name, params) => {
+        if (name === 'finalize_primary_order') return { error: refusal };
+        if (name === 'mark_payment_attempt_by_pi') return { data: { attempt_id: `att_${String(params.p_pi_id)}`, state: params.p_state, pi_id: params.p_pi_id } };
+        if (name === 'claim_stripe_webhook_event') return { data: 'claimed' };
+        return { data: true };
+      },
+      tables: {
+        payments: () => ({ data: nativePaymentRow() }),
+        webhook_retries: () => (reviewWriteFails ? { error: { message: 'review insert refused' } } : { data: null }),
+      },
+    });
+    const signing = 'webhook-signing-test-only';
+    const edge = await loadEdgeHandler('supabase/functions/stripe-webhook/index.ts', {
+      supabase: sb,
+      // No Stripe key: the fingerprint read short-circuits (index.ts:256) and nothing leaves the process.
+      env: { STRIPE_WEBHOOK_SECRET: signing, STRIPE_SECRET_KEY: '', SUPABASE_URL: 'https://x.invalid', SUPABASE_SERVICE_ROLE_KEY: 'service-test' },
+      fetch: (async () => { throw new Error('no network in this test'); }) as unknown as typeof fetch,
+      provide: { stripeFetchRaw: async () => ({ ok: false, status: 500, data: {} }), AbortSignal },
+    });
+    const event = {
+      id: 'evt_198_a5', type: 'payment_intent.succeeded', created: Math.floor(Date.now() / 1000), livemode: false,
+      data: { object: {
+        id: PI, object: 'payment_intent', status: 'succeeded', amount: 11000, amount_received: 11000, currency: 'usd',
+        livemode: false, latest_charge: 'ch_198_a5', payment_method_types: ['card'], metadata: NATIVE_METADATA,
+      } },
+    };
+    const res = await edge.handler(signedStripeWebhookRequest(signing, event));
+    return {
+      res,
+      body: await json(res),
+      sentryTags: edge.sentry.map((s) => s.tag),
+      rpcNames: sb.rpcs.map((r) => r.name),
+      reviewRows: sb.queries.filter((q) => q.table === 'webhook_retries' && q.op === 'insert').map((q) => q.body),
+    };
+  }
+
+  it('end to end: refund_required is ACKed loudly, and the review row exists BEFORE the event completes', async () => {
+    const d = await deliverFinalizeRefusal({ message: REFUND_REQUIRED_198, code: 'P0001' });
+    expect(d.res.status).toBe(200);
+    expect(d.body).toMatchObject({ reason: 'finalize_refund_required', order_id: ORDER, payment_id: PAY, pi_id: PI });
+    expect(d.sentryTags).toEqual(['stripe-webhook:finalize_refund_required']);
+    expect(d.rpcNames).toEqual(['claim_stripe_webhook_event', 'mark_payment_attempt_by_pi', 'finalize_primary_order', 'complete_stripe_webhook_event']);
+    expect(d.reviewRows).toEqual([{
+      payment_id:    null, // the id rides in the text — index.ts:485-488 (MAJOR-1)
+      listing_id:    null,
+      rpc_name:      'stripe-webhook:native', // never selected by the refund sweep — index.ts:328-336
+      error_message: `finalize_refund_required:payment_intent.succeeded:evt_198_a5:order_id=${ORDER},payment_id=${PAY},pi_id=${PI}`,
+      resolved:      false,
+    }]);
+  });
+
+  it('end to end: refund_required whose review row cannot be written is NOT acknowledged', async () => {
+    const d = await deliverFinalizeRefusal({ message: REFUND_REQUIRED_198, code: 'P0001' }, true);
+    expect(d.res.status).toBe(500);
+    expect(d.rpcNames).toEqual(['claim_stripe_webhook_event', 'mark_payment_attempt_by_pi', 'finalize_primary_order', 'fail_stripe_webhook_event']);
+    expect(d.reviewRows).toHaveLength(1);
+  });
+
+  it('end to end: feature_disabled is retried with an alert and writes no review row', async () => {
+    const d = await deliverFinalizeRefusal({ message: 'precondition_failed: feature_disabled', code: 'P0001' });
+    expect(d.res.status).toBe(500);
+    expect(d.body).toMatchObject({ reason: 'finalize_feature_disabled' });
+    expect(d.sentryTags).toEqual(['stripe-webhook:finalize_feature_disabled']);
+    expect(d.rpcNames).toEqual(['claim_stripe_webhook_event', 'mark_payment_attempt_by_pi', 'finalize_primary_order', 'fail_stripe_webhook_event']);
+    expect(d.reviewRows).toHaveLength(0);
   });
 });
 

@@ -767,6 +767,32 @@ jobs:
           # no grant beyond EXECUTE on those two to authenticated (pinned by pgTAP 266 A1/A2 and 197's post-flight).
           # Read from a local PG17 replay of main 7496fee3 + 197 with the service_role function default revoked:
           # 35|133|37|49 before and after.
+          # 2026-11-02 registry 199 (D, refund ledger post-success failure + executor exclusions; DARK, applied nowhere): NO
+          # change to any of the four counters. 199 adds four kernel functions (refund_executor_hold — no grant;
+          # record_refund_stripe_failure, park_refund_execution — service_role; rearm_refund_execution — authenticated,
+          # service_role revoked) and replaces kernel.mark_refund_state, kernel.claim_refunds_for_execution,
+          # kernel.get_refund_execution_context and ops.executor_claim (same signatures/ACLs; pgTAP 268 A2-A5 + 199's
+          # post-flight). Nothing in `public`. Kernel 157 -> 161, five-schema 320 -> 324, 141 F2 69 -> 70, F3 54 -> 56.
+          # Read from a local PG17 replay of main 7496fee3 + 199 with the service_role function default revoked:
+          # 35|133|37|49 before and after.
+          # 2026-11-02 registry 198 (D, primary checkout and finalize bound to the buyer's holds; DARK, applied
+          # nowhere): NO change to any of the four counters. 198 adds one nullable column in schema `venue`
+          # (venue.inventory_hold.order_id, FK to venue."order" ON DELETE RESTRICT, partial index where not null)
+          # and replaces three venue bodies in place (create_primary_checkout, finalize_primary_order,
+          # sweep_expired_inventory_holds: same signatures, SECURITY DEFINER, search_path and ACL, pinned by pgTAP
+          # 267 A7 and 198's post-flight). No grant: the column is outside authenticated's 9-column grant on the
+          # table (267 A4a/A4b). Nothing in `public`; venue tables 29 / functions 99 and kernel functions 157 do not
+          # move. Read from a local PG17 replay of main 7496fee3 + 198 with the service_role function default
+          # revoked: 35|133|37|49 before and after.
+          # 2026-11-02 registry 201 (D, checkout-side sale eligibility, stacked on 198; DARK, applied nowhere): NO
+          # change to any of the four counters. 201 replaces three venue bodies in place (reserve_primary_inventory,
+          # create_primary_checkout, finalize_primary_order: same signatures, SECURITY DEFINER, search_path, owner)
+          # and REVOKEs EXECUTE on venue.reserve_primary_inventory from authenticated; its one live caller,
+          # public.reserve_primary_tier (SECURITY DEFINER, owner postgres), is unchanged and keeps its grants
+          # (pinned by pgTAP 270 A3-A5 and 201's post-flight). The revoked grant is on a `venue` function: nothing in
+          # `public` moves, so the manifest and expected_grants.txt are unchanged; venue tables 29 / functions 99 and
+          # kernel functions 157 do not move. Read from a local PG17 replay of main c093bada + 198 + 201 with the
+          # service_role function default revoked: 35|133|37|49 before and after.
           EXPECT_TABLES: 35
           # 2026-09-15 migration 130 (L1 concurrency, B): functions 94 -> 96 —
           # +2 public.claim_checkout_supersede, public.release_checkout_supersede
@@ -1628,6 +1654,170 @@ jobs:
           fi
           echo "OK: no pg_net request was answered from outside this runner, and none is queued."
 
+  # ---------------------------------------------------------------------------
+  # payment-attempt-integration: prove the pinned payment-attempt forward draft
+  # applies cleanly over the reviewed 198-205 chain on a FRESH database, and
+  # that its RPC signatures, grants, cancellation refusals, concurrency (with a
+  # separate negative-control database) and rollback (fresh clone per case)
+  # hold. Reuses the same Supabase CLI 2.115.0 pin, fresh-stack setup, migration
+  # ordering, and the CI-only outbound egress block + probe as the `db` job.
+  # `needs: [db]` sequences it after the base chain is proven. Each job runs on
+  # its own runner, so this job boots its own disposable stack. The egress block
+  # is installed BEFORE the stack boots so migration 032's */2 cron can never
+  # reach production during apply.
+  # ---------------------------------------------------------------------------
+  payment-attempt-integration:
+    name: Payment-attempt integration (fresh DB)
+    needs: [db]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read
+    env:
+      SUPABASE_CLI_VERSION: 2.115.0
+      DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      # Offline input gate — runs BEFORE the CLI install and before any Supabase
+      # startup. No DB_URL is needed; it verifies the 198-205 chain, forward/rollback
+      # and seed artifacts are present and match the authoritative hashes.
+      - name: Verify payment-attempt inputs (offline, before boot)
+        run: bash supabase/ci/payment-attempt-integration.sh --verify-inputs
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@46f7f98c7f948ad727d22c1e67fab04c223a0520 # v3.0.0
+        with:
+          version: ${{ env.SUPABASE_CLI_VERSION }}
+
+      - name: Assert pinned Supabase CLI (toolchain drift gate)
+        run: |
+          set -euo pipefail
+          echo "supabase binary : $(command -v supabase)"
+          actual="$( { supabase --version 2>/dev/null || true; } | head -n1 | tr -d '[:space:]' | sed 's/^[vV]//')"
+          echo "supabase CLI    : expected=${SUPABASE_CLI_VERSION} actual=${actual}"
+          if [ -z "$actual" ]; then echo "::error::could not determine Supabase CLI version"; exit 1; fi
+          if [ "$actual" != "$SUPABASE_CLI_VERSION" ]; then echo "::error::Supabase CLI drift: expected ${SUPABASE_CLI_VERSION}, got ${actual}"; exit 1; fi
+          echo "OK: Supabase CLI matches the pin (${SUPABASE_CLI_VERSION})."
+
+      - name: Ensure Supabase project config
+        run: |
+          if [ ! -f supabase/config.toml ]; then supabase init; fi
+
+      - name: Free the local stack ports
+        run: |
+          supabase stop --no-backup >/dev/null 2>&1 || true
+          docker ps -aq --filter "publish=54322" | xargs -r docker rm -f >/dev/null 2>&1 || true
+          docker ps -aq --filter "name=supabase_" | xargs -r docker rm -f >/dev/null 2>&1 || true
+
+      - name: CI egress block — containers may not reach the outside web (CI-only)
+        run: |
+          set -euo pipefail
+          sudo iptables -I DOCKER-USER 1 -p tcp -m multiport --dports 80,443 -j REJECT --reject-with tcp-reset
+          for net in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 127.0.0.0/8; do
+            sudo iptables -I DOCKER-USER 1 -d "$net" -j RETURN
+          done
+          echo "--- DOCKER-USER chain ---"; sudo iptables -S DOCKER-USER
+
+          # IPv6 outbound protection (parity with the `db` job) + posture proof
+          # BEFORE boot: IPv6 must be disabled, or an effective REJECT block installed.
+          ipv6_kernel_disabled=0
+          if [ -r /proc/sys/net/ipv6/conf/all/disable_ipv6 ] && [ "$(cat /proc/sys/net/ipv6/conf/all/disable_ipv6)" = "1" ]; then
+            ipv6_kernel_disabled=1
+          fi
+          ipv6_routed=0
+          if ip -6 route show default 2>/dev/null | grep -q .; then ipv6_routed=1; fi
+          ipv6_blocked=0
+          if [ "$ipv6_kernel_disabled" = "0" ] && [ "$ipv6_routed" = "1" ]; then
+            if command -v ip6tables >/dev/null 2>&1; then
+              sudo ip6tables -I DOCKER-USER 1 -p tcp -m multiport --dports 80,443 -j REJECT 2>/dev/null \
+                || sudo ip6tables -I FORWARD 1 -p tcp -m multiport --dports 80,443 -j REJECT 2>/dev/null || true
+              if { sudo ip6tables -S DOCKER-USER 2>/dev/null; sudo ip6tables -S FORWARD 2>/dev/null; } | grep -qE -- '--dports 80,443 .*-j REJECT'; then
+                ipv6_blocked=1
+              fi
+            fi
+            if [ "$ipv6_blocked" = "0" ]; then
+              echo "::error::IPv6 is routed and no effective IPv6 egress block is installed (ip6tables unavailable or block absent)"
+              exit 1
+            fi
+          fi
+          echo "IPv6 egress posture: kernel_disabled=${ipv6_kernel_disabled} routed=${ipv6_routed} blocked=${ipv6_blocked}"
+
+      - name: Authenticate image pulls (ghcr.io)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin >/dev/null 2>&1; then
+            echo "OK: image pulls from ghcr.io are authenticated"
+          else
+            echo "::warning::ghcr.io login failed; image pulls stay anonymous"
+          fi
+
+      - name: Apply migration chain on fresh DB (198-205 tail included)
+        run: |
+          set -euo pipefail
+          start() { supabase start -x studio,inbucket,imgproxy,edge-runtime,logflare,vector 2>&1 | tee /tmp/supabase-start.log; return "${PIPESTATUS[0]}"; }
+          cleanup() { supabase stop --no-backup >/dev/null 2>&1 || true; docker ps -aq --filter "name=supabase_" | xargs -r docker rm -f >/dev/null 2>&1 || true; }
+          rate_limited() { grep -qiE 'toomanyrequests|429 Too Many Requests' /tmp/supabase-start.log; }
+          attempt=1
+          until start; do
+            if rate_limited && [ "$attempt" -lt 4 ]; then
+              wait=$((attempt * 45))
+              echo "::warning::image registry rate limit on attempt ${attempt}; retrying in ${wait}s"
+            elif [ "$attempt" -lt 2 ]; then
+              wait=5
+              echo "::warning::supabase start failed on the first attempt; retrying once"
+            else
+              exit 1
+            fi
+            cleanup
+            sleep "$wait"
+            attempt=$((attempt + 1))
+          done
+
+      - name: Payment-attempt integration (forward + RPC + grants + refusals + concurrency + rollback)
+        env:
+          DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+        run: bash supabase/ci/payment-attempt-integration.sh
+
+      - name: CI egress gate — no pg_net request was answered from outside (fails closed)
+        if: always()
+        env:
+          DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+        run: |
+          set -euo pipefail
+          probe_id="$(psql "$DB_URL" -tA -c "select net.http_get('https://example.com/');")"
+          for i in $(seq 1 30); do
+            row="$(psql "$DB_URL" -tA -c "select coalesce(status_code::text,'(none)')||'|'||coalesce(error_msg,'') from net._http_response where id = ${probe_id};")"
+            [ -n "$row" ] && break
+            sleep 1
+          done
+          echo "probe #${probe_id} → ${row:-<no response row after 30 s>}"
+          case "${row:-}" in
+            "") echo "::error::the pg_net probe produced no response row in 30 s — the worker is not running"; exit 1;;
+            "(none)|"*)
+              err="${row#(none)|}"
+              case "$(printf '%s' "$err" | tr '[:upper:]' '[:lower:]')" in
+                *resolve*|*timeout*|*timed\ out*) echo "::error::the probe failed for a reason other than the egress block (${err})"; exit 1;;
+                *refused*|*reset*|*"failed to connect"*|*"couldn't connect"*|*"could not connect"*) echo "probe refused at the runner (${err}): OK";;
+                *) echo "::error::the probe failed with an unrecognised error (${err})"; exit 1;;
+              esac;;
+            *) echo "::error::the pg_net probe was ANSWERED (${row%%|*}) — the CI egress block is not effective"; exit 1;;
+          esac
+          answered="$(psql "$DB_URL" -tA -c "select count(*) from net._http_response where status_code is not null;")"
+          queued="$(psql "$DB_URL" -tA -c "select count(*) from net.http_request_queue;")"
+          [ "$answered" = "0" ] || { echo "::error::${answered} pg_net request(s) were answered from outside"; exit 1; }
+          [ "$queued" = "0" ] || { echo "::error::${queued} pg_net request(s) still queued"; exit 1; }
+          echo "OK: no pg_net request was answered from outside this runner, and none is queued."
+
+      - name: Cleanup local stack
+        if: always()
+        run: |
+          supabase stop --no-backup >/dev/null 2>&1 || true
+          docker ps -aq --filter "name=supabase_" | xargs -r docker rm -f >/dev/null 2>&1 || true
+
   web:
     name: Web build (Next.js)
     runs-on: ubuntu-latest
@@ -1807,14 +1997,15 @@ jobs:
             supabase/functions/ops-refund-execute/classify.ts \
             supabase/functions/ops-refund-execute/handler.ts \
             supabase/functions/stripe-webhook/native.ts \
-            supabase/functions/stripe-webhook/native-dispute.ts
+            supabase/functions/stripe-webhook/native-dispute.ts \
+            supabase/functions/stripe-webhook/refund-failure.ts
 
       - name: deno check — deployed + production-aligned entrypoints (blocking)
         run: |
           set -euo pipefail
           deployed="auto-finalize-auctions confirm-and-release confirm-payment connect-onboarding create-connect-account create-payment-intent delete-account enforce-transfer-expiry notify-report notify-transfer send-push stripe-webhook"
           aligned="credential-sign door-manifest door-session ops-refund-execute"
-          native="payout-execute primary-checkout refund-execute"
+          native="payout-execute primary-checkout primary-lapse-canceller refund-execute"
           for d in supabase/functions/*/; do
             n=$(basename "$d"); [ "$n" = "_shared" ] && continue
             case " $deployed $aligned $native " in *" $n "*) ;; *) echo "::error::supabase/functions/$n is in none of the deployed/aligned/native deno-check lists — add it deliberately."; exit 1;; esac
@@ -1828,7 +2019,7 @@ jobs:
         continue-on-error: true
         run: |
           set -uo pipefail
-          native="payout-execute primary-checkout refund-execute"
+          native="payout-execute primary-checkout primary-lapse-canceller refund-execute"
           files=""; for n in $native; do [ -f "supabase/functions/$n/index.ts" ] && files="$files supabase/functions/$n/index.ts"; done
           # shellcheck disable=SC2086
           if deno check $files; then echo "native arm type-checks clean"; else

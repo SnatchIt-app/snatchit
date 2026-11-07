@@ -118,8 +118,13 @@ function constantTimeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
+// kernelServiceClient() pins `db.schema` to 'kernel'. The bare `SupabaseClient`
+// type defaults that parameter to 'public' and so rejects it (deno check
+// TS2322); this alias names the schema instead.
+type KernelClient = SupabaseClient<any, 'kernel', any>;
+
 /** service_role, kernel schema. The ONLY client this function has. */
-function kernelServiceClient(): SupabaseClient {
+function kernelServiceClient(): KernelClient {
   return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
     auth: { autoRefreshToken: false, persistSession: false },
     db: { schema: 'kernel' },
@@ -131,7 +136,7 @@ function kernelServiceClient(): SupabaseClient {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function note(
-  service: SupabaseClient,
+  service: KernelClient,
   payoutId: string,
   reasonCode: string,
   detail: Record<string, unknown>,
@@ -172,7 +177,7 @@ async function note(
  * venue is still owed.
  */
 async function holdReversedTransfer(
-  service: SupabaseClient,
+  service: KernelClient,
   payoutId: string,
   reversal: TransferReversal,
   obligationMinor: number,
@@ -351,7 +356,7 @@ interface ReconcileOutcome {
  * sole-writer verb, log. No status is written from this function — the RPC is
  * the only writer, and it writes 'paid' (never 'failed', never a re-create).
  */
-async function reconcileOneFailedPayout(service: SupabaseClient, claim: FailedPayoutClaim): Promise<ReconcileOutcome> {
+async function reconcileOneFailedPayout(service: KernelClient, claim: FailedPayoutClaim): Promise<ReconcileOutcome> {
   const transferRead = await readTransfer(claim.stripe_transfer_ref);
   if (transferRead.kind === 'error') {
     // Transport hiccup, not an observation. Stays `failed`; the lease expires
@@ -442,7 +447,7 @@ async function reconcileOneFailedPayout(service: SupabaseClient, claim: FailedPa
 }
 
 async function runReconcilePass(
-  service: SupabaseClient,
+  service: KernelClient,
   limit: number,
   leaseSeconds: number,
 ): Promise<{ claimed: number; results: ReconcileOutcome[] }> {
@@ -491,7 +496,7 @@ export type PayoutOutcome = {
 };
 
 async function executeOne(
-  service: SupabaseClient,
+  service: KernelClient,
   payoutId: string,
   commandKey: string,
   mode: PayoutExecutionMode,
