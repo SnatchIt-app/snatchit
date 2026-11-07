@@ -767,6 +767,15 @@ jobs:
           # no grant beyond EXECUTE on those two to authenticated (pinned by pgTAP 266 A1/A2 and 197's post-flight).
           # Read from a local PG17 replay of main 7496fee3 + 197 with the service_role function default revoked:
           # 35|133|37|49 before and after.
+          # 2026-11-02 registry 198 (D, primary checkout and finalize bound to the buyer's holds; DARK, applied
+          # nowhere): NO change to any of the four counters. 198 adds one nullable column in schema `venue`
+          # (venue.inventory_hold.order_id, FK to venue."order" ON DELETE RESTRICT, partial index where not null)
+          # and replaces three venue bodies in place (create_primary_checkout, finalize_primary_order,
+          # sweep_expired_inventory_holds: same signatures, SECURITY DEFINER, search_path and ACL, pinned by pgTAP
+          # 267 A7 and 198's post-flight). No grant: the column is outside authenticated's 9-column grant on the
+          # table (267 A4a/A4b). Nothing in `public`; venue tables 29 / functions 99 and kernel functions 157 do not
+          # move. Read from a local PG17 replay of main 7496fee3 + 198 with the service_role function default
+          # revoked: 35|133|37|49 before and after.
           EXPECT_TABLES: 35
           # 2026-09-15 migration 130 (L1 concurrency, B): functions 94 -> 96 —
           # +2 public.claim_checkout_supersede, public.release_checkout_supersede
