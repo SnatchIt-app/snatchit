@@ -122,7 +122,7 @@ export interface ReplayBindingInput extends AttemptQuote {
 }
 
 /** Service-only read of the persisted replay binding. No secret is returned. */
-export async function requireReplayAttemptBinding(rpc: RpcCaller, input: ReplayBindingInput): Promise<void> {
+async function requireAttemptBinding(rpc: RpcCaller, input: ReplayBindingInput, allowedStates: readonly string[]): Promise<void> {
   const { data, error } = await rpc('read_payment_attempt_binding', {
     p_order_id: input.orderId,
     p_pi_id: input.piId,
@@ -138,11 +138,19 @@ export async function requireReplayAttemptBinding(rpc: RpcCaller, input: ReplayB
   if (!v || typeof v.attempt_id !== 'string' || !v.attempt_id
       || v.order_id !== input.orderId || v.buyer_id !== input.buyerId
       || v.session_id !== input.sessionId || v.pi_id !== input.piId
-      || !new Set(['open','processing','succeeded']).has(String(v.state))
+      || typeof v.state !== 'string' || !allowedStates.includes(v.state)
       || v.face_minor !== input.faceMinor || v.buyer_fee_minor !== input.buyerFeeMinor
       || v.amount_minor !== input.chargeMinor || v.currency !== input.currency) {
     throw new Error('read_payment_attempt_binding returned a malformed/mismatched binding');
   }
+}
+
+export function requireReplayAttemptBinding(rpc: RpcCaller, input: ReplayBindingInput): Promise<void> {
+  return requireAttemptBinding(rpc, input, ['open', 'processing', 'succeeded']);
+}
+
+export function requireCancellationAttemptBinding(rpc: RpcCaller, input: ReplayBindingInput): Promise<void> {
+  return requireAttemptBinding(rpc, input, ['open', 'failed']);
 }
 
 export const STORED_CREATE_FIELDS = [

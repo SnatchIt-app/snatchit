@@ -54,6 +54,7 @@ interface WorldOpts {
   /** POST /payment_intents/{id}/cancel on these PI ids answers this status */
   cancelFails?: Record<string, number>;
   cancelBodies?: Record<string, unknown>;
+  binding?: 'missing-rpc' | 'missing' | 'wrong-pi' | 'wrong-quote' | 'unsafe-state';
 }
 
 function matches(row: Record<string, unknown>, f: [string, ...unknown[]]): boolean {
@@ -100,6 +101,19 @@ async function world(opts: WorldOpts = {}) {
       }
       if (name === 'mark_payment_attempt_by_pi') {
         return { data: { attempt_id: `att_${String(params.p_pi_id)}`, state: params.p_state, pi_id: params.p_pi_id } };
+      }
+      if (name === 'read_payment_attempt_binding') {
+        if (opts.binding === 'missing-rpc') return { error: { code: 'PGRST202', message: 'function not found' } };
+        if (opts.binding === 'missing') return { data: null };
+        const row = rows.find((r) => r.stripe_payment_intent_id === params.p_pi_id);
+        return { data: {
+          attempt_id: 'attempt-fixture', order_id: params.p_order_id,
+          buyer_id: params.p_buyer_id, session_id: params.p_session_id,
+          pi_id: opts.binding === 'wrong-pi' ? 'pi_other' : params.p_pi_id,
+          state: opts.binding === 'unsafe-state' ? 'processing' : row?.status === 'failed' ? 'failed' : 'open',
+          face_minor: row?.amount, buyer_fee_minor: row?.buyer_fee,
+          amount_minor: opts.binding === 'wrong-quote' ? CHARGE + 1 : row?.total, currency: 'USD',
+        } };
       }
       if (name === 'cancel_pending_order') {
         expect(schema).toBe('venue');
@@ -258,6 +272,31 @@ describe('A-6 steps 2-3 — per lapsed order, act on the PaymentIntent\'s status
     const pi = w.addPi(1, 'requires_payment_method', { rowStatus: 'failed' });
     await w.run();
     expect(w.piCancels().map((c) => c.path)).toEqual([`/payment_intents/${pi}/cancel`]);
+  });
+
+  it.each(['missing-rpc', 'missing', 'wrong-pi', 'wrong-quote', 'unsafe-state'] as const)(
+    'refuses Stripe and order writes when the attempt binding is %s',
+    async (binding) => {
+      const w = await world({ report: [lapsed(1)], binding });
+      const pi = w.addPi(1, 'requires_payment_method');
+      const r = await w.run();
+      expect(r.body.results).toEqual([{ order_id: orderUuid(1), outcome: 'error' }]);
+      expect(w.sb.rpcs.find((x) => x.name === 'read_payment_attempt_binding')?.params).toEqual({
+        p_order_id: orderUuid(1), p_buyer_id: BUYER, p_session_id: SESSION, p_pi_id: pi,
+      });
+      expect(w.piCancels()).toEqual([]);
+      expect(w.orderCancels()).toEqual([]);
+      expect(w.sb.rpcs.some((x) => x.name === 'mark_payment_attempt_by_pi')).toBe(false);
+    },
+  );
+
+  it('keeps the authorization held when the requires-capture binding RPC is unavailable', async () => {
+    const w = await world({ report: [lapsed(1)], binding: 'missing-rpc' });
+    w.addPi(1, 'requires_capture');
+    const r = await w.run();
+    expect(r.body.results).toEqual([{ order_id: orderUuid(1), outcome: 'anomaly' }]);
+    expect(w.piCancels()).toEqual([]);
+    expect(w.orderCancels()).toEqual([]);
   });
 
   it('processing → skipped (no cancel, no order write); the next run decides (§5 scenario 19)', async () => {

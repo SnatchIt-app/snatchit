@@ -32,7 +32,7 @@
  * second is a `noop_replay` under the same audit identity.
  */
 import { buildCancelCommandKey, CANCEL_REASON_PAYMENT_FAILED } from '../stripe-webhook/native.ts';
-import { markPaymentAttemptByPi } from './payment-attempts.ts';
+import { markPaymentAttemptByPi, requireCancellationAttemptBinding } from './payment-attempts.ts';
 
 export { CANCEL_REASON_PAYMENT_FAILED };
 
@@ -375,6 +375,23 @@ export async function cancelLapsedOrderPaymentIntents(
   const pis = found.confirmed;
   if (pis.length === 0) return { kind: 'no_pi' };
 
+  async function checkCancellationBindings(candidates: ConfirmedPi[]): Promise<string | null> {
+    try {
+      const client = deps.venueService();
+      for (const c of candidates) {
+        const sessionId = t.sessionId ?? c.sessionId;
+        if (sessionId === null) throw new Error('payment attempt session is missing');
+        await requireCancellationAttemptBinding((name, params) => client.rpc(name, params), {
+          orderId: t.orderId, buyerId: t.buyerId, sessionId, piId: c.piId,
+          faceMinor: t.faceMinor, buyerFeeMinor: c.row.buyer_fee, chargeMinor: c.row.total, currency: 'USD',
+        });
+      }
+      return null;
+    } catch (err) {
+      return `payment cancellation binding unavailable: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+
   if (t.sessionId !== null) {
     const off = pis.find((c) => c.sessionId !== t.sessionId);
     if (off) return { kind: 'anomaly', piId: off.piId, detail: `pi ${off.piId} names session ${off.sessionId ?? '<none>'}, not the order's` };
@@ -401,6 +418,10 @@ export async function cancelLapsedOrderPaymentIntents(
         detail: `${detail}; authorization may still be held: not cancelled, sibling ${inFlight.map((c) => c.piId).join(', ')} is processing (D3)`,
       };
     }
+    const bindingError = await checkCancellationBindings(held);
+    if (bindingError !== null) {
+      return { kind: 'anomaly', piId: named.piId, authorization: 'may_still_be_held', detail: `${detail}; ${bindingError}` };
+    }
     const refused: string[] = [];
     for (const c of held) {
       const why = await postLapseCancel(deps.stripeFetchRaw, c.piId);
@@ -426,6 +447,8 @@ export async function cancelLapsedOrderPaymentIntents(
 
   const live = pis.filter((c) => CANCELLABLE.has(c.status));
   if (live.length > 0) {
+    const bindingError = await checkCancellationBindings(live);
+    if (bindingError !== null) return { kind: 'error', detail: bindingError };
     for (const c of live) {
       const why = await postLapseCancel(deps.stripeFetchRaw, c.piId);
       if (why !== null) return { kind: 'error', detail: why };

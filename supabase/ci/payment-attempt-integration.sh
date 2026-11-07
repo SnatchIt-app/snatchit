@@ -461,12 +461,24 @@ begin
   select status into v_state from venue."order" where order_id = v_order;
   if v_state is distinct from 'pending' then raise exception 'order should remain pending after refusal (got %)', v_state; end if;
 
+  update venue.payment_attempt
+     set state = 'failed', pi_id = 'pi_ci_failed_binding',
+         session_id = 'cccccccc-0000-4000-8000-000000000001'
+   where order_id = v_order and attempt_key = 'ci-guard-attempt';
+  if (venue.read_payment_attempt_binding(
+        v_order, 'pi_ci_failed_binding', 'bbbbbbbb-0000-4000-8000-000000000001',
+        'cccccccc-0000-4000-8000-000000000001'
+      )->>'state') is distinct from 'failed' then
+    raise exception 'failed attempt binding must be available for Stripe cancellation';
+  end if;
+
   perform venue.cancel_pending_order(v_pos, 'payment_failed', 'ci-cancel-positive');
   select status into v_state from venue."order" where order_id = v_pos;
   if v_state is distinct from 'cancelled' then raise exception 'positive control did not cancel (got %)', v_state; end if;
 end $$;
 SQL
   echo "OK: cancellation refusal (P0001 + exact message + order stays pending) and positive control"
+  echo "OK: failed attempt binding is available for Stripe cancellation"
 }
 
 # Concurrency, two dedicated clones (never the mutated post-forward DB).

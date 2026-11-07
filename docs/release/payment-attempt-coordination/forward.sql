@@ -523,9 +523,10 @@ grant execute on function venue.attach_payment_attempt(uuid, text, uuid, uuid, u
 grant execute on function venue.mark_payment_attempt(uuid, text, text) to service_role;
 grant execute on function venue.mark_payment_attempt_by_pi(text, text, text) to service_role;
 
--- READ REPLAY BINDING: service-only, no lock, no secret, no row fallback.
--- Exact order+buyer+session and exact order+PI+identity; only an existing,
--- non-terminal, non-unknown attempt with authoritative persisted quote passes.
+-- READ ATTEMPT BINDING: service-only, no lock, no secret, no row fallback.
+-- Exact order+buyer+session and order+PI+identity with authoritative quote.
+-- Edge callers enforce operation-specific states: failed may be cancelled
+-- after a Stripe read, but cannot expose a replay secret.
 create function venue.read_payment_attempt_binding(
   p_order_id uuid, p_pi_id text, p_buyer_id uuid, p_session_id uuid
 ) returns jsonb
@@ -563,8 +564,8 @@ begin
   select * into v_a from venue.payment_attempt
    where order_id = p_order_id and pi_id = p_pi_id and buyer_id = p_buyer_id
      and session_id = p_session_id;
-  if v_a.state not in ('open','processing','succeeded') then
-    raise exception 'precondition_failed: binding state % is not replay-safe', v_a.state using errcode = 'P0001';
+  if v_a.state not in ('open','processing','succeeded','failed') then
+    raise exception 'precondition_failed: binding state % is unavailable', v_a.state using errcode = 'P0001';
   end if;
   if v_a.face_minor <> v_order_total or v_a.currency <> v_order_currency
      or v_a.amount_minor <> v_a.face_minor + v_a.buyer_fee_minor then

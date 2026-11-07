@@ -87,7 +87,7 @@ interface WorldOpts {
   ephemeralKeyFails?: boolean;
   /** merged over ENV; an undefined value unsets the key */
   env?: Record<string, string | undefined>;
-  binding?: 'ok'|'missing'|'error'|'malformed'|'wrong-pi'|'wrong-buyer'|'wrong-session'|'wrong-amount'|'invalid-state';
+  binding?: 'ok'|'missing'|'error'|'malformed'|'wrong-pi'|'wrong-buyer'|'wrong-session'|'wrong-amount'|'invalid-state'|'failed-state';
   lostFirstPost?: boolean;
   recoveryFailure?: string;
   missingLivemode?: boolean;
@@ -223,7 +223,7 @@ async function world(opts: WorldOpts = {}) {
           buyer_id: b === 'wrong-buyer' ? 'buyer-other' : params.p_buyer_id,
           session_id: b === 'wrong-session' ? 'session-other' : params.p_session_id,
           pi_id: b === 'wrong-pi' ? 'pi_other' : params.p_pi_id,
-          state: b === 'invalid-state' ? 'creating' : 'open',
+          state: b === 'invalid-state' ? 'creating' : b === 'failed-state' ? 'failed' : 'open',
           face_minor: FACE, buyer_fee_minor: FEE,
           amount_minor: b === 'wrong-amount' ? CHARGE + 1 : CHARGE, currency: 'USD',
         } };
@@ -1007,10 +1007,10 @@ describe('known PI recovery identity/quote matrix', () => {
 });
 
 describe('replay attempt binding gate', () => {
-  const cases: Array<[string, 'missing'|'error'|'malformed'|'wrong-pi'|'wrong-buyer'|'wrong-session'|'wrong-amount'|'invalid-state']> = [
+  const cases: Array<[string, 'missing'|'error'|'malformed'|'wrong-pi'|'wrong-buyer'|'wrong-session'|'wrong-amount'|'invalid-state'|'failed-state']> = [
     ['missing', 'missing'], ['error', 'error'], ['malformed', 'malformed'], ['wrong PI', 'wrong-pi'],
     ['wrong buyer', 'wrong-buyer'], ['wrong session', 'wrong-session'],
-    ['wrong charge', 'wrong-amount'], ['invalid state', 'invalid-state'],
+    ['wrong charge', 'wrong-amount'], ['invalid state', 'invalid-state'], ['failed state', 'failed-state'],
   ];
   for (const [label, binding] of cases) {
     it(`${label} binding sends NO client secret and makes NO new PI POST`, async () => {
