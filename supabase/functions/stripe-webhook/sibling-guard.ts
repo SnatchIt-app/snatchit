@@ -45,6 +45,7 @@ export type SiblingInspection =
 type PaymentCandidate = {
   stripe_payment_intent_id?: unknown;
   status?: unknown;
+  total?: unknown;
 };
 
 const SUCCESS_OR_INFLIGHT = new Set(['succeeded', 'processing']);
@@ -66,7 +67,7 @@ async function readCandidates(
     try {
       const result = await service
         .from('payments')
-        .select('stripe_payment_intent_id,status')
+        .select('stripe_payment_intent_id,status,total')
         .eq('buyer_id', q.buyerId)
         .eq('mode', NATIVE_PRIMARY)
         .eq('amount', q.faceMinor)
@@ -154,8 +155,11 @@ export async function inspectTerminalSiblings(
     if (text(pi?.metadata?.buyer_id) !== q.buyerId) {
       return { kind: 'unknown', piId, detail: 'candidate PI metadata names another buyer' };
     }
-    if (pi?.amount !== q.faceMinor || text(pi?.currency) !== q.currency) {
-      return { kind: 'unknown', piId, detail: 'candidate PI amount or currency differs from the event' };
+    // The row was selected by ticket face value. Stripe charges each attempt's
+    // own total, including its buyer fee, which can differ from the event's.
+    if (typeof row.total !== 'number' || !Number.isSafeInteger(row.total)
+        || row.total < q.faceMinor || pi.amount !== row.total || text(pi.currency) !== q.currency) {
+      return { kind: 'unknown', piId, detail: 'candidate PI amount or currency does not match its payment quote' };
     }
 
     // A locally succeeded/processing row is a second authoritative signal; a

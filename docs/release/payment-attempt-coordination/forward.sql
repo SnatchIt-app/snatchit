@@ -400,9 +400,8 @@ security definer
 set search_path = ''
 as $fn$
 declare
-  v_attempt_id uuid;
+  v_attempt venue.payment_attempt%rowtype;
   v_order_id uuid;
-  v_pi_id text;
 begin
   if p_pi_id is null or p_state is null then
     raise exception 'invalid_input: PI and state required';
@@ -414,12 +413,14 @@ begin
     raise exception 'precondition_failed: no payment attempt for PI %', p_pi_id using errcode = 'P0001';
   end if;
   perform 1 from venue."order" where order_id = v_order_id for update;
-  select attempt_id, order_id, pi_id into v_attempt_id, v_order_id, v_pi_id
-    from venue.payment_attempt where pi_id = p_pi_id for update;
-  if v_attempt_id is null or v_order_id is null or v_pi_id <> p_pi_id then
+  select * into v_attempt from venue.payment_attempt where pi_id = p_pi_id for update;
+  if not found or v_attempt.order_id is distinct from v_order_id then
     raise exception 'precondition_failed: attempt/PI identity changed while locking' using errcode = 'P0001';
   end if;
-  return venue.mark_payment_attempt(v_attempt_id, p_state, p_stripe_status);
+  return venue.mark_payment_attempt(v_attempt.attempt_id, p_state, p_stripe_status) || jsonb_build_object(
+    'order_id', v_attempt.order_id, 'buyer_id', v_attempt.buyer_id, 'session_id', v_attempt.session_id,
+    'face_minor', v_attempt.face_minor, 'amount_minor', v_attempt.amount_minor, 'currency', v_attempt.currency
+  );
 end;
 $fn$;
 

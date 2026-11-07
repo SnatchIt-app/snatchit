@@ -57,8 +57,14 @@ begin
   end;
 
   result := venue.mark_payment_attempt_by_pi(pi_key, 'canceled', 'canceled');
-  if result->>'state' is distinct from 'canceled' then
-    raise exception 'confirmed cancellation did not reach terminal state';
+  if result->>'state' is distinct from 'canceled'
+     or result->>'order_id' is distinct from order_key::text
+     or result->>'buyer_id' is distinct from buyer_key::text
+     or result->>'session_id' is distinct from session_key::text
+     or result->>'face_minor' is distinct from '2500'
+     or result->>'amount_minor' is distinct from '2750'
+     or result->>'currency' is distinct from 'USD' then
+    raise exception 'confirmed cancellation did not return terminal state and exact quote';
   end if;
   perform venue.cancel_pending_order(order_key, 'payment_failed', 'ci-lifecycle-cancel');
 end

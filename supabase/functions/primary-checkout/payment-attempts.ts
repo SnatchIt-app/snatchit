@@ -105,16 +105,21 @@ export async function markPaymentAttemptByPi(
   piId: string,
   state: 'processing' | 'succeeded' | 'failed' | 'canceled' | 'unknown',
   stripeStatus: string,
-): Promise<void> {
+) {
   const { data, error } = await rpc('mark_payment_attempt_by_pi', {
     p_pi_id: piId, p_state: state, p_stripe_status: stripeStatus,
   });
   if (error) fail('mark_payment_attempt_by_pi', error);
-  const v = data as { attempt_id?: unknown; state?: unknown; pi_id?: unknown } | null;
+  const v = data as {
+    attempt_id?: unknown; state?: unknown; pi_id?: unknown;
+    order_id?: unknown; buyer_id?: unknown; session_id?: unknown;
+    face_minor?: unknown; amount_minor?: unknown; currency?: unknown;
+  } | null;
   if (!v || typeof v.attempt_id !== 'string' || !v.attempt_id
       || v.state !== state || v.pi_id !== piId) {
     throw new Error('mark_payment_attempt_by_pi returned a malformed result');
   }
+  return v;
 }
 
 export interface ReplayBindingInput extends AttemptQuote {

@@ -1260,8 +1260,21 @@ serve(async (req: Request) => {
         // Only a Stripe-terminal canceled PI may mark its attempt canceled.
         // A local failed payment is never used here. Missing attempt/RPC or a
         // mark error keeps the order pending and the event retryable.
+        const chargeMinor = paymentIntent?.amount;
+        const currency = paymentIntent?.currency;
+        let faceMinor: number;
         try {
-          await markAttempt(piId, 'canceled', 'canceled');
+          const attempt = await markAttempt(piId, 'canceled', 'canceled');
+          if (attempt.order_id !== ref.orderId || attempt.buyer_id !== ref.buyerId
+              || ref.sessionId === null || attempt.session_id !== ref.sessionId
+              || typeof attempt.face_minor !== 'number' || !Number.isSafeInteger(attempt.face_minor)
+              || attempt.face_minor < 0 || typeof chargeMinor !== 'number'
+              || !Number.isSafeInteger(chargeMinor) || chargeMinor < attempt.face_minor
+              || attempt.amount_minor !== chargeMinor || typeof currency !== 'string'
+              || attempt.currency !== currency.toUpperCase()) {
+            throw new Error('canceled PaymentIntent does not match its recorded attempt');
+          }
+          faceMinor = attempt.face_minor;
         } catch (markErr) {
           return await finishDecision(
             { ack: false, alert: true, reason: 'native_attempt_mark_canceled_error' },
@@ -1279,8 +1292,8 @@ serve(async (req: Request) => {
           {
             orderId: ref.orderId,
             buyerId: ref.buyerId,
-            faceMinor: (paymentIntent as { amount?: unknown })?.amount as number,
-            currency: (paymentIntent as { currency?: unknown })?.currency as string,
+            faceMinor,
+            currency,
             currentPiId: piId,
           },
         );

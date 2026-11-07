@@ -67,7 +67,10 @@ function harness(opts: {
     const scripted = opts.rpc?.[name];
     if (scripted) return scripted(params, schema);
     if (name === 'claim_stripe_webhook_event') return { data: 'claimed' };
-    if (name === 'mark_payment_attempt_by_pi') return { data: { attempt_id: `att_${String(params.p_pi_id)}`, state: params.p_state, pi_id: params.p_pi_id } };
+    if (name === 'mark_payment_attempt_by_pi') return { data: {
+      attempt_id: `att_${String(params.p_pi_id)}`, state: params.p_state, pi_id: params.p_pi_id,
+      order_id: ORDER, buyer_id: BUYER, session_id: SESS, face_minor: 5500, amount_minor: 5500, currency: 'USD',
+    } };
     if (name === 'complete_stripe_webhook_event' || name === 'fail_stripe_webhook_event') return { data: true };
     return { data: null };
   };
@@ -286,6 +289,17 @@ describe('native payment_failed / canceled', () => {
     expect(bad.sb.rpcs.map((r) => r.name)).not.toContain('cancel_pending_order');
   });
 
+  it('retries when the canceled Stripe charge disagrees with its recorded quote', async () => {
+    const h = harness();
+    const { res, body } = await h.deliver(piEvent('evt_mark_quote_bad', 'payment_intent.canceled', NATIVE_META, {
+      status: 'canceled', amount: 5600,
+    }));
+    expect(res.status).toBe(500);
+    expect(body).toMatchObject({ reason: 'native_attempt_mark_canceled_error' });
+    expect(h.sb.queries.some((q) => q.range !== null && q.range !== undefined)).toBe(false);
+    expect(h.rpcNames()).not.toContain('cancel_pending_order');
+  });
+
   it('a per-attempt decline records the failure and cancels NOTHING (the buyer may retry the same sheet)', async () => {
     const h = harness();
     const { res, body } = await h.deliver(piEvent('evt_f1', 'payment_intent.payment_failed', NATIVE_META));
@@ -322,7 +336,7 @@ describe('native terminal cancellation sibling guard', () => {
   const SIB = 'pi_native_sibling';
   const THIRD = 'pi_native_sibling_3';
   const row = (id: string, status: string, over: Record<string, unknown> = {}) => ({
-    buyer_id: BUYER, mode: 'native_primary', amount: 5500, status,
+    buyer_id: BUYER, mode: 'native_primary', amount: 5500, total: 5500, status,
     stripe_payment_intent_id: id, created_at: '2026-11-03T10:00:00Z', ...over,
   });
   const pi = (id: string, status: string, metadata: Record<string, unknown> = NATIVE_META) => ({
@@ -336,15 +350,21 @@ describe('native terminal cancellation sibling guard', () => {
   };
   const world = (
     siblings: Array<Record<string, unknown>>,
-    opts: { piStatus?: Record<string, string>; meta?: Record<string, Record<string, unknown>>; failGet?: Set<string>; notFound?: Set<string>; paymentsError?: boolean; paymentsRaw?: unknown; hasPaymentsRaw?: boolean; raceAfterInspection?: boolean; databaseAttemptGuard?: boolean } = {},
+    opts: { faceMinor?: number; piStatus?: Record<string, string>; meta?: Record<string, Record<string, unknown>>; failGet?: Set<string>; notFound?: Set<string>; paymentsError?: boolean; paymentsRaw?: unknown; hasPaymentsRaw?: boolean; raceAfterInspection?: boolean; databaseAttemptGuard?: boolean } = {},
   ) => {
-    const current = row(PI, 'failed');
+    const current = row(PI, 'failed', { amount: opts.faceMinor ?? 5500 });
     const rows = [current, ...siblings];
     let raceInjected = false;
     const pis = new Map<string, Record<string, unknown>>();
     for (const r of rows) pis.set(String(r.stripe_payment_intent_id), pi(String(r.stripe_payment_intent_id), opts.piStatus?.[String(r.stripe_payment_intent_id)] ?? String(r.status), opts.meta?.[String(r.stripe_payment_intent_id)] ?? NATIVE_META));
+    for (const r of rows) pis.get(String(r.stripe_payment_intent_id))!.amount = r.total;
     const h = harness({
       rpc: {
+        mark_payment_attempt_by_pi: (params) => ({ data: {
+          attempt_id: 'att_current', state: params.p_state, pi_id: params.p_pi_id,
+          order_id: ORDER, buyer_id: BUYER, session_id: SESS,
+          face_minor: current.amount, amount_minor: current.total, currency: 'USD',
+        } }),
         cancel_pending_order: () => opts.databaseAttemptGuard && raceInjected
           ? { error: { code: 'P0001', message: 'precondition_failed: order has an unresolved payment attempt' } }
           : { data: { status: 'cancelled' } },
@@ -375,6 +395,13 @@ describe('native terminal cancellation sibling guard', () => {
   };
   const deliver = (h: ReturnType<typeof world>, id = 'evt_sib') =>
     h.deliver(piEvent(id, 'payment_intent.canceled', NATIVE_META, { status: 'canceled' }));
+
+  it('finds a succeeded sibling by ticket face value when both Stripe charges include different fees', async () => {
+    const h = world([row(SIB, 'succeeded', { amount: 5000, total: 5750 })], { faceMinor: 5000 });
+    const { body } = await deliver(h);
+    expect(body).toMatchObject({ reason: 'native_sibling_succeeded_order_pending' });
+    expect(h.rpcNames()).not.toContain('cancel_pending_order');
+  });
 
   it('cancelled B + succeeded A: no order cancel, B money fact retained', async () => {
     const h = world([row(SIB, 'succeeded')], { piStatus: { [SIB]: 'succeeded' } });
