@@ -1,12 +1,12 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, Newsreader } from "next/font/google";
+import { Newsreader, Oswald } from "next/font/google";
 import "./globals.css";
 import { ENV_LABEL } from "@/lib/env";
 
-// Inter via next/font (self-hosted at build; CSP font-src 'self'). display:
+// Oswald via next/font (self-hosted at build; CSP font-src 'self'). display:
 // 'swap' + the system stack in --font-sans keep the UI legible if the font
 // file is missing.
-const inter = Inter({ subsets: ["latin"], display: "swap", variable: "--font-inter" });
+const oswald = Oswald({ subsets: ["latin"], display: "swap", variable: "--font-oswald" });
 /** Editorial serif for titles, section headings and headline figures — shared with the venue dashboard. */
 const newsreader = Newsreader({ subsets: ["latin"], display: "swap", variable: "--font-newsreader", axes: ["opsz"], style: ["normal"] });
 export const metadata: Metadata = {
@@ -23,7 +23,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${inter.variable} ${newsreader.variable}`}>
+    <html lang="en" className={`${oswald.variable} ${newsreader.variable}`}>
       <body className="min-h-dvh antialiased">{children}</body>
     </html>
   );
