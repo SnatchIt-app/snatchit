@@ -370,6 +370,50 @@ apply_forward() {
   echo "OK: forward.sql applied"
 }
 
+assert_legacy_payment_contract() {
+  local url="$1" phase="$2"
+  psql "$url" -X -v ON_ERROR_STOP=1 -q <<'SQL' || return 1
+begin;
+set local role service_role;
+do $$
+begin
+  if to_regprocedure('venue.begin_payment_attempt(uuid,text,uuid,uuid,integer,integer,integer,text)') is not null
+     or to_regprocedure('venue.mark_payment_attempt_by_pi(text,text,text)') is not null then
+    raise exception 'payment-attempt RPC unexpectedly available on legacy schema';
+  end if;
+  if md5(pg_get_functiondef(to_regprocedure('venue.cancel_pending_order(uuid,text,text)')))
+       is distinct from '3d7fef64c44483586f46b568cb92c610'
+     or not has_function_privilege(current_user, 'venue.cancel_pending_order(uuid,text,text)', 'EXECUTE') then
+    raise exception 'legacy cancellation signature, body or grant changed';
+  end if;
+end
+$$;
+rollback;
+SQL
+  echo "OK: $phase exposes the legacy cancellation contract and no attempt begin/mark RPCs"
+}
+
+assert_legacy_cancel_after_rollback() {
+  local url="$1"
+  psql "$url" -X -v ON_ERROR_STOP=1 -q <<'SQL' || return 1
+begin;
+update venue."order" set status = 'pending' where order_id = 'aaaaaaaa-0000-4000-8000-000000000008';
+set local role service_role;
+select venue.cancel_pending_order('aaaaaaaa-0000-4000-8000-000000000008', 'payment_failed', 'ci-after-rollback');
+reset role;
+do $$
+begin
+  if (select status from venue."order" where order_id = 'aaaaaaaa-0000-4000-8000-000000000008')
+       is distinct from 'cancelled' then
+    raise exception 'legacy cancellation did not work after rollback';
+  end if;
+end
+$$;
+rollback;
+SQL
+  echo "OK: service_role can cancel through the legacy RPC after rollback"
+}
+
 assert_rpc_signatures() {
   psql "$DB_URL" -X -v ON_ERROR_STOP=1 -qAt -c "
     do \$\$ begin
@@ -486,6 +530,10 @@ run_rollback_modes() {
       SESSION_ID='cccccccc-0000-4000-8000-000000000001' \
       HOLD_ID='eeeeeeee-0000-4000-8000-000000000008' \
       bash "$DOCS/tests/rollback-safety-test.sh"
+    if [ "$mode" = "success" ]; then
+      assert_legacy_payment_contract "$url" post-rollback
+      assert_legacy_cancel_after_rollback "$url"
+    fi
     if [ "$mode" = "active-hold" ]; then
       grep -qF 'precondition_failed: active inventory holds exist; rollback refused' /tmp/oc-rollback-active-hold.log \
         || { echo "::error::active-hold refusal message not exact"; exit 1; }
@@ -505,6 +553,7 @@ require_db
 parse_db
 verify_inputs
 assert_chain_applied
+assert_legacy_payment_contract "$DB_URL" pre-forward
 assert_forward_preflight_refusal pending-order 'pending venue orders' \
   -f "$HERE/payment_attempt_seed_cancel.sql"
 assert_forward_preflight_refusal active-hold 'active inventory holds' \
