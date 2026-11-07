@@ -331,6 +331,40 @@ assert_chain_applied() {
   echo "OK: all 8 reviewed 198-205 migrations applied"
 }
 
+assert_forward_preflight_refusal() {
+  local fixture="$1" expected="$2" output rc
+  shift 2
+  # Seed and apply in the same session. ON_ERROR_STOP disconnects on the
+  # expected refusal, rolling back the synthetic fixtures with the migration.
+  if output=$(psql "$DB_URL" -X -v ON_ERROR_STOP=1 -v VERBOSITY=verbose -q \
+      -c 'begin' -f "$SEED" "$@" -f "$DOCS/forward.sql" 2>&1); then
+    echo "::error::forward accepted the $fixture fixture" >&2
+    return 1
+  else
+    rc=$?
+  fi
+  if [ "$rc" -ne 3 ] || ! grep -qF "ERROR:  P0001: precondition_failed: payment-attempt preflight requires zero $expected; nothing changed" <<<"$output"; then
+    printf '%s\n' "$output" >&2
+    echo "::error::forward did not refuse $fixture for the expected reason" >&2
+    return 1
+  fi
+  psqlq <<'SQL' || return 1
+do $$
+begin
+  if exists (select 1 from auth.users where id = 'bbbbbbbb-0000-4000-8000-000000000001')
+     or exists (select 1 from venue."order" where status = 'pending')
+     or exists (select 1 from venue.inventory_hold where status = 'active')
+     or to_regclass('venue.payment_attempt') is not null
+     or to_regclass('venue.payment_attempt_event') is not null
+     or to_regprocedure('venue.guard_order_cancel_attempts()') is not null then
+    raise exception 'forward refusal left fixture data or coordination schema behind';
+  end if;
+end
+$$;
+SQL
+  echo "OK: forward refused $fixture with no fixture or schema changes"
+}
+
 apply_forward() {
   psql "$DB_URL" -X -v ON_ERROR_STOP=1 -q -f "$DOCS/forward.sql"
   echo "OK: forward.sql applied"
@@ -471,6 +505,10 @@ require_db
 parse_db
 verify_inputs
 assert_chain_applied
+assert_forward_preflight_refusal pending-order 'pending venue orders' \
+  -f "$HERE/payment_attempt_seed_cancel.sql"
+assert_forward_preflight_refusal active-hold 'active inventory holds' \
+  -c "update venue.inventory_hold set status='active' where hold_id='eeeeeeee-0000-4000-8000-000000000008'"
 apply_forward
 assert_rpc_signatures
 prepare_template
