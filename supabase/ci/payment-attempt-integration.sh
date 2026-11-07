@@ -36,21 +36,32 @@ ROLLBACK_MODES="success unresolved pending-order active-hold collision partial m
 psqlq() { psql "$DB_URL" -X -v ON_ERROR_STOP=1 -qAt "$@"; }
 
 # --- offline: verify file contents against authoritative hashes ---------------
+release_inputs() {
+  local m
+  for m in $CHAIN_198_205; do
+    printf '%s\n' "supabase/migrations/${m}.sql" "supabase/rollbacks/${m}_rollback.sql"
+  done
+  printf '%s\n' \
+    docs/release/payment-attempt-coordination/{forward,rollback}.sql \
+    supabase/functions/primary-checkout/{index,order-pis,payment-attempts}.ts \
+    supabase/functions/primary-lapse-canceller/index.ts \
+    supabase/functions/refund-execute/{executor,index}.ts \
+    supabase/functions/stripe-webhook/{index,native,payment-attempts,refund-failure,sibling-guard}.ts
+}
+
 verify_hashes() {
   local base="$1"
   local pins="$base/docs/release/payment-attempt-coordination/tests/local-pg/migrations.pins"
-  local m rel want got
+  local rel want got
   [ -f "$pins" ] || { echo "::error::migrations.pins missing at $pins" >&2; return 1; }
-  for rel in $(for m in $CHAIN_198_205; do
-    printf '%s\n' "supabase/migrations/${m}.sql" "supabase/rollbacks/${m}_rollback.sql"
-  done) docs/release/payment-attempt-coordination/forward.sql docs/release/payment-attempt-coordination/rollback.sql; do
+  while IFS= read -r rel; do
     [ -f "$base/$rel" ] || { echo "::error::pinned input missing: $rel" >&2; return 1; }
     want=$(awk -v r="$rel" '$2==r{print $1}' "$pins")
     [ -n "$want" ] || { echo "::error::no authoritative pin for $rel" >&2; return 1; }
     got=$(shasum -a 256 "$base/$rel" | awk '{print $1}')
     [ "$got" = "$want" ] || { echo "::error::hash drift in $rel (expected $want, got $got)" >&2; return 1; }
-  done
-  echo "OK: 8 migrations, 8 migration rollbacks and payment-attempt forward/rollback match the authoritative hashes"
+  done < <(release_inputs)
+  echo "OK: migrations, rollbacks, payment-attempt SQL and changed payment Edge sources match their pins"
 }
 
 verify_inputs() {
@@ -77,23 +88,23 @@ verify_inputs() {
 tamper_proof() {
   T=$(mktemp -d "${TMPDIR:-/tmp}/oc-tamper.XXXXXX")
   trap 'rm -rf "$T"' EXIT
-  mkdir -p "$T/supabase/migrations" "$T/supabase/rollbacks" "$T/docs/release/payment-attempt-coordination/tests/local-pg" "$T/docs/release/payment-attempt-coordination"
-  local m f
-  for m in $CHAIN_198_205; do
-    cp "$MIGDIR/${m}.sql" "$T/supabase/migrations/"
-    cp "$ROOT/supabase/rollbacks/${m}_rollback.sql" "$T/supabase/rollbacks/"
-  done
-  cp "$DOCS/forward.sql" "$T/docs/release/payment-attempt-coordination/forward.sql"
-  cp "$DOCS/rollback.sql" "$T/docs/release/payment-attempt-coordination/rollback.sql"
+  local f
+  while IFS= read -r f; do
+    mkdir -p "$T/${f%/*}"
+    cp "$ROOT/$f" "$T/$f"
+  done < <(release_inputs)
+  mkdir -p "$T/docs/release/payment-attempt-coordination/tests/local-pg"
   cp "$PINS" "$T/docs/release/payment-attempt-coordination/tests/local-pg/migrations.pins"
   verify_hashes "$T" || return 1
-  f="$T/supabase/migrations/20261102140000_ops_report_et_day_boundaries.sql"
-  printf '\n-- tamper\n' >> "$f"
-  if verify_hashes "$T"; then
-    echo "::error::tamper-proof FAILED: a mutated migration still passed the hash check" >&2
-    return 1
-  fi
-  echo "PASS tamper-proof: one-byte mutation of a correctly-named migration fails verify_hashes"
+  for f in supabase/migrations/20261102140000_ops_report_et_day_boundaries.sql supabase/functions/primary-lapse-canceller/index.ts; do
+    printf '\n' >> "$T/$f"
+    if verify_hashes "$T"; then
+      echo "::error::tamper-proof FAILED: mutated $f still passed the hash check" >&2
+      return 1
+    fi
+    cp "$ROOT/$f" "$T/$f"
+    echo "PASS tamper-proof: mutation of $f fails verification"
+  done
 }
 
 # Offline wiring self-check: prove the scenario-isolation + exact-refusal markers
