@@ -1036,6 +1036,19 @@ serve(async (req: Request) => {
 
       const refundId = typeof body.refund_id === 'string' ? body.refund_id : '';
       if (!isUuid(refundId)) return json({ error: 'invalid_input', detail: 'refund_id must be a uuid' }, 400, headers);
+
+      // Direct operator execution honors the console refund switch. The
+      // scheduled sweep has its own invoker switch in catalog.platform_config.
+      const { data: settings, error: settingsError } = await caller.schema('ops').rpc('settings');
+      const refundSettings = Array.isArray(settings)
+        ? settings.filter((setting) => setting?.key === 'refund_execute_enabled')
+        : [];
+      const enabled = refundSettings.length === 1 ? refundSettings[0].value : undefined;
+      if (settingsError || typeof enabled !== 'boolean') {
+        return json({ error: 'refund_execution_state_unavailable' }, 503, headers);
+      }
+      if (!enabled) return json({ error: 'refund_execution_disabled' }, 409, headers);
+
       // `expected_order_id` is the caller's ASSERTION, used only to refuse a
       // mismatch. It never selects the payment.
       const expectedOrderId = typeof body.expected_order_id === 'string' ? body.expected_order_id : null;

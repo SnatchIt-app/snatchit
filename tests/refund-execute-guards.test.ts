@@ -183,11 +183,11 @@ class Kernel {
 
 // ── harness ─────────────────────────────────────────────────────────────────
 
-type WhoAmI = { data?: unknown; error?: { message: string; code?: string } };
-const OPERATOR_AAL2: WhoAmI = { data: { user_id: OPERATOR, role: 'platform_admin', aal: 'aal2', email_masked: 'o***@x.invalid' } };
-const NOT_AN_OPERATOR: WhoAmI = { error: { message: 'insufficient_privilege: operator role required', code: '42501' } };
+type RpcAnswer = { data?: unknown; error?: { message: string; code?: string } };
+const OPERATOR_AAL2: RpcAnswer = { data: { user_id: OPERATOR, role: 'platform_admin', aal: 'aal2', email_masked: 'o***@x.invalid' } };
+const NOT_AN_OPERATOR: RpcAnswer = { error: { message: 'insufficient_privilege: operator role required', code: '42501' } };
 
-async function harness(opts: { user?: string; whoami?: WhoAmI; claim?: unknown[] } = {}) {
+async function harness(opts: { user?: string; whoami?: RpcAnswer; claim?: unknown[]; settings?: RpcAnswer } = {}) {
   const stripe = new StripeWithMemory();
   const transport = mockStripe(stripe.route);
   const kernel = new Kernel();
@@ -195,6 +195,7 @@ async function harness(opts: { user?: string; whoami?: WhoAmI; claim?: unknown[]
     user: { id: opts.user ?? OPERATOR },
     rpc: async (name, params) => {
       if (name === 'whoami') return opts.whoami ?? OPERATOR_AAL2;
+      if (name === 'settings') return opts.settings ?? { data: [{ key: 'refund_execute_enabled', value: true }] };
       if (name === 'check_rate_limit') return { data: true };
       if (name === 'get_refund_execution_context') {
         kernel.contextReads += 1;
@@ -319,6 +320,23 @@ describe('G: action:execute is a platform-operator-at-aal2 action, decided in th
     expect(r.body.status).toBe('succeeded');
     expect(h.stripe.refundedOn(PI)).toBe(AMOUNT);
     expect(h.kernel.row).toEqual({ status: 'succeeded', stripe_refund_ref: 're_1' });
+  });
+
+  it.each([
+    { label: 'OFF', settings: { data: [{ key: 'refund_execute_enabled', value: false }] }, status: 409, error: 'refund_execution_disabled' },
+    { label: 'missing', settings: { data: [] }, status: 503, error: 'refund_execution_state_unavailable' },
+    { label: 'non-boolean', settings: { data: [{ key: 'refund_execute_enabled', value: 'true' }] }, status: 503, error: 'refund_execution_state_unavailable' },
+    { label: 'duplicated', settings: { data: [{ key: 'refund_execute_enabled', value: true }, { key: 'refund_execute_enabled', value: false }] }, status: 503, error: 'refund_execution_state_unavailable' },
+    { label: 'unreadable', settings: { error: { message: 'settings unavailable' } }, status: 503, error: 'refund_execution_state_unavailable' },
+  ])('refuses direct execution with zero Stripe calls when the console refund switch is $label', async ({ settings, status, error }) => {
+    const h = await harness({ settings });
+    const r = await h.execute({ expected_order_id: ORDER });
+    expect(h.calls()).toEqual([]);
+    expect(r.status).toBe(status);
+    expect(r.body.error).toBe(error);
+    expect(h.sb.rpcs.find((rpc) => rpc.name === 'settings')?.schema).toBe('ops');
+    expect(h.rpcNames()).not.toContain('get_refund_execution_context');
+    expect(h.kernel.row).toEqual({ status: 'pending', stripe_refund_ref: null });
   });
 });
 
