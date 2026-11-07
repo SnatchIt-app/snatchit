@@ -71,6 +71,7 @@ verify_inputs() {
   [ -f "$HERE/payment_attempt_seed_cancel.sql" ]      || { echo "::error::payment_attempt_seed_cancel.sql missing" >&2; return 1; }
   [ -f "$HERE/payment_attempt_seed_concurrency.sql" ] || { echo "::error::payment_attempt_seed_concurrency.sql missing" >&2; return 1; }
   [ -f "$HERE/payment_attempt_seed_rollback.sql" ]    || { echo "::error::payment_attempt_seed_rollback.sql missing" >&2; return 1; }
+  [ -f "$HERE/payment_attempt_lifecycle.sql" ]        || { echo "::error::payment_attempt_lifecycle.sql missing" >&2; return 1; }
   bash -n "$DOCS/tests/two-connection-lock-test.sh" || return 1
   bash -n "$DOCS/tests/rollback-safety-test.sh"     || return 1
   verify_hashes "$ROOT" || return 1
@@ -481,6 +482,14 @@ SQL
   echo "OK: failed attempt binding is available for Stripe cancellation"
 }
 
+assert_payment_attempt_lifecycle() {
+  local url; url=$(dburl oc_lifecycle)
+  clone oc_lifecycle
+  psql "$url" -X -v ON_ERROR_STOP=1 -q \
+    -f "$SEED" -f "$HERE/payment_attempt_seed_cancel.sql" -f "$HERE/payment_attempt_lifecycle.sql"
+  echo "OK: service_role payment attempt lifecycle, lost-response recovery and forged cancellation refusal"
+}
+
 # Concurrency, two dedicated clones (never the mutated post-forward DB).
 run_concurrency() {
   local main_url neg_url
@@ -574,6 +583,7 @@ apply_forward
 assert_rpc_signatures
 prepare_template
 assert_cancellation_refusals
+assert_payment_attempt_lifecycle
 run_concurrency
 run_rollback_modes
 echo "PASS payment-attempt integration"
