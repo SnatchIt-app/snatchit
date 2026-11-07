@@ -812,6 +812,17 @@ jobs:
           # SECURITY DEFINER, search_path, owner and ACL (pinned by pgTAP 272 A3-A5 and 203's own post-flight). No
           # object, no grant, nothing in `public`; no census moves. Read from a local PG17 replay of main 7496fee3 +
           # 203 with the service_role function default revoked: 35|133|37|49 before and after.
+          # 2026-11-02 registry 204 (D, command-key replay for five venue/catalog verbs; DARK, applied nowhere): NO
+          # change to any of the four counters. 204 is body-only CREATE OR REPLACE of catalog.create_event,
+          # catalog.create_event_session, catalog.publish_event (on 202's body), venue.set_ticket_type_sale_window and
+          # venue.allocate_comp (same signatures, owner, ACL, SECURITY DEFINER, search_path, volatility, COMMENT —
+          # pinned by pgTAP 273 A6-A8 and 204's post-flight, which also compares a schema census). No object, no
+          # grant, nothing in `public`; the receipt is each verb's own kernel.admin_audit row. Pins move in pgTAP 232
+          # (A2, A4, A8), 271 (A6, S3) and 229 (W49). Not in this tree: 203's pgTAP 272 A7 pins create_event_session's
+          # and publish_event's pre-204 bodies (a semantic conflict, no merge marker); whichever of 203 / 204 lands
+          # second moves A7 to create_event_session=33b0d32e… publish_event=fe9bc5f0… (204's migration header).
+          # Read from a local PG17 replay of main c093bada + 202 + 204 with the service_role function default
+          # revoked: 35|133|37|49 before and after.
           EXPECT_TABLES: 35
           # 2026-09-15 migration 130 (L1 concurrency, B): functions 94 -> 96 —
           # +2 public.claim_checkout_supersede, public.release_checkout_supersede

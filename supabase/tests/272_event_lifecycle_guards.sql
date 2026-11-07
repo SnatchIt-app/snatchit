@@ -202,11 +202,12 @@ SELECT is((SELECT string_agg(p.proname || '=' || md5(p.prosrc) || ':' || p.prose
 SELECT is((SELECT string_agg(p.proname || '=' || md5(p.prosrc), ' ' ORDER BY p.proname)
              FROM pg_proc p WHERE p.pronamespace = 'catalog'::regnamespace
               AND p.proname IN ('create_event_session','update_event','publish_event')),
-  -- Release prefix 6 (main ea6496fc + 198..203, measured on a local clone with 198..203 applied in ledger order):
+  -- Release prefix 7 (main ea6496fc + 198..204, measured on a local clone with 198..204 applied in ledger order):
   -- registry 202 moves publish_event (165's body b31abddf9aad2cb7b119d517424bb494 + 202's fee gate =
-  -- 0f7d65e79fc24cc5feed1048575d3e27); create_event_session and update_event are unchanged. 203 still touches none
-  -- of the three.
-  'create_event_session=ee243b12a8b51c7692a8f6ed22506a34 publish_event=0f7d65e79fc24cc5feed1048575d3e27 update_event=1bf2a04bf1ffccfdbed04d8b067dd2df',
+  -- 0f7d65e79fc24cc5feed1048575d3e27), and registry 204 moves create_event_session (ee243b12a8b51c7692a8f6ed22506a34
+  -- + 204's command-key receipt) and publish_event again (+ 204's receipt); update_event is unchanged. 203 still
+  -- touches none of the three.
+  'create_event_session=33b0d32e2a3b4269ad2fc9ae173066e1 publish_event=fe9bc5f0f91611a064b1cdef5143efec update_event=1bf2a04bf1ffccfdbed04d8b067dd2df',
   'A7: the sibling verbs (165''s create_event_session / update_event / publish_event) are untouched by 203');
 SELECT ok((SELECT position('insufficient_privilege: org_owner / org_admin / venue_manager' in p.prosrc) > 0
               AND position('insufficient_privilege: org_owner / org_admin / venue_manager' in p.prosrc)

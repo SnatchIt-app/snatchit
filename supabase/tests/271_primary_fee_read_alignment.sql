@@ -213,8 +213,10 @@ SELECT ok(coalesce(has_function_privilege('authenticated', to_regprocedure('cata
   'A4: publish_event EXECUTE posture unchanged — authenticated, not anon, no PUBLIC entry');
 SELECT is(md5(pg_get_functiondef(to_regprocedure('public.get_primary_session(uuid)'))), 'ac639b649b510ef089ea55c3c70068fa',
   'A5: get_primary_session body = 202''s (md5(pg_get_functiondef) ac639b64; 182''s was 8915bf3d)');
-SELECT is(md5(pg_get_functiondef(to_regprocedure('catalog.publish_event(uuid,text,text)'))), 'f30eaca23ae71a33243e39a6c8c5a8fd',
-  'A6: publish_event body = 202''s (md5(pg_get_functiondef) f30eaca2; e76''s was 18e96244)');
+-- A6 moved with registry 204 (pgTAP 273, venue_command_key_replay): 202's body (f30eaca23ae71a33243e39a6c8c5a8fd) plus
+-- 204's command-key receipt (declare, receipt block, audit after); gate 4 is byte-identical (pgTAP 273 B5).
+SELECT is(md5(pg_get_functiondef(to_regprocedure('catalog.publish_event(uuid,text,text)'))), '3243d8a053e81181d6c54fe1f05d5288',
+  'A6: publish_event body = 202''s plus 204''s receipt (md5(pg_get_functiondef) 3243d8a0; 202''s was f30eaca2, e76''s 18e96244)');
 SELECT is(md5(obj_description(to_regprocedure('public.get_primary_session(uuid)'), 'pg_proc')), '1af9f2294f0523662bad51d59f5dd00b',
   'A7: the COMMENT on get_primary_session is 202''s (it names the JSON-number and integer 0..10000 rule)');
 
@@ -377,9 +379,11 @@ SELECT tap._store271('p_s3', tap._try271($q$SELECT catalog.publish_event('a271fe
 SELECT tap.logout();
 SELECT tap._anyplan271();
 DISCARD PLANS;
+-- registry 204 (pgTAP 273, venue_command_key_replay): the event.status row is publish_event's command-key receipt, so its
+-- after also carries command_key_sha256 and request_sha256; the status is compared without the two digests.
 SELECT is((SELECT (tap._p271('s3'), e.status,
                    (SELECT count(*) FROM kernel.admin_audit a WHERE a.subject_id = e.event_id AND a.action = 'event.status'
-                       AND a.after = '{"status":"on_sale"}'::jsonb)::integer)::text
+                       AND a.after - 'command_key_sha256' - 'request_sha256' = '{"status":"on_sale"}'::jsonb)::integer)::text
              FROM catalog.event e WHERE e.event_id = 'a271fee0-e0b0-4c00-a0d0-0000000c0e02'),
           ('ok on_sale', 'on_sale', 1)::text,
   'S3: with newest 1000 the same real call goes on_sale and writes exactly one event.status audit row (S2''s zero is not vacuous)');
