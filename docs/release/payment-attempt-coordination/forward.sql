@@ -410,7 +410,7 @@ begin
   -- first and re-read/revalidate the attempt. Never attempt -> order.
   select order_id into v_order_id from venue.payment_attempt where pi_id = p_pi_id;
   if v_order_id is null then
-    raise exception 'precondition_failed: no payment attempt for PI %', p_pi_id using errcode = 'P0001';
+    raise exception 'precondition_failed: no payment attempt for PI %', p_pi_id using errcode = 'PNA01';
   end if;
   perform 1 from venue."order" where order_id = v_order_id for update;
   select * into v_attempt from venue.payment_attempt where pi_id = p_pi_id for update;
@@ -619,6 +619,36 @@ end;
 $fn$;
 revoke all on function venue.read_lapse_payment_attempts(uuid, uuid, uuid) from public, anon, authenticated, service_role;
 grant execute on function venue.read_lapse_payment_attempts(uuid, uuid, uuid) to service_role;
+
+-- A signed success delivery for a pre-cutover payment may be acknowledged
+-- only if the immutable native ledger already links this exact settled order.
+-- This read cannot finalize an order or write to the attempt ledger.
+create function venue.is_settled_native_payment_replay(
+  p_order_id uuid, p_buyer_id uuid, p_session_id uuid, p_pi_id text,
+  p_payment_id uuid, p_amount_minor integer, p_currency text, p_livemode boolean
+) returns boolean
+language sql stable
+security definer
+set search_path = ''
+as $fn$
+  select exists (
+    select 1 from kernel.payment_native n
+    join venue."order" o on o.order_id = n.order_id
+    join public.payments p on p.id = n.payment_id
+    where n.order_id = p_order_id and n.payment_id = p_payment_id
+      and n.amount_minor = o.total_minor and n.currency = p_currency
+      and o.status in ('paid', 'partially_refunded', 'refunded')
+      and o.buyer_id = p_buyer_id and o.event_session_id = p_session_id
+      and o.currency = p_currency
+      and p.mode = 'native_primary' and p.buyer_id = p_buyer_id
+      and p.status in ('succeeded', 'refunded')
+      and p.stripe_payment_intent_id = p_pi_id and p.stripe_livemode = p_livemode
+      and p.total = p_amount_minor and p.total >= o.total_minor
+      and not exists (select 1 from venue.payment_attempt a where a.pi_id = p_pi_id)
+  );
+$fn$;
+revoke all on function venue.is_settled_native_payment_replay(uuid, uuid, uuid, text, uuid, integer, text, boolean) from public, anon, authenticated, service_role;
+grant execute on function venue.is_settled_native_payment_replay(uuid, uuid, uuid, text, uuid, integer, text, boolean) to service_role;
 
 create function venue.guard_order_cancel_attempts()
 returns trigger

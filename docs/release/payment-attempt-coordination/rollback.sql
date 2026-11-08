@@ -48,7 +48,8 @@ begin
     or to_regprocedure('venue.mark_payment_attempt_by_pi(text,text,text)') is not null
     or to_regprocedure('venue.read_payment_attempt_recovery(uuid,uuid,uuid)') is not null
     or to_regprocedure('venue.read_payment_attempt_binding(uuid,text,uuid,uuid)') is not null
-    or to_regprocedure('venue.read_lapse_payment_attempts(uuid,uuid,uuid)') is not null;
+    or to_regprocedure('venue.read_lapse_payment_attempts(uuid,uuid,uuid)') is not null
+    or to_regprocedure('venue.is_settled_native_payment_replay(uuid,uuid,uuid,text,uuid,integer,text,boolean)') is not null;
   v_all_rpc :=
        to_regprocedure('venue.begin_payment_attempt(uuid,text,uuid,uuid,integer,integer,integer,text)') is not null
    and to_regprocedure('venue.store_payment_attempt_request(uuid,uuid,uuid,uuid,jsonb)') is not null
@@ -57,7 +58,8 @@ begin
    and to_regprocedure('venue.mark_payment_attempt_by_pi(text,text,text)') is not null
    and to_regprocedure('venue.read_payment_attempt_recovery(uuid,uuid,uuid)') is not null
    and to_regprocedure('venue.read_payment_attempt_binding(uuid,text,uuid,uuid)') is not null
-   and to_regprocedure('venue.read_lapse_payment_attempts(uuid,uuid,uuid)') is not null;
+   and to_regprocedure('venue.read_lapse_payment_attempts(uuid,uuid,uuid)') is not null
+   and to_regprocedure('venue.is_settled_native_payment_replay(uuid,uuid,uuid,text,uuid,integer,text,boolean)') is not null;
   v_guard_fn := to_regprocedure('venue.guard_order_cancel_attempts()') is not null;
   select count(*) into v_active_fn_count
     from pg_proc p
@@ -66,7 +68,7 @@ begin
      and p.proname in ('begin_payment_attempt','store_payment_attempt_request',
                        'attach_payment_attempt','mark_payment_attempt',
                        'mark_payment_attempt_by_pi','read_payment_attempt_recovery',
-                       'read_payment_attempt_binding','read_lapse_payment_attempts','guard_order_cancel_attempts');
+                       'read_payment_attempt_binding','read_lapse_payment_attempts','is_settled_native_payment_replay','guard_order_cancel_attempts');
   select exists (
     select 1 from pg_trigger t
      where t.tgrelid = 'venue."order"'::regclass
@@ -75,7 +77,7 @@ begin
   ) into v_guard_trigger;
 
   if v_active_attempt then
-    if v_active_fn_count <> 9 or not v_all_rpc or not v_guard_fn or not v_guard_trigger then
+    if v_active_fn_count <> 10 or not v_all_rpc or not v_guard_fn or not v_guard_trigger then
       raise exception 'precondition_failed: active pair has missing/extra function overloads or missing cancel trigger; rollback refused'
         using errcode = 'P0001';
     end if;
@@ -120,6 +122,7 @@ begin
     execute 'drop function if exists venue.guard_order_cancel_attempts()';
     execute 'drop function if exists venue.read_payment_attempt_recovery(uuid, uuid, uuid)';
     execute 'drop function if exists venue.store_payment_attempt_request(uuid, uuid, uuid, uuid, jsonb)';
+    execute 'drop function if exists venue.is_settled_native_payment_replay(uuid,uuid,uuid,text,uuid,integer,text,boolean)';
     execute 'drop function if exists venue.read_lapse_payment_attempts(uuid, uuid, uuid)';
     execute 'drop function if exists venue.read_payment_attempt_binding(uuid, text, uuid, uuid)';
     execute 'drop function if exists venue.mark_payment_attempt_by_pi(text, text, text)';

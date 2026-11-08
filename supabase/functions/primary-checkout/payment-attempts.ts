@@ -100,6 +100,8 @@ export async function attachPaymentAttempt(rpc: RpcCaller, input: AttachAttemptI
   }
 }
 
+export class PaymentAttemptNotFound extends Error {}
+
 export async function markPaymentAttemptByPi(
   rpc: RpcCaller,
   piId: string,
@@ -109,6 +111,7 @@ export async function markPaymentAttemptByPi(
   const { data, error } = await rpc('mark_payment_attempt_by_pi', {
     p_pi_id: piId, p_state: state, p_stripe_status: stripeStatus,
   });
+  if (error?.code === 'PNA01') throw new PaymentAttemptNotFound('no payment attempt for Stripe intent');
   if (error) fail('mark_payment_attempt_by_pi', error);
   const v = data as {
     attempt_id?: unknown; state?: unknown; pi_id?: unknown;

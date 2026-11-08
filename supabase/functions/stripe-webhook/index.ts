@@ -8,7 +8,7 @@ import { stripeFetchRaw } from '../_shared/stripe.ts';
 // branch below without loading a single https specifier — see native.ts's
 // header and tests/stripe-webhook-native.test.ts.
 import { decideSiblingInspection, inspectTerminalSiblings } from './sibling-guard.ts';
-import { markPaymentAttemptByPi } from './payment-attempts.ts';
+import { markPaymentAttemptByPi, PaymentAttemptNotFound } from './payment-attempts.ts';
 import {
   type Decision,
   type PaymentRow,
@@ -979,11 +979,29 @@ serve(async (req: Request) => {
           });
         }
 
-        // Coordination is fail-closed: a missing attempt/RPC or a stale
-        // mark failure retries the event BEFORE finalize. It never proves money.
+        // Mark failures retry before finalize. A settled pre-cutover replay
+        // can only be acknowledged by proving the existing immutable link.
         try {
           await markAttempt(piId, 'succeeded', 'succeeded');
         } catch (markErr) {
+          if (markErr instanceof PaymentAttemptNotFound && claimOutcome.kind === 'already_succeeded'
+              && ref.sessionId !== null
+              && paymentIntent?.status === 'succeeded' && paymentIntent.currency === 'usd'
+              && Number.isSafeInteger(paymentIntent.amount) && paymentIntent.amount > 0
+              && paymentIntent.amount_received === paymentIntent.amount
+              && typeof paymentIntent.livemode === 'boolean') {
+            const { data, error } = await venueService().rpc('is_settled_native_payment_replay', {
+              p_order_id: ref.orderId, p_buyer_id: ref.buyerId, p_session_id: ref.sessionId,
+              p_pi_id: piId, p_payment_id: paymentRow.id, p_amount_minor: paymentIntent.amount,
+              p_currency: 'USD', p_livemode: paymentIntent.livemode,
+            });
+            if (!error && data === true) {
+              return await finishDecision(
+                { ack: true, alert: false, reason: 'native_legacy_payment_already_settled' },
+                { order_id: ref.orderId, payment_id: paymentRow.id },
+              );
+            }
+          }
           return await finishDecision(
             { ack: false, alert: true, reason: 'native_attempt_mark_succeeded_error' },
             { stage: 'native_attempt_mark', order_id: ref.orderId, pi_id: piId },

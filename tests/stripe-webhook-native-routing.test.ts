@@ -118,6 +118,25 @@ function piEvent(id: string, type: string, metadata: Record<string, unknown>, ov
 const finalizeOk = { finalize_primary_order: () => ({ data: { status: 'ok', atom_ids: ['atom-1', 'atom-2'], order_status: 'paid' } }) };
 
 describe('native payment_intent.succeeded reaches venue.finalize_primary_order (CONTRACTS C4)', () => {
+  it.each([true, false, null])('redelivered historical success requires exact settled ledger proof (%s)', async (proof) => {
+    const h = harness({
+      payments: (q) => ({ data: q.op === 'update' ? null : NATIVE_ROW }),
+      rpc: {
+        ...finalizeOk,
+        mark_payment_attempt_by_pi: () => ({ error: { code: 'PNA01', message: 'no attempt' } }),
+        is_settled_native_payment_replay: () => ({ data: proof }),
+      },
+    });
+    const { res, body } = await h.deliver(piEvent('evt_legacy_success', 'payment_intent.succeeded', NATIVE_META));
+    expect(res.status).toBe(proof === true ? 200 : 500);
+    expect(body.reason).toBe(proof === true ? 'native_legacy_payment_already_settled' : 'native_attempt_mark_succeeded_error');
+    expect(h.rpcOf('is_settled_native_payment_replay')).toMatchObject({ schema: 'venue', params: {
+      p_order_id: ORDER, p_buyer_id: BUYER, p_session_id: SESS, p_pi_id: PI,
+      p_payment_id: PAY, p_amount_minor: 5500, p_currency: 'USD', p_livemode: false,
+    } });
+    expect(h.rpcOf('finalize_primary_order')).toBeUndefined();
+  });
+
   // NEGATIVE CONTROL TARGET: with the success dispatch removed from index.ts this test fails.
   it('routes a native success to finalize on the venue schema, never to settle_verified_payment', async () => {
     const h = harness({ rpc: finalizeOk });

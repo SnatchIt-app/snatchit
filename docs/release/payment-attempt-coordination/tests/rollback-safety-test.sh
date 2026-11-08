@@ -67,12 +67,13 @@ assert_active_gone() {
     'venue.read_payment_attempt_recovery(uuid,uuid,uuid)' \
     'venue.read_payment_attempt_binding(uuid,text,uuid,uuid)' \
     'venue.read_lapse_payment_attempts(uuid,uuid,uuid)' \
+    'venue.is_settled_native_payment_replay(uuid,uuid,uuid,text,uuid,integer,text,boolean)' \
     'venue.guard_order_cancel_attempts()'; do
     local got
     got=$(sql "select coalesce(to_regprocedure('$fn')::text,'')") || fail "active RPC query failed: $fn"
     [ -z "$got" ] || fail "active RPC remains: $fn"
   done
-  [ "$(sql "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='venue' and p.proname in ('begin_payment_attempt','store_payment_attempt_request','attach_payment_attempt','mark_payment_attempt','mark_payment_attempt_by_pi','read_payment_attempt_recovery','read_payment_attempt_binding','read_lapse_payment_attempts','guard_order_cancel_attempts')")" = 0 ] || fail "active overload remains"
+  [ "$(sql "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='venue' and p.proname in ('begin_payment_attempt','store_payment_attempt_request','attach_payment_attempt','mark_payment_attempt','mark_payment_attempt_by_pi','read_payment_attempt_recovery','read_payment_attempt_binding','read_lapse_payment_attempts','is_settled_native_payment_replay','guard_order_cancel_attempts')")" = 0 ] || fail "active overload remains"
 }
 assert_archive() {
   [ "$(sql "select count(*) from pg_trigger where tgrelid='venue.payment_attempt_event_retired_20261103'::regclass and tgname='payment_attempt_event_append_only' and not tgisinternal")" = 1 ] || fail "archive append-only trigger missing"
