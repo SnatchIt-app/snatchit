@@ -17,6 +17,10 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 MIGDIR="$ROOT/supabase/migrations"
 DOCS="$ROOT/docs/release/payment-attempt-coordination"
+ATTEMPT_VERSION=20261108194055
+ATTEMPT_MIGRATION=20261108194055_native_payment_attempt_coordination
+FORWARD="$MIGDIR/$ATTEMPT_MIGRATION.sql"
+ROLLBACK="$ROOT/supabase/rollbacks/${ATTEMPT_MIGRATION}_rollback.sql"
 SEED="$HERE/payment_attempt_seed.sql"
 PINS="$DOCS/tests/local-pg/migrations.pins"
 SNAPSHOT="${RUNNER_TEMP:-/tmp}/oc-forward-snapshot.sql"
@@ -42,7 +46,7 @@ release_inputs() {
     printf '%s\n' "supabase/migrations/${m}.sql" "supabase/rollbacks/${m}_rollback.sql"
   done
   printf '%s\n' \
-    docs/release/payment-attempt-coordination/{forward,rollback}.sql \
+    "supabase/migrations/$ATTEMPT_MIGRATION.sql" "supabase/rollbacks/${ATTEMPT_MIGRATION}_rollback.sql" \
     supabase/functions/primary-checkout/{index,order-pis,payment-attempts}.ts \
     supabase/functions/primary-lapse-canceller/index.ts \
     supabase/functions/stripe-webhook/{index,native,payment-attempts,refund-failure,sibling-guard}.ts
@@ -69,8 +73,8 @@ verify_inputs() {
     [ -f "$MIGDIR/${m}.sql" ] || missing="$missing ${m}.sql"
   done
   [ -n "$missing" ] && { echo "::error::missing migration files:$missing" >&2; return 1; }
-  [ -f "$DOCS/forward.sql" ]  || { echo "::error::forward.sql missing" >&2; return 1; }
-  [ -f "$DOCS/rollback.sql" ] || { echo "::error::rollback.sql missing" >&2; return 1; }
+  [ -f "$FORWARD" ]  || { echo "::error::forward.sql missing" >&2; return 1; }
+  [ -f "$ROLLBACK" ] || { echo "::error::rollback.sql missing" >&2; return 1; }
   [ -f "$DOCS/tests/two-connection-lock-test.sh" ] || { echo "::error::two-connection-lock-test.sh missing" >&2; return 1; }
   [ -f "$DOCS/tests/rollback-safety-test.sh" ]     || { echo "::error::rollback-safety-test.sh missing" >&2; return 1; }
   [ -f "$SEED" ] || { echo "::error::payment_attempt_seed.sql missing" >&2; return 1; }
@@ -95,7 +99,7 @@ tamper_proof() {
   mkdir -p "$T/docs/release/payment-attempt-coordination/tests/local-pg"
   cp "$PINS" "$T/docs/release/payment-attempt-coordination/tests/local-pg/migrations.pins"
   verify_hashes "$T" || return 1
-  for f in supabase/migrations/20261102140000_ops_report_et_day_boundaries.sql supabase/functions/primary-lapse-canceller/index.ts; do
+  for f in "supabase/migrations/$ATTEMPT_MIGRATION.sql" supabase/migrations/20261102140000_ops_report_et_day_boundaries.sql supabase/functions/primary-lapse-canceller/index.ts; do
     printf '\n' >> "$T/$f"
     if verify_hashes "$T"; then
       echo "::error::tamper-proof FAILED: mutated $f still passed the hash check" >&2
@@ -348,7 +352,7 @@ assert_forward_preflight_refusal() {
   # Seed and apply in the same session. ON_ERROR_STOP disconnects on the
   # expected refusal, rolling back the synthetic fixtures with the migration.
   if output=$(psql "$DB_URL" -X -v ON_ERROR_STOP=1 -v VERBOSITY=verbose -q \
-      -c 'begin' -f "$SEED" "$@" -f "$DOCS/forward.sql" 2>&1); then
+      -c 'begin' -f "$SEED" "$@" -f "$FORWARD" 2>&1); then
     echo "::error::forward accepted the $fixture fixture" >&2
     return 1
   else
@@ -408,8 +412,8 @@ assert_cutover_refuses_live_writer() (
 )
 
 apply_forward() {
-  psql "$DB_URL" -X -v ON_ERROR_STOP=1 -q -f "$DOCS/forward.sql"
-  echo "OK: forward.sql applied"
+  psql "$DB_URL" -X -v ON_ERROR_STOP=1 -q -f "$FORWARD"
+  echo "OK: registered migration applied in the isolated cutover rehearsal"
 }
 
 assert_legacy_payment_contract() {
@@ -595,7 +599,7 @@ run_rollback_modes() {
       BUYER_ID='bbbbbbbb-0000-4000-8000-000000000001' \
       SESSION_ID='cccccccc-0000-4000-8000-000000000001' \
       HOLD_ID='eeeeeeee-0000-4000-8000-000000000008' \
-      bash "$DOCS/tests/rollback-safety-test.sh"
+      ATTEMPT_ROLLBACK_SQL="$ROLLBACK" bash "$DOCS/tests/rollback-safety-test.sh"
     if [ "$mode" = "success" ]; then
       assert_legacy_payment_contract "$url" post-rollback
       assert_legacy_cancel_after_rollback "$url"
@@ -612,10 +616,10 @@ run_migration_chain_rollback() {
   local url migration
   url=$(dburl oc_chain_rollback)
   clone oc_chain_rollback || return 1
-  assert_cutover_refuses_live_writer "$url" "$DOCS/rollback.sql" venue.inventory_hold || return 1
+  assert_cutover_refuses_live_writer "$url" "$ROLLBACK" venue.inventory_hold || return 1
   # The coordination schema is installed after 205, so retire it before
   # restoring the numbered migration predecessors on this isolated clone.
-  psql "$url" -X -v ON_ERROR_STOP=1 -q -f "$DOCS/rollback.sql" || return 1
+  psql "$url" -X -v ON_ERROR_STOP=1 -q -f "$ROLLBACK" || return 1
   assert_legacy_payment_contract "$url" before-numbered-rollbacks || return 1
 
   while IFS= read -r migration; do
@@ -651,9 +655,13 @@ require_db
 parse_db
 verify_inputs
 assert_chain_applied
+if [ "$(psqlq -c "select count(*) from supabase_migrations.schema_migrations where version = '$ATTEMPT_VERSION'")" != 0 ]; then
+  echo "::error::cutover rehearsal must start before the attempt migration is recorded" >&2
+  exit 1
+fi
 assert_legacy_payment_contract "$DB_URL" pre-forward
-assert_cutover_refuses_live_writer "$DB_URL" "$DOCS/forward.sql" 'venue."order"'
-assert_cutover_refuses_live_writer "$DB_URL" "$DOCS/forward.sql" venue.inventory_hold
+assert_cutover_refuses_live_writer "$DB_URL" "$FORWARD" 'venue."order"'
+assert_cutover_refuses_live_writer "$DB_URL" "$FORWARD" venue.inventory_hold
 assert_forward_preflight_refusal pending-order 'pending venue orders' \
   -f "$HERE/payment_attempt_seed_cancel.sql"
 assert_forward_preflight_refusal active-hold 'active inventory holds' \

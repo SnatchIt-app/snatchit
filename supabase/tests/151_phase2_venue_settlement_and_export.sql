@@ -194,9 +194,9 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
             WHERE n.nspname IN ('venue','kernel') AND p.prosrc ~* 'delete\s+from\s+storage\.objects'), 0,
   'A21: §12 31d — no venue/kernel routine performs the metadata-only DELETE FROM storage.objects');
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-            WHERE n.nspname='venue' AND c.relkind='r'), 29,
+            WHERE n.nspname='venue' AND c.relkind='r'), 31,
   -- 2026-09-02 (package 090): 23 -> 29 (+6 promoter-engine tables).
-  'A22: venue holds 29 tables — 23 post-087 + 090''s six promoter-engine tables');
+  'A22: venue holds 31 tables after registry 206 adds the two private attempt tables');
 
 -- ============================================================================
 -- SECTION B — GRANTS, RLS, AO

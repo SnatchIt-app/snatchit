@@ -1,15 +1,15 @@
--- OC-PAYMENT-ATOMIC-COORDINATION-1 — LOCAL DRAFT ONLY. DO NOT APPLY.
--- Register/review as a migration only after Codex review and a fresh replay.
+-- Registry 206 candidate — native checkout payment-attempt coordination.
+-- Apply only after exact review and a verified native-writer drain.
 --
 -- INVARIANT: before every native PaymentIntent POST, a venue.payment_attempt row
 -- exists under the same venue."order" FOR UPDATE lock used by
 -- venue.cancel_pending_order (082:478-525). Cancellation is refused while any
 -- attempt for the order is not independently confirmed Stripe-canceled.
 --
--- This draft does not change 082, 198/201 bodies or their md5 pins. It adds a
+-- This migration does not change 082, 198/201 bodies or their md5 pins. It adds a
 -- trigger on venue."order"; the existing cancel function's UPDATE fires it
 -- while the order row is locked. The four public-grant census files do not move
--- because every object here is in venue. See INTEGRATION-CHECKLIST.md.
+-- because every object here is in venue. See pgTAP 275.
 
 begin;
 

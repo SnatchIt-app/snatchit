@@ -15,7 +15,8 @@ set -euo pipefail
 : "${SESSION_ID:?fixture session id required}"
 : "${HOLD_ID:?fixture inventory_hold.hold_id required}"
 HERE=$(cd "$(dirname "$0")" && pwd)
-ROLLBACK="$HERE/../rollback.sql"
+ROLLBACK="${ATTEMPT_ROLLBACK_SQL:-$HERE/../../../../supabase/rollbacks/20261108194055_native_payment_attempt_coordination_rollback.sql}"
+[ -f "$ROLLBACK" ] || { echo "FAIL: attempt rollback SQL missing" >&2; exit 1; }
 PSQL=(psql "$DB_URL" -X -v ON_ERROR_STOP=1 -qAt)
 sql() { "${PSQL[@]}" -c "$1"; }
 fail() { echo "FAIL: $*" >&2; exit 1; }

@@ -1,4 +1,4 @@
--- OC-PAYMENT-ATOMIC-COORDINATION-1 — LOCAL DRAFT ROLLBACK ONLY. DO NOT APPLY.
+-- Registry 206 rollback candidate. Apply only within the reviewed recovery window.
 -- One transaction. Any failed preflight raises before DDL and restores all.
 -- Refuses on unresolved attempts, pending orders, active holds, mixed/partial
 -- active/retired pairs, archive collisions, or missing active RPCs. No CASCADE,
