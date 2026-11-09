@@ -40,6 +40,7 @@ import { AlertList } from "@/components/system/AlertList";
 import { AlertDeliveryChannel, type SettingsRead } from "@/components/system/AlertChannel";
 import { MoneySettingsPanel } from "@/components/system/MoneySettingsPanel";
 import { OperationalSettingsForm } from "@/components/system/OperationalSettingsForm";
+import { VenueApprovalForm } from "@/components/system/VenueApprovalForm";
 import { toMoneyConfigList } from "@/lib/money-config";
 import { toOperationalSettings } from "@/lib/operational-config";
 import { ReportFreshness } from "@/components/shell/Freshness";
@@ -266,6 +267,13 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
           ) : null}
           <p className="mt-3 text-[11px] text-dim">Hold max, hold lifetime and the native issuance and scanning flags are single-founder settings: one founder changes them, and the change applies at once. Money keys stay in Money settings, under the two-founder rule.</p>
         </Panel>
+
+        {isAdmin ? (
+          <Panel eyebrow="Venue access" title="Approve a venue">
+            <div id="venue-approval" />
+            <VenueApprovalForm commandKey={newIdempotencyKey()} />
+          </Panel>
+        ) : null}
 
         <Panel eyebrow="Console switches" title="Settings">
           <div id="settings" />

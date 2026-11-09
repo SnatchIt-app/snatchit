@@ -8,6 +8,7 @@ import { coerceParam, parseParamField } from "@/lib/form-params";
 import type { OpsFailure } from "@/lib/ops-errors";
 import { buildConfigRequestArgs, buildDecisionArgs } from "@/lib/money-config";
 import { buildOperationalArgs } from "@/lib/operational-config";
+import { isUuid } from "@/lib/routes";
 
 export type ExecuteActionInput = {
   idempotencyKey: string;
@@ -279,6 +280,43 @@ export async function submitOperationalConfig(_prev: MoneyFormState, formData: F
   if (!reply) return { submitted: true, failure: { ok: false, kind: "error", message: "Unexpected answer from set_operational_config" }, subjectKey: submittedKey };
   revalidatePath("/system");
   return { submitted: true, ...reply, subjectKey: submittedKey };
+}
+
+export type VenueApprovalFormState = {
+  approvedVenue?: string;
+  failure?: OpsFailure;
+  invalid?: string;
+};
+
+export async function submitVenueApproval(
+  _prev: VenueApprovalFormState,
+  formData: FormData,
+): Promise<VenueApprovalFormState> {
+  const venue = formData.get("venue");
+  const confirm = formData.get("confirm");
+  const reason = formData.get("reason");
+  const commandKey = formData.get(IDEMPOTENCY_FIELD);
+  if (!isUuid(venue) || confirm !== venue) {
+    return { invalid: "Enter the venue ID and repeat it exactly to confirm." };
+  }
+  if (typeof reason !== "string" || !reason.trim() || reason.length > 2000) {
+    return { invalid: "Enter a reason of 1 to 2000 characters." };
+  }
+  if (!isIdempotencyKey(commandKey)) {
+    return { invalid: "Reload the form before approving the venue." };
+  }
+  const result = await callOps<unknown>("approve_venue", {
+    p_venue_id: venue,
+    p_reason_code: reason.trim(),
+    p_command_key: commandKey,
+  });
+  if (!result.ok) return { failure: result };
+  if (!isRecord(result.data) || result.data.approval_status !== "approved"
+    || !["ok", "noop_replay"].includes(String(result.data.status))) {
+    return { failure: { ok: false, kind: "error", message: "Unexpected answer from approve_venue" } };
+  }
+  revalidatePath("/system");
+  return { approvedVenue: venue };
 }
 
 // ---------------------------------------------------------------------------
