@@ -266,8 +266,8 @@ SELECT is(ARRAY[md5(pg_get_functiondef(to_regprocedure('venue.sweep_expired_inve
                 (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
                   WHERE (n.nspname, p.proname) IN (('venue','reserve_primary_inventory'),('venue','create_primary_checkout'),('venue','finalize_primary_order')))::text],
           ARRAY['d2ed033325aa3972e9c1be48bb8f4e91', 'b981bef80b10455a0c45a6e908c91aec', '9f559af1202fa0e7d8bae0c44df93ff8',
-                '3d7fef64c44483586f46b568cb92c610', 'a58bb4af1512b1cb967a9bc57a57fc13', 'f177b73fadaa60234a6d416fed558d11', '110', '3'],
-  'A5: sweep, release, mint, cancel, the reserve wrapper and the staff hold are unchanged; venue functions 110; one overload each');
+                '3d7fef64c44483586f46b568cb92c610', 'a58bb4af1512b1cb967a9bc57a57fc13', 'f177b73fadaa60234a6d416fed558d11', '111', '3'],
+  'A5: sweep, release, mint, cancel, the reserve wrapper and the staff hold are unchanged; venue functions 111; one overload each');
 SELECT ok(tap._pos270('venue.finalize_primary_order(uuid, uuid, text, text)', '''idempotency_replay''') > 0
           AND tap._pos270('venue.finalize_primary_order(uuid, uuid, text, text)', '''idempotency_replay''')
             < tap._pos270('venue.finalize_primary_order(uuid, uuid, text, text)', 'only a pending order finalizes')

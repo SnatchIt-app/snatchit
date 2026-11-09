@@ -313,11 +313,11 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.
             WHERE n.nspname = 'venue' AND p.proname IN ('get_session_scan_counters','list_session_scan_counters')
               AND position('*' IN p.prosrc) = 0), 2,
   'A18: neither counters body contains a ''*'' — every venue.scan column is named (B: 183 adds device_label; no select * / scan.*)');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue'), 110,
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue'), 111,
   -- 2026-10-26 (registry 166), stacked over 163: 96 -> 98 (+get_session_capacity, list_session_capacity).
   -- 2026-10-27 (package 187, beneath 164-167): 98 -> 99 (+1 venue.assert_session_operator, the E-76 door-plane helper).
   -- 2026-10-26 (registry 162, S2, stacked under 163): 94 -> 96 (+set_ticket_type_sale_window, ticket_type_on_sale).
-  'A19: venue holds 110 functions after registry 206 adds eleven private functions');
+  'A19: venue holds 111 functions including the pilot trigger function from registry 208');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue_api'), 0,
   'A20: venue_api still holds no function (226 A3 stays true: the definer bodies live in venue)');
 SELECT is((SELECT count(*)::int FROM pg_views WHERE schemaname = 'venue_api'), 10,
