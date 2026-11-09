@@ -81,7 +81,7 @@ SELECT is((SELECT count(*)::int FROM pg_policies WHERE schemaname IN ('kernel','
 -- 2026-09-02 (package 092): 18 -> 19 (+notify-drain-outbox).
 -- 2026-09-03 (package 099): 19 -> 22 (+monitor-signing-key-invariants, +refund-execute-tick,
 -- +payout-execute-tick). Re-derived from the live cron.job count.
-SELECT is((SELECT count(*)::int FROM cron.job), 22, 'A12: 089 schedules nothing (cron rows unchanged; 22 post-099)');
+SELECT is((SELECT count(*)::int FROM cron.job), 24, 'A12: 089 schedules nothing (cron rows unchanged; 22 post-099, 24 post-117: ops-detect-tick + ops-daily-summary)');
 SELECT is((SELECT count(*)::int FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='market' AND NOT t.tgisinternal), 5,
   'A13: no new trigger (the five 088 set_updated_at triggers only)');
 -- the late-binding FK (plan §8/089; 085 §1.8)

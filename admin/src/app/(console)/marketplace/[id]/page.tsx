@@ -1,0 +1,285 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { callOps } from "@/lib/ops";
+import { requireOperator } from "@/lib/auth/session";
+import { newIdempotencyKey } from "@/lib/idempotency";
+import { isUuid } from "@/lib/routes";
+import { canRequest } from "@/lib/permissions";
+import { labelFor, shortId } from "@/lib/format";
+import { SUPABASE_URL } from "@/lib/env";
+import { relistExpected } from "@/lib/relist";
+import { evidenceItems, str, toListingDetail, type Bid, type JsonRecord, type Report } from "@/lib/types";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Panel } from "@/components/ui/Panel";
+import { KeyValue } from "@/components/ui/KeyValue";
+import { StatusBadge } from "@/components/ui/StatusBadge";
+import { DateTime } from "@/components/ui/DateTime";
+import { Money } from "@/components/ui/Money";
+import { Alert, OpsFailureAlert } from "@/components/ui/Alert";
+import { ConfirmForm, ListOutcomeHost, OutcomeHost } from "@/components/ui/ConfirmForm";
+import { DataTable, type Column } from "@/components/ui/DataTable";
+import { IdLink, PartyLink } from "@/components/ui/IdLink";
+import { EvidenceList } from "@/components/ui/EvidenceLink";
+import { OrderTable } from "@/components/orders/OrderTable";
+import { CaseTable } from "@/components/cases/CaseTable";
+import { NewCaseForm } from "@/components/cases/NewCaseForm";
+import { ActionTable } from "@/components/actions/ActionTable";
+import { ReportResolveForms } from "@/components/reports/ReportResolveForms";
+
+export const metadata: Metadata = { title: "Listing" };
+export const dynamic = "force-dynamic";
+
+export default async function ListingPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  if (!isUuid(id)) notFound();
+  const me = await requireOperator();
+  const path = `/marketplace/${id}`;
+
+  const res = await callOps<unknown>("listing_detail", { p_listing_id: id });
+  if (!res.ok) {
+    return (
+      <>
+        <PageHeader eyebrow="Listing" title={<code className="font-mono">{shortId(id)}</code>} />
+        {res.kind === "error" && res.message.toLowerCase().includes("not_found") ? (
+          <Alert state="empty" title="No listing with this id." retryHref="/marketplace" retryLabel="Back to marketplace" />
+        ) : (
+          <OpsFailureAlert failure={res} fn="listing_detail" retryHref={path} />
+        )}
+      </>
+    );
+  }
+  const d = toListingDetail(res.data);
+  if (!d || !d.listing) {
+    return (
+      <>
+        <PageHeader eyebrow="Listing" title={<code className="font-mono">{shortId(id)}</code>} />
+        <Alert state="failed" title="Unexpected answer from ops.listing_detail()" retryHref={path} />
+      </>
+    );
+  }
+  const l = d.listing;
+  const raw = l.raw;
+  // The relist version (migration 158): the five fields exactly as ops.listing_detail returned them,
+  // from the untouched record. null = no form (not active + cancelled, or no version to state).
+  const relist = relistExpected(raw);
+  const relistState = l.status === "active" && l.auction_status === "cancelled";
+  const founder = canRequest(me.role, "listing_relist");
+  const transacted = d.payments.some((p) => p.payment_status === "succeeded" || p.payment_status === "refunded");
+  const openReports = d.reports.filter((r) => r.status !== "actioned" && r.status !== "dismissed");
+  // The reports given triage forms in this render, and a server-read name for every report on the listing, so an
+  // answer about a report this refresh no longer lists as open still says which report it was.
+  const openReportIds = openReports.flatMap((r) => (r.id ? [r.id] : []));
+  const reportLabels: Record<string, string> = {};
+  for (const r of d.reports) if (r.id) reportLabels[r.id] = `${r.reason ?? shortId(r.id)} · ${labelFor("report", r.status)}`;
+
+  return (
+    <>
+      <PageHeader
+        eyebrow={
+          <>
+            <Link href="/marketplace" className="hover:text-ink">
+              Marketplace
+            </Link>{" "}
+            / listing {shortId(id)}
+          </>
+        }
+        title={l.event_name ?? "Listing"}
+        description={[l.venue, l.neighborhood, l.event_date, l.event_time, l.ticket_type, l.quantity ? `×${l.quantity}` : null, l.category, l.ticket_platform].filter(Boolean).join(" · ")}
+        meta={
+          <span className="flex flex-wrap items-center gap-2">
+            <StatusBadge status={l.status} label={`status: ${l.status ?? "—"}`} />
+            <StatusBadge status={l.auction_status} label={`auction: ${l.auction_status ?? "—"}`} />
+            <StatusBadge status={l.proof_status} label={`proof: ${l.proof_status ?? "—"}`} />
+            <span className="font-mono">
+              <code>{id}</code>
+            </span>
+          </span>
+        }
+      />
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div className="space-y-6 lg:col-span-2">
+          <Panel eyebrow="As recorded — read only" title="Listing">
+            <KeyValue
+              columns={3}
+              items={[
+                { key: "seller", value: <PartyLink id={l.seller_id} displayName={d.seller?.display_name} emailMasked={d.seller?.email_masked} meId={me.id} /> },
+                { key: "buy_now_price", value: l.buy_now_enabled ? <Money cents={l.buy_now_price_cents} /> : <span className="text-dim">buy now disabled</span> },
+                { key: "starting_bid", value: <Money cents={l.starting_bid_cents} /> },
+                { key: "current_bid", value: <Money cents={l.current_bid_cents} /> },
+                { key: "bid_count", value: String(l.bid_count ?? 0) },
+                { key: "winning_bid_amount", value: <Money cents={l.winning_bid_cents} /> },
+                { key: "winner_user_id", label: "Winner", value: l.winner_user_id ? <IdLink kind="user" id={l.winner_user_id} /> : null },
+                { key: "created_at", value: <DateTime value={l.created_at} /> },
+                { key: "starts_at", value: <DateTime value={raw.starts_at} /> },
+                { key: "ends_at", value: <DateTime value={l.ends_at} /> },
+                { key: "ended_at", value: <DateTime value={raw.ended_at} /> },
+                { key: "sold_at", value: <DateTime value={l.sold_at} /> },
+                { key: "duration_hours", value: str(raw.duration_hours) ?? (typeof raw.duration_hours === "number" ? String(raw.duration_hours) : null) },
+                { key: "reserved_by", value: str(raw.reserved_by) ? <IdLink kind="user" id={str(raw.reserved_by)} /> : null },
+                { key: "reserved_until", value: <DateTime value={raw.reserved_until} /> },
+                { key: "restrictions", value: str(raw.restrictions) },
+              ]}
+            />
+            <h3 className="eyebrow mt-4 text-dim">Files (proof of ownership: audited access, short-lived link)</h3>
+            <div className="mt-2">
+              <EvidenceList items={evidenceItems(d.evidence, { listingId: l.id ?? id, transferId: d.transfer?.id ?? null })} publicBase={SUPABASE_URL ? `${SUPABASE_URL}/storage/v1/object/public` : null} />
+            </div>
+          </Panel>
+
+          <Panel eyebrow={`${d.payments.length}`} title="Payments on this listing">
+            <OrderTable rows={d.payments} basePath={path} caption="Payments" emptyText="No payments." />
+          </Panel>
+
+          <Panel eyebrow={d.transfer ? "1" : "0"} title="Transfer obligation">
+            {!d.transfer ? (
+              <p className="text-dim">No transfer record.</p>
+            ) : (
+              <KeyValue
+                columns={3}
+                items={[
+                  { key: "transfer", value: <IdLink kind="transfer" id={d.transfer.id} full /> },
+                  { key: "status", value: <StatusBadge status={d.transfer.status} label={labelFor("transfer", d.transfer.status)} /> },
+                  { key: "payment", value: <IdLink kind="payment" id={d.transfer.payment_id} full /> },
+                  { key: "expires_at", label: "Seller deadline", value: <DateTime value={d.transfer.expires_at} /> },
+                  { key: "seller_sent_at", value: <DateTime value={d.transfer.seller_sent_at} /> },
+                  { key: "buyer_confirmed_at", value: <DateTime value={d.transfer.buyer_confirmed_at} /> },
+                  { key: "payout_review_status", value: d.transfer.payout_review_status ? <StatusBadge status={d.transfer.payout_review_status} label={labelFor("payout_review", d.transfer.payout_review_status)} /> : null },
+                  { key: "stripe_transfer_id", label: "Stripe Transfer", value: d.transfer.stripe_transfer_id ? <code className="font-mono text-[0.75rem]">{d.transfer.stripe_transfer_id}</code> : <span className="text-dim">none</span> },
+                ]}
+              />
+            )}
+          </Panel>
+
+          <Panel eyebrow={`${d.bids.count ?? 0} total`} title="Bids">
+            <KeyValue
+              columns={3}
+              items={[
+                { key: "count", value: String(d.bids.count ?? 0) },
+                { key: "highest", value: <Money cents={d.bids.highest_cents} /> },
+                { key: "highest_bidder_id", label: "Highest bidder", value: d.bids.highest_bidder_id ? <IdLink kind="user" id={d.bids.highest_bidder_id} /> : null },
+              ]}
+            />
+            <div className="mt-3">
+              <BidTable rows={d.bids.recent} basePath={path} />
+            </div>
+          </Panel>
+
+          <Panel eyebrow={`${openReports.length} open · ${d.reports.length} total`} title="Reports on this listing">
+            <ReportTable rows={d.reports} basePath={path} />
+          </Panel>
+
+          <Panel eyebrow={`${d.seller_flags.length}`} title="Seller flags on this listing">
+            <FlagTable rows={d.seller_flags} basePath={path} />
+          </Panel>
+
+          <Panel eyebrow={`${d.cases.length}`} title="Cases">
+            <CaseTable rows={d.cases} basePath={path} meId={me.id} emptyText="No cases reference this listing." />
+          </Panel>
+
+          <Panel eyebrow={`${d.actions.length}`} title="Actions history">
+            <ActionTable rows={d.actions} basePath={path} meId={me.id} hideSubject />
+          </Panel>
+        </div>
+
+        <div className="space-y-6">
+          {/* One Relist panel and one answer host in every state. The action's refresh (revalidatePath) turns a
+              relisted listing's form into the note below; the host stays at the same place with the same key, so
+              React keeps the answer it holds ('Recorded.' + result.before, or the stale copy + result.current). */}
+          <Panel eyebrow={relist ? "Enforced by the server" : "Actions"} title="Relist">
+            <OutcomeHost key="listing_relist" actionType="listing_relist">
+              {relist && founder ? (
+                <ConfirmForm key={`relist-${relist.updated_at}`} idempotencyKey={newIdempotencyKey()} actionType="listing_relist" subjectKind="listing" subjectId={id} expected={relist} revalidate={path} label="Relist" danger>
+                  <p className="text-[0.75rem] text-muted">
+                    Relist works only for a listing from an admin account that is in the cancelled resting state (a cancelled auction on a listing that is still active), with no bids, payments, transfers, winner or reservation. The server rejects any other listing. You cannot change the price or fees.
+                    {transacted ? " This listing has a captured payment — expect a rejection." : ""}
+                  </p>
+                  <div>
+                    <label htmlFor="relist-ends" className="eyebrow block text-dim">
+                      New end (Eastern Time) <span aria-hidden="true">*</span>
+                    </label>
+                    <input id="relist-ends" type="datetime-local" name="param.new_ends_at:et" required className="field mt-1" />
+                    <p className="text-[0.6875rem] text-dim">Enter the new auction end in Eastern Time. The console sends it with the EST or EDT offset for that date.</p>
+                  </div>
+                </ConfirmForm>
+              ) : relist ? (
+                <Alert state="info" title="Only a founder can relist." compact />
+              ) : relistState ? (
+                <Alert state="failed" title="Relist is unavailable: the server did not return this listing's version." compact>
+                  The relist form needs the listing&apos;s version from the server. Reload the page. If this message stays, report it with the code ops.listing_detail.
+                </Alert>
+              ) : (
+                <Alert state="info" title="Relist applies only to active listings whose auction is cancelled." compact>
+                  Current: status {l.status ?? "—"}, auction {l.auction_status ?? "—"}.
+                </Alert>
+              )}
+            </OutcomeHost>
+          </Panel>
+
+          {/* One report_resolve answer host in every state, outside the open-reports filter. Actioned / Dismiss
+              drop the report from this panel in the action's own refresh (the whole panel when it was the last);
+              the host keeps its place and key, so React keeps the answer and shows it below, naming the report. */}
+          <ListOutcomeHost key="report_resolve" actionType="report_resolve" listed={openReportIds} labels={reportLabels}>
+            {openReports.length ? (
+              <Panel eyebrow={`${openReports.length}`} title="Resolve reports">
+                <div className="space-y-6">
+                  {openReports.map((r) => (
+                    <div key={r.id} id={`report-${r.id}`} className="border-b border-line-neutral pb-4 last:border-b-0 last:pb-0">
+                      <p className="text-[0.8125rem] text-ink">
+                        <span className="font-mono">{r.reason ?? "report"}</span> <StatusBadge status={r.status} label={labelFor("report", r.status)} />
+                      </p>
+                      <p className="mt-1 text-[0.75rem] text-muted">{r.notes ?? "—"}</p>
+                      <p className="mt-1 text-[0.6875rem] text-dim">
+                        by <IdLink kind="user" id={r.reporter_id} label={r.reporter_label ?? undefined} /> · <DateTime value={r.created_at} />
+                      </p>
+                      <div className="mt-3">
+                        <ReportResolveForms report={r} revalidate={path} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Panel>
+            ) : null}
+          </ListOutcomeHost>
+
+          <Panel eyebrow="Manual" title="Open a case on this listing">
+            <NewCaseForm subjectKind="listing" subjectId={id} revalidate={path} defaultTitle={l.event_name ? `${l.event_name} — ` : undefined} />
+          </Panel>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function BidTable({ rows, basePath }: { rows: Bid[]; basePath: string }) {
+  const columns: Column<Bid>[] = [
+    { key: "created_at", header: "Placed", render: (b) => <DateTime value={b.created_at} /> },
+    { key: "amount", header: "Amount", align: "right", render: (b) => <Money cents={b.amount_cents} /> },
+    { key: "bidder", header: "Bidder", render: (b) => <PartyLink id={b.bidder_id} displayName={b.bidder_display_name} /> },
+  ];
+  return <DataTable columns={columns} rows={rows} rowKey={(b, i) => b.id ?? `${i}`} basePath={basePath} emptyText="No bids." caption="Recent bids" dense />;
+}
+
+function ReportTable({ rows, basePath }: { rows: Report[]; basePath: string }) {
+  const columns: Column<Report>[] = [
+    { key: "created_at", header: "Filed", render: (r) => <DateTime value={r.created_at} /> },
+    { key: "reason", header: "Reason", render: (r) => <span className="font-mono text-[0.75rem]">{r.reason ?? "—"}</span> },
+    { key: "status", header: "Status", render: (r) => <StatusBadge status={r.status} label={labelFor("report", r.status)} /> },
+    { key: "reporter", header: "Reporter", render: (r) => <IdLink kind="user" id={r.reporter_id} label={r.reporter_label ?? undefined} /> },
+    { key: "notes", header: "Notes", render: (r) => <span className="line-clamp-2 max-w-[320px] text-[0.75rem] text-muted">{r.notes ?? "—"}</span> },
+    { key: "resolved_at", header: "Resolved", render: (r) => <DateTime value={r.resolved_at} /> },
+  ];
+  return <DataTable columns={columns} rows={rows} rowKey={(r, i) => r.id ?? `${i}`} basePath={basePath} emptyText="No reports." caption="Reports" dense />;
+}
+
+function FlagTable({ rows, basePath }: { rows: JsonRecord[]; basePath: string }) {
+  const columns: Column<JsonRecord>[] = [
+    { key: "created_at", header: "Raised", render: (r) => <DateTime value={r.created_at} /> },
+    { key: "flag_type", header: "Flag", render: (r) => <span className="font-mono text-[0.75rem]">{str(r.flag_type) ?? "—"}</span> },
+    { key: "severity", header: "Severity", render: (r) => <StatusBadge status={str(r.severity)} variant={str(r.severity) === "critical" ? "danger" : str(r.severity) === "warning" ? "warn" : "neutral"} /> },
+    { key: "details", header: "Details", render: (r) => <span className="line-clamp-2 max-w-[360px] text-[0.75rem] text-muted">{str(r.details) ?? "—"}</span> },
+    { key: "reviewed_at", header: "Reviewed", render: (r) => <DateTime value={r.reviewed_at} /> },
+  ];
+  return <DataTable columns={columns} rows={rows} rowKey={(r, i) => str(r.id) ?? `${i}`} basePath={basePath} emptyText="No flags." caption="Seller flags" dense />;
+}
