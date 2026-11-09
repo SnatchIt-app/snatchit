@@ -5,6 +5,7 @@
 | Registry | Migration version | pgTAP | Owner | Scope | Status |
 |---|---|---|---|---|---|
 | 206 | `20261108194055` | 275 | Release integration | Private payment-attempt ledger, coordinated order cancellation, and settled Stripe replay verification | Proposed on the checkout release branch. Fresh replay and owner review required before application. |
+| 207 | `20261109171946` | 276 | Release integration | Authenticated platform-admin venue approval via the existing audit function | Proposed. Requires review and fresh replay before application. |
 
 The 206 candidate follows 205. It adds two venue tables, one identity sequence,
 and eleven venue functions. Public Gate-2 counts and public grants are unchanged.
