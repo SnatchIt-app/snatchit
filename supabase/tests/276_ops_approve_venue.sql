@@ -27,7 +27,7 @@ SELECT throws_ok($$SELECT ops.approve_venue('27600000-0000-4000-8000-00000000000
   '42501','insufficient_privilege: platform_admin required','non-admin denied even at aal2');
 SELECT set_config('request.jwt.claims','{"sub":"27600000-0000-4000-8000-000000000001","aal":"aal1","role":"authenticated"}',true);
 SELECT throws_ok($$SELECT ops.approve_venue('27600000-0000-4000-8000-000000000004','venue pilot','pilot-276')$$,
-  '42501','step_up_required: confirm with your authenticator','admin at aal1 denied');
+  'P0001','step_up_required: confirm with your authenticator','admin at aal1 denied');
 RESET ROLE;
 SELECT is((SELECT approval_status FROM catalog.venue WHERE venue_id='27600000-0000-4000-8000-000000000004'),
   'draft','refused calls leave the venue in draft');

@@ -20,7 +20,7 @@ begin
     raise exception 'insufficient_privilege: platform_admin required' using errcode = '42501';
   end if;
   if (coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb ->> 'aal') is distinct from 'aal2' then
-    raise exception 'step_up_required: confirm with your authenticator' using errcode = '42501';
+    raise exception 'step_up_required: confirm with your authenticator';
   end if;
   return catalog.approve_venue(p_venue_id, 'approved', p_reason_code, p_command_key);
 end;
