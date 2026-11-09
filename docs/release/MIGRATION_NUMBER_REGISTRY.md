@@ -1,5 +1,16 @@
 # Migration and pgTAP number registry
 
+## November 8, 2026 release candidate
+
+| Registry | Migration version | pgTAP | Owner | Scope | Status |
+|---|---|---|---|---|---|
+| 206 | `20261108194055` | 275 | Release integration | Private payment-attempt ledger, coordinated order cancellation, and settled Stripe replay verification | Proposed on the checkout release branch. Fresh replay and owner review required before application. |
+
+The 206 candidate follows 205. It adds two venue tables, one identity sequence,
+and eleven venue functions. Public Gate-2 counts and public grants are unchanged.
+The older registry below is retained as historical context.
+
+
 One owner per number. Updated 2026-09-15. Check here before claiming a number.
 
 > **STALE COPY (note added 2026-10-15 on `fix/154-listing-visibility-20261015`).** The authoritative registry is on

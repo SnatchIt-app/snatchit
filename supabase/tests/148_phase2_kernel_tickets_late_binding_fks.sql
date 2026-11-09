@@ -56,7 +56,7 @@ SELECT is((SELECT count(*)::int FROM pg_constraint c
 -- by a future edit to 084 trips one of these two totals.
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname IN ('kernel','venue','catalog','market','notify')
-              AND c.relkind IN ('r','p','v','m','S','f')), 81,
+              AND c.relkind IN ('r','p','v','m','S','f')), 84,
   -- 2026-09-02 (package 093): 75 -> 75. RATIFIED CONTRACT CHANGE (no-op here) —
   -- 093 creates NO relation in any phase-2 schema; its two new objects are the
   -- partial unique indexes on venue.settlement_line (indexes are not relkind
@@ -70,9 +70,9 @@ SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.r
   -- 2026-09-01 (package 087): 52 -> 55 (+3 venue: settlement, settlement_line, export_job).
   -- 2026-09-03 (package 096): 76 -> 78. kernel.payout_reversal + kernel.organization_obligation_recovery.
   -- Re-derived from the live catalog, not accepted as a delta.
-  'B1: the five phase-2 schemas hold exactly 81 relations of ANY kind (139''s notify.report_delivery_claim + 135''s notify.push_token_challenges + 111''s kernel.signing_key_recovery_approval + 69 post-091 + 092''s six notify tables + 094''s kernel.organization_obligation + 096''s two payout-reversal/obligation-recovery tables)');
+  'B1: the five phase-2 schemas hold exactly 84 relations including two attempt tables and one sequence from registry 206');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 324,
+            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 335,
   -- 2026-11-02 (registry 199): 320 -> 324 (+4 kernel: refund_executor_hold, record_refund_stripe_failure, park_refund_execution, rearm_refund_execution).
   -- 2026-10-26 (registry 166): 317 -> 319 (+2 venue: get_session_capacity, list_session_capacity).
   -- 2026-10-27 (package 187, beneath 164-167): 319 -> 320 (+1 venue.assert_session_operator, the E-76 door-plane helper).
@@ -125,7 +125,7 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
   -- 2026-09-03 (package 096): +9 kernel (payout reversal + obligation recovery). 097/098: +0
   -- (body-only re-creates). 099: +1 kernel (check_signing_key_invariants). 270 -> 280.
   -- Still venue/catalog/market/notify unmoved at 79/16/22/17. Re-derived from the live catalog.
-  'B2: the five phase-2 schemas hold exactly 324 routines [199 +4 kernel: refund_executor_hold, record_refund_stripe_failure, park_refund_execution, rearm_refund_execution; 187 +1 venue: assert_session_operator; 166 +2 venue: get_session_capacity, list_session_capacity; 163 +4 venue: get_session_scan_counters, list_session_scan_counters, record_scan_staff, filter_staff_scan_meta; 162 +2 venue: set_ticket_type_sale_window, ticket_type_on_sale, +3 catalog: set_venue_timezone, set_event_age_policy, set_session_sales_capacity; 160 +3 venue: set_ticket_type_visibility, set_ticket_type_rank, get_inventory_counters; 139 +2 notify: claim_report_delivery, release_report_delivery; 135 +3 notify: issue_push_token_challenge, get_push_token_challenge, record_push_token_challenge_delivery; 131 +4 kernel: invalidate_push_bindings_for, trg_push_bindings_on_password_change, trg_push_bindings_on_sessions_gone, push_session_predates_epoch] (153+87+17+22+17 — plus 108''s four venue scan cores/machine entrypoints, 109''s force_close_session_manifests (kernel) and tg_session_terminal_force_close (catalog), 110''s guard_signing_key_insert (kernel), 113''s manifest core/machine entrypoint (venue), 114''s M1 door read/manifest signing context (venue))');
+  'B2: the five phase-2 schemas hold exactly 335 routines including eleven venue functions from registry 206');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid
             JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 72,
@@ -183,10 +183,10 @@ SELECT ok((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.r
   -- Re-derived from the LIVE CATALOG, not accepted as a delta.
   'B4: kernel per-schema census (32 tables post-111, 161 functions post-199)');
 SELECT ok((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-            WHERE n.nspname='venue') = 99  -- 2026-10-27 (package 187): 98 -> 99 (+assert_session_operator); 2026-10-26 (registry 166): 96 -> 98 (+get_session_capacity, list_session_capacity); (registry 163): 92 -> 96 (+get_session_scan_counters, list_session_scan_counters, record_scan_staff, filter_staff_scan_meta); (registry 162, S2): 90 -> 92 (+set_ticket_type_sale_window, ticket_type_on_sale)
+            WHERE n.nspname='venue') = 110  -- 2026-10-27 (package 187): 98 -> 99 (+assert_session_operator); 2026-10-26 (registry 166): 96 -> 98 (+get_session_capacity, list_session_capacity); (registry 163): 92 -> 96 (+get_session_scan_counters, list_session_scan_counters, record_scan_staff, filter_staff_scan_meta); (registry 162, S2): 90 -> 92 (+set_ticket_type_sale_window, ticket_type_on_sale)
        AND (SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname='market' AND c.relkind='r') = 5,
-  'B5: venue holds 99 functions (187''s one + 166''s two + 163''s four + 162''s two + 160''s three + 60 post-087 + 090''s nineteen + 108''s four + 113''s two + 114''s two), market holds its five 088 rail tables');
+  'B5: venue holds 110 functions after registry 206 adds eleven private functions');
 
 -- ============================================================================
 -- SECTION C — THE FKs BITE (plan §8/084 staging verification)

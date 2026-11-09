@@ -1219,7 +1219,7 @@ SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c
 SELECT is((SELECT string_agg(c.relname, ',' ORDER BY c.relname) FROM pg_class c
             JOIN pg_namespace n ON n.oid = c.relnamespace
            WHERE n.nspname = 'venue' AND c.relkind = 'r'),
-  'attribution,attribution_review,comp_allocation,door_manifest,door_manifest_delta,door_manifest_entry,door_pin,door_session,export_job,guest_entry,guest_list,holder_mix_bucket,holder_mix_snapshot,inventory_batch,inventory_batch_shard,inventory_hold,inventory_movement,order,order_item,promoter,promoter_code,promoter_code_scope,promoter_link,scan,scan_device,settlement,settlement_line,staff_role,ticket_type',
+  'attribution,attribution_review,comp_allocation,door_manifest,door_manifest_delta,door_manifest_entry,door_pin,door_session,export_job,guest_entry,guest_list,holder_mix_bucket,holder_mix_snapshot,inventory_batch,inventory_batch_shard,inventory_hold,inventory_movement,order,order_item,payment_attempt,payment_attempt_event,promoter,promoter_code,promoter_code_scope,promoter_link,scan,scan_device,settlement,settlement_line,staff_role,ticket_type',
   -- 2026-09-02 (package 090): +6 — promoter, promoter_link, promoter_code, promoter_code_scope, attribution, attribution_review.
   -- 2026-09-01 (package 087): +3 — settlement, settlement_line, export_job.
   -- 2026-08-31 (package 082): the two order tables arrived (082_venue_orders).

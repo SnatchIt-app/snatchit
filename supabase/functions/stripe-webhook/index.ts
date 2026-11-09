@@ -7,6 +7,8 @@ import { stripeFetchRaw } from '../_shared/stripe.ts';
 // organization arm. Import-free by construction so vitest can exercise every
 // branch below without loading a single https specifier — see native.ts's
 // header and tests/stripe-webhook-native.test.ts.
+import { decideSiblingInspection, inspectTerminalSiblings } from './sibling-guard.ts';
+import { markPaymentAttemptByPi, PaymentAttemptNotFound } from './payment-attempts.ts';
 import {
   type Decision,
   type PaymentRow,
@@ -26,6 +28,7 @@ import {
   isConnectAccountRef,
   isTerminalPaymentIntent,
   latestChargeId,
+  nativeReviewRef,
   observedAtIso,
   type OrgArmOutcome,
   readNativeMetadata,
@@ -67,6 +70,10 @@ import {
   resolveDisputeRail,
   resolveTransferRail,
 } from './native-dispute.ts';
+// refunds-4 (DESIGN-199 §5.1): a failed or canceled refund converges
+// kernel.refund through kernel.record_refund_stripe_failure. Pure decisions,
+// pinned by tests/refund-webhook-refunds4.test.ts.
+import { classifyRefundFailureResult, needsRefundFailureConvergence } from './refund-failure.ts';
 
 // ── 150: refund lifecycle ────────────────────────────────────────────────────
 // A Stripe refund has its own status (pending, requires_action, succeeded,
@@ -486,12 +493,12 @@ serve(async (req: Request) => {
      * in the external-rail-only deletion blockers ('unresolved_review',
      * 20260906120000), which review round 2 (MAJOR-1) scoped away from it. The
      * `rpc_name` keeps the row out of the refund sweep (see
-     * NATIVE_REVIEW_RPC_NAME). Returns the write's error message, or null.
+     * NATIVE_REVIEW_RPC_NAME). The identifier rule is native.ts nativeReviewRef
+     * (unit-pinned); 198 A-5 widens it to order + payment + PI for
+     * finalize_refund_required only. Returns the write's error message, or null.
      */
     async function recordNativeReview(reason: string, body: Record<string, unknown>): Promise<string | null> {
-      const ref = ['order_id', 'pi_id', 'dispute_id', 'stripe_transfer_ref', 'account_id', 'payment_id']
-        .map((k) => body[k])
-        .find((v): v is string => typeof v === 'string' && v.length > 0) ?? 'none';
+      const ref = nativeReviewRef(reason, body);
       const { error: reviewErr } = await supabase.from('webhook_retries').insert({
         payment_id:    null,
         listing_id:    null,
@@ -557,6 +564,13 @@ serve(async (req: Request) => {
         auth: { autoRefreshToken: false, persistSession: false },
         db:   { schema: 'kernel' },
       });
+
+    const markAttempt = (piId: string, state: 'processing' | 'succeeded' | 'failed' | 'canceled' | 'unknown',
+                         stripeStatus: string) =>
+      markPaymentAttemptByPi(
+        (name, params) => venueService().rpc(name, params),
+        piId, state, stripeStatus,
+      );
 
     /**
      * The alert half of `finishDecision`, WITHOUT ending the request. Used by
@@ -965,6 +979,36 @@ serve(async (req: Request) => {
           });
         }
 
+        // Mark failures retry before finalize. A settled pre-cutover replay
+        // can only be acknowledged by proving the existing immutable link.
+        try {
+          await markAttempt(piId, 'succeeded', 'succeeded');
+        } catch (markErr) {
+          if (markErr instanceof PaymentAttemptNotFound && claimOutcome.kind === 'already_succeeded'
+              && ref.sessionId !== null
+              && paymentIntent?.status === 'succeeded' && paymentIntent.currency === 'usd'
+              && Number.isSafeInteger(paymentIntent.amount) && paymentIntent.amount > 0
+              && paymentIntent.amount_received === paymentIntent.amount
+              && typeof paymentIntent.livemode === 'boolean') {
+            const { data, error } = await venueService().rpc('is_settled_native_payment_replay', {
+              p_order_id: ref.orderId, p_buyer_id: ref.buyerId, p_session_id: ref.sessionId,
+              p_pi_id: piId, p_payment_id: paymentRow.id, p_amount_minor: paymentIntent.amount,
+              p_currency: 'USD', p_livemode: paymentIntent.livemode,
+            });
+            if (!error && data === true) {
+              return await finishDecision(
+                { ack: true, alert: false, reason: 'native_legacy_payment_already_settled' },
+                { order_id: ref.orderId, payment_id: paymentRow.id },
+              );
+            }
+          }
+          return await finishDecision(
+            { ack: false, alert: true, reason: 'native_attempt_mark_succeeded_error' },
+            { stage: 'native_attempt_mark', order_id: ref.orderId, pi_id: piId },
+            markErr instanceof Error ? markErr : new Error(String(markErr)),
+          );
+        }
+
         // ── 3. Instrument fingerprint — advisory, never blocking ────────
         const fingerprint = await readInstrumentFingerprint(paymentIntent);
 
@@ -986,6 +1030,10 @@ serve(async (req: Request) => {
         });
 
         if (finalizeErr) {
+          // 198 A-5 (DESIGN-198-FINAL §4.2): `refund_required` ACKs here with an
+          // alert and a review row naming order_id, payment_id and pi_id from the
+          // body below; if that row cannot be written finishDecision answers 500
+          // and Stripe redelivers. Nothing here refunds — refunds are manual.
           const decision = classifyFinalizeError(finalizeErr);
           console.error('Webhook: finalize_primary_order failed', {
             order_id: ref.orderId, payment_id: paymentRow.id, pi_id: piId,
@@ -1224,6 +1272,65 @@ serve(async (req: Request) => {
           return await finishDecision(
             { ack: true, alert: false, reason: 'native_attempt_failed_order_pending' },
             { order_id: ref.orderId, pi_id: piId },
+          );
+        }
+
+        // Only a Stripe-terminal canceled PI may mark its attempt canceled.
+        // A local failed payment is never used here. Missing attempt/RPC or a
+        // mark error keeps the order pending and the event retryable.
+        const chargeMinor = paymentIntent?.amount;
+        const currency = paymentIntent?.currency;
+        let faceMinor: number;
+        try {
+          const attempt = await markAttempt(piId, 'canceled', 'canceled');
+          if (attempt.order_id !== ref.orderId || attempt.buyer_id !== ref.buyerId
+              || ref.sessionId === null || attempt.session_id !== ref.sessionId
+              || typeof attempt.face_minor !== 'number' || !Number.isSafeInteger(attempt.face_minor)
+              || attempt.face_minor < 0 || typeof chargeMinor !== 'number'
+              || !Number.isSafeInteger(chargeMinor) || chargeMinor < attempt.face_minor
+              || attempt.amount_minor !== chargeMinor || typeof currency !== 'string'
+              || attempt.currency !== currency.toUpperCase()) {
+            throw new Error('canceled PaymentIntent does not match its recorded attempt');
+          }
+          faceMinor = attempt.face_minor;
+        } catch (markErr) {
+          return await finishDecision(
+            { ack: false, alert: true, reason: 'native_attempt_mark_canceled_error' },
+            { stage: 'native_attempt_mark', order_id: ref.orderId, pi_id: piId },
+            markErr instanceof Error ? markErr : new Error(String(markErr)),
+          );
+        }
+
+        // A terminal PI is not proof that the ORDER is dead. Read every sibling
+        // before cancelling: a succeeded/processing attempt means finalize owns
+        // this order; a live attempt means the lapse job must cancel it first.
+        // Errors and ambiguous/foreign candidates are fail-closed (never cancel).
+        const siblingGuard = await inspectTerminalSiblings(
+          { service: supabase, stripeFetchRaw },
+          {
+            orderId: ref.orderId,
+            buyerId: ref.buyerId,
+            faceMinor,
+            currency,
+            currentPiId: piId,
+          },
+        );
+        if (siblingGuard.kind !== 'clear') {
+          const decision = decideSiblingInspection(siblingGuard);
+          console.error('Webhook: native terminal PI has sibling state; order left pending', {
+            order_id: ref.orderId, pi_id: piId, guard: siblingGuard.kind,
+            sibling_pi: 'piId' in siblingGuard ? siblingGuard.piId : null,
+            detail: siblingGuard.detail,
+            reason: decision.reason, ack: decision.ack, alert: decision.alert,
+          });
+          return await finishDecision(
+            decision,
+            {
+              stage: 'native_sibling_guard', order_id: ref.orderId, pi_id: piId,
+              guard: siblingGuard.kind,
+              sibling_pi: 'piId' in siblingGuard ? siblingGuard.piId : null,
+            },
+            decision.ack ? undefined : new Error(siblingGuard.detail),
           );
         }
 
@@ -2101,7 +2208,7 @@ serve(async (req: Request) => {
           console.warn('Webhook: refund without payment_intent (ack only)', { refund_id: evRefund.id });
           await markProcessed();
         } else {
-          const { error: refErr } = await supabase.rpc('record_refund_state', {
+          const { data: refState, error: refErr } = await supabase.rpc('record_refund_state', {
             p_payment_intent_id: r.payment_intent,
             p_stripe_refund_id:  evRefund.id,
             p_status:            r.status,
@@ -2115,6 +2222,33 @@ serve(async (req: Request) => {
             return await finish(false, { refund_id: evRefund.id }, `refund state: ${refErr.message}`);
           }
           console.log('Webhook: refund state recorded', { refund_id: evRefund.id, status: r.status, event_type: event.type });
+
+          // refunds-4: a failed or canceled refund must also converge
+          // kernel.refund, through the one verb that can (199). It reads the
+          // failure from the state just recorded, never from us, so the event
+          // is complete only once this step is decided.
+          if (needsRefundFailureConvergence(r.status, refState)) {
+            const converged = await kernelService().rpc('record_refund_stripe_failure', {
+              p_stripe_refund_ref: evRefund.id,
+              p_command_key:       `webhook:${event.id}`,
+            });
+            const decision = classifyRefundFailureResult(converged, {
+              metadata:        r.metadata ?? null,
+              ageSeconds:      eventAgeSeconds(event.created, Date.now()),
+              stripeRefundRef: evRefund.id,
+            });
+            if (!decision.ack) {
+              console.error('Webhook: refund failure not converged (Stripe will retry):', { refund_id: evRefund.id, reason: decision.reason });
+              if (decision.page) {
+                await captureException(decision.page.tag, new Error(`${decision.reason}: ${evRefund.id}`), decision.page.facts);
+              }
+              return await finish(false, { refund_id: evRefund.id }, decision.reason);
+            }
+            if (decision.page) {
+              await captureException(decision.page.tag, new Error(`${decision.log}: ${evRefund.id}`), decision.page.facts);
+            }
+            console.log('Webhook: refund failure converged', { refund_id: evRefund.id, outcome: decision.log });
+          }
           await markProcessed();
         }
       }
