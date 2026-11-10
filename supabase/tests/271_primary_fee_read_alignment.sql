@@ -211,8 +211,8 @@ SELECT ok(coalesce(has_function_privilege('authenticated', to_regprocedure('cata
       AND coalesce((SELECT p.proacl IS NOT NULL AND NOT EXISTS (SELECT 1 FROM aclexplode(p.proacl) a WHERE a.grantee = 0)
                       FROM pg_proc p WHERE p.oid = to_regprocedure('catalog.publish_event(uuid,text,text)')), false),
   'A4: publish_event EXECUTE posture unchanged — authenticated, not anon, no PUBLIC entry');
-SELECT is(md5(pg_get_functiondef(to_regprocedure('public.get_primary_session(uuid)'))), 'ac639b649b510ef089ea55c3c70068fa',
-  'A5: get_primary_session body = 202''s (md5(pg_get_functiondef) ac639b64; 182''s was 8915bf3d)');
+SELECT is(md5(pg_get_functiondef(to_regprocedure('public.get_primary_session(uuid)'))), 'b424bab2534c5fba04271b55490fffc4',
+  'A5: get_primary_session body = registry 209 with 202 fee calculations');
 -- A6 moved with registry 204 (pgTAP 273, venue_command_key_replay): 202's body (f30eaca23ae71a33243e39a6c8c5a8fd) plus
 -- 204's command-key receipt (declare, receipt block, audit after); gate 4 is byte-identical (pgTAP 273 B5).
 SELECT is(md5(pg_get_functiondef(to_regprocedure('catalog.publish_event(uuid,text,text)'))), '3243d8a053e81181d6c54fe1f05d5288',
