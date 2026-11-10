@@ -1793,18 +1793,27 @@ jobs:
       - name: Boot the pre-206 schema on a fresh DB
         run: |
           set -euo pipefail
-          # The base db job proves CLI discovery of the entire chain, including
-          # 206. This runner starts one version earlier to test cutover refusal
-          # and then apply the exact same pinned 206 file.
-          migration="supabase/migrations/20261108194055_native_payment_attempt_coordination.sql"
+          # The base db job applies the whole chain. This job rehearses 206
+          # and the 198–205 reversals against their actual predecessor schema.
+          export LC_ALL=C
+          cutoff=20261108194055
           held="$(mktemp -d "$RUNNER_TEMP/attempt-migration.XXXXXX")"
-          restore_migration() {
-            if [ -f "$held/$(basename "$migration")" ]; then
-              mv "$held/$(basename "$migration")" "$migration"
-            fi
+          restore_migrations() {
+            for migration in "$held"/*.sql; do
+              if [[ -f "$migration" ]]; then
+                mv "$migration" supabase/migrations/
+              fi
+            done
           }
-          trap restore_migration EXIT
-          mv "$migration" "$held/"
+          trap restore_migrations EXIT
+          for migration in supabase/migrations/*.sql; do
+            name=${migration##*/}
+            version=${name%%_*}
+            if [[ "$version" =~ ^[0-9]{14}$ && ! "$version" < "$cutoff" ]]; then
+              mv "$migration" "$held/"
+            fi
+          done
+          test -f "$held/${cutoff}_native_payment_attempt_coordination.sql"
           start() { supabase start -x studio,inbucket,imgproxy,edge-runtime,logflare,vector 2>&1 | tee /tmp/supabase-start.log; return "${PIPESTATUS[0]}"; }
           cleanup() { supabase stop --no-backup >/dev/null 2>&1 || true; docker ps -aq --filter "name=supabase_" | xargs -r docker rm -f >/dev/null 2>&1 || true; }
           rate_limited() { grep -qiE 'toomanyrequests|429 Too Many Requests' /tmp/supabase-start.log; }
