@@ -655,8 +655,9 @@ require_db
 parse_db
 verify_inputs
 assert_chain_applied
-if [ "$(psqlq -c "select count(*) from supabase_migrations.schema_migrations where version = '$ATTEMPT_VERSION'")" != 0 ]; then
-  echo "::error::cutover rehearsal must start before the attempt migration is recorded" >&2
+applied_tail=$(psqlq -c "select version from supabase_migrations.schema_migrations where version ~ '^[0-9]{14}$' and version >= '$ATTEMPT_VERSION' order by version")
+if [ -n "$applied_tail" ]; then
+  echo "::error::cutover rehearsal must start before migration $ATTEMPT_VERSION and all later migrations" >&2
   exit 1
 fi
 assert_legacy_payment_contract "$DB_URL" pre-forward

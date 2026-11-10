@@ -142,9 +142,9 @@ CREATE FUNCTION tap._pos270(p_sig text, p_needle text) RETURNS integer LANGUAGE 
 CREATE FUNCTION tap._strip270(p_sig text) RETURNS text LANGUAGE sql STABLE AS $m$
   WITH l AS (
     SELECT t.line, t.n,
-           CASE WHEN t.line ~ '^ *-- ── 201 BLOCK [A-Z0-9]+ END *$' THEN -1
-                WHEN t.line ~ '^ *-- ── 201 BLOCK [A-Z0-9]+( |$)'   THEN 1 ELSE 0 END AS d,
-           t.line ~ '^ *-- ── 201 BLOCK ' AS marker
+           CASE WHEN t.line ~ '^ *-- ── (201|209) BLOCK [A-Z0-9]+ END *$' THEN -1
+                WHEN t.line ~ '^ *-- ── (201|209) BLOCK [A-Z0-9]+( |$)'   THEN 1 ELSE 0 END AS d,
+           t.line ~ '^ *-- ── (201|209) BLOCK ' AS marker
       FROM regexp_split_to_table(pg_get_functiondef(to_regprocedure(p_sig)), E'\n') WITH ORDINALITY AS t(line, n))
   SELECT md5(string_agg(x.line, E'\n' ORDER BY x.n))
     FROM (SELECT l.line, l.n, l.marker, sum(l.d) OVER (ORDER BY l.n) AS depth FROM l) x
@@ -225,8 +225,8 @@ SELECT tap._cfg270('fee.buyer_service_bps', '1000'::jsonb);
 SELECT is(ARRAY[md5(pg_get_functiondef(to_regprocedure('venue.reserve_primary_inventory(uuid, integer, text)'))),
                 md5(pg_get_functiondef(to_regprocedure('venue.create_primary_checkout(uuid, jsonb, uuid[], text)'))),
                 md5(pg_get_functiondef(to_regprocedure('venue.finalize_primary_order(uuid, uuid, text, text)')))],
-          ARRAY['1d759c5dd7aaa19b9366f0195ab5f528', '0222d6d9f064a3f5d32e87a483872c4b', '3c359ec14a788be8398d67210828b773'],
-  'A1: reserve, checkout and finalize bodies are 201''s (md5(pg_get_functiondef) 1d759c5d / 0222d6d9 / 3c359ec1)');
+          ARRAY['1d759c5dd7aaa19b9366f0195ab5f528', '669002c0593e017a5a4dc06fec37f17a', '3c359ec14a788be8398d67210828b773'],
+  'A1: reserve and finalize match 201, checkout matches 209');
 SELECT is(ARRAY[tap._strip270('venue.reserve_primary_inventory(uuid, integer, text)'),
                 tap._strip270('venue.create_primary_checkout(uuid, jsonb, uuid[], text)'),
                 tap._strip270('venue.finalize_primary_order(uuid, uuid, text, text)'),
@@ -234,7 +234,7 @@ SELECT is(ARRAY[tap._strip270('venue.reserve_primary_inventory(uuid, integer, te
                 tap._markers270('venue.create_primary_checkout(uuid, jsonb, uuid[], text)', false)::text, tap._markers270('venue.create_primary_checkout(uuid, jsonb, uuid[], text)', true)::text,
                 tap._markers270('venue.finalize_primary_order(uuid, uuid, text, text)', false)::text, tap._markers270('venue.finalize_primary_order(uuid, uuid, text, text)', true)::text],
           ARRAY['d30669daef75abe15725aa0b04a107b0', 'daf8bffd8a5f4a71fc7229dc11e3494a', '7b8007e59e4faf6ed5d69cc3b2690d49', '2', '2', '5', '5', '2', '2'],
-  'A2: 201 blocks — reserve 2 (V K), checkout 5 (D V C N N2), finalize 2 (D E), each with its END; minus them each body is its predecessor byte for byte (reserve 185 d30669da, checkout 198 daf8bffd, finalize 198 7b8007e5)');
+  'A2: 201 blocks — reserve 2 (V K), checkout 5 (D V C N N2), finalize 2 (D E), each with its END; minus those and the 209 privacy block each body is its predecessor byte for byte (reserve 185 d30669da, checkout 198 daf8bffd, finalize 198 7b8007e5)');
 SELECT is(ARRAY(SELECT p.oid::regprocedure::text || ' ' || p.prosecdef || ' ' || p.proconfig::text || ' ' || p.proowner::regrole::text || ' ' || coalesce(p.proacl::text, '<default>')
                   FROM pg_proc p
                  WHERE p.oid IN (to_regprocedure('venue.reserve_primary_inventory(uuid, integer, text)'),
@@ -266,8 +266,8 @@ SELECT is(ARRAY[md5(pg_get_functiondef(to_regprocedure('venue.sweep_expired_inve
                 (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
                   WHERE (n.nspname, p.proname) IN (('venue','reserve_primary_inventory'),('venue','create_primary_checkout'),('venue','finalize_primary_order')))::text],
           ARRAY['d2ed033325aa3972e9c1be48bb8f4e91', 'b981bef80b10455a0c45a6e908c91aec', '9f559af1202fa0e7d8bae0c44df93ff8',
-                '3d7fef64c44483586f46b568cb92c610', 'a58bb4af1512b1cb967a9bc57a57fc13', 'f177b73fadaa60234a6d416fed558d11', '111', '3'],
-  'A5: sweep, release, mint, cancel, the reserve wrapper and the staff hold are unchanged; venue functions 111; one overload each');
+                '3d7fef64c44483586f46b568cb92c610', 'c56a6af75c79193cb2657a5cafb5ad53', 'f177b73fadaa60234a6d416fed558d11', '111', '3'],
+  'A5: sweep, release, mint, cancel and the staff hold are unchanged; reserve wrapper matches the reviewed 209 body; venue functions 111; one overload each');
 SELECT ok(tap._pos270('venue.finalize_primary_order(uuid, uuid, text, text)', '''idempotency_replay''') > 0
           AND tap._pos270('venue.finalize_primary_order(uuid, uuid, text, text)', '''idempotency_replay''')
             < tap._pos270('venue.finalize_primary_order(uuid, uuid, text, text)', 'only a pending order finalizes')
