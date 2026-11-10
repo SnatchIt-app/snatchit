@@ -99,21 +99,21 @@ SELECT ok(NOT EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pro
 SELECT is((SELECT count(*)::int FROM pg_proc p WHERE p.oid IN ('venue.get_signing_keys_door(uuid,uuid,text,uuid)'::regprocedure,
              'venue.get_manifest_signing_context()'::regprocedure) AND p.prosecdef AND p.proconfig::text LIKE '%search_path=%'), 2,
   'A4: both SECURITY DEFINER with pinned search_path (066 invariant)');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='venue'), 110,
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='venue'), 111,
   -- 2026-10-26 (registry 166): 96 -> 98 (+get_session_capacity, list_session_capacity).
   -- 2026-10-27 (package 187, beneath 164-167): 98 -> 99 (+1 venue.assert_session_operator, the E-76 door-plane helper).
   -- 2026-10-26 (registry 163): 92 -> 96 (+get_session_scan_counters, list_session_scan_counters, record_scan_staff, filter_staff_scan_meta; 94 if 163's PART B is dropped).
   -- 2026-10-26 (registry 162, S2): 90 -> 92 (+set_ticket_type_sale_window, ticket_type_on_sale).
   -- 2026-10-22 (registry 160, S1): 87 -> 90 (+set_ticket_type_visibility, set_ticket_type_rank, get_inventory_counters).
-  'A5: venue holds 110 functions after registry 206 adds eleven private functions');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 335,
+  'A5: venue holds 111 functions including the pilot trigger function from registry 208');
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 336,
   -- 2026-11-02 (registry 199): 320 -> 324 (+4 kernel: refund_executor_hold, record_refund_stripe_failure, park_refund_execution, rearm_refund_execution).
   -- 2026-10-26 (registry 166): 317 -> 319 (+2 venue: get_session_capacity, list_session_capacity).
   -- 2026-10-27 (package 187, beneath 164-167): 319 -> 320 (+1 venue.assert_session_operator, the E-76 door-plane helper).
   -- 2026-10-26 (registry 163): 313 -> 317 (+4 venue: get_session_scan_counters, list_session_scan_counters, record_scan_staff, filter_staff_scan_meta; 315 if 163's PART B is dropped).
   -- 2026-10-26 (registry 162, S2): 308 -> 313 (+2 venue: set_ticket_type_sale_window, ticket_type_on_sale; +3 catalog: set_venue_timezone, set_event_age_policy, set_session_sales_capacity).
   -- 2026-10-22 (registry 160, S1): 305 -> 308 (+3 venue: set_ticket_type_visibility, set_ticket_type_rank, get_inventory_counters).
-  'A6: five-schema routine census 335 including eleven venue functions from registry 206');
+  'A6: five-schema routine census 336 including the pilot trigger function from registry 208');
 SELECT is((SELECT array_agg(column_name::text ORDER BY column_name) FROM information_schema.column_privileges
             WHERE table_schema='kernel' AND table_name='signing_key' AND grantee='authenticated' AND privilege_type='SELECT'),
   ARRAY['algorithm','event_id','key_id','not_after','not_before','public_key','scope','status','venue_id'],

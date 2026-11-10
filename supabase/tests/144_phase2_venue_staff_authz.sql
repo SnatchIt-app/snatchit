@@ -33,12 +33,12 @@ $m$ SELECT v FROM tap.memo_144 WHERE k = $1 $m$;
 -- ============================================================================
 
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = 'venue' AND c.relkind = 'r'), 31,
+            WHERE n.nspname = 'venue' AND c.relkind = 'r'), 32,
   -- 2026-09-02 (package 090): 23 -> 29 (+6 promoter-engine tables).
   -- 2026-08-31 (package 081): 1 -> 6; (package 082): 6 -> 8 (order + order_item).
   -- 2026-09-01 (package 086): 8 -> 20 (+12 door/scan tables).
   -- 2026-09-01 (package 087): 20 -> 23 (settlement, settlement_line, export_job).
-  'A1: venue holds 31 tables after registry 206 adds the two private attempt tables');
+  'A1: venue holds 32 tables including the private pilot table from registry 208');
 SELECT is((SELECT count(*)::int FROM information_schema.columns
             WHERE table_schema='venue' AND table_name='staff_role'), 5,
   'A2: the five §3.9 columns');
@@ -125,7 +125,7 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.
   -- 136 -> 146, re-derived from the live catalog, not accepted as a delta.
   'A14: kernel holds EXACTLY 161 functions [199 +4 kernel: refund_executor_hold, record_refund_stripe_failure, park_refund_execution, rearm_refund_execution; 131 +4 kernel: invalidate_push_bindings_for, trg_push_bindings_on_password_change, trg_push_bindings_on_sessions_gone, push_session_predates_epoch] (111''s three + 109 post-090 + 093''s sixteen + 095''s seven + 094''s four + 096''s nine + 099''s one + 102''s one + 105''s one + 109''s one + 110''s one)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'venue'), 110,
+           WHERE n.nspname = 'venue'), 111,
   -- 2026-10-26 (registry 166): 96 -> 98 (+get_session_capacity, list_session_capacity).
   -- 2026-10-27 (package 187, beneath 164-167): 98 -> 99 (+1 venue.assert_session_operator, the E-76 door-plane helper).
   -- 2026-10-26 (registry 163): 92 -> 96 (+get_session_scan_counters, list_session_scan_counters, record_scan_staff, filter_staff_scan_meta; 94 if 163's PART B is dropped).
@@ -142,7 +142,7 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.
   -- 2026-09-01 (package 086): 18 -> 46 (+28: 27 door/scan/comp/guest/manifest/holder-mix
   -- RPCs + the guard_door_manifest_transition trigger fn; append_door_manifest_delta
   -- is a SEAM-2 body-replace, already counted).
-  'A15: venue holds EXACTLY ninety-nine functions — 187''s one + 166''s two + 163''s four + 162''s two + 160''s three + 60 post-087 + 090''s nineteen + 108''s four scan cores/machine entrypoints + 113''s manifest core/machine entrypoint + 114''s M1 door read/manifest signing context');
+  'A15: venue holds exactly 111 functions including the pilot trigger function from registry 208');
 SELECT has_function('kernel'::name,'has_venue_role'::name, ARRAY['uuid','text[]']::name[],
   'A16: has_venue_role(uuid, text[]) exists — the PFA-10 deferred name RESOLVES from this package on');
 SELECT has_function('kernel'::name,'has_event_role'::name, ARRAY['uuid','text[]']::name[], 'A17: has_event_role');

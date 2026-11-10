@@ -204,12 +204,12 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.
   'A10: all three are SECURITY DEFINER with a pinned search_path (066 invariant)');
 SELECT is((SELECT p.provolatile FROM pg_proc p WHERE p.oid = to_regprocedure('venue.get_inventory_counters(uuid)')), 's',
   'A11: get_inventory_counters is STABLE (a read)');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue'), 110,
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'venue'), 111,
   -- 2026-10-26 (registry 166): 96 -> 98 (+get_session_capacity, list_session_capacity).
   -- 2026-10-27 (package 187, beneath 164-167): 98 -> 99 (+1 venue.assert_session_operator, the E-76 door-plane helper).
   -- 2026-10-26 (registry 163): 92 -> 96 (+get_session_scan_counters, list_session_scan_counters, record_scan_staff, filter_staff_scan_meta; 94 if 163''s PART B is dropped).
   -- 2026-10-26 (registry 162, S2): 90 -> 92 (+set_ticket_type_sale_window, ticket_type_on_sale).
-  'A12: venue holds 110 functions after registry 206 adds eleven private functions');
+  'A12: venue holds 111 functions including the pilot trigger function from registry 208');
 SELECT is((SELECT count(*)::int FROM pg_proc p
             WHERE p.oid IN ('venue.create_ticket_type(uuid, text, text, integer, text, text)'::regprocedure,
                             'venue.set_ticket_type_price(uuid, integer, text, text)'::regprocedure,

@@ -311,9 +311,9 @@ SELECT is(ARRAY[(SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p
                 md5(tap._def267('kernel.issue_ticket_atoms(jsonb, text)')),
                 md5(tap._def267('venue.cancel_pending_order(uuid, text, text)')),
                 coalesce((SELECT j.schedule || ' | ' || j.command FROM cron.job j WHERE j.jobname = 'sweep-expired-inventory-holds'), '<missing>')],
-          ARRAY['3', '110', 'b981bef80b10455a0c45a6e908c91aec', '1d759c5dd7aaa19b9366f0195ab5f528', '9f559af1202fa0e7d8bae0c44df93ff8',
+          ARRAY['3', '111', 'b981bef80b10455a0c45a6e908c91aec', '1d759c5dd7aaa19b9366f0195ab5f528', '9f559af1202fa0e7d8bae0c44df93ff8',
                 '3d7fef64c44483586f46b568cb92c610', '*/2 * * * * | select venue.sweep_expired_inventory_holds();'],
-  'A8: one overload each, venue functions 110, release / mint / cancel unchanged (b981 / 9f55 / 3d7f), reserve = 201''s (1d75), the sweep cron job unchanged');
+  'A8: one overload each, venue functions 111, release / mint / cancel unchanged (b981 / 9f55 / 3d7f), reserve = 201''s (1d75), the sweep cron job unchanged');
 SELECT ok(strpos(tap._def267('venue.create_primary_checkout(uuid, jsonb, uuid[], text)'), 'select order_id, total_minor, currency into v_ex_id') > 0
           AND strpos(tap._def267('venue.create_primary_checkout(uuid, jsonb, uuid[], text)'), 'select order_id, total_minor, currency into v_ex_id')
             < strpos(tap._def267('venue.create_primary_checkout(uuid, jsonb, uuid[], text)'), '''feature.native_issuance_enabled''')

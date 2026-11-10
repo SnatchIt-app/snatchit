@@ -187,14 +187,14 @@ SELECT ok((SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname='pr
 SELECT is((SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname='preference_not_mandatory_ck'), 'CHECK ((delivery_class <> ''mandatory''::text))', 'A42: the mandatory guard is DDL (§3.3)');
 -- 2026-09-03 (package 096): 29 -> 31 (payout_reversal, organization_obligation_recovery).
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='kernel' AND c.relkind='r'), 32, 'A43: kernel tables 32 — 111''s signing_key_recovery_approval, 094''s kernel.organization_obligation and 096''s payout_reversal/organization_obligation_recovery are the only relations added since 091');
-SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='venue' AND c.relkind='r'), 31, 'A44: venue holds 31 tables after 206');
+SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='venue' AND c.relkind='r'), 32, 'A44: venue holds 32 tables after 208');
 -- 2026-09-03 (package 096): 76 -> 78 (kernel's two new tables).
-SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify') AND c.relkind IN ('r','p','v','m','S','f')), 84, 'A45: five-schema relations 84 including two attempt tables and one sequence from registry 206');
+SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify') AND c.relkind IN ('r','p','v','m','S','f')), 85, 'A45: five-schema relations 85 including two attempt tables and one sequence from registry 206 plus the private pilot table from registry 208');
 -- 2026-09-02 (package 093): 243 -> 250. RATIFIED CONTRACT CHANGE — SEVEN kernel routines:
 -- settlement_primary_lines (A3) · sync_org_connect_state + get_org_connect_state (A6) ·
 -- stage_org_connect_ref + get_org_connect_ref (A7/A9, RT-A-3) · get_refund_execution_context (D3) ·
 -- is_order_buyer (F). notify itself is unmoved at 17, which is what this row guards.
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 335,
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 336,
   -- 2026-11-02 (registry 199): 320 -> 324 (+4 kernel: refund_executor_hold, record_refund_stripe_failure, park_refund_execution, rearm_refund_execution).
   -- 2026-10-26 (registry 166): 317 -> 319 (+2 venue: get_session_capacity, list_session_capacity).
   -- 2026-10-27 (package 187, beneath 164-167): 319 -> 320 (+1 venue.assert_session_operator, the E-76 door-plane helper).
@@ -223,7 +223,7 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
   -- their grant class, and 141 F3 moves 39 -> 45 by exactly these six.
   -- 2026-09-03 (package 096): +9 kernel. 097/098: +0 (body-only re-creates). 099: +1 kernel.
   -- 270 -> 280. Re-derived from the live catalog.
-  'A46: five-schema routines 335 including eleven venue functions from registry 206');
+  'A46: five-schema routines 336 including the pilot trigger function from registry 208');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 72, 'A47: policy register 72 (67 + 5 notify owner policies)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market')
              AND p.prosrc ~ '(notify|"notify")\s*\.\s*"?(notification_type|notification|delivery|preference|template|identity_channel_state)"?\M'), 0,

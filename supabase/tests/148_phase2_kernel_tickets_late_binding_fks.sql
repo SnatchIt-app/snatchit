@@ -56,7 +56,7 @@ SELECT is((SELECT count(*)::int FROM pg_constraint c
 -- by a future edit to 084 trips one of these two totals.
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname IN ('kernel','venue','catalog','market','notify')
-              AND c.relkind IN ('r','p','v','m','S','f')), 84,
+              AND c.relkind IN ('r','p','v','m','S','f')), 85,
   -- 2026-09-02 (package 093): 75 -> 75. RATIFIED CONTRACT CHANGE (no-op here) —
   -- 093 creates NO relation in any phase-2 schema; its two new objects are the
   -- partial unique indexes on venue.settlement_line (indexes are not relkind
@@ -70,9 +70,9 @@ SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.r
   -- 2026-09-01 (package 087): 52 -> 55 (+3 venue: settlement, settlement_line, export_job).
   -- 2026-09-03 (package 096): 76 -> 78. kernel.payout_reversal + kernel.organization_obligation_recovery.
   -- Re-derived from the live catalog, not accepted as a delta.
-  'B1: the five phase-2 schemas hold exactly 84 relations including two attempt tables and one sequence from registry 206');
+  'B1: the five phase-2 schemas hold exactly 85 relations including two attempt tables and one sequence from registry 206 plus the private pilot table from registry 208');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 335,
+            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 336,
   -- 2026-11-02 (registry 199): 320 -> 324 (+4 kernel: refund_executor_hold, record_refund_stripe_failure, park_refund_execution, rearm_refund_execution).
   -- 2026-10-26 (registry 166): 317 -> 319 (+2 venue: get_session_capacity, list_session_capacity).
   -- 2026-10-27 (package 187, beneath 164-167): 319 -> 320 (+1 venue.assert_session_operator, the E-76 door-plane helper).
@@ -125,7 +125,7 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
   -- 2026-09-03 (package 096): +9 kernel (payout reversal + obligation recovery). 097/098: +0
   -- (body-only re-creates). 099: +1 kernel (check_signing_key_invariants). 270 -> 280.
   -- Still venue/catalog/market/notify unmoved at 79/16/22/17. Re-derived from the live catalog.
-  'B2: the five phase-2 schemas hold exactly 335 routines including eleven venue functions from registry 206');
+  'B2: the five phase-2 schemas hold exactly 336 routines including the pilot trigger function from registry 208');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid
             JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 72,
@@ -183,10 +183,10 @@ SELECT ok((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.r
   -- Re-derived from the LIVE CATALOG, not accepted as a delta.
   'B4: kernel per-schema census (32 tables post-111, 161 functions post-199)');
 SELECT ok((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-            WHERE n.nspname='venue') = 110  -- 2026-10-27 (package 187): 98 -> 99 (+assert_session_operator); 2026-10-26 (registry 166): 96 -> 98 (+get_session_capacity, list_session_capacity); (registry 163): 92 -> 96 (+get_session_scan_counters, list_session_scan_counters, record_scan_staff, filter_staff_scan_meta); (registry 162, S2): 90 -> 92 (+set_ticket_type_sale_window, ticket_type_on_sale)
+            WHERE n.nspname='venue') = 111  -- 2026-10-27 (package 187): 98 -> 99 (+assert_session_operator); 2026-10-26 (registry 166): 96 -> 98 (+get_session_capacity, list_session_capacity); (registry 163): 92 -> 96 (+get_session_scan_counters, list_session_scan_counters, record_scan_staff, filter_staff_scan_meta); (registry 162, S2): 90 -> 92 (+set_ticket_type_sale_window, ticket_type_on_sale)
        AND (SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname='market' AND c.relkind='r') = 5,
-  'B5: venue holds 110 functions after registry 206 adds eleven private functions');
+  'B5: venue holds 111 functions including the pilot trigger function from registry 208');
 
 -- ============================================================================
 -- SECTION C — THE FKs BITE (plan §8/084 staging verification)
