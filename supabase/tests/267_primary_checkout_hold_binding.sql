@@ -281,18 +281,18 @@ SELECT tap.logout();
 SELECT is(ARRAY[md5(tap._def267('venue.create_primary_checkout(uuid, jsonb, uuid[], text)')),
                 md5(tap._def267('venue.finalize_primary_order(uuid, uuid, text, text)')),
                 md5(tap._def267('venue.sweep_expired_inventory_holds(integer)'))],
-          ARRAY['0222d6d9f064a3f5d32e87a483872c4b', '3c359ec14a788be8398d67210828b773', 'd2ed033325aa3972e9c1be48bb8f4e91'],
-  'A5: checkout and finalize bodies are 201''s (198''s daf8bffd / 7b8007e5 plus the 201 blocks: 0222d6d9 / 3c359ec1), the sweep 198''s (d2ed0333)');
+          ARRAY['669002c0593e017a5a4dc06fec37f17a', '3c359ec14a788be8398d67210828b773', 'd2ed033325aa3972e9c1be48bb8f4e91'],
+  'A5: checkout matches registry 209, finalize matches 201, the sweep 198''s (d2ed0333)');
 SELECT is(ARRAY[tap._markers267('venue.create_primary_checkout(uuid, jsonb, uuid[], text)', '198', false)::text,
                 tap._markers267('venue.create_primary_checkout(uuid, jsonb, uuid[], text)', '198', true)::text,
                 tap._markers267('venue.finalize_primary_order(uuid, uuid, text, text)', '198', false)::text,
                 tap._markers267('venue.finalize_primary_order(uuid, uuid, text, text)', '198', true)::text,
                 tap._markers267('venue.sweep_expired_inventory_holds(integer)', '198', false)::text,
-                tap._strip267('venue.create_primary_checkout(uuid, jsonb, uuid[], text)', '198|201'),
-                tap._strip267('venue.create_primary_checkout(uuid, jsonb, uuid[], text)', '188|198|201'),
+                tap._strip267('venue.create_primary_checkout(uuid, jsonb, uuid[], text)', '198|201|209'),
+                tap._strip267('venue.create_primary_checkout(uuid, jsonb, uuid[], text)', '188|198|201|209'),
                 tap._strip267('venue.finalize_primary_order(uuid, uuid, text, text)', '198|201')],
           ARRAY['7', '7', '8', '8', '0', '77004331198b9dad2e51e1ed2ceaef35', 'a629b41216397da48f71a7c6cc4fd298', '99a391ea1e5f80e4523da3a05b1c7d3a'],
-  'A6: 198 blocks — checkout 7 (D P1 P2 F P3 P4 B), finalize 8 (D K1 L1 K2 K3 L2 L3 K4), sweep none; checkout minus them (and 201''s) = 188 (77004331), minus 198, 201 and 188 = 093 (a629b412), finalize minus them (and 201''s) = 085 (99a391ea)');
+  'A6: 198 blocks — checkout 7 (D P1 P2 F P3 P4 B), finalize 8 (D K1 L1 K2 K3 L2 L3 K4), sweep none; checkout minus them (and 201 and 209) = 188 (77004331), minus 188, 198, 201 and 209 = 093 (a629b412), finalize minus them (and 201''s) = 085 (99a391ea)');
 SELECT is(ARRAY(SELECT p.oid::regprocedure::text || ' ' || p.prosecdef || ' ' || p.proconfig::text || ' ' || p.proowner::regrole::text || ' ' || coalesce(p.proacl::text, '<default>')
                   FROM pg_proc p
                  WHERE p.oid IN (to_regprocedure('venue.create_primary_checkout(uuid, jsonb, uuid[], text)'),

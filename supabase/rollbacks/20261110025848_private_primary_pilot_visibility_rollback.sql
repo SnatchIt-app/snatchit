@@ -202,6 +202,33 @@ begin
 end;
 $function$;
 
+do $checkout$
+declare
+  original text := pg_get_functiondef(to_regprocedure('venue.create_primary_checkout(uuid,jsonb,uuid[],text)'));
+  prior text := $anchor$    join catalog.event e on e.event_id = s.event_id
+   where s.session_id = p_session_id;$anchor$;
+  scoped text := $anchor$    join catalog.event e on e.event_id = s.event_id
+     -- ── 209 BLOCK PRIVATE
+     and (not e.private_pilot or exists (
+       select 1 from venue.primary_checkout_pilot pilot
+       join venue.inventory_batch b on b.batch_id = pilot.batch_id
+         and b.event_session_id = s.session_id and b.release_kind = 'public_sale'
+       where pilot.event_session_id = s.session_id
+         and auth.role() = 'authenticated'
+         and pilot.buyer_id = v_uid
+         and pilot.expires_at > statement_timestamp()
+     ))
+     -- ── 209 BLOCK PRIVATE END
+   where s.session_id = p_session_id;$anchor$;
+  restored text := replace(original, scoped, prior);
+begin
+  if md5(restored) is distinct from '0222d6d9f064a3f5d32e87a483872c4b' then
+    raise exception 'precondition_failed: checkout body changed; rebase rollback';
+  end if;
+  execute restored;
+end;
+$checkout$;
+
 alter policy catalog_event_sel_anon on catalog.event using (status <> 'draft');
 alter table catalog.event drop column private_pilot;
 commit;

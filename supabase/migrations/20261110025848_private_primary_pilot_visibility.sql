@@ -238,4 +238,33 @@ begin
 end;
 $function$;
 
+-- Match a private session to the same not-found response as a missing one.
+-- The pinned edit is confined to the existing session read. Replay and all
+-- payment, hold binding and price calculations are unchanged.
+do $checkout$
+declare
+  original text := pg_get_functiondef(to_regprocedure('venue.create_primary_checkout(uuid,jsonb,uuid[],text)'));
+  prior text := $anchor$    join catalog.event e on e.event_id = s.event_id
+   where s.session_id = p_session_id;$anchor$;
+  scoped text := $anchor$    join catalog.event e on e.event_id = s.event_id
+     -- ── 209 BLOCK PRIVATE
+     and (not e.private_pilot or exists (
+       select 1 from venue.primary_checkout_pilot pilot
+       join venue.inventory_batch b on b.batch_id = pilot.batch_id
+         and b.event_session_id = s.session_id and b.release_kind = 'public_sale'
+       where pilot.event_session_id = s.session_id
+         and auth.role() = 'authenticated'
+         and pilot.buyer_id = v_uid
+         and pilot.expires_at > statement_timestamp()
+     ))
+     -- ── 209 BLOCK PRIVATE END
+   where s.session_id = p_session_id;$anchor$;
+begin
+  if md5(original) is distinct from '0222d6d9f064a3f5d32e87a483872c4b' or strpos(original, prior) = 0 then
+    raise exception 'private pilot dependency changed: create_primary_checkout';
+  end if;
+  execute replace(original, prior, scoped);
+end;
+$checkout$;
+
 commit;

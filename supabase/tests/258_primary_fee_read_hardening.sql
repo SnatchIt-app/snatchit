@@ -107,9 +107,9 @@ $m$ SELECT c.value FROM catalog.platform_config c WHERE c.key = k ORDER BY c.ver
 CREATE FUNCTION tap._strip258(p_sig text) RETURNS text LANGUAGE sql STABLE AS $m$
   WITH l AS (
     SELECT t.line, t.n,
-           CASE WHEN t.line ~ '^ *-- ── (188|198|201) BLOCK [A-Z0-9]+ END *$' THEN -1
-                WHEN t.line ~ '^ *-- ── (188|198|201) BLOCK [A-Z0-9]+( |$)'   THEN 1 ELSE 0 END AS d,
-           t.line ~ '^ *-- ── (188|198|201) BLOCK ' AS marker
+           CASE WHEN t.line ~ '^ *-- ── (188|198|201|209) BLOCK [A-Z0-9]+ END *$' THEN -1
+                WHEN t.line ~ '^ *-- ── (188|198|201|209) BLOCK [A-Z0-9]+( |$)'   THEN 1 ELSE 0 END AS d,
+           t.line ~ '^ *-- ── (188|198|201|209) BLOCK ' AS marker
       FROM regexp_split_to_table(pg_get_functiondef(to_regprocedure(p_sig)), E'\n') WITH ORDINALITY AS t(line, n))
   SELECT md5(string_agg(x.line, E'\n' ORDER BY x.n))
     FROM (SELECT l.line, l.n, l.marker, sum(l.d) OVER (ORDER BY l.n) AS depth FROM l) x
@@ -192,13 +192,13 @@ SELECT is(ARRAY[tap._markers258('venue.create_primary_checkout(uuid, jsonb, uuid
                 tap._markers258('catalog.set_platform_config(text, jsonb, text, text)', true)], ARRAY[3, 3, 1, 1],
   'A6: 188 blocks — checkout carries three (D, R1, R2), set_platform_config one (V); every opening has its END');
 SELECT is(md5(pg_get_functiondef(to_regprocedure('venue.create_primary_checkout(uuid, jsonb, uuid[], text)'))),
-  '0222d6d9f064a3f5d32e87a483872c4b',
-  'A7: create_primary_checkout body = 201''s (md5(pg_get_functiondef) 0222d6d9; 188''s 77004331 plus the 198 and 201 blocks)');
+  '669002c0593e017a5a4dc06fec37f17a',
+  'A7: create_primary_checkout body = 209 with the existing checkout and fee rules');
 SELECT is(md5(pg_get_functiondef(to_regprocedure('catalog.set_platform_config(text, jsonb, text, text)'))),
   '2ece44b98c73af1e8c2b5d930b0a5895',
   'A8: set_platform_config body = 188''s (md5(pg_get_functiondef) 2ece44b9)');
 SELECT is(tap._strip258('venue.create_primary_checkout(uuid, jsonb, uuid[], text)'), 'a629b41216397da48f71a7c6cc4fd298',
-  'A9: create_primary_checkout minus the 188, 198 and 201 blocks = the 093 predecessor byte for byte (md5 a629b412)');
+  'A9: create_primary_checkout minus the 188, 198, 201 and 209 blocks = the 093 predecessor byte for byte (md5 a629b412)');
 SELECT is(tap._strip258('catalog.set_platform_config(text, jsonb, text, text)'), 'd0aaada87856b8579f7e19fcd9934fbf',
   'A10: set_platform_config minus the 188 block = the 102 predecessor byte for byte (md5 d0aaada8)');
 SELECT ok(pg_get_functiondef(to_regprocedure('venue.create_primary_checkout(uuid, jsonb, uuid[], text)'))

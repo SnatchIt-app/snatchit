@@ -1,5 +1,5 @@
 begin;
-select plan(18);
+select plan(20);
 
 insert into auth.users (id, email) values
   ('27800000-0000-0000-0000-000000000001', 'pilot278@example.invalid'),
@@ -78,6 +78,15 @@ from (values ('feature.native_issuance_enabled', 'true'::jsonb),
 left join lateral (
   select version, visibility from catalog.platform_config where key = cfg.key order by version desc limit 1
 ) existing on true;
+
+select tap.login('27800000-0000-0000-0000-000000000002');
+select throws_ok($$select venue.create_primary_checkout('27800000-0000-0000-0000-000000000006',
+  '[{}]'::jsonb, array[]::uuid[], 'private-278-other-checkout')$$, 'P0002',
+  'not_found: session 27800000-0000-0000-0000-000000000006', 'Wrong buyer gets the missing-session checkout response');
+select throws_ok($$select venue.create_primary_checkout('27800000-0000-0000-0000-000000000099',
+  '[{}]'::jsonb, array[]::uuid[], 'private-278-unknown-checkout')$$, 'P0002',
+  'not_found: session 27800000-0000-0000-0000-000000000099', 'An unknown session uses the same checkout refusal');
+select tap.logout();
 
 select tap.login('27800000-0000-0000-0000-000000000001');
 select is((select count(*)::int from public.list_primary_sessions_on_sale()
