@@ -1104,6 +1104,7 @@ serve(async (req: Request) => {
           return 'failed';
 
         case 'not_eligible':
+          if (outcome.reason === 'PAYOUT_FUNDING_COOLDOWN') return 'skipped';
           // DISPUTED / PAYMENT_NOT_SUCCEEDED / PAYMENT_NOT_LIVE /
           // SELLER_NOT_ONBOARDED / TRANSFER_NOT_RELEASABLE — no Stripe call.
           console.warn('enforce-transfer-expiry: payout not eligible:', {

@@ -211,7 +211,9 @@ export async function createSellerPayout(
   const stripeErr = (res.data as { error?: { type?: string; code?: string; message?: string } })?.error ?? null;
   const message   = stripeErr?.message ?? `Stripe POST /transfers → ${res.status}`;
   const outcome: PayoutPostOutcome = classifyPayoutPostFailure(res.status, stripeErr);
-  const errorClass = classifyPayoutStripeError(message);
+  const errorClass = stripeErr?.code === 'balance_insufficient'
+    ? 'insufficient_funds'
+    : classifyPayoutStripeError(message);
   if (outcome === 'failed_not_created') {
     return { ok: false, reason: 'transfer_rejected', outcome, status: res.status, error: message, error_class: errorClass };
   }
@@ -316,7 +318,7 @@ export interface ClaimedAttempt {
 export const PAYOUT_NOT_ELIGIBLE_REASONS = [
   'TRANSFER_NOT_FOUND', 'TRANSFER_NOT_RELEASABLE', 'DISPUTED', 'PAYMENT_NOT_SUCCEEDED',
   // 20260924000000: a seller-win dispute resolution under a pending risk hold / manual review
-  'PAYOUT_HELD', 'PAYOUT_UNDER_REVIEW',
+  'PAYOUT_HELD', 'PAYOUT_UNDER_REVIEW', 'PAYOUT_FUNDING_COOLDOWN',
   'PAYMENT_NOT_LIVE', 'SELLER_NOT_ONBOARDED', 'PAYOUT_AMOUNT_INVALID',
   'PAYMENT_PARTIALLY_REFUNDED',   // review round 2 MINOR-3: operator decision, never automatic
 ] as const;
