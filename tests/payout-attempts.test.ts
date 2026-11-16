@@ -208,6 +208,16 @@ describe('executePayoutAttempt — claim → (reconcile) → pre-flight → mark
     for (const x of [s, s2, s3, s4]) expect(x.posts()).toHaveLength(0);
   });
 
+  it('a funding cooldown exits before any Stripe request', async () => {
+    const s = setup();
+    s.ledger.seedReleasable({ status: 'auto_released' });
+    s.ledger.failNext.set('claim_payout_attempt', 'PAYOUT_FUNDING_COOLDOWN');
+
+    expect(await s.run()).toEqual({ kind: 'not_eligible', reason: 'PAYOUT_FUNDING_COOLDOWN' });
+    expect(s.stripe.calls).toHaveLength(0);
+    expect(s.ledger.attempts).toHaveLength(0);
+  });
+
   it('mark_payout_requested failure → nothing is sent to Stripe', async () => {
     const s = setup(); s.ledger.seedReleasable({ status: 'auto_released' });
     s.ledger.failNext.set('mark_payout_requested', 'connection reset');
