@@ -119,6 +119,14 @@ describe('parsePrimaryCheckoutResponse', () => {
     expect(parsePrimaryCheckoutResponse(500, { error: 'x' })).toEqual({ ok: false, reason: 'unavailable' });
   });
 
+  it('distinguishes a sales pause from a generic service failure', () => {
+    const body = { code: 'sales_paused' };
+    expect(parsePrimaryCheckoutResponse(503, body)).toEqual({ ok: false, reason: 'sales_paused' });
+    expect(parsePrimaryCheckoutResponse(409, body)).toEqual({ ok: false, reason: 'unavailable' });
+    expect(parsePrimaryCheckoutResponse(503, {})).toEqual({ ok: false, reason: 'unavailable' });
+    expect(PRIMARY_CHECKOUT_COPY.refusal.sales_paused).toBe('Ticket sales are paused for this event.');
+  });
+
   it('Q9: 201 — the edge\u2019s own sales_unavailable code maps to that reason, and nothing else widened', () => {
     const r = (status: number, code: string) => parsePrimaryCheckoutResponse(status, { error: 'server text', code });
     // #221 @3642ba0d answers 409 sales_unavailable for an unapproved venue and for org_not_active.

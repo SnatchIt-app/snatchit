@@ -67,6 +67,7 @@ export type CheckoutRefusal =
   | 'not_on_sale'
   | 'ended'
   | 'hold_expired'
+  | 'sales_paused'
   | 'sales_unavailable'
   | 'not_found'
   | 'account_blocked'
@@ -118,6 +119,9 @@ export function parsePrimaryCheckoutResponse(status: number | null, body: unknow
     case 'not_on_sale': return { ok: false, reason: 'not_on_sale' };
     case 'session_terminal': return { ok: false, reason: 'ended' };
     case 'hold_invalid': return { ok: false, reason: 'hold_expired' };
+    case 'sales_paused': return status === 503
+      ? { ok: false, reason: 'sales_paused' }
+      : { ok: false, reason: 'unavailable' };
     case 'sales_unavailable':
     case 'service_fee_unset':
     case 'service_fee_out_of_range':
@@ -239,6 +243,7 @@ export const PRIMARY_CHECKOUT_COPY = {
     not_on_sale: 'This event isn’t on sale right now.',
     ended: 'This event has ended or was cancelled.',
     hold_expired: 'Your ticket hold ran out. Choose your tickets again.',
+    sales_paused: 'Ticket sales are paused for this event.',
     sales_unavailable: 'Ticket sales aren’t available for this event.',
     not_found: 'We couldn’t find this event or ticket type.',
     account_blocked: 'This account can’t buy tickets right now. Contact support if you think this is wrong.',
