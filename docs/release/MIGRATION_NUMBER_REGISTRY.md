@@ -9,6 +9,7 @@
 | 208 | `20261109210941` | 277 | Release integration | Optional buyer-only checkout and hold guard for a one-ticket pilot | Proposed. Inactive on installation. |
 | 209 | `20261110025848` | 278 | Release integration | Private pilot visibility and buyer-scoped session entry | Proposed. No event marked on installation. |
 | 210 | `20261115234531` | 279 | Marketplace payout | Throttle automated retries after confirmed insufficient funds | Proposed. No data mutation on installation. |
+| 211 | `20261116220724` | 212 (existing) | Ops detector performance | Avoid seven-day aggregation for cron jobs proven healthy by recent runs | Proposed. No data change on installation. |
 
 The 206 candidate follows 205. It adds two venue tables, one identity sequence,
 and eleven venue functions. Public Gate-2 counts and public grants are unchanged.
