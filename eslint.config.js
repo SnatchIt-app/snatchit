@@ -7,6 +7,6 @@ module.exports = defineConfig([
   {
     // web/ and packages/ carry their own lint setups (web/eslint.config.mjs);
     // keep `expo lint` scoped to the mobile app exactly as before.
-    ignores: ['dist/*', 'web/**', 'packages/**'],
+    ignores: ['dist/*', 'web/**', 'admin/**', 'packages/**'],
   },
 ]);

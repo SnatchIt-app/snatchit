@@ -1,0 +1,122 @@
+import Link from "next/link";
+import type { ReactNode } from "react";
+import type { OpsFailure } from "@/lib/ops-errors";
+
+export type AlertState = "loading" | "empty" | "denied" | "failed" | "stale" | "mfa" | "info" | "success" | "warning";
+
+const STYLES: Record<AlertState, { tone: string; label: string; glyph: string }> = {
+  loading: { tone: "bg-raised text-dim", label: "Loading", glyph: "…" },
+  empty: { tone: "bg-raised text-dim", label: "Nothing here", glyph: "–" },
+  denied: { tone: "bg-danger-soft text-danger", label: "Access denied", glyph: "✕" },
+  failed: { tone: "bg-danger-soft text-danger", label: "Failed", glyph: "✕" },
+  stale: { tone: "bg-warning-soft text-warning", label: "Stale", glyph: "!" },
+  mfa: { tone: "bg-warning-soft text-warning", label: "Re-verification needed", glyph: "!" },
+  info: { tone: "bg-info-soft text-info", label: "Info", glyph: "i" },
+  success: { tone: "bg-success-soft text-success", label: "Done", glyph: "✓" },
+  warning: { tone: "bg-warning-soft text-warning", label: "Warning", glyph: "!" },
+};
+
+/**
+ * Every non-happy state in the console goes through here so the wording and
+ * the retry affordance are consistent. Text always carries the state — never
+ * colour alone.
+ */
+export function Alert({
+  state,
+  title,
+  children,
+  retryHref,
+  retryLabel = "Retry",
+  compact = false,
+}: {
+  state: AlertState;
+  title?: ReactNode;
+  children?: ReactNode;
+  retryHref?: string;
+  retryLabel?: string;
+  compact?: boolean;
+}) {
+  const s = STYLES[state];
+  return (
+    <div
+      role={state === "failed" || state === "denied" ? "alert" : "status"}
+      aria-live="polite"
+      className={`enter flex gap-3 rounded-2xl bg-card shadow-[0_0_0_1px_rgba(28,25,23,0.08)] ${compact ? "px-3 py-2.5" : "px-4 py-3.5"} text-[0.875rem]`}
+    >
+      <span aria-hidden="true" className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[0.6875rem] font-bold ${s.tone}`}>
+        {s.glyph}
+      </span>
+      <div className="min-w-0">
+      <p className="font-medium text-ink">
+        <span className="sr-only">{s.label}: </span>
+        {title ?? s.label}
+      </p>
+      {children ? <div className="mt-0.5 text-[0.8125rem] text-muted">{children}</div> : null}
+      {retryHref ? (
+        <p className="mt-3">
+          <Link href={retryHref} className="btn btn-ghost btn-sm">
+            {retryLabel}
+          </Link>
+        </p>
+      ) : null}
+      </div>
+    </div>
+  );
+}
+
+/** Render an OpsFailure with the right state and copy. */
+export function OpsFailureAlert({ failure, retryHref, fn, subject }: { failure: OpsFailure; retryHref?: string; fn?: string; /** What the reader lost, e.g. "Orders" — leads the message when given. */ subject?: string }) {
+  if (failure.kind === "denied") {
+    return (
+      <Alert state="denied" title="Your account is not allowed to do this.">
+        The server refused this request ({fn ? `ops.${fn}` : "ops"}). If you were given a role recently, sign out
+        and sign in again.
+      </Alert>
+    );
+  }
+  if (failure.kind === "mfa") {
+    return (
+      <Alert state="mfa" title="Re-verify with your authenticator to continue." retryHref="/mfa" retryLabel="Go to MFA">
+        The server needs a recent check with your authenticator for this step.
+      </Alert>
+    );
+  }
+  if (failure.kind === "paused") {
+    return (
+      <Alert state="warning" title="A founder paused console actions. Nothing was changed." retryHref="/system#setting-actions_enabled" retryLabel="Open settings">
+        The setting <code className="font-mono">actions_enabled</code> is false, so the server refuses console actions. A founder can set it back to true in System → Settings.
+      </Alert>
+    );
+  }
+  if (failure.outdated) {
+    // 158 raises before any row or audit is written, so nothing changed; the database's own words stay visible.
+    return (
+      <Alert state="stale" title="This console is out of date — reload the page, then try again.">
+        Nothing was changed. The server needs data this build of the console does not send.
+        <span className="mt-1 block font-mono text-[0.6875rem] text-dim">
+          {failure.code} {failure.message}
+        </span>
+      </Alert>
+    );
+  }
+  if (subject && !failure.unavailable) {
+    return (
+      <Alert state="failed" title={`${subject} couldn't be loaded.`} retryHref={retryHref} retryLabel="Try again">
+        Nothing is shown rather than numbers that might be out of date. Nothing was changed.
+        <details className="mt-2">
+          <summary className="inline-flex min-h-7 items-center text-[0.75rem] hover:text-ink">For support</summary>
+          <span className="mt-1 block text-[0.75rem]">
+            {fn ? <code className="font-mono">ops.{fn}</code> : null} {failure.message}
+            {failure.code ? <span className="ml-2 font-mono text-[0.6875rem] text-dim">{failure.code}</span> : null}
+          </span>
+        </details>
+      </Alert>
+    );
+  }
+  return (
+    <Alert state="failed" title={failure.unavailable ? "RPC not available yet" : "Request failed"} retryHref={retryHref}>
+      {failure.message}
+      {failure.code ? <span className="ml-2 font-mono text-[0.6875rem] text-dim">{failure.code}</span> : null}
+    </Alert>
+  );
+}

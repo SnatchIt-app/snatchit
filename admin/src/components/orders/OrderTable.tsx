@@ -1,0 +1,261 @@
+import Link from "next/link";
+import type { ReactNode } from "react";
+import { DataTable, type Column, type SearchParamsLike } from "@/components/ui/DataTable";
+import { StatusBadge } from "@/components/ui/StatusBadge";
+import { TestDataFooter, TestRecordBadge } from "@/components/ui/HiddenTestRowsNotice";
+import { TimeAgo } from "@/components/ui/DateTime";
+import { Money } from "@/components/ui/Money";
+import { PartyLink } from "@/components/ui/IdLink";
+import { Icon } from "@/components/ui/Icon";
+import { isPast, labelFor, shortId, transferStateLabel } from "@/lib/format";
+import type { OrderRow } from "@/lib/types";
+
+/**
+ * What the page filter matches on an order row: the name, the references, the
+ * parties and the reviewed labels the row shows (the transfer one row-aware).
+ */
+export function orderFilterText(r: OrderRow): string {
+  return [
+    r.event_name,
+    r.event_date,
+    r.mode ? r.mode.replace(/_/g, " ") : null,
+    r.payment_id,
+    r.stripe_payment_intent_id,
+    r.transfer_id,
+    r.stripe_transfer_id,
+    r.stripe_refund_id,
+    r.listing_id,
+    r.buyer?.display_name,
+    r.seller?.display_name,
+    labelFor("payment", r.payment_status),
+    r.transfer_id ? transferStateLabel({ status: r.transfer_status, buyer_confirmed_at: r.buyer_confirmed_at }) : "No transfer",
+    labelFor("funds", r.seller_funds_state),
+    r.open_cases ? `${r.open_cases} open ${r.open_cases === 1 ? "case" : "cases"}` : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+/**
+ * Payment + transfer row (ops.order_row). Shared by /orders, users and listings.
+ *
+ * The order's name (its event) opens the order; the payment reference stays on
+ * the row, copyable, because support and Stripe both speak in ids. Every
+ * status uses the reviewed vocabulary verbatim — a qualifier such as "not
+ * confirmed settled" is moved under its pill, never dropped.
+ *
+ * Columns sort client-side by the row's recorded values (integer cents, the
+ * status codes, the event name) on this page only; `filterable` adds the page
+ * filter where a page opts in.
+ */
+export function OrderTable({
+  rows,
+  basePath,
+  searchParams,
+  nextCursor,
+  cursorParam,
+  emptyText = "No orders match.",
+  caption = "Orders",
+  hideParties = false,
+  openHref,
+  selectedId,
+  filterable = false,
+}: {
+  rows: OrderRow[];
+  basePath: string;
+  searchParams?: SearchParamsLike;
+  nextCursor?: string | null;
+  cursorParam?: string;
+  emptyText?: string;
+  caption?: string;
+  hideParties?: boolean;
+  /** When set, the order name opens a preview (the Orders drawer) instead of the full page. */
+  openHref?: (paymentId: string) => string;
+  selectedId?: string | null;
+  /** Client-side text filter over the rows on this page. */
+  filterable?: boolean;
+}) {
+  const columns: Column<OrderRow>[] = [
+    { key: "order", header: "Order", render: (r) => <OrderName r={r} openHref={openHref} />, sortValue: (r) => r.event_name ?? null },
+    ...(hideParties
+      ? []
+      : ([
+          {
+            key: "parties",
+            header: "Buyer → Seller",
+            render: (r) => (
+              <span className="flex flex-col gap-0.5 whitespace-nowrap">
+                <PartyLink id={r.buyer?.id} displayName={r.buyer?.display_name} />
+                <span className="text-muted">
+                  <span aria-hidden="true">→ </span>
+                  <span className="sr-only">sold by </span>
+                  <PartyLink id={r.seller?.id} displayName={r.seller?.display_name} />
+                </span>
+              </span>
+            ),
+            sortValue: (r) => r.buyer?.display_name ?? null,
+          },
+        ] as Column<OrderRow>[])),
+    {
+      key: "amount",
+      header: "Amount",
+      align: "right",
+      render: (r) => (
+        <span className="flex flex-col items-end whitespace-nowrap">
+          <Money cents={r.amount} className="font-semibold" />
+          <span className="text-[0.75rem] text-muted">
+            total <Money cents={r.total} />
+          </span>
+        </span>
+      ),
+      sortValue: (r) => r.amount ?? null,
+      firstSortDir: "desc",
+    },
+    { key: "payment_status", header: "Payment", render: (r) => (
+        <span className="flex flex-wrap items-center gap-1">
+          <StatusBadge status={r.payment_status} label={labelFor("payment", r.payment_status)} qualifier="below" />
+          <TestRecordBadge isTest={r.is_test} />
+        </span>
+      ), sortValue: (r) => r.payment_status ?? null },
+    { key: "transfer_status", header: "Ticket transfer", render: (r) => <TransferCell r={r} />, sortValue: (r) => r.transfer_status ?? null },
+    { key: "funds", header: "Seller funds", render: (r) => <FundsCell r={r} />, sortValue: (r) => r.seller_funds_state ?? null },
+  ];
+
+  return (
+    <DataTable
+      notice={<TestDataFooter rows={rows} />}
+      columns={columns}
+      rows={rows}
+      rowKey={(r, i) => r.payment_id ?? `${i}`}
+      basePath={basePath}
+      searchParams={searchParams}
+      nextCursor={nextCursor}
+      cursorParam={cursorParam}
+      emptyText={emptyText}
+      caption={caption}
+      dense
+      filterable={filterable}
+      filterText={orderFilterText}
+      isSelected={selectedId ? (r) => r.payment_id === selectedId : undefined}
+      card={(r) => (
+        <article className="panel p-4">
+          <div className="flex items-start justify-between gap-3">
+            <OrderName r={r} openHref={openHref} />
+            <span className="shrink-0 whitespace-nowrap text-right">
+              <Money cents={r.amount} className="font-semibold" />
+              <span className="block text-[0.75rem] text-muted">
+                total <Money cents={r.total} />
+              </span>
+            </span>
+          </div>
+          <div className="mt-3 grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(9rem,100%),1fr))]">
+            <Labelled label="Payment">
+              <StatusBadge status={r.payment_status} label={labelFor("payment", r.payment_status)} qualifier="below" />
+            </Labelled>
+            <Labelled label="Ticket transfer">
+              <TransferCell r={r} />
+            </Labelled>
+            <Labelled label="Seller funds">
+              <FundsCell r={r} />
+            </Labelled>
+          </div>
+          {hideParties ? null : (
+            <p className="mt-3 border-t border-line pt-3 text-[0.8125rem] text-muted">
+              <PartyLink id={r.buyer?.id} displayName={r.buyer?.display_name} /> → <PartyLink id={r.seller?.id} displayName={r.seller?.display_name} />
+            </p>
+          )}
+        </article>
+      )}
+    />
+  );
+}
+
+function OrderName({ r, openHref }: { r: OrderRow; openHref?: (paymentId: string) => string }) {
+  const title = r.event_name ?? (r.payment_id ? `Order ${shortId(r.payment_id)}` : "Order");
+  return (
+    <span className="flex min-w-0 flex-col items-start gap-0.5 md:min-w-[12rem]">
+      {r.payment_id ? (
+        <Link
+          href={openHref ? openHref(r.payment_id) : `/orders/${r.payment_id}`}
+          scroll={openHref ? false : undefined}
+          data-row-link={r.payment_id}
+          className="group inline-flex items-center gap-1 font-semibold text-ink hover:underline hover:underline-offset-4"
+        >
+          {title}
+          <Icon name="chevron" size={14} className="text-dim group-hover:text-ink" />
+        </Link>
+      ) : (
+        <span className="font-semibold text-ink">{title}</span>
+      )}
+      <span className="text-[0.75rem] text-muted">
+        {[r.event_date, r.mode ? r.mode.replace(/_/g, " ") : null].filter(Boolean).join(" · ") || "—"}
+        {r.created_at ? (
+          <>
+            {" · ordered "}
+            <TimeAgo value={r.created_at} />
+          </>
+        ) : null}
+      </span>
+      {r.open_cases ? (
+        <span className="mt-0.5">
+          <CasesCell r={r} />
+        </span>
+      ) : null}
+      {r.payment_id ? (
+        <code className="bg-transparent p-0 font-mono text-[0.6875rem] text-dim" title={`Payment ${r.payment_id}${r.stripe_payment_intent_id ? ` · ${r.stripe_payment_intent_id}` : ""}`}>
+          {shortId(r.payment_id)}
+          {r.stripe_payment_intent_id ? ` · ${r.stripe_payment_intent_id}` : ""}
+        </code>
+      ) : null}
+    </span>
+  );
+}
+
+function TransferCell({ r }: { r: OrderRow }) {
+  if (!r.transfer_id) return <span className="text-muted">No transfer</span>;
+  return (
+    <span className="flex flex-col items-start gap-1">
+      <StatusBadge status={r.transfer_status} label={transferStateLabel({ status: r.transfer_status, buyer_confirmed_at: r.buyer_confirmed_at })} qualifier="below" />
+      {r.transfer_expires_at && r.transfer_status === "pending" ? (
+        isPast(r.transfer_expires_at) ? (
+          <span className="pl-1 text-[0.75rem] font-medium text-danger">
+            Deadline passed <TimeAgo value={r.transfer_expires_at} />
+          </span>
+        ) : (
+          <span className="pl-1 text-[0.75rem] text-muted">
+            Deadline <TimeAgo value={r.transfer_expires_at} />
+          </span>
+        )
+      ) : null}
+    </span>
+  );
+}
+
+function FundsCell({ r }: { r: OrderRow }) {
+  return (
+    <StatusBadge
+      status={r.seller_funds_state}
+      label={labelFor("funds", r.seller_funds_state)}
+      variant={r.seller_funds_state === "released_to_connected_account" ? "ok" : undefined}
+      qualifier="below"
+    />
+  );
+}
+
+function CasesCell({ r }: { r: OrderRow }) {
+  if (!r.open_cases) return null;
+  return (
+    <Link href={`/orders/${r.payment_id ?? ""}`} className="badge badge-red tabular-nums hover:bg-[rgba(196,0,0,0.06)]">
+      {r.open_cases} open {r.open_cases === 1 ? "case" : "cases"}
+    </Link>
+  );
+}
+
+function Labelled({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <span className="flex min-w-0 flex-col items-start gap-1">
+      <span className="text-[0.6875rem] font-medium text-muted">{label}</span>
+      {children}
+    </span>
+  );
+}
