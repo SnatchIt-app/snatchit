@@ -219,6 +219,8 @@ export const REFUSAL_COPY: Record<string, string> = {
   illegal_transition: "The event cannot move to that status from its current one. It may already have moved. Reload the page to see its status.",
   // shared preconditions
   event_terminal: "This event is completed or cancelled, so it can no longer be changed.",
+  // 203: cancel_event on a completed event
+  event_completed: "This event is already completed, so it cannot be cancelled. For a refund after the event, contact Snatch It.",
   session_terminal: "This session is completed or cancelled, so it can no longer be changed.",
   boundary_engaged: "Check-in has opened for this session, so its start and doors-open times can no longer change.",
   move_exceeds_grace: "This session has tickets issued, and the new time moves it too far. Make a smaller change, or ask Snatch It.",
@@ -249,9 +251,25 @@ export function refusalToken(message: string | null | undefined): string | null 
   return bare && REFUSAL_COPY[bare] ? bare : null;
 }
 
+/**
+ * 202: every fee refusal keeps the prefix `precondition_failed: fee_policy_unset`, and some append a reason after
+ * " — ". "has no value" (or no reason, from a server before 202) means the fee is not set. Any other reason means a
+ * fee is stored but is not a valid number, which "not set yet" would misstate.
+ */
+export const FEE_POLICY_INVALID_COPY = "The platform's service fee is stored but is not a valid value, so a price cannot be charged. Snatch It has to correct it.";
+
+function feeReason(message: string): string | null {
+  const i = message.indexOf(" — ");
+  return i === -1 ? null : message.slice(i + 3).trim();
+}
+
 /** What the operator reads for a refusal; unknown refusals keep the server's own words rather than inventing a cause. */
 export function refusalCopy(message: string | null | undefined): string {
   const token = refusalToken(message);
+  if (token === "fee_policy_unset") {
+    const reason = feeReason((message ?? "").trim());
+    return reason && !/has no value/i.test(reason) ? FEE_POLICY_INVALID_COPY : REFUSAL_COPY.fee_policy_unset;
+  }
   if (token) return REFUSAL_COPY[token];
   const m = (message ?? "").trim();
   return m ? `The server did not confirm this change (${m}). Reload the page and check before you send it again.` : "The server did not confirm this change. Reload the page and check before you send it again.";
