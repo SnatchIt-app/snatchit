@@ -282,6 +282,8 @@ SELECT ok((tap._case('t212w')).summary LIKE '%has not run since%' AND (tap._case
 -- ── Section J — the states the owner listed ─────────────────────────────────
 SELECT tap._job('t212healthy');
 SELECT tap._run('t212healthy', interval '2 minutes');
+-- A recent success followed by one failure still satisfies the existing healthy rule.
+SELECT tap._run('t212healthy', interval '1 minute', 'failed', 'transient');
 SELECT tap._job('t212missed');
 SELECT tap._run('t212missed', interval '40 minutes');
 SELECT tap._job('t212failing');
