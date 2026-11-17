@@ -119,7 +119,8 @@ export async function getActiveListings(filters: BrowseFilters = {}, limit = 24)
       break;
   }
 
-  const { data, error } = await query.limit(limit);
+  // Let the route's error boundary handle a slow catalog instead of leaving it pending.
+  const { data, error } = await query.limit(limit).abortSignal(AbortSignal.timeout(5_000));
   if (error) throw new Error(`listings query failed: ${error.message}`);
   return (data ?? []) as WebListing[];
 }

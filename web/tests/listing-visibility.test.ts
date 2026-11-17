@@ -97,6 +97,23 @@ describe("the public catalog reads as an anonymous visitor", () => {
     expect(c.url.searchParams.get("category")).toBe("eq.clubs");
   });
 
+  it("aborts a stalled catalog read without reporting an empty feed", async () => {
+    const controller = new AbortController();
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockReturnValueOnce(controller.signal);
+    try {
+      vi.stubGlobal("fetch", vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        expect(init?.signal).toBe(controller.signal);
+        controller.abort();
+        throw controller.signal.reason;
+      }));
+      const { getActiveListings } = await import("@/lib/listings");
+      await expect(getActiveListings()).rejects.toThrow("listings query failed");
+      expect(timeout).toHaveBeenCalledWith(5_000);
+    } finally {
+      timeout.mockRestore();
+    }
+  });
+
   it("/api/public/events never reads the viewer's session (its body is CDN-cached as public)", async () => {
     const { GET } = await import("@/app/api/public/events/route");
     const res = await GET(new Request("https://app.example.test/api/public/events", { headers: { cookie: "sb-proj-auth-token=x" } }));
