@@ -21,7 +21,7 @@ verify their resulting body hash. They fail closed on an unknown third body.
 Base: `e250305d2532a7436c2258bbdd72cde16bbb56bf`.
 Actual PostgreSQL 17.11 and pgTAP 1.3.5 ran the actual function and its dynamic SQL.
 
-- Baseline body `a325f6713602062ea0aa6958b3dd3fac`: 6 failures of 32 assertions.
+- Baseline body `a315f6713602062ea0aa6958b3dd3fac`: 6 failures of 32 assertions.
 - Candidate body `be7ba9e3c04c26b9c99728900625a333`: 32/32 passing.
 - Rollback: exact baseline restored, with the same six failures.
 - Reapply: exact candidate restored, 32/32 passing.
