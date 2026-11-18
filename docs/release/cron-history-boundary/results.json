@@ -1,0 +1,64 @@
+{
+  "scope": "actual detector SQL; explicit dependency doubles; not full-chain replay",
+  "baseline": "a315f6713602062ea0aa6958b3dd3fac",
+  "candidate": "be7ba9e3c04c26b9c99728900625a333",
+  "checks": [
+    {
+      "test": "baseline-final",
+      "assertions": 32,
+      "expected_failures": 6,
+      "failed_numbers": [
+        "4",
+        "6",
+        "11",
+        "19",
+        "31",
+        "32"
+      ]
+    },
+    {
+      "test": "candidate-final",
+      "assertions": 32,
+      "expected_failures": 0,
+      "failed_numbers": []
+    },
+    {
+      "test": "mutant-count",
+      "expected": "fails",
+      "failed_numbers": [
+        "5",
+        "7",
+        "12",
+        "14"
+      ]
+    },
+    {
+      "test": "mutant-success",
+      "expected": "fails",
+      "failed_numbers": [
+        "30"
+      ]
+    },
+    {
+      "test": "rollback-baseline",
+      "assertions": 32,
+      "expected_failures": 6,
+      "failed_numbers": [
+        "4",
+        "6",
+        "11",
+        "19",
+        "31",
+        "32"
+      ]
+    },
+    {
+      "test": "reapply-candidate",
+      "assertions": 32,
+      "expected_failures": 0,
+      "failed_numbers": []
+    }
+  ],
+  "metadata_preserved": true,
+  "unknown_bodies_rejected_both_directions": true
+}

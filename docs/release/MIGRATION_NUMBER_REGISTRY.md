@@ -9,6 +9,7 @@
 | 208 | `20261109210941` | 277 | Release integration | Optional buyer-only checkout and hold guard for a one-ticket pilot | Proposed. Inactive on installation. |
 | 209 | `20261110025848` | 278 | Release integration | Private pilot visibility and buyer-scoped session entry | Proposed. No event marked on installation. |
 | 210 | `20261115234531` | 279 | Marketplace payout | Throttle automated retries after confirmed insufficient funds | Proposed. No data mutation on installation. |
+| 213 | `20261118001000` | 281 | Cron correctness | Preserve last_run in the seven-day search margin; seven-day failure metrics unchanged | Draft. Registry 212 belongs to the separate financial lane; resolve sequencing before merge. Local focused proof only; no hosted apply. |
 
 The 206 candidate follows 205. It adds two venue tables, one identity sequence,
 and eleven venue functions. Public Gate-2 counts and public grants are unchanged.
