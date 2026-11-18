@@ -2,12 +2,27 @@
 -- Exercise the actual detector, including its dynamic SQL and 5000-runid slices.
 BEGIN ISOLATION LEVEL REPEATABLE READ;
 SELECT plan(32);
-UPDATE cron.job SET active = false;
-TRUNCATE cron.job_run_details;
+-- Match 210: create the history shape only when pg_cron has not provided it.
+DO $$ BEGIN
+ IF to_regclass('cron.job_run_details') IS NULL THEN
+  CREATE TABLE cron.job_run_details(jobid bigint,runid bigint primary key,job_pid integer,database text,username text,command text,status text,return_message text,start_time timestamptz,end_time timestamptz);
+ END IF;
+ -- Fixture runids precede real rows. A fresh test DB has only recent real runs,
+ -- so all real started rows remain on the same side of both seven-day cutoffs.
+ IF EXISTS(SELECT 1 FROM cron.job_run_details WHERE start_time <= now()-interval '7 days') THEN
+  RAISE EXCEPTION '281 requires a fresh test database with no old real cron history';
+ END IF;
+END $$;
 CREATE TEMP TABLE j281(name text primary key, jobid bigint);
 INSERT INTO j281 SELECT n, cron.schedule('t281_' || n, '*/5 * * * *', 'select 1 /* t281 */')
  FROM unnest(ARRAY['inside','edge','margin','floor','below','mixed','never','disabled','slice','failing','fresh']) n;
-UPDATE cron.job SET active = false WHERE jobid = (SELECT jobid FROM j281 WHERE name = 'disabled');
+DO $$ DECLARE v_id bigint := (SELECT jobid FROM j281 WHERE name='disabled'); BEGIN
+ IF to_regprocedure('cron.alter_job(bigint,text,text,text,text,boolean)') IS NOT NULL THEN
+  PERFORM cron.alter_job(v_id, active => false);
+ ELSE
+  UPDATE cron.job SET active=false WHERE jobid=v_id;
+ END IF;
+END $$;
 -- Reachable even when seed_core or earlier tests removed the setting row.
 INSERT INTO ops.setting(key, value)
  VALUES ('cron_job_first_seen', jsonb_build_object('t281_never', (now() - interval '2 days')::text))
@@ -32,7 +47,9 @@ INSERT INTO f281 VALUES
 INSERT INTO f281 SELECT 'slice', interval '7 days 50 minutes' - make_interval(secs => g::double precision / 10), 'succeeded'
  FROM generate_series(1,5001) g;
 INSERT INTO cron.job_run_details(jobid,runid,job_pid,database,username,command,status,return_message,start_time,end_time)
- SELECT j.jobid, row_number() over(order by f.age desc, f.name), 0, current_database(), current_user,
+ SELECT j.jobid, row_number() over(order by f.age desc, f.name)
+ + coalesce((SELECT min(runid) FROM cron.job_run_details),1) - (SELECT count(*) FROM f281) - 1,
+ 0, current_database(), current_user,
  'select 1 /* t281 */', f.status, CASE WHEN f.status='failed' THEN 't281 old failure' END,
  now()-f.age, now()-f.age+interval '1 microsecond'
  FROM f281 f JOIN j281 j USING(name);

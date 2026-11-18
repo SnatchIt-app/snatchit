@@ -46,7 +46,7 @@ the harness. The case/alert integration and authorization paths are not proven
 by these doubles; normal repository CI must validate 281 against the full stack.
 
 Private retained evidence directory:
-`/Volumes/DEV-SSD/01_SNATCH_IT/private-evidence/cron213-20261118/final32`.
+`/Volumes/DEV-SSD/01_SNATCH_IT/private-evidence/cron213-20261118/api-fixture`.
 `results.json` is its result summary. Earlier logs in the parent directory are
 historical attempts, including a superseded fixture whose generated ages crossed
 the seven-day cutoff. They are not the final proof.
@@ -74,3 +74,16 @@ Draft only. Registry 212 / timestamp `20261118000000` belongs to the separate
 financial lane and is unresolved in this base. Resolve registry/sequencing and
 run full-chain CI before considering merge. No merge, hosted apply, or schedule
 activation is authorized by this package.
+
+## Full-stack CI correction
+
+The first real-stack CI run (44343718491) applied the migration and passed parity,
+but exposed a fixture permission error: pg_cron's job table is extension-owned.
+281 now uses the existing `cron.alter_job` API for its disabled fixture and leaves
+all real jobs and history untouched. Its synthetic runids precede real history;
+it requires a fresh test DB with no real history older than seven days.
+
+210 D1 had pinned the old missing-margin behavior as an exclusion. Its four
+boundary jobs are now asserted as stalled; a new, null-safe full-history maximum
+oracle checks each alert's actual `last_run`. Its existing strict failure-count
+and last-five assertions remain unchanged. A new real-stack CI run is required.
