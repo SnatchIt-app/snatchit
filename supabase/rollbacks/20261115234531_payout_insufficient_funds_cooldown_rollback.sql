@@ -1,4 +1,14 @@
 BEGIN;
+-- A historical inverse must never overwrite the later shared-money fences.
+DO $guard210$ BEGIN
+ IF to_regprocedure('kernel.authorize_fresh_refund(uuid)') IS NOT NULL THEN
+  RAISE EXCEPTION 'ROLLBACK_210_BLOCKED_BY_214: retain payment fencing; use reviewed fix-forward';
+ END IF;
+ IF (SELECT md5(prosrc) FROM pg_proc WHERE oid='public.claim_payout_attempt(uuid,text,interval)'::regprocedure)
+    NOT IN ('ce30b56ca038ae0c4de2c88770870561','8924d75d4fa36f15d46db48fe821b9c7') THEN
+  RAISE EXCEPTION 'ROLLBACK_210_BODY_CHANGED: later payout guards must remain';
+ END IF;
+END $guard210$;
 CREATE OR REPLACE FUNCTION public.claim_payout_attempt(
   p_transfer_id uuid,
   p_actor       text,

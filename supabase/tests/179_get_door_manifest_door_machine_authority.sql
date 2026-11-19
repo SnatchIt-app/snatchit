@@ -97,14 +97,14 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
   -- 2026-09-05 (package 114): 85 -> 87 (+2 M1 door read + manifest signing context).
   -- 2026-10-26 (registry 160, S1): 87 -> 90 (+set_ticket_type_visibility, set_ticket_type_rank, get_inventory_counters).
   'A8: venue holds 111 functions including the pilot trigger function from registry 208');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 336,
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 337,
   -- 2026-11-02 (registry 199): 320 -> 324 (+4 kernel: refund_executor_hold, record_refund_stripe_failure, park_refund_execution, rearm_refund_execution).
   -- 2026-10-26 (registry 166): 317 -> 319 (+2 venue: get_session_capacity, list_session_capacity).
   -- 2026-10-27 (package 187, beneath 164-167): 319 -> 320 (+1 venue.assert_session_operator, the E-76 door-plane helper).
   -- 2026-10-26 (registry 163): 313 -> 317 (+4 venue: get_session_scan_counters, list_session_scan_counters, record_scan_staff, filter_staff_scan_meta; 315 if 163's PART B is dropped).
   -- 2026-10-26 (registry 162, S2): 308 -> 313 (+2 venue: set_ticket_type_sale_window, ticket_type_on_sale; +3 catalog: set_venue_timezone, set_event_age_policy, set_session_sales_capacity).
   -- 2026-10-26 (registry 160, S1): 305 -> 308 (+3 venue: set_ticket_type_visibility, set_ticket_type_rank, get_inventory_counters).
-  'A9: five-schema routine census 336 including the pilot trigger function from registry 208');
+  'A9: five-schema routine census 337 including the pilot trigger function from registry 208');
 
 -- ── B. valid bound device — full + incremental sync, identical to the staff read ──
 SELECT tap.login_service();

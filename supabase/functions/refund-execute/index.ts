@@ -62,6 +62,7 @@
 // authoring this file.
 // =============================================================================
 
+import { postFreshRefund } from './fresh-money.ts';
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
 import { captureException } from '../_shared/sentry.ts';
@@ -431,7 +432,14 @@ async function reconcileOne(
   console.log('[refund-execute] reconcile established no Stripe refund exists — creating:', { refund_id: refundId });
   let res: { ok: boolean; status: number; data: unknown };
   try {
-    res = await stripeFetchRaw('/refunds', { method: 'POST', idempotencyKey: plan.create.idempotency_key, body: plan.create.body });
+    const posted = await postFreshRefund(
+      () => service.rpc('authorize_fresh_refund', { p_refund_id: refundId }),
+      () => stripeFetchRaw('/refunds', { method: 'POST', idempotencyKey: plan.create.idempotency_key, body: plan.create.body }),
+    );
+    if (posted.kind === 'refused') {
+      return { refund_id: refundId, outcome: 'refused', code: posted.reason, detail: 'Fresh refund money requires manual review; provider reconciliation remains available.', retryable: false, http: 409 };
+    }
+    res = posted.response;
   } catch (err) {
     const verdict = classifyStripeRefundError(err instanceof Error ? err : new Error(String(err)));
     return { refund_id: refundId, outcome: 'stripe_error', code: verdict.class, detail: String(err), retryable: verdict.retryable, http: 502 };
@@ -527,11 +535,18 @@ async function executeOne(
 
   let res: { ok: boolean; status: number; data: unknown };
   try {
-    res = await stripeFetchRaw('/refunds', {
-      method: 'POST',
-      idempotencyKey: plan.idempotency_key,
-      body: plan.body,
-    });
+    const posted = await postFreshRefund(
+      () => service.rpc('authorize_fresh_refund', { p_refund_id: refundId }),
+      () => stripeFetchRaw('/refunds', {
+        method: 'POST', idempotencyKey: plan.idempotency_key, body: plan.body,
+      }),
+    );
+    if (posted.kind === 'refused') {
+      // Historical overlap must not strand money already sent. Establish Stripe
+      // truth first; reconcileOne gates again if a complete search finds none.
+      return await reconcileOne(service, refundId, commandKey, ctx);
+    }
+    res = posted.response;
   } catch (err) {
     // No HTTP response: DNS/TLS/socket/abort. Stripe MAY have created the
     // refund. We write NOTHING — the row stays `pending` and the next sweep
