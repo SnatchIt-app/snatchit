@@ -353,8 +353,8 @@ SELECT is(ARRAY[tap._md5268('kernel.refund_executor_hold(uuid)'),
                 tap._md5268('ops.executor_claim(uuid,integer)')],
           ARRAY['31d6705d651d04ef82191faec528ad27', 'ab215b7b939c8843376161b2a35dadd3', '3664f28dc744d274ff8813309edf9fd0',
                 '8aede0fc7dbdb0bc37a53d53c0eda51e', '3e7b649b80286f4be2c459dde43ace59', '822d2d2fd0cfd3e39f8fe6f1f0baec74',
-                '977edd52c3d535a36f7431ea008a2bb9', '2d658f3406ea6e774fd8f6dcb163a27f'],
-  'A5: md5(pg_get_functiondef) of the eight = the values 199 declares');
+                '977edd52c3d535a36f7431ea008a2bb9', '23025535815c199354a75f31c768351c'],
+  'A5: seven native 199 bodies unchanged; executor_claim matches 212');
 SELECT is(ARRAY[tap._md5268('kernel.refund_primary_order(uuid,integer,text,text)'),
                 tap._md5268('public.record_refund_state(text,text,text,integer,text,text,text)'),
                 tap._md5268('kernel.settlement_primary_lines(uuid)')],
