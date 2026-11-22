@@ -9,6 +9,7 @@
 | 208 | `20261109210941` | 277 | Release integration | Optional buyer-only checkout and hold guard for a one-ticket pilot | Proposed. Inactive on installation. |
 | 209 | `20261110025848` | 278 | Release integration | Private pilot visibility and buyer-scoped session entry | Proposed. No event marked on installation. |
 | 210 | `20261115234531` | 279 | Marketplace payout | Throttle automated retries after confirmed insufficient funds | Proposed. No data mutation on installation. |
+| 212 | `20261118000000` | 280 | Payment safety | Shared per-payment lock for console refund/payout actions and marketplace payout claims; duplicate-unsettled and released-payout guards | Local draft only. Does not close native kernel refund / marketplace payout overlap; 214 remains a release dependency. |
 
 The 206 candidate follows 205. It adds two venue tables, one identity sequence,
 and eleven venue functions. Public Gate-2 counts and public grants are unchanged.
