@@ -317,8 +317,9 @@ export interface ClaimedAttempt {
 /** claim_payout_attempt refusals that are expected operational states. */
 export const PAYOUT_NOT_ELIGIBLE_REASONS = [
   'TRANSFER_NOT_FOUND', 'TRANSFER_NOT_RELEASABLE', 'DISPUTED', 'PAYMENT_NOT_SUCCEEDED',
+  // Keep the native reason before its REFUND_IN_FLIGHT suffix for rpcReason's substring match.
   // 20260924000000: a seller-win dispute resolution under a pending risk hold / manual review
-  'PAYOUT_HELD', 'PAYOUT_UNDER_REVIEW', 'PAYOUT_FUNDING_COOLDOWN', 'REFUND_IN_FLIGHT', 'NATIVE_REFUND_IN_FLIGHT',
+  'PAYOUT_HELD', 'PAYOUT_UNDER_REVIEW', 'PAYOUT_FUNDING_COOLDOWN', 'NATIVE_REFUND_IN_FLIGHT', 'REFUND_IN_FLIGHT',
   'PAYMENT_NOT_LIVE', 'SELLER_NOT_ONBOARDED', 'PAYOUT_AMOUNT_INVALID',
   'PAYMENT_PARTIALLY_REFUNDED',   // review round 2 MINOR-3: operator decision, never automatic
 ] as const;
