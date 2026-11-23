@@ -1,6 +1,6 @@
 -- 212: behavior probe, also runs to completion against the pre-212 bodies.
 BEGIN;
-SELECT plan(16);
+SELECT plan(17);
 SELECT tap.seed_core();
 INSERT INTO public.admin_users(user_id,label) VALUES(tap.other_user(),'280 second founder') ON CONFLICT DO NOTHING;
 UPDATE ops.setting SET value='true'::jsonb WHERE key='refund_execute_enabled';
@@ -33,12 +33,15 @@ SELECT tap.logout();
 SELECT tap.login(tap.other_user());
 SELECT set_config('request.jwt.claims',(current_setting('request.jwt.claims')::jsonb || '{"aal":"aal2"}')::text,true);
 INSERT INTO money280 VALUES ('approval',ops.approve_action((SELECT (v->>'action_id')::uuid FROM money280 WHERE k='first'),'approve','reviewed local fixture'));
-SELECT is((SELECT v->>'reject_reason' FROM money280 WHERE k='approval'),'payout_released','approval cannot hand off a refund after a later payout release');
+SELECT is((SELECT v->>'status' FROM money280 WHERE k='approval'),'processing','eligible unpaid release decision permits approved refund handoff');
 SELECT tap.logout();
 UPDATE ops.action SET state='failed' WHERE idempotency_key LIKE 'test280-%';
 SELECT tap.login280();
 INSERT INTO money280 VALUES ('released',ops.execute_action('test280-refund-released','refund_execute','payment',tap.payment_b(),'{}','reviewed refund'));
-SELECT is((SELECT v->>'reject_reason' FROM money280 WHERE k='released'),'payout_released','refund refused after release decision');
+SELECT is((SELECT v->>'status' FROM money280 WHERE k='released'),'awaiting_approval','eligible but unpaid transfer permits reviewed refund request');
+SELECT tap.login(tap.other_user());
+SELECT set_config('request.jwt.claims',(current_setting('request.jwt.claims')::jsonb || '{"aal":"aal2"}'::jsonb)::text,true);
+SELECT ops.approve_action((SELECT (v->>'action_id')::uuid FROM money280 WHERE k='released'),'deny','fixture cleanup after positive unpaid control');
 SELECT tap.logout();
 -- Red-control cleanup: the predecessor may have allocated the refused attempt.
 SELECT public.record_payout_attempt_result(id,NULL,'failed_not_created','{}') FROM public.payout_attempts WHERE transfer_id=tap.transfer_b() AND state IN ('claimed','requested','unknown');
@@ -58,7 +61,9 @@ UPDATE ops.action SET state='processing', attempt=0, claimed_until=NULL, result=
  WHERE id=(SELECT (v->>'action_id')::uuid FROM money280 WHERE k='first');
 UPDATE ops.action SET state='failed' WHERE idempotency_key='test280-historical';
 SELECT tap.login_service();
-SELECT is(ops.executor_claim((SELECT (v->>'action_id')::uuid FROM money280 WHERE k='first'))->>'reason','payout_released','fresh historical executor handoff refuses released payout');
+SELECT is(ops.executor_claim((SELECT (v->>'action_id')::uuid FROM money280 WHERE k='first'))->>'status','claimed','eligible unpaid transfer permits fresh approved refund executor claim');
+SELECT tap.logout();
+SELECT throws_ok($$SELECT * FROM public.claim_payout_attempt(tap.transfer_b(),'test280-after-refund')$$,'P0001','REFUND_IN_FLIGHT','approved fresh refund claim fences a later payout');
 SELECT tap.logout();
 SELECT * FROM finish();
 ROLLBACK;
