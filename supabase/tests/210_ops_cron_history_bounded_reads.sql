@@ -20,7 +20,7 @@ BEGIN ISOLATION LEVEL REPEATABLE READ;
 -- Released by this fixture's final ROLLBACK; no cron setting is changed.
 SET LOCAL lock_timeout = '15s';
 LOCK TABLE ops.job_state IN SHARE MODE;
-SELECT plan(25);
+SELECT plan(26);
 SELECT tap.seed_core();
 INSERT INTO public.admin_users (user_id, label) VALUES (tap.admin_user(), 'TEST ADMIN') ON CONFLICT (user_id) DO NOTHING;
 CREATE FUNCTION tap._aal2_210() RETURNS void LANGUAGE plpgsql AS $f$ begin perform set_config('request.jwt.claims',
@@ -454,9 +454,19 @@ SELECT ok((SELECT o ->> 'last_status' = 'failed' AND o ->> 'last_message' = 'job
   'C10: the correction, pinned — the applied body shows a 3-day-old startup timeout (start_time NULL sorts first) as the newest run; 143 shows the newest run');
 
 -- ── Section D — detect_jobs edge outcomes ────────────────────────────────────────────────────────────────────
-SELECT ok((SELECT coalesce(array_agg(x ->> 'ref'), '{}') FROM t210_dj, jsonb_array_elements(new_c -> 'cases') x) @> array['t210-e7in','t210-inv7']
-      AND NOT (SELECT coalesce(array_agg(x ->> 'ref'), '{}') FROM t210_dj, jsonb_array_elements(new_c -> 'cases') x) && array['t210-e7eq','t210-e7out'],
-  'D1: a failure 1 µs inside the 7-day edge, and one allocated before but started after it, are seen; at or outside the edge they are not');
+-- 213 closes the margin gap: the at/outside-edge runs remain excluded from
+-- seven-day failure metrics but now correctly produce stalled-job cases.
+SELECT ok((SELECT coalesce(array_agg(x ->> 'ref'), '{}') FROM t210_dj, jsonb_array_elements(new_c -> 'cases') x) @> array['t210-e7in','t210-inv7','t210-e7eq','t210-e7out']
+      AND (SELECT count(*)=4 AND bool_and(x ->> 'title' LIKE '%is not running%')
+        FROM t210_dj, jsonb_array_elements(new_c -> 'cases') x
+       WHERE x ->> 'ref' IN ('t210-e7in','t210-inv7','t210-e7eq','t210-e7out')),
+  'D1: all four seven-day boundary jobs are stalled, including the margin runs fixed by 213');
+SELECT ok((SELECT count(*)=4 AND bool_and((x #>> '{payload,last_run}')::timestamptz IS NOT DISTINCT FROM
+             (SELECT max(d.start_time) FROM cron.job_run_details d WHERE d.jobid=j.jobid))
+ FROM t210_dj, jsonb_array_elements(new_c -> 'alerts') x
+ JOIN cron.job j ON x ->> 'key' = 'job_failure:' || j.jobname
+ WHERE j.jobname IN ('t210-e7in','t210-inv7','t210-e7eq','t210-e7out')),
+ 'D1 oracle: each boundary alert last_run matches an independent full-history maximum');
 SELECT ok((SELECT x ->> 'summary' LIKE '%: 3 of the last 5 runs failed;%'
              FROM t210_dj, jsonb_array_elements(new_c -> 'cases') x WHERE x ->> 'ref' = 't210-rank5'),
   'D2: failed_of_last5 counts exactly the 5 newest runs (failures at ranks 1, 2, 5 count; rank 6 does not)');
