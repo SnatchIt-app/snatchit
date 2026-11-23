@@ -23,3 +23,9 @@ The local database uses the existing plain PostgreSQL rehearsal bootstrap. It is
 Do not remove an established financial fence. The 214 rollback file deliberately refuses on an applied candidate and succeeds only as a no-op on the exact unapplied 212 predecessor. Its deployed recovery is forward-only: stop new execution through the reviewed operating controls, retain this schema and reconciliation, and apply a reviewed correction. Historical 210 and 212 inverses refuse over 214. No rollback or setting change was performed on a hosted project.
 
 Merge/application sequencing remains reviewed 212 → 213 → 214. Do not apply 212 alone: 214 also removes its unratified eligibility-only refund restriction. All migration-bearing merges require current deployment-setting evidence; the draft has no such claim.
+
+## November 22 source integration
+
+The branch now includes actual main `405d5758bce8ab9649ac6e155c46e45fc51ba03c` after PRs 272 and 276. Its source diff against that main contains only the reviewed 214 package. The registry conflict retains both 212 and 214. The payout refusal list, expected 268 executor hash and 280 policy regressions retain reviewed `48d4b76212e5a80dc752b6fdaff3fe0556fd776a` content rather than reverting to the earlier 212 behavior from the squash merge. All migrations and recovery scripts remain byte-identical to that reviewed source.
+
+PR 271 / 213 must merge first; the branch has not bundled the separate cron package. After that merge, refresh this branch against the actual main to include the full 212 → 213 → 214 source chain and repeat only the necessary integration checks. Keep this PR draft until root review and integrated checks finish. No hosted application, money movement, deployment or setting change is performed by source integration. Do not apply 212 alone; 214 remains mandatory and recovery remains forward-only.

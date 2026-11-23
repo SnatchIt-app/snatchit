@@ -10,8 +10,7 @@
 | 209 | `20261110025848` | 278 | Release integration | Private pilot visibility and buyer-scoped session entry | Proposed. No event marked on installation. |
 | 210 | `20261115234531` | 279 | Marketplace payout | Throttle automated retries after confirmed insufficient funds | Proposed. No data mutation on installation. |
 | 212 | `20261118000000` | 280 | Payment safety | Shared per-payment lock for console refund/payout actions and marketplace payout claims; duplicate-unsettled and released-payout guards | Local draft only. Does not close native kernel refund / marketplace payout overlap; 214 remains a release dependency. |
-
-| 214 | `20261118002000` | 282 | Payment safety | Cross-rail fresh-money fence; preserve reconciliation and eligible unpaid refunds | Local candidate on 212. No hosted apply. Recovery is forward-only. |
+| 214 | `20261118002000` | 282 | Payment safety | Cross-rail fresh-money fence; preserve reconciliation and eligible unpaid refunds | Reviewed source candidate after 212; merge only after 213 (PR 271). No hosted apply. Recovery is forward-only. |
 
 The 206 candidate follows 205. It adds two venue tables, one identity sequence,
 and eleven venue functions. Public Gate-2 counts and public grants are unchanged.
