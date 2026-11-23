@@ -87,3 +87,9 @@ it requires a fresh test DB with no real history older than seven days.
 boundary jobs are now asserted as stalled; a new, null-safe full-history maximum
 oracle checks each alert's actual `last_run`. Its existing strict failure-count
 and last-five assertions remain unchanged. A new real-stack CI run is required.
+
+## November 22 source integration
+
+The branch now includes main `405d5758bce8ab9649ac6e155c46e45fc51ba03c`, which contains merged 212 (PR 272) and the dependency update (PR 276). The sole merge conflict was the registry; both 212 and 213 retain their reviewed numbers, timestamps and suites. The 213 migration, inverse, focused proof and tests are byte-identical to reviewed head `37a75a2bc2968a40b299cdddcbd4924f97917a48`. New CI validates the integrated source head.
+
+Source sequence is 212 → 213 → 214. PR 273 supplies the mandatory cross-rail fence and the correction that permits eligible but unpaid refunds; its recovery is forward-only. Do not apply 212 alone. No merge or hosted application is performed by this source integration.
