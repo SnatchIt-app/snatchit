@@ -14,6 +14,12 @@
 --   Section E: catalog — security definer, search_path, volatility, owner and grants unchanged.
 -- ============================================================================
 BEGIN ISOLATION LEVEL REPEATABLE READ;
+-- Test-only scheduler barrier, acquired before the first MVCC snapshot.
+-- ops.run_job writes job_state before detector state; wait out an in-flight
+-- scheduler transaction and keep new ones from changing cron_job_first_seen.
+-- Released by this fixture's final ROLLBACK; no cron setting is changed.
+SET LOCAL lock_timeout = '15s';
+LOCK TABLE ops.job_state IN SHARE MODE;
 SELECT plan(26);
 SELECT tap.seed_core();
 INSERT INTO public.admin_users (user_id, label) VALUES (tap.admin_user(), 'TEST ADMIN') ON CONFLICT (user_id) DO NOTHING;
