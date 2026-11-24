@@ -124,36 +124,31 @@ SELECT lives_ok('SELECT pg_temp.rollback215()','rollback restores original comma
 SELECT is((SELECT md5(command) FROM cron.job WHERE jobname='enforce-transfer-expiry'),'d8fd165ade2345bafb4e26a44f2bbdc8','rollback exactly restores original bytes');
 SELECT lives_ok('SELECT pg_temp.rollback215()','rollback is idempotent');
 DO $$ BEGIN
- UPDATE cron.job SET command=command||E'\n-- deliberate drift' WHERE jobname='enforce-transfer-expiry';
+ PERFORM cron.alter_job(job_id:=(SELECT jobid FROM baseline283),command:=(SELECT command FROM cron.job WHERE jobname='enforce-transfer-expiry')||E'\n-- deliberate drift');
 END $$;
 SELECT throws_ok('SELECT pg_temp.apply215()','P0001','EXPIRY_215_COMMAND_CHANGED','unknown command fails closed');
 SELECT matches((SELECT command FROM cron.job WHERE jobname='enforce-transfer-expiry'),'deliberate drift','refusal leaves drift untouched');
 DO $$ BEGIN
- UPDATE cron.job SET command=(SELECT command FROM baseline283) WHERE jobname='enforce-transfer-expiry';
- PERFORM cron.alter_job(job_id:=(SELECT jobid FROM baseline283),schedule:='*/3 * * * *');
+ PERFORM cron.alter_job(job_id:=(SELECT jobid FROM baseline283),command:=(SELECT command FROM baseline283),schedule:='*/3 * * * *');
 END $$;
 SELECT throws_ok('SELECT pg_temp.apply215()','P0001','EXPIRY_215_JOB_SHAPE_CHANGED','changed cadence fails closed even on installed command');
 SELECT is((SELECT schedule FROM cron.job WHERE jobname='enforce-transfer-expiry'),'*/3 * * * *','refusal preserves changed cadence');
-DO $$ BEGIN
- PERFORM cron.alter_job(job_id:=(SELECT jobid FROM baseline283),schedule:='*/2 * * * *');
- UPDATE cron.job SET jobname='t283_saved_expiry' WHERE jobid=(SELECT jobid FROM baseline283);
-END $$;
+DO $$ BEGIN PERFORM cron.alter_job(job_id:=(SELECT jobid FROM baseline283),schedule:='*/2 * * * *'); END $$;
+SAVEPOINT missing283;
+SELECT cron.unschedule((SELECT jobid FROM baseline283));
 SELECT throws_ok('SELECT pg_temp.apply215()','P0001','EXPIRY_215_EXPECTED_ONE_JOB','missing target fails closed');
+ROLLBACK TO missing283;
+-- The supported API enforces one job per owner/name; an impossible duplicate
+-- made by privileged INSERT would hide the production caller's real boundary.
+SELECT is(cron.schedule('enforce-transfer-expiry','*/2 * * * *',(SELECT command FROM baseline283)),(SELECT jobid FROM baseline283),'same-owner name reuses the existing job rather than creating a duplicate');
+SELECT is((SELECT count(*)::int FROM cron.job WHERE jobname='enforce-transfer-expiry'),1,'supported API preserves one target');
 DO $$ BEGIN
- UPDATE cron.job SET jobname='enforce-transfer-expiry' WHERE jobid=(SELECT jobid FROM baseline283);
- INSERT INTO cron.job(schedule,command,nodename,nodeport,database,username,active,jobname)
- SELECT schedule,command,nodename,nodeport,database,'service_role',false,jobname FROM baseline283;
-END $$;
-SELECT throws_ok('SELECT pg_temp.apply215()','P0001','EXPIRY_215_EXPECTED_ONE_JOB','duplicate target fails closed');
-SELECT is((SELECT count(*)::int FROM cron.job WHERE jobname='enforce-transfer-expiry'),2,'duplicate refusal does not silently pick one');
-DO $$ BEGIN
- DELETE FROM cron.job WHERE jobname='enforce-transfer-expiry' AND username='service_role';
- UPDATE cron.job SET command=(SELECT command FROM baseline283),active=(SELECT active FROM baseline283) WHERE jobid=(SELECT jobid FROM baseline283);
+ PERFORM cron.alter_job(job_id:=(SELECT jobid FROM baseline283),command:=(SELECT command FROM baseline283),active:=(SELECT active FROM baseline283));
 END $$;
 SELECT is(pg_temp.cron_state283(),(SELECT jobs FROM all_before283),'other jobs and every target property restored');
 SELECT is(pg_temp.switch_state283(),(SELECT switches FROM all_before283),'negative cases never change any operating switch');
-SELECT throws_ok('DO $x$ BEGIN UPDATE cron.job SET username=''service_role'' WHERE jobid=(SELECT jobid FROM baseline283); PERFORM pg_temp.apply215(); END; $x$','P0001','EXPIRY_215_JOB_SHAPE_CHANGED','changed role refused');
-SELECT throws_ok('DO $x$ BEGIN UPDATE cron.job SET database=''template1'' WHERE jobid=(SELECT jobid FROM baseline283); PERFORM pg_temp.apply215(); END; $x$','P0001','EXPIRY_215_JOB_SHAPE_CHANGED','changed database refused');
+SELECT throws_ok('SELECT cron.alter_job(job_id:=(SELECT jobid FROM baseline283),username:=''service_role'')','XX000','must be superuser to alter username','supported API refuses unauthorized execution-role changes');
+SELECT throws_ok('DO $x$ BEGIN PERFORM cron.alter_job(job_id:=(SELECT jobid FROM baseline283),database:=''template1''); PERFORM pg_temp.apply215(); END; $x$','P0001','EXPIRY_215_JOB_SHAPE_CHANGED','changed database refused');
 SELECT is(pg_temp.cron_state283(),(SELECT jobs FROM all_before283),'failed subtransactions leave all jobs identical');
 SELECT is(pg_temp.switch_state283(),(SELECT switches FROM all_before283),'final operating state unchanged');
 SELECT * FROM finish();

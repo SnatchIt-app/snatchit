@@ -42,6 +42,7 @@ for source in [f,r]:
  # Both hashes occur as source/target gates, not only comments.
  assert "IF md5(v_job.command)='" in source
  assert 'IF md5(v_job.command) IS DISTINCT FROM' in source
+assert not re.search(r"(?:UPDATE|INSERT INTO|DELETE FROM)\s+cron\.job\b",t,re.I), "Fixtures must use supported cron APIs, not direct privileged mutations"
 assert "SELECT plan(31)" in t
 assert len(re.findall(r'^SELECT (?:is|matches|has_function|lives_ok|throws_ok)\(',t,re.M))==31
 assert t.rstrip().endswith('ROLLBACK;')
