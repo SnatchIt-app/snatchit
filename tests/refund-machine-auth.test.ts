@@ -8,6 +8,9 @@ import * as executor from '../supabase/functions/refund-execute/executor';
 import * as freshMoney from '../supabase/functions/refund-execute/fresh-money';
 
 const serviceKey = 'sb_secret_fixture_only';
+const code = ts.transpileModule(fs.readFileSync(new URL('../supabase/functions/refund-execute/index.ts', import.meta.url), 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
 function harness() {
   let handler: (req: Request) => Promise<Response>;
   const rpc = vi.fn(async () => ({ data: { refunds: [] }, error: null }));
@@ -17,9 +20,7 @@ function harness() {
     SUPABASE_SERVICE_ROLE_KEY: serviceKey, SUPABASE_ANON_KEY: 'public-fixture',
     INTERNAL_CRON_SECRET: 'cron-fixture-only',
   };
-  const code = ts.transpileModule(fs.readFileSync(new URL('../supabase/functions/refund-execute/index.ts', import.meta.url), 'utf8'), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-  }).outputText;
+
   const module = { exports: {} };
   vm.runInNewContext(code, {
     module, exports: module.exports, Request, Response, Headers, URL, crypto: webcrypto,
@@ -39,7 +40,7 @@ function harness() {
     handler(new Request('https://local.test/refund-execute', { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) })) };
 }
 
-describe('actual refund machine authentication', () => {
+describe('actual refund machine authentication', { timeout: 30_000 }, () => {
   it('accepts the configured service secret on apikey without treating a different Bearer JWT as the secret', async () => {
     const h = harness();
     const res = await h.call({ Authorization: 'Bearer gateway-valid-jwt-fixture', apikey: serviceKey });

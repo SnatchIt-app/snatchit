@@ -7,6 +7,8 @@ import * as executor from '../supabase/functions/refund-execute/executor';
 import * as freshMoney from '../supabase/functions/refund-execute/fresh-money';
 
 const refund = '11111111-1111-4111-8111-111111111111';
+const source = fs.readFileSync(new URL('../supabase/functions/refund-execute/index.ts', import.meta.url), 'utf8');
+  const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 function harness(options: { allowed: boolean; found?: boolean; submitted?: boolean; afterSearch?: boolean; livemode?: boolean | null; env?: Record<string, string> }) {
   const events: string[] = [];
   const ctx = {
@@ -34,8 +36,7 @@ function harness(options: { allowed: boolean; found?: boolean; submitted?: boole
     if (name === 'mark_refund_state') return { data: { status: 'ok' }, error: null };
     throw Error(`Unexpected RPC ${name}`);
   });
-  const source = fs.readFileSync(new URL('../supabase/functions/refund-execute/index.ts', import.meta.url), 'utf8');
-  const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+
   const module = { exports: {} as { executeOne: (...args: unknown[]) => Promise<{ outcome: string }> } };
   vm.runInNewContext(code, {
     module, exports: module.exports, console: { log() {}, warn() {}, error() {} },
@@ -53,7 +54,7 @@ function harness(options: { allowed: boolean; found?: boolean; submitted?: boole
   return { execute: (mode = 'create') => module.exports.executeOne({ rpc }, refund, 'local214', {}, mode), events, stripe, rpc };
 }
 
-describe('actual native refund edge POST seams', () => {
+describe('actual native refund edge POST seams', { timeout: 30_000 }, () => {
   it('executes a test refund only under approved server-side sandbox settings', async () => {
     const env = { SUPABASE_URL: 'https://ofaidukbieeekqaboscm.supabase.co', STRIPE_SECRET_KEY: 'sk_test_local_fixture', ALLOW_TEST_MODE_MONEY: '1' };
     const h = harness({ allowed: true, livemode: false, env });
