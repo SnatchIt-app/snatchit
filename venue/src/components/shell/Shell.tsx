@@ -317,7 +317,7 @@ function Account({
         <Avatar initials={initials} />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[0.8125rem] font-medium">{signedInAs ?? roleLabel}</span>
-          <span className="block truncate text-[0.75rem] text-muted">{signedInAs ? roleLabel : place ? "Sample account" : "Signed in"}</span>
+          <span className="block truncate text-[0.75rem] text-muted">{signedInAs ? roleLabel : place ? "Sample account" : "Sign-in not verified"}</span>
         </span>
         <Icon name="chevron" size={15} className="text-dim" />
       </summary>
