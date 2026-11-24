@@ -2,18 +2,26 @@
 -- This returns to the former pg_net default5s observation budget.
 -- Preserve job identity, cadence, active state, role and every request input.
 -- Fail closed on any command or job-shape drift; do not execute the job.
+-- Pinned CLI2.115.0 batches this first statement, the DO block and its
+-- migration-ledger INSERT in one transaction. A concurrent cron-row update
+-- must abort this snapshot instead of overwriting a newer command.
+BEGIN;
+SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;
 DO $expiry215$
 DECLARE
  v_job record;
  v_count integer;
  v_command text;
 BEGIN
+ IF current_setting('transaction_isolation') IS DISTINCT FROM 'serializable' THEN
+  RAISE EXCEPTION 'EXPIRY_215_SERIALIZABLE_REQUIRED';
+ END IF;
  SELECT count(*) INTO v_count FROM cron.job WHERE jobname='enforce-transfer-expiry';
  IF v_count<>1 THEN
   RAISE EXCEPTION 'EXPIRY_215_EXPECTED_ONE_JOB';
  END IF;
  SELECT * INTO STRICT v_job FROM cron.job
-  WHERE jobname='enforce-transfer-expiry' FOR UPDATE;
+  WHERE jobname='enforce-transfer-expiry';
  IF v_job.schedule IS DISTINCT FROM '*/2 * * * *'
  OR v_job.database IS DISTINCT FROM 'postgres'
  OR v_job.username IS DISTINCT FROM 'postgres' THEN
@@ -44,3 +52,4 @@ BEGIN
  END IF;
 END;
 $expiry215$;
+COMMIT;

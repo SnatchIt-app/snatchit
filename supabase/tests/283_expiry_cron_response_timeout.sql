@@ -1,7 +1,7 @@
 -- Registry215. Isolated CI database only; every fixture change rolls back.
 -- apply215/rollback215 contain the actual migration blocks, byte-for-byte.
 -- scripts/verify-expiry-cron-timeout.py rejects any divergence of these copies.
-BEGIN;
+BEGIN ISOLATION LEVEL SERIALIZABLE;
 SELECT plan(31);
 CREATE TEMP TABLE baseline283 AS SELECT * FROM cron.job WHERE jobname='enforce-transfer-expiry';
 CREATE FUNCTION pg_temp.cron_state283() RETURNS jsonb LANGUAGE sql AS $fn$
@@ -19,12 +19,15 @@ DECLARE
  v_count integer;
  v_command text;
 BEGIN
+ IF current_setting('transaction_isolation') IS DISTINCT FROM 'serializable' THEN
+  RAISE EXCEPTION 'EXPIRY_215_SERIALIZABLE_REQUIRED';
+ END IF;
  SELECT count(*) INTO v_count FROM cron.job WHERE jobname='enforce-transfer-expiry';
  IF v_count<>1 THEN
   RAISE EXCEPTION 'EXPIRY_215_EXPECTED_ONE_JOB';
  END IF;
  SELECT * INTO STRICT v_job FROM cron.job
-  WHERE jobname='enforce-transfer-expiry' FOR UPDATE;
+  WHERE jobname='enforce-transfer-expiry';
  IF v_job.schedule IS DISTINCT FROM '*/2 * * * *'
  OR v_job.database IS DISTINCT FROM 'postgres'
  OR v_job.username IS DISTINCT FROM 'postgres' THEN
@@ -61,12 +64,15 @@ DECLARE
  v_count integer;
  v_command text;
 BEGIN
+ IF current_setting('transaction_isolation') IS DISTINCT FROM 'serializable' THEN
+  RAISE EXCEPTION 'EXPIRY_215_SERIALIZABLE_REQUIRED';
+ END IF;
  SELECT count(*) INTO v_count FROM cron.job WHERE jobname='enforce-transfer-expiry';
  IF v_count<>1 THEN
   RAISE EXCEPTION 'EXPIRY_215_EXPECTED_ONE_JOB';
  END IF;
  SELECT * INTO STRICT v_job FROM cron.job
-  WHERE jobname='enforce-transfer-expiry' FOR UPDATE;
+  WHERE jobname='enforce-transfer-expiry';
  IF v_job.schedule IS DISTINCT FROM '*/2 * * * *'
  OR v_job.database IS DISTINCT FROM 'postgres'
  OR v_job.username IS DISTINCT FROM 'postgres' THEN

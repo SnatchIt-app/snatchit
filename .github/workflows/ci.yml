@@ -985,6 +985,11 @@ jobs:
           echo "test files: $files    planned assertions: $planned"
           supabase test db --local 2>&1 | tee "$RUNNER_TEMP/tap.txt"
 
+      - name: Expiry cron concurrent-update protection
+        run: python3 scripts/test-expiry-cron-serialization.py
+        env:
+          DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
       # Parse the TAP stream for the record. `set -o pipefail` above already
       # fails the job on a non-zero pg_prove exit; this makes the numbers
       # explicit in the PR so "green" can never mean "the files merely exist".

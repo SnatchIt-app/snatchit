@@ -26,7 +26,10 @@ assert new.count('net.http_post(')==old.count('net.http_post(')==1
 for source in [f,r]:
  assert 'cron.schedule(' not in source and 'cron.unschedule(' not in source and 'UPDATE cron.job' not in source
  assert source.count('PERFORM cron.alter_job(job_id:=v_job.jobid,command:=v_command);')==1
- assert "WHERE jobname='enforce-transfer-expiry' FOR UPDATE" in source
+ assert "WHERE jobname='enforce-transfer-expiry';" in source
+ assert 'FOR UPDATE' not in source and 'LOCK TABLE' not in source
+ assert source.index('SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;')<source.index('DO $expiry215$')
+ assert "current_setting('transaction_isolation') IS DISTINCT FROM 'serializable'" in source
  assert 'v_count<>1' in source and 'IS DISTINCT FROM' in source
  assert 'catalog.platform_config' not in source and 'ops.setting' not in source
  assert 'execute net.http_post' not in source.lower()
