@@ -3,7 +3,7 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "scripts": {
-    "postinstall": "node scripts/patch-stripe-interop.mjs",
+    "postinstall": "node scripts/patch-stripe-interop.mjs && node scripts/patch-uri-decoder-interop.mjs",
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
     "android": "expo run:android",
@@ -76,6 +76,7 @@
     "glob@>=9 <14.0.2": "14.0.2",
     "postcss@<8.5.23": "8.5.33",
     "metro": "0.83.8",
-    "uuid": "11.1.1"
+    "uuid": "11.1.1",
+    "decode-uri-component": "0.5.1"
   }
 }
