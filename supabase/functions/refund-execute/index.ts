@@ -80,6 +80,7 @@ import {
   planReconcile,
   planRefund,
   planStateSync,
+  sandboxRefundExecutionAllowed,
   type ClaimedRefund,
   type RefundExecutionContext,
   type RefundExecutionMode,
@@ -89,6 +90,13 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const INTERNAL_CRON_SECRET = Deno.env.get('INTERNAL_CRON_SECRET') ?? '';
+const REFUND_RUNTIME_MODE = {
+  allowTestModeMoney: sandboxRefundExecutionAllowed({
+    testMoneyFlag: Deno.env.get('ALLOW_TEST_MODE_MONEY'),
+    stripeSecretKey: Deno.env.get('STRIPE_SECRET_KEY'),
+    supabaseUrl: SUPABASE_URL,
+  }),
+};
 
 /**
  * The one DB artifact this function needs that does NOT exist yet.
@@ -368,7 +376,7 @@ async function reconcileOne(
   commandKey: string,
   ctx: RefundExecutionContext,
 ): Promise<ExecuteOutcome> {
-  const plan = planReconcile(ctx);
+  const plan = planReconcile(ctx, REFUND_RUNTIME_MODE);
 
   if (plan.kind === 'refuse') {
     await captureException('refund-execute:reconcile-refusal', new Error(`${plan.code}: ${plan.detail}`), {
@@ -490,7 +498,7 @@ async function executeOne(
   }
 
   // ── The binding gate. Nothing reaches Stripe without passing this. ───────
-  const plan = planRefund(ctx, expected);
+  const plan = planRefund(ctx, expected, REFUND_RUNTIME_MODE);
 
   if (plan.kind === 'refuse') {
     console.warn('[refund-execute] refused:', { refund_id: refundId, code: plan.code, detail: plan.detail });

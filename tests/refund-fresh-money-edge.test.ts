@@ -7,7 +7,7 @@ import * as executor from '../supabase/functions/refund-execute/executor';
 import * as freshMoney from '../supabase/functions/refund-execute/fresh-money';
 
 const refund = '11111111-1111-4111-8111-111111111111';
-function harness(options: { allowed: boolean; found?: boolean; submitted?: boolean; afterSearch?: boolean }) {
+function harness(options: { allowed: boolean; found?: boolean; submitted?: boolean; afterSearch?: boolean; livemode?: boolean | null; env?: Record<string, string> }) {
   const events: string[] = [];
   const ctx = {
     refund_id: refund, payment_id: '22222222-2222-4222-8222-222222222222',
@@ -15,7 +15,7 @@ function harness(options: { allowed: boolean; found?: boolean; submitted?: boole
     amount_minor: 100, currency: 'USD', reason_code: 'admin_action',
     status: options.submitted ? 'submitted' : 'pending', stripe_refund_ref: options.submitted ? 're_fixture' : null,
     payment_total_minor: 11000, payment_status: 'succeeded', stripe_payment_intent_id: 'pi_fixture',
-    stripe_livemode: true, prior_non_failed_minor: 0, disputed_minor: 0,
+    stripe_livemode: options.livemode === undefined ? true : options.livemode, prior_non_failed_minor: 0, disputed_minor: 0,
   };
   let allowed = options.afterSearch ? true : options.allowed;
   const providerObject = { id: 're_fixture', status: 'succeeded', metadata: { refund_id: refund } };
@@ -39,7 +39,7 @@ function harness(options: { allowed: boolean; found?: boolean; submitted?: boole
   const module = { exports: {} as { executeOne: (...args: unknown[]) => Promise<{ outcome: string }> } };
   vm.runInNewContext(code, {
     module, exports: module.exports, console: { log() {}, warn() {}, error() {} },
-    Deno: { env: { get: () => 'local-fixture' } },
+    Deno: { env: { get: (name: string) => options.env?.[name] ?? 'local-fixture' } },
     require(name: string) {
       if (name.endsWith('/http/server.ts')) return { serve() {} };
       if (name.includes('supabase-js')) return { createClient() { throw Error('Unexpected client'); } };
@@ -54,6 +54,24 @@ function harness(options: { allowed: boolean; found?: boolean; submitted?: boole
 }
 
 describe('actual native refund edge POST seams', () => {
+  it('executes a test refund only under approved server-side sandbox settings', async () => {
+    const env = { SUPABASE_URL: 'https://ofaidukbieeekqaboscm.supabase.co', STRIPE_SECRET_KEY: 'sk_test_local_fixture', ALLOW_TEST_MODE_MONEY: '1' };
+    const h = harness({ allowed: true, livemode: false, env });
+    expect((await h.execute()).outcome).toBe('succeeded');
+    expect(h.events).toContain('POST /refunds');
+    const reconcile = harness({ allowed: true, livemode: false, env });
+    expect((await reconcile.execute('reconcile')).outcome).toBe('succeeded');
+    expect(reconcile.events).toContain('POST /refunds');
+    for (const changed of [{ ALLOW_TEST_MODE_MONEY: '0' }, { STRIPE_SECRET_KEY: 'sk_live_local_fixture' }, { SUPABASE_URL: 'https://hqycwntpfoztoinemqns.supabase.co' }]) {
+      const denied = harness({ allowed: true, livemode: false, env: { ...env, ...changed } });
+      expect((await denied.execute()).outcome).toBe('refused');
+      expect(denied.events).not.toContain('POST /refunds');
+    }
+    const unknown = harness({ allowed: true, livemode: null, env });
+    expect((await unknown.execute()).outcome).toBe('refused');
+    expect(unknown.events).not.toContain('POST /refunds');
+  });
+
   it('authorizes an ordinary create immediately before POST', async () => {
     const h = harness({ allowed: true });
     expect((await h.execute()).outcome).toBe('succeeded');

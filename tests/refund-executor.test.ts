@@ -33,6 +33,7 @@ import {
   isMoneyDenial,
   isUuid,
   planRefund,
+  sandboxRefundExecutionAllowed,
   planStateSync,
   planClaimedBatch,
   planReconcile,
@@ -844,6 +845,24 @@ describe('chargeback interaction', () => {
 // ════════════════════════════════════════════════════════════════════════════
 
 describe('mode boundary (migration 045)', () => {
+  it('requires the exact sandbox, an explicit flag and a test key', () => {
+    const allowed = { testMoneyFlag: '1', stripeSecretKey: 'sk_test_local_fixture', supabaseUrl: 'https://ofaidukbieeekqaboscm.supabase.co' };
+    expect(sandboxRefundExecutionAllowed(allowed)).toBe(true);
+    expect(sandboxRefundExecutionAllowed({ ...allowed, supabaseUrl: allowed.supabaseUrl + '/' })).toBe(true);
+    for (const override of [
+      { testMoneyFlag: undefined }, { testMoneyFlag: '0' }, { testMoneyFlag: 'true' },
+      { stripeSecretKey: undefined }, { stripeSecretKey: 'sk_live_local_fixture' }, { stripeSecretKey: 'sk_test_' },
+      { supabaseUrl: undefined }, { supabaseUrl: 'https://hqycwntpfoztoinemqns.supabase.co' },
+      { supabaseUrl: 'https://ofaidukbieeekqaboscm.supabase.co.evil.invalid' },
+      { supabaseUrl: 'http://ofaidukbieeekqaboscm.supabase.co' },
+    ]) expect(sandboxRefundExecutionAllowed({ ...allowed, ...override })).toBe(false);
+  });
+
+  it('allows a classified test payment only with explicit server runtime approval', () => {
+    expect(planRefund(ctx({ stripe_livemode: false }), {}, { allowTestModeMoney: true }).kind).toBe('stripe_create');
+    expect(planRefund(ctx({ stripe_livemode: null }), {}, { allowTestModeMoney: true }).kind).toBe('refuse');
+  });
+
   it('refuses a test-era payment and an unclassified one — fail closed', () => {
     for (const lm of [false, null]) {
       const plan = planRefund(ctx({ stripe_livemode: lm }));

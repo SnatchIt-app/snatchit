@@ -188,6 +188,19 @@ export function assertNoClientPaymentReference(
 const refuse = (code: RefundRefusalCode, detail: string, retryable = false): RefundPlan =>
   ({ kind: 'refuse', code, detail, retryable });
 
+/** Owner-approved sandbox-only test mode. Never accepts client-provided settings. */
+export function sandboxRefundExecutionAllowed(settings: {
+  testMoneyFlag?: string; stripeSecretKey?: string; supabaseUrl?: string;
+}): boolean {
+  return settings.testMoneyFlag === '1'
+    && settings.supabaseUrl?.replace(/\/$/, '') === 'https://ofaidukbieeekqaboscm.supabase.co'
+    && typeof settings.stripeSecretKey === 'string'
+    && settings.stripeSecretKey.startsWith('sk_test_')
+    && settings.stripeSecretKey.length > 'sk_test_'.length;
+}
+
+export type RefundRuntimeMode = { allowTestModeMoney?: boolean };
+
 /**
  * Decide, from DB-derived facts alone, whether this refund row may be sent to
  * Stripe — and if so, exactly what to send.
@@ -200,6 +213,7 @@ const refuse = (code: RefundRefusalCode, detail: string, retryable = false): Ref
 export function planRefund(
   ctx: RefundExecutionContext,
   expected: { order_id?: string | null } = {},
+  runtime: RefundRuntimeMode = {},
 ): RefundPlan {
   // ── 1. identity ──────────────────────────────────────────────────────────
   if (!isUuid(ctx.refund_id)) return refuse('malformed_refund_id', `refund_id=${String(ctx.refund_id)}`);
@@ -259,7 +273,7 @@ export function planRefund(
   // MODE BOUNDARY — the same rule enforce-transfer-expiry's self-heal applies:
   // a live key cannot see a test-mode PaymentIntent, and NULL (unclassified,
   // migration 045) fails closed.
-  if (ctx.stripe_livemode !== true) {
+  if (ctx.stripe_livemode !== true && !(ctx.stripe_livemode === false && runtime.allowTestModeMoney === true)) {
     return refuse('payment_not_livemode', `stripe_livemode=${String(ctx.stripe_livemode)}`);
   }
   if (!Number.isInteger(ctx.payment_total_minor) || ctx.payment_total_minor <= 0) {
@@ -350,7 +364,7 @@ export type ReconcilePlan =
  * the answer is `reconcile`, and it NEVER creates before it has established
  * what already exists at Stripe.
  */
-export function planReconcile(ctx: RefundExecutionContext): ReconcilePlan {
+export function planReconcile(ctx: RefundExecutionContext, runtime: RefundRuntimeMode = {}): ReconcilePlan {
   if (!isUuid(ctx.refund_id)) return { kind: 'refuse', code: 'malformed_refund_id', detail: `refund_id=${String(ctx.refund_id)}`, retryable: false };
   if (!isUuid(ctx.payment_id)) return { kind: 'refuse', code: 'malformed_payment_id', detail: `payment_id=${String(ctx.payment_id)}`, retryable: false };
 
@@ -387,7 +401,7 @@ export function planReconcile(ctx: RefundExecutionContext): ReconcilePlan {
 
   // No ref: everything the create path requires must still hold, and the create
   // plan it returns is what we fall through to IF the search finds nothing.
-  const create = planRefund(ctx);
+  const create = planRefund(ctx, {}, runtime);
   if (create.kind === 'refuse') return create;
   if (create.kind !== 'stripe_create') {
     return { kind: 'refuse', code: 'unknown_refund_status', detail: `unexpected plan ${create.kind}`, retryable: false };
