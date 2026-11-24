@@ -12,6 +12,7 @@
 | 212 | `20261118000000` | 280 | Payment safety | Shared per-payment lock for console refund/payout actions and marketplace payout claims; duplicate-unsettled and released-payout guards | Local draft only. Does not close native kernel refund / marketplace payout overlap; 214 remains a release dependency. |
 | 213 | `20261118001000` | 281 | Cron correctness | Preserve last_run in the seven-day search margin; seven-day failure metrics unchanged | Source candidate after merged 212. Full-stack CI on the integrated head required before merge; 214 remains mandatory before hosted application of the batch. |
 | 214 | `20261118002000` | 282 | Payment safety | Cross-rail fresh-money fence; preserve reconciliation and eligible unpaid refunds | Source candidate after merged 212 and 213; combined-stack checks required. No hosted apply. Recovery is forward-only. |
+| 215 | `20261124170453` | 283 | Scheduler reliability | Existing expiry cron HTTP timeout20000ms; exact-command guard; preserve cadence/auth/URL/body/role/activation | Local candidate only; no hosted apply. Exact rollback and drift/idempotency controls. |
 
 The 206 candidate follows 205. It adds two venue tables, one identity sequence,
 and eleven venue functions. Public Gate-2 counts and public grants are unchanged.
