@@ -652,7 +652,12 @@ serve(async (req: Request) => {
     // crashed or half-failed earlier attempt left behind.
     if (action === 'sweep') {
       const cronOk = INTERNAL_CRON_SECRET.length > 0 && constantTimeEqual(token, INTERNAL_CRON_SECRET);
-      const svcOk = SUPABASE_SERVICE_ROLE_KEY.length > 0 && constantTimeEqual(token, SUPABASE_SERVICE_ROLE_KEY);
+      // Modern service secrets belong on apikey; Authorization may carry a
+      // separate gateway JWT. Both paths require the exact configured secret.
+      const apiKey = req.headers.get('apikey') ?? '';
+      const svcOk = SUPABASE_SERVICE_ROLE_KEY.length > 0
+        && (constantTimeEqual(token, SUPABASE_SERVICE_ROLE_KEY)
+          || constantTimeEqual(apiKey, SUPABASE_SERVICE_ROLE_KEY));
       if (!cronOk && !svcOk) return json({ error: 'Unauthorized' }, 401, headers);
 
       // THE WORK LIST IS A LEASED CLAIM, NOT A LIST (093 slice 10i). The
