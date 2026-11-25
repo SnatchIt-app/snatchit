@@ -10,7 +10,7 @@ import type { ReactNode } from "react";
 function scalar(k: string, v: unknown): ReactNode {
   if (v === null || v === undefined) return null;
   if (typeof v === "boolean") return <StatusBadge status={String(v)} label={v ? "yes" : "no"} />;
-  if (typeof v === "number") return /(cents|amount|total)$/.test(k) ? <Money cents={v} /> : v.toLocaleString("en-US");
+  if (typeof v === "number") return /_cents$/.test(k) ? <Money cents={v} /> : v.toLocaleString("en-US");
   if (typeof v === "string") return /_at$|^from$|^to$|^oldest_open$/.test(k) && /\d{4}-\d{2}-\d{2}/.test(v) ? <DateTime value={v} /> : v;
   return <code className="font-mono text-[0.6875rem]">{JSON.stringify(v)}</code>;
 }
