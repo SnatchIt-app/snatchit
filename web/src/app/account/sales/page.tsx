@@ -39,7 +39,9 @@ export default async function SalesPage() {
     );
   }
 
-  const paidOut = sales.filter((s) => s.payoutReleasedAt).reduce((sum, s) => sum + (s.netCents ?? 0), 0);
+  // These rows record release, not the exact provider transfer amount or bank arrival.
+  // Original seller net can differ after refunds; it must not become a payout total.
+  const releasedSales = sales.filter((s) => s.payoutReleasedAt && s.status !== "reversed").length;
 
   return (
     <div>
@@ -51,8 +53,9 @@ export default async function SalesPage() {
           <dd className="t-price mt-1 text-[26px] leading-tight text-ink">{sales.length}</dd>
         </div>
         <div>
-          <dt className="t-micro text-muted">Paid out</dt>
-          <dd className="t-price mt-1 text-[26px] leading-tight text-ink">{formatCents(paidOut)}</dd>
+          <dt className="t-micro text-muted">Sales released to Stripe</dt>
+          <dd className="t-price mt-1 text-[26px] leading-tight text-ink">{releasedSales}</dd>
+          <dd className="t-body-sm mt-2 max-w-sm text-muted">Recorded releases, excluding reversed sales. Bank arrival is not shown here.</dd>
         </div>
       </dl>
 
