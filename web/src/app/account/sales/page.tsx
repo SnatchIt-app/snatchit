@@ -59,6 +59,8 @@ export default async function SalesPage() {
         </div>
       </dl>
 
+      <p className="t-body-sm mb-4 text-muted">Amounts shown are before refunds or reversals. Check each sale&apos;s status for release information.</p>
+
       <ul className="border-t border-line">
         {sales.map((s) => {
           const line = payoutLabel(s);
@@ -94,9 +96,10 @@ export default async function SalesPage() {
                   </span>
                   {s.netCents != null ? (
                     <span className="t-body-sm w-full text-muted sm:ml-auto sm:w-auto sm:text-right">
-                      <span className="t-price whitespace-nowrap text-[17px] text-ink">{formatCents(s.netCents)}</span> to you
+                      <span className="block">Original seller amount</span>
+                      <span className="t-price whitespace-nowrap text-[17px] text-ink">{formatCents(s.netCents)}</span>
                     </span>
-                  ) : null}
+                  ) : <span className="t-body-sm w-full text-muted sm:ml-auto sm:w-auto sm:text-right">Seller amount unavailable</span>}
                 </span>
               </Link>
             </li>

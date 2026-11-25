@@ -46,4 +46,22 @@ describe("seller release summary does not claim bank deposits", () => {
     const html = await summary([sale(), sale({ id: "confirmed", status: "buyer_confirmed" })]);
     expect(html).toMatch(/Sales released to Stripe<\/dt><dd[^>]*>0<\/dd>/);
   });
+
+  it("expired and reversed rows do not promise their original sale amount to the seller", async () => {
+    mocks.sales.mockResolvedValue([sale({ status: "expired" }), sale({ id: "reversed", status: "reversed", payoutReleasedAt: release })]);
+    const html = renderToStaticMarkup(await SalesPage());
+    expect(html).toContain("no payout for this order");
+    expect(html).toContain("Payout reversed");
+    expect(html).not.toContain("to you");
+    expect(html).toContain("Original seller amount");
+    expect(html).not.toContain("Seller amount unavailable");
+    expect(html).toContain("Amounts shown are before refunds or reversals.");
+  });
+
+  it("unknown seller amounts are unavailable, never a zero payout", async () => {
+    mocks.sales.mockResolvedValue([sale({ netCents: null })]);
+    const html = renderToStaticMarkup(await SalesPage());
+    expect(html).toContain("Seller amount unavailable");
+    expect(html).not.toContain("$0");
+  });
 });
