@@ -110,7 +110,7 @@ export const getMySales = cache(async (userId: string): Promise<SaleView[]> => {
       coverImagePath: listing?.cover_image_path ?? "",
       buyerName: one(r.buyer)?.display_name ?? null,
       grossCents: gross,
-      netCents: gross == null ? null : gross - (payment?.seller_fee ?? 0),
+      netCents: gross == null || payment?.seller_fee == null ? null : gross - payment.seller_fee,
       paymentStatus: payment?.status ?? null,
       payoutReleasedAt: (r.payout_released_at as string) ?? null,
       payoutReviewStatus: (r.payout_review_status as string) ?? null,
