@@ -22,7 +22,10 @@ export function Sidebar() {
       <li key={n.href}>
         <Link href={n.href} aria-current={active ? "page" : undefined} title={`${n.label} — press g then ${n.key}`} className="nav-item group">
           <Icon name={n.icon} size={20} strokeWidth={1.5} />
-          <span className="min-w-0 flex-1 truncate">{n.label}</span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate">{n.label}</span>
+            <span className="mt-0.5 block text-[0.6875rem] font-normal leading-snug opacity-75">{n.description}</span>
+          </span>
         </Link>
       </li>
     );

@@ -54,19 +54,19 @@ export default async function MoneyPage({ searchParams }: { searchParams: Promis
       <PageHeader
         eyebrow="Money"
         title="Money analytics"
-        description="Captured sales, platform fees, refunds and seller payouts are separate measures and are never netted against each other. USD, Eastern Time (ET) calendar days."
+        description="See sales, fees and refunds, then review seller funds and money records that need attention. Figures use USD and Eastern Time (ET)."
         meta={<>Showing {shortDay(from)} – {shortDay(to)} (ET)</>}
       />
       <SampleDataNotice />
 
       <p className="mb-4 text-sm">
         <a href="/money/ticket-orders" className="link">
-          Ticket orders (primary) and their refunds
+          Review ticket orders and refunds
         </a>{" "}
-        <span className="text-dim">— paid, tickets live, and both refund sides. Separate from the resale payments below.</span>
+        <span className="text-dim">— direct ticket purchases. The figures below cover resale orders.</span>
       </p>
 
-      <div className="mb-6 flex flex-wrap items-end gap-3 rounded-[var(--radius-card)] border border-line bg-card p-3">
+      <div id="date-range" className="mb-6 flex flex-wrap items-end gap-3 rounded-[var(--radius-card)] border border-line bg-card p-3">
         <nav aria-label="Date range" className="flex flex-wrap gap-1">
           {RANGE_PRESETS.map((p) => (
             <Link key={p.key} href={presetHref(p.key)} aria-current={range.preset === p.key ? "page" : undefined} className={`btn btn-sm ${range.preset === p.key ? "btn-primary" : "btn-ghost"}`}>
@@ -83,7 +83,7 @@ export default async function MoneyPage({ searchParams }: { searchParams: Promis
           </FilterField>
           {state ? <input type="hidden" name="state" value={state} /> : null}
           <button type="submit" className="btn btn-ghost btn-sm">
-            Apply range
+            Update dates
           </button>
         </form>
       </div>
@@ -100,8 +100,9 @@ export default async function MoneyPage({ searchParams }: { searchParams: Promis
 
         <section aria-labelledby="money-trends">
           <h2 id="money-trends" className="mb-3 title-section">
-            Trends
+            Trends over time
           </h2>
+          <p className="mb-3 text-[0.8125rem] text-muted">Choose Chart, Table or Cards for each measure. Every view uses the same dates and values. A period that includes today is still in progress.</p>
           <Suspense
             key={`c-${from}-${to}`}
             fallback={
@@ -115,7 +116,7 @@ export default async function MoneyPage({ searchParams }: { searchParams: Promis
           </Suspense>
         </section>
 
-        <Panel eyebrow="Connected-account transfers" title="Payouts by transfer" description="Operational list — filter by seller funds state.">
+        <Panel eyebrow="Seller funds" title="Review seller transfers" description="Find funds waiting for release, on hold or in review. This list shows current transfer states; the date range above applies to summary figures and trends.">
           <form method="get" action="/money#payouts" className="mb-3 flex flex-wrap items-end gap-2">
             <input type="hidden" name="from" value={from} />
             <input type="hidden" name="to" value={to} />
@@ -130,7 +131,7 @@ export default async function MoneyPage({ searchParams }: { searchParams: Promis
           <p className="mt-3 text-[0.6875rem] text-dim">“Released to connected account” means a Stripe Transfer to the connected account exists. Bank payouts from the connected account are not tracked.</p>
         </Panel>
 
-        <Panel eyebrow="Read-only detector" title="Reconciliation queue" description="Money facts that disagree.">
+        <Panel eyebrow="Needs review" title="Check money mismatches" description="Review records that disagree before taking a money action.">
           {!reconRes.ok ? (
             <OpsFailureAlert failure={reconRes} fn="reconciliation_queue" retryHref={selfHref("/money", sp)} />
           ) : (
@@ -200,11 +201,12 @@ function ReconTable({ rows, searchParams, nextCursor }: { rows: ReconItem[]; sea
       key: "detail",
       header: "Detail",
       render: (r) => (
-        <dl className="grid grid-cols-[auto_1fr] gap-x-2 text-[0.6875rem]">
-          {Object.entries(r.detail ?? {}).map(([k, v]) => (
-            <ReconDetail key={k} k={k} v={v} />
-          ))}
-        </dl>
+        <details>
+          <summary className="text-[0.8125rem] font-medium text-muted">Details</summary>
+          <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-2 text-[0.6875rem]">
+            {Object.entries(r.detail ?? {}).map(([k, v]) => <ReconDetail key={k} k={k} v={v} />)}
+          </dl>
+        </details>
       ),
     },
   ];

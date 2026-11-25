@@ -67,7 +67,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
 
   // The attention list is capped (ops.today returns at most 200); the total is the open_cases metric.
   const openMetric = today.metrics.find((m) => m.key === "open_cases")?.value;
-  const openCount = typeof openMetric === "number" ? openMetric : today.attention.length;
+  const openCount = typeof openMetric === "number" && Number.isFinite(openMetric) ? openMetric : null;
   const filtered = today.attention.filter((c) =>
     assignee === "all" ? true : assignee === "me" ? c.assignee === me.id : !c.assignee,
   );
@@ -99,13 +99,13 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
       <PageHeader
         eyebrow="Overview"
         title="Today"
-        description="Operational problems first, then how the business is doing."
+        description="Start with urgent issues, assign follow-up, then check how the business is doing."
         meta={
           <>
             Data as of <DateTime value={today.computed_at} withSeconds />
             {" · "}
-            {openCount} open item{openCount === 1 ? "" : "s"}
-            {today.attention.length < openCount ? ` · ${today.attention.length} listed` : ""}
+            {openCount === null ? "Open case total unavailable" : `${openCount} open item${openCount === 1 ? "" : "s"}`}
+            {openCount === null || today.attention.length < openCount ? ` · ${today.attention.length} listed` : ""}
             {" · "}
             <a href="#business" className="link">
               Business snapshot
@@ -120,6 +120,17 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
         }
       />
       <SampleDataNotice />
+
+      <nav aria-label="Start your day" className="mb-6 grid gap-3 sm:grid-cols-3">
+        {[
+          { href: "#attention-heading", label: "1. Review priorities", detail: "Open an issue below to reach the right queue." },
+          { href: "/cases?status=" + OPEN_CASE_STATUSES, label: "2. Follow up on cases", detail: "Assign work and resolve open issues." },
+          { href: "/money", label: "3. Check business figures", detail: "Explore sales, fees, refunds and seller funds." },
+        ].map((step) => <Link key={step.href} href={step.href} className="panel p-4 transition-colors hover:bg-raised">
+          <span className="block text-[0.9375rem] font-medium">{step.label}</span>
+          <span className="mt-1 block text-[0.8125rem] text-muted">{step.detail}</span>
+        </Link>)}
+      </nav>
 
       <section aria-labelledby="attention-heading" className="mb-10">
         <h2 id="attention-heading" className="mb-2 title-section">
@@ -143,7 +154,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
           {groups.size === 0 ? (
             <Alert state="empty" title={assignee === "all" ? "No open cases." : "No open cases in this view."}>
               {today.metrics.some((m) => typeof m.value === "number" && m.value > 0 && m.key !== "open_cases") ? (
-                <span className="block">Cases appear when the detectors run. The live signals under “Needs attention” link to their queues now.</span>
+                <span className="block">Cases appear after automatic issue checks run. The checks under “Needs attention” link to their queues now.</span>
               ) : null}
               {assignee !== "all" ? (
                 <Link href="/" className="link">
@@ -181,7 +192,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
               Business · last 30 days
             </h2>
             <Link href="/money" className="link text-[0.8125rem]">
-              Money analytics
+              Explore money figures
             </Link>
           </div>
           <div className="space-y-4">

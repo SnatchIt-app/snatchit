@@ -12,7 +12,7 @@ export function SearchBox({ defaultValue = "" }: { defaultValue?: string }) {
         name="q"
         type="search"
         defaultValue={defaultValue}
-        placeholder="Search id, pi_, tr_, email…"
+        placeholder="Search by email or reference…"
         autoComplete="off"
         spellCheck={false}
       />
