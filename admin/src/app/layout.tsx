@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Newsreader, Oswald } from "next/font/google";
 import "./globals.css";
+import { DashboardProviders } from "./providers";
 import { ENV_LABEL } from "@/lib/env";
 
 // Oswald via next/font (self-hosted at build; CSP font-src 'self'). display:
@@ -23,8 +24,8 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${oswald.variable} ${newsreader.variable}`}>
-      <body className="min-h-dvh antialiased">{children}</body>
+    <html lang="en" data-theme="light" data-astryx-theme="neutral" className={`${oswald.variable} ${newsreader.variable}`}>
+      <body className="min-h-dvh antialiased"><DashboardProviders>{children}</DashboardProviders></body>
     </html>
   );
 }

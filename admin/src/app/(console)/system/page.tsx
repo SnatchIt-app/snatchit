@@ -45,27 +45,41 @@ import { toMoneyConfigList } from "@/lib/money-config";
 import { toOperationalSettings } from "@/lib/operational-config";
 import { ReportFreshness } from "@/components/shell/Freshness";
 
-export const metadata: Metadata = { title: "System" };
+export const metadata: Metadata = { title: "Platform health" };
 export const dynamic = "force-dynamic";
 
 const ACTION_STATES = Object.keys(ACTION_STATE_LABELS);
 const ACTION_TYPES = Object.keys(ACTION_TYPE_LABELS);
 
+const SETTING_LABEL: Record<string, string> = {
+  actions_enabled: "Allow console actions",
+  refund_execute_enabled: "Allow refund execution",
+  detectors_enabled: "Run scheduled checks and reports",
+  dispute_sla_hours: "Dispute response time (hours)",
+  transfer_deadline_soon_hours: "Seller deadline warning (hours)",
+  paid_unsettled_grace_minutes: "Paid order transfer grace period (minutes)",
+  webhook_stuck_minutes: "Payment update delay warning (minutes)",
+  release_stuck_minutes: "Seller release delay warning (minutes)",
+  approval_ttl_hours: "Approval expiry (hours)",
+  alert_delivery_enabled: "Send alerts",
+  refund_resolution_detector_enabled: "Check unresolved refunds",
+};
+
 const SETTING_HELP: Record<string, string> = {
-  actions_enabled: "Console-wide pause. When false, the server refuses console actions, approval decisions and refund resumes (code console_actions_paused). Reads still work. This setting stays changeable. Not paused: Money settings, Operational settings, alert acknowledgements and opening evidence. Set it to true to resume.",
-  refund_execute_enabled: "Turns Execute refund on or off. Set it to true only after the ops-refund-execute function is deployed.",
-  detectors_enabled: "Turns every scheduled run of the console jobs on or off: the detectors and the metric snapshot every 5 minutes, and the daily summary.",
+  actions_enabled: "Pause or resume console actions. False pauses actions, approval decisions and refund resumes. You can still read records and change this switch. Not paused: Money settings, Operational settings, alert acknowledgements and opening evidence. Set true to resume.",
+  refund_execute_enabled: "Allow or block Execute refund. Keep false until the refund service (ops-refund-execute) is deployed and ready. Set true only after that check.",
+  detectors_enabled: "Turn scheduled console checks and reports on or off: issue checks and metric snapshots every 5 minutes, plus the daily summary. This does not pause other console actions.",
   dispute_sla_hours: "Hours before an open in-app dispute is overdue.",
   transfer_deadline_soon_hours: "Window before the seller deadline that raises Transfer due soon.",
-  paid_unsettled_grace_minutes: "Grace after a captured payment before Paid but not settled fires.",
-  webhook_stuck_minutes: "Age of an unprocessed Stripe webhook that counts as stuck.",
-  release_stuck_minutes: "Minutes after a recorded release without a Stripe Transfer before Release stuck fires.",
+  paid_unsettled_grace_minutes: "Minutes after a payment is captured before it is flagged for having no recorded transfer.",
+  webhook_stuck_minutes: "Minutes before an unprocessed Stripe payment update is flagged as delayed.",
+  release_stuck_minutes: "Minutes after a recorded release before it is flagged for having no Stripe Transfer.",
   approval_ttl_hours: "Hours before a pending second-founder approval expires.",
   // Owner decisions (A, PR #89 port): the help says so, and never tells an operator to flip them.
   alert_delivery_enabled:
     "Owner decision; not changed without the owner. While false, no alert is sent. True only allows sending: a sender must also be scheduled, and that is a separate owner decision.",
   refund_resolution_detector_enabled:
-    "Owner decision; not changed without the owner. While false, the refund-resolution detector never runs, not even with Run now, so it opens no refund-resolution cases.",
+    "Owner decision; not changed without the owner. While false, the check for unresolved refunds never runs, even with Run now, so it opens no refund-resolution cases.",
 };
 
 export default async function SystemPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
@@ -114,33 +128,33 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
       {health?.generated_at ? <ReportFreshness at={health.generated_at} /> : null}
       <PageHeader
         eyebrow="Health"
-        title="System"
-        description="Detectors, cron, webhook backlog, notification delivery, approvals, settings, the action log and the audit log (append-only). To re-send a Stripe webhook, use the Stripe Dashboard. This console never replays webhooks."
+        title="Platform health"
+        description="Check what needs attention, review approvals and manage platform controls."
         meta={
           health ? (
             <>
-              Generated <DateTime value={health.generated_at} withSeconds /> · last detector success{" "}
+              Generated <DateTime value={health.generated_at} withSeconds /> · last successful check{" "}
               {lastSuccess ? <DateTime value={lastSuccess} /> : <span className="text-warning">never</span>}
             </>
           ) : undefined
         }
       />
 
-      <nav aria-label="System sections" className="mb-6 flex flex-wrap gap-2 text-[0.75rem]">
+      <nav aria-label="Platform health sections" className="mb-6 flex flex-wrap gap-2 text-[0.75rem]">
         {[
-          ["#jobs", "Jobs"],
-          ["#cron", "Cron"],
-          ["#webhooks", "Webhooks"],
+          ["#jobs", "Automated checks"],
+          ["#cron", "Scheduled tasks"],
+          ["#webhooks", "Payment updates"],
           ["#notify", "Notifications"],
           ["#alerts", "Alerts"],
           // v2 keeps its own form of this label: a FAILED approvals read shows "—" rather than 0,
           // which production's `approvals.length` could not distinguish. The money link is production's.
           ["#approvals", `Approvals (${approvalsRes.ok ? approvals.length : "—"})`],
           ["#money", money ? `Money settings (${moneyPending})` : "Money settings"],
-          ["#operational", "Operational settings"],
-          ["#settings", "Settings"],
-          ["#actions", "Actions"],
-          ["#audit", "Audit log"],
+          ["#operational", "Sales rules"],
+          ["#settings", "Platform controls"],
+          ["#actions", "Action history"],
+          ["#audit", "Change history"],
           ["#summary", "Daily summary"],
           ["/system/test-data", "Test records (restricted)"],
         ].map(([href, label]) => (
@@ -158,20 +172,20 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
         ) : (
           <>
             <MetricGrid cols={6}>
-              <MetricTile label="Ops jobs" value={health.ops_jobs.length} definition="Jobs the console runs: the detectors, the daily summary and the metric snapshot." href="#jobs" />
-              <MetricTile label="Jobs failing" value={failingJobs} definition="Console jobs with 2 or more consecutive failures, disabled jobs included." href="#jobs" />
-              <MetricTile label="Webhooks unprocessed" value={health.webhook_backlog.unprocessed ?? "—"} definition="Stripe webhook events not yet processed and not marked failed." href="#webhooks" />
-              <MetricTile label="Webhooks failed" value={health.webhook_backlog.failed ?? "—"} definition="Stripe webhook events marked failed and not processed." href="#webhooks" />
-              <MetricTile label="Alerts firing" value={health.alerts.length} definition="Alerts that are firing now." href="#alerts" />
+              <MetricTile label="Automated checks" value={health.ops_jobs.length} definition="Issue checks, daily summaries and metric snapshots run by the console." href="#jobs" />
+              <MetricTile label="Checks failing" value={failingJobs} definition="Console jobs with 2 or more consecutive failures, disabled jobs included." href="#jobs" />
+              <MetricTile label="Payment updates waiting" value={health.webhook_backlog.unprocessed ?? "—"} definition="Stripe payment updates not yet processed and not marked failed." href="#webhooks" />
+              <MetricTile label="Payment updates failed" value={health.webhook_backlog.failed ?? "—"} definition="Stripe payment updates marked failed and not processed." href="#webhooks" />
+              <MetricTile label="Active alerts" value={health.alerts.length} definition="Alerts that are firing now." href="#alerts" />
               <MetricTile label="Approvals pending" value={approvalsRes.ok ? approvals.length : "—"} note={approvalsRes.ok ? null : "Couldn't be loaded"} definition="Second-founder approvals awaiting a decision." href="#approvals" />
             </MetricGrid>
             <FigureMeta pointInTime computedAt={health.generated_at} readAt={readAt} className="px-1" />
 
-            <Panel eyebrow="Run by the console" title="Console jobs (detectors)">
+            <Panel eyebrow="Run by the console" title="Automated checks" description="Review failed checks and their last successful run. Founders can run a check again after reviewing the problem.">
               <OpsJobTable jobs={health.ops_jobs} canRetry={canRequest(me.role, "job_retry")} />
             </Panel>
 
-            <Panel eyebrow="Scheduled in the database" title="Cron jobs">
+            <Panel eyebrow="Scheduled in the database" title="Scheduled tasks" description="See which tasks are active, when they last ran and whether they failed.">
               {!health.cron.available ? (
                 <Alert state="info" title="Run history unavailable." compact>
                   {health.cron.note ?? "This database does not keep cron run history."}
@@ -183,18 +197,21 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
             </Panel>
 
             <div className="grid gap-6 lg:grid-cols-2">
-              <Panel eyebrow="From Stripe" title="Webhook backlog">
+              <Panel eyebrow="From Stripe" title="Payment updates" description="Updates from Stripe that are waiting or failed. Review delayed updates before changing a payment record.">
                 <div id="webhooks" />
                 <KeyValue
                   columns={2}
                   items={[
-                    { key: "unprocessed", value: health.webhook_backlog.unprocessed ?? null },
-                    { key: "failed", value: health.webhook_backlog.failed ?? null },
-                    { key: "oldest_unprocessed_at", value: <DateTime value={health.webhook_backlog.oldest_unprocessed_at} /> },
-                    { key: "oldest_unprocessed_event_id", value: health.webhook_backlog.oldest_unprocessed_event_id ? <code className="font-mono text-[0.75rem]">{health.webhook_backlog.oldest_unprocessed_event_id}</code> : null },
+                    { key: "unprocessed", label: "Waiting to be processed", value: health.webhook_backlog.unprocessed ?? null },
+                    { key: "failed", label: "Failed updates", value: health.webhook_backlog.failed ?? null },
+                    { key: "oldest_unprocessed_at", label: "Oldest waiting update", value: <DateTime value={health.webhook_backlog.oldest_unprocessed_at} /> },
                   ]}
                 />
-                <p className="mt-3 text-[0.6875rem] text-dim">Stuck or failed events are re-sent from the Stripe Dashboard (Developers → Webhooks → event → Resend). The console does not replay webhooks.</p>
+                <p className="mt-3 text-[0.75rem] text-muted">Re-send stuck or failed payment updates from Stripe Dashboard → Developers → Webhooks → event → Resend. This console cannot re-send them.</p>
+                <details className="mt-3 text-xs text-muted">
+                  <summary className="cursor-pointer py-1">Technical details · payment update reference</summary>
+                  <p className="mt-2 break-all">Oldest waiting event: <code>{health.webhook_backlog.oldest_unprocessed_event_id ?? "Not available"}</code></p>
+                </details>
               </Panel>
 
               <Panel eyebrow="From the database" title="Notification delivery">
@@ -246,7 +263,7 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
           <p className="mt-3 text-[11px] text-dim">Money keys (refund, payout, fee, authn, …) follow the two-founder rule: a loosening needs a second founder, and a tightening applies at once. You cannot approve your own request. Approving needs a recent check with your authenticator. Requests expire after 72 hours.</p>
         </Panel>
 
-        <Panel eyebrow="Single-founder rule" title="Operational settings">
+        <Panel eyebrow="Single-founder rule" title="Sales rules" description="Operational settings for buyer holds, ticket issuance and scanning.">
           <div id="operational" />
           {!isAdmin ? (
             <Alert state="info" title="Only founders can see Operational settings." compact />
@@ -275,7 +292,7 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
           </Panel>
         ) : null}
 
-        <Panel eyebrow="Console switches" title="Settings">
+        <Panel eyebrow="Console switches" title="Platform controls" description="Review each switch’s scope before saving. Every change still needs a reason and confirmation.">
           <div id="settings" />
           {!isAdmin ? (
             <Alert state="info" title="Only founders can see Settings." compact />
@@ -286,7 +303,7 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
           )}
         </Panel>
 
-        <Panel eyebrow={`${actions.length} shown`} title="Actions">
+        <Panel eyebrow={`${actions.length} shown`} title="Action history">
           <div id="actions" />
           <form method="get" action="/system#actions" className="mb-3 flex flex-wrap items-end gap-2">
             <FilterField label="State">
@@ -306,7 +323,7 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
           )}
         </Panel>
 
-        <Panel eyebrow="Append-only" title="Audit log">
+        <Panel eyebrow="Permanent record" title="Change history" description="A record of who changed what. Existing entries cannot be edited.">
           <div id="audit" />
           {!auditRes.ok ? <OpsFailureAlert failure={auditRes} fn="audit_log" retryHref={selfHref("/system", sp)} /> : <AuditTable rows={audit} basePath="/system" searchParams={sp} nextCursor={auditPage?.next_cursor} cursorParam="audit_cursor" meId={me.id} />}
         </Panel>
@@ -346,12 +363,13 @@ function OpsJobTable({ jobs, canRetry }: { jobs: OpsJob[]; canRetry: boolean }) 
   const columns: Column<OpsJob>[] = [
     {
       key: "job_name",
-      header: "Job",
+      header: "Check",
       render: (j) => (
-        <span id={`job-${j.job_name}`} className="flex flex-col">
-          <code className="font-mono text-[0.75rem] text-ink">{j.job_name}</code>
+        <div id={`job-${j.job_name}`} className="flex flex-col">
+          <span className="font-medium text-ink">{humanize(j.job_name)}</span>
+          <details className="mt-1 text-xs text-muted"><summary className="cursor-pointer py-1">Technical details</summary><code className="break-all">{j.job_name}</code></details>
           <StatusBadge status={j.enabled ? "active" : "inactive"} label={j.enabled ? "enabled" : "disabled"} />
-        </span>
+        </div>
       ),
     },
     { key: "last_success_at", header: "Last success", render: (j) => <DateTime value={j.last_success_at} /> },
@@ -362,7 +380,7 @@ function OpsJobTable({ jobs, canRetry }: { jobs: OpsJob[]; canRetry: boolean }) 
       align: "right",
       render: (j) => <span className={`tabular-nums ${(j.consecutive_failures ?? 0) >= 2 ? "font-semibold text-danger" : ""}`}>{j.consecutive_failures ?? 0}</span>,
     },
-    { key: "backoff_until", header: "Backoff until", render: (j) => <DateTime value={j.backoff_until} /> },
+    { key: "backoff_until", header: "Retry after", render: (j) => <DateTime value={j.backoff_until} /> },
     { key: "last_error", header: "Last error", render: (j) => <span className="line-clamp-2 max-w-[260px] text-[0.75rem] text-danger">{j.last_error ?? <span className="text-dim">—</span>}</span> },
     {
       key: "recent_runs",
@@ -395,20 +413,20 @@ function OpsJobTable({ jobs, canRetry }: { jobs: OpsJob[]; canRetry: boolean }) 
         ),
     },
   ];
-  return <DataTable id="jobs" columns={columns} rows={jobs} rowKey={(j) => j.job_name} basePath="/system" emptyText="No console jobs are registered. Is registry 117 applied?" caption="Console jobs" dense />;
+  return <DataTable id="jobs" columns={columns} rows={jobs} rowKey={(j) => j.job_name} basePath="/system" emptyText="No automated checks are registered. Ask platform support to check the setup." caption="Automated checks" dense />;
 }
 
 function CronTable({ rows, available }: { rows: CronJob[]; available: boolean }) {
   const columns: Column<CronJob>[] = [
-    { key: "jobname", header: "Cron job", render: (c) => <code className="font-mono text-[0.75rem]">{c.jobname ?? c.jobid}</code> },
-    { key: "schedule", header: "Schedule (cron, UTC)", render: (c) => <code className="font-mono text-[0.75rem]">{c.schedule ?? "—"}</code> },
+    { key: "jobname", header: "Task", render: (c) => <span>{c.jobname ? humanize(c.jobname) : "Scheduled task"}</span> },
+    { key: "schedule", header: "Schedule details", render: (c) => <details className="text-xs text-muted"><summary className="cursor-pointer py-1">Technical details</summary><dl className="mt-2 space-y-1"><div><dt>Task reference</dt><dd className="break-all"><code>{c.jobname ?? c.jobid ?? "—"}</code></dd></div><div><dt>Schedule (cron, UTC)</dt><dd><code>{c.schedule ?? "—"}</code></dd></div>{c.jobid != null ? <div><dt>Task ID</dt><dd>{c.jobid}</dd></div> : null}</dl></details> },
     { key: "active", header: "Active", render: (c) => <StatusBadge status={String(c.active ?? false)} label={c.active ? "active" : "inactive"} /> },
     { key: "last_status", header: "Last status", render: (c) => (available ? <StatusBadge status={c.last_status} /> : <span className="text-dim">unavailable</span>) },
     { key: "last_end", header: "Last end", render: (c) => (available ? <DateTime value={c.last_end} /> : <span className="text-dim">—</span>) },
     { key: "runs_24h", header: "Runs / failures (24 h)", align: "right", render: (c) => (available ? <span className="tabular-nums">{c.runs_24h ?? 0} / {c.failures_24h ?? 0}</span> : <span className="text-dim">—</span>) },
     { key: "last_message", header: "Last message", render: (c) => <span className="line-clamp-2 max-w-[280px] text-[0.75rem] text-muted">{c.last_message ?? "—"}</span> },
   ];
-  return <DataTable id="cron" columns={columns} rows={rows} rowKey={(c, i) => c.jobname ?? `${c.jobid ?? i}`} basePath="/system" emptyText="No cron jobs." caption="Cron jobs" dense />;
+  return <DataTable id="cron" columns={columns} rows={rows} rowKey={(c, i) => c.jobname ?? `${c.jobid ?? i}`} basePath="/system" emptyText="No scheduled tasks." caption="Scheduled tasks" dense />;
 }
 
 function ApprovalCard({ approval: ap, meId, isAdmin }: { approval: Approval; meId: string; isAdmin: boolean }) {
@@ -469,12 +487,16 @@ function SettingsList({ settings }: { settings: Setting[] }) {
           <li key={s.key} id={`setting-${s.key}`} className="grid gap-3 py-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
             <div>
               <p className="text-[0.8125rem] font-semibold text-ink">
-                <code className="font-mono">{s.key}</code>
+                {SETTING_LABEL[s.key] ?? humanize(s.key)}
               </p>
               <p className="mt-1 text-[0.75rem] text-muted">{SETTING_HELP[s.key] ?? humanize(s.key)}</p>
               <p className="mt-2 text-[0.75rem]">
-                Current: <code className="font-mono text-ink">{JSON.stringify(s.value)}</code> <span className="text-dim">({kind})</span>
+                Current value: <code className="font-mono text-ink">{JSON.stringify(s.value)}</code>
               </p>
+              <details className="mt-2 text-xs text-muted">
+                <summary className="cursor-pointer py-1">Technical details · setting reference</summary>
+                <p className="mt-2 break-all"><code>{s.key}</code> · Value type: {kind}</p>
+              </details>
               <p className="mt-1 text-[0.6875rem] text-dim">
                 Last changed <DateTime value={s.updated_at} /> {s.updated_by_label ? `by ${s.updated_by_label}` : s.updated_by ? `by ${shortId(s.updated_by)}` : "(no person recorded)"}
               </p>

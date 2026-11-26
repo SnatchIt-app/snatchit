@@ -286,13 +286,16 @@ describe("an acknowledgement's result outlives the refresh that hides the form",
 
 describe("/system uses the ported panel, and owner-decision settings say so", () => {
   const page = readFileSync(resolve(__dirname, "../src/app/(console)/system/page.tsx"), "utf8");
-  const help = (key: string) => page.match(new RegExp(`\\n\\s*${key}:\\s*\\n?\\s*"([^"]+)"`))?.[1] ?? "";
+  // Friendly labels repeat these keys; inspect the warning copy, not the first key in the file.
+  const helpSection = page.match(/const SETTING_HELP: Record<string, string> = \{([\s\S]*?)\n\};/)?.[1] ?? "";
+  const help = (key: string) => helpSection.match(new RegExp(`\\n\\s*${key}:\\s*\\n?\\s*"([^"]+)"`))?.[1] ?? "";
 
   it("renders AlertList for the firing alerts", () => {
     expect(page).toContain("<AlertList alerts={health.alerts} meId={me.id} />");
   });
 
   it("alert_delivery_enabled and refund_resolution_detector_enabled are named owner decisions, with no instruction to flip them", () => {
+    expect(helpSection, "the settings help block is present").not.toBe("");
     for (const key of ["alert_delivery_enabled", "refund_resolution_detector_enabled"]) {
       const text = help(key);
       expect(text, key).toMatch(/^Owner decision; not changed without the owner\./);

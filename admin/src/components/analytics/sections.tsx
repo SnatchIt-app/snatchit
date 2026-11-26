@@ -72,14 +72,14 @@ const SEVERITY_STYLE = {
 const SHORT_LABEL: Record<string, string> = {
   transfers_overdue: "Transfers past seller deadline",
   evidence_due_72h: "Dispute evidence due in 72 h",
-  jobs_failing: "Background jobs failing",
-  webhook_backlog: "Stripe webhooks stuck",
-  alerts_firing: "Alerts firing",
+  jobs_failing: "Scheduled tasks failing",
+  webhook_backlog: "Payment updates delayed",
+  alerts_firing: "Active platform alerts",
   paid_unsettled: "Paid orders without a transfer",
   transfers_due_6h: "Transfers due soon",
   stripe_disputes_open: "Open Stripe disputes",
   disputes_open: "Open buyer/seller disputes",
-  refunds_pending: "Refunds owed, not executed",
+  refunds_pending: "Refunds awaiting processing",
   payout_review: "Payouts held or in manual review",
   approvals_pending: "Approvals waiting",
   reports_pending: "User reports to review",
@@ -273,7 +273,7 @@ export async function MoneyKpis({ from, to, compact = false }: { from: string; t
 }
 
 function tableRows(points: { label: string; detail: string; value: number | null }[], fmt: (v: number) => string) {
-  return points.map((p) => [p.detail, p.value === null ? "—" : fmt(p.value)]);
+  return points.map((p) => [p.detail, p.value === null ? "Unknown" : fmt(p.value)]);
 }
 
 export async function MoneyCharts({ from, to, only }: { from: string; to: string; only?: "captured" }) {

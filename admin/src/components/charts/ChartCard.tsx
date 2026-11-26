@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { ChartViews } from "@/components/charts/ChartViews";
 
 /**
  * Chart container: title, one-line definition (units · range · grain), the surface's
@@ -43,7 +44,7 @@ export function ChartCard({
       </figcaption>
       <div className="mt-4">
         {state.kind === "ok" ? (
-          children
+          table ? <ChartViews title={title} table={table}>{children}</ChartViews> : children
         ) : (
           <div
             role={isError ? "alert" : "status"}
@@ -59,36 +60,11 @@ export function ChartCard({
           </div>
         )}
       </div>
-      {definition ? <p className="mt-3 text-[0.75rem] leading-relaxed text-dim">{definition}</p> : null}
-      {footnote ? <p className="mt-1 text-[0.75rem] text-dim">{footnote}</p> : null}
-      {table && state.kind === "ok" ? (
-        <details className="mt-3 rounded-[var(--radius-control)] border border-line">
-          <summary className="rounded-[var(--radius-control)] px-3 py-2 text-[0.8125rem] font-medium text-muted">View data table</summary>
-          <div className="max-h-72 overflow-auto">
-            <table className="data-table">
-              <caption className="sr-only">{table.caption}</caption>
-              <thead>
-                <tr>
-                  {table.head.map((h, i) => (
-                    <th key={h} scope="col" className={i > 0 ? "num" : undefined}>
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {table.rows.map((r, ri) => (
-                  <tr key={ri}>
-                    {r.map((c, ci) => (
-                      <td key={ci} className={ci > 0 ? "num" : undefined}>
-                        {c}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+      {definition || footnote ? (
+        <details className="mt-4 border-t border-line pt-3">
+          <summary className="text-[0.8125rem] font-medium text-muted">Details · how to read this figure</summary>
+          {definition ? <p className="mt-2 text-[0.75rem] leading-relaxed text-dim">{definition}</p> : null}
+          {footnote ? <p className="mt-1 text-[0.75rem] text-dim">{footnote}</p> : null}
         </details>
       ) : null}
     </figure>

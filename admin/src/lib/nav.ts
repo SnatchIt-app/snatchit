@@ -12,15 +12,15 @@ import type { IconName } from "@/components/ui/Icon";
  */
 export type NavGroup = "Work" | "Money" | "People" | "Platform";
 
-export const NAV: readonly { href: string; label: string; short?: string; key: string; icon: IconName; primary?: boolean; group?: NavGroup }[] = [
-  { href: "/", label: "Today", key: "t", icon: "today", primary: true },
-  { href: "/cases", label: "Cases", key: "c", icon: "case", primary: true, group: "Work" },
-  { href: "/orders", label: "Orders & transfers", short: "Orders", key: "o", icon: "receipt", primary: true, group: "Money" },
-  { href: "/money", label: "Money", short: "Money", key: "m", icon: "money", primary: true, group: "Money" },
-  { href: "/users", label: "Users", key: "u", icon: "users", group: "People" },
-  { href: "/marketplace", label: "Marketplace", short: "Market", key: "k", icon: "store", group: "Platform" },
-  { href: "/reports", label: "Reports", key: "r", icon: "flag", group: "People" },
-  { href: "/system", label: "System", key: "s", icon: "pulse", group: "Platform" },
+export const NAV: readonly { href: string; label: string; short?: string; key: string; icon: IconName; description: string; primary?: boolean; group?: NavGroup }[] = [
+  { href: "/", label: "Today", description: "Priorities and business snapshot", key: "t", icon: "today", primary: true },
+  { href: "/cases", label: "Cases", description: "Resolve issues and assign follow-up", key: "c", icon: "case", primary: true, group: "Work" },
+  { href: "/orders", label: "Orders & transfers", description: "Find purchases and ticket handovers", short: "Orders", key: "o", icon: "receipt", primary: true, group: "Money" },
+  { href: "/money", label: "Money", description: "Sales, fees and seller funds", short: "Money", key: "m", icon: "money", primary: true, group: "Money" },
+  { href: "/users", label: "Users", description: "Find accounts and review access", key: "u", icon: "users", group: "People" },
+  { href: "/marketplace", label: "Marketplace", description: "Review resale listings", short: "Market", key: "k", icon: "store", group: "Platform" },
+  { href: "/reports", label: "Reports", description: "Review concerns raised by users", key: "r", icon: "flag", group: "People" },
+  { href: "/system", label: "System", description: "Platform health and settings", key: "s", icon: "pulse", group: "Platform" },
 ];
 
 /** Today is active only on `/`; a section is active on itself and its detail pages, never on a look-alike prefix. */
