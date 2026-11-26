@@ -1,0 +1,11 @@
+create schema venue;
+alter table kernel.payment_native add column order_id uuid,add column amount_minor bigint;
+create table venue."order"(order_id uuid primary key,buyer_id uuid,status text,total_minor bigint);
+create table public.listings(id uuid primary key,status text,event_name text);
+create table ops.fixture_alerts(payment uuid);
+create function ops.setting_int(text,integer) returns integer language sql as $$select $2$$;
+create function ops.detect_case(text,text,uuid,text,text,text,text,timestamptz,text) returns jsonb language plpgsql as $$begin insert into ops.fixture_alerts values($3);return jsonb_build_object('dedupe_key',$3::text,'opened',true);end$$;
+create function ops.detect_sweep(text,text[]) returns integer language sql as $$select 0$$;
+update public.payments set buyer_id='2b117757-f4e3-41c1-b7df-68a4502d0fba' where id='d44d0d3d-90e0-4e3b-a6bd-2769275ec741';
+insert into venue."order" values('70000000-0000-4000-8000-000000000001','2b117757-f4e3-41c1-b7df-68a4502d0fba','paid',100);
+insert into kernel.payment_native(payment_id,order_id,amount_minor) values('d44d0d3d-90e0-4e3b-a6bd-2769275ec741','70000000-0000-4000-8000-000000000001',100);
