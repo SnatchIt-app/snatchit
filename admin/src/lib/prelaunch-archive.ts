@@ -2,6 +2,15 @@ import { isRecord } from "@/lib/types";
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const SHA = /^[0-9a-f]{64}$/;
 export const ARCHIVE_CONFIRMATION = "ARCHIVE 57 TEST ORDERS";
+export const ARCHIVE_RECORD_LABELS: Record<string, string> = {
+  "public.payments": "Test orders", "public.transfers": "Ticket transfers",
+  "public.webhook_retries": "Old payment updates", "public.disputes": "Payment disputes",
+  "public.dispute_resolutions": "Dispute decisions", "public.payout_decisions": "Seller payment decisions",
+  "public.seller_flags": "Seller review notes", "public.transfer_notifications": "Ticket-transfer notices",
+  "public.payment_refunds": "Refund records", "public.payment_refund_state": "Refund status",
+  "public.payment_refund_state_log": "Refund history", "public.notifications": "Notifications",
+  "ops.case": "Cases", "ops.case_note": "Staff notes", "ops.case_event": "Case history", "ops.alert": "Alerts",
+};
 export type ArchivedPayment = { id: string; created_at: string; amount: number; total: number; status: string; mode: string };
 export type ArchiveBatch = { state: "not_prepared" } | {
   state: "prepared" | "archived"; id: string; snapshot_sha256: string; backup_verified: boolean; execution_ready: boolean;
@@ -18,6 +27,7 @@ export function parseArchiveBatch(value: unknown): ArchiveBatch | null {
   if (value.archived_at !== null && (typeof value.archived_at !== "string" || !Number.isFinite(Date.parse(value.archived_at)))) return null;
   if ((value.state === "archived") !== (value.archived_at !== null)) return null;
   if (!isRecord(value.counts) || value.counts["public.payments"] !== 57 || !Array.isArray(value.payments) || value.payments.length !== 57) return null;
+  if (Object.keys(value.counts).length !== Object.keys(ARCHIVE_RECORD_LABELS).length || Object.keys(value.counts).some(key => !Object.prototype.hasOwnProperty.call(ARCHIVE_RECORD_LABELS,key))) return null;
   const counts: Record<string, number> = {};
   for (const [key, count] of Object.entries(value.counts)) {
     if (typeof count !== "number" || !Number.isSafeInteger(count) || count < 0) return null;
