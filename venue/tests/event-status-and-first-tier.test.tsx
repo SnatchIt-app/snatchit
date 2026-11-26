@@ -62,7 +62,7 @@ describe("the event status block carries the real publish command, never a claim
     expect(h).toContain('name="commandKey" value="k-publish"');
     expect(h).toContain('name="target_status" value="announced"');
     expect(h).toContain(`name="eventId" value="${EVT}"`);
-    expect(h).toContain("Move to Announced");
+    expect(h).toContain("Publish event");
     // The fault itself: the stale sentence, and the dead preview form it sat under.
     expect(h).not.toContain("no dashboard wrapper");
     expect(h).not.toContain("catalog.publish_event");
@@ -75,7 +75,7 @@ describe("the event status block carries the real publish command, never a claim
     expect(h).toContain("aren&#x27;t enabled on this project yet");
     expect(h).not.toContain("no dashboard wrapper");
     expect(h).not.toContain('name="commandKey"');
-    expect(h).not.toContain("Move to Announced");
+    expect(h).not.toContain("Publish event");
   });
 
   it("the demo keeps its preview form, and never a command key", () => {

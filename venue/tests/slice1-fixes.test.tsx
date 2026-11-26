@@ -198,7 +198,7 @@ describe("F3 database-mode presentation", () => {
       scope: { orgId: ORG_A, venueId: VEN_A },
     });
     expect(out).not.toContain("Venue manager");
-    expect(out).not.toContain("Capabilities come from your grants");
+    expect(out).not.toContain("Your access:");
     expect(out).toContain("No verified role at this venue");
     expect(out).not.toContain('href="/o/');
     expect(out).not.toContain("Menu ·");
@@ -221,7 +221,7 @@ describe("F3 database-mode presentation", () => {
       scope: { orgId: ORG_A, venueId: VEN_A },
     });
     expect(out).toContain(`href="/o/${ORG_A}/v/${VEN_A}/events"`);
-    expect(out).toContain("Capabilities come from your grants");
+    expect(out).toContain("Your access:");
     expect(out).toContain("Venue manager");
   });
 

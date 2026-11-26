@@ -1,3 +1,4 @@
+import { Card } from "@astryxdesign/core/Card";
 import { EventArt } from "@/components/ui/EventArt";
 import Link from "next/link";
 import { resaleLabel } from "@/lib/events";
@@ -25,6 +26,7 @@ export function EventsTable({
   timeZone,
   now,
   filter,
+  view = "list",
 }: {
   events: Event[];
   batches: InventoryBatch[];
@@ -35,6 +37,7 @@ export function EventsTable({
   timeZone: string;
   now: Date;
   filter: { status?: string; q?: string };
+  view?: "list" | "cards" | "table" | "chart";
 }) {
   const counters = showCounters(ctx.role, ctx);
   const liveIds = new Set(events.flatMap((e) => e.sessions.filter((s) => s.status === "live").map((s) => s.sessionId)));
@@ -87,6 +90,34 @@ export function EventsTable({
       </EmptyState>
     );
   }
+
+  if (view === "chart") {
+    const statuses = [...new Set(rows.map((event) => event.status))];
+    return <section className="py-5" aria-labelledby="event-status-chart">
+      <h2 id="event-status-chart" className="text-lg font-semibold">Events by status</h2>
+      <p className="mt-1 text-sm text-muted">{rows.length} matching events. Current status, across all dates.</p>
+      <div className="my-6 space-y-4" aria-hidden="true">{statuses.map((status) => {
+        const count = rows.filter((event) => event.status === status).length;
+        return <div key={status} className="grid grid-cols-[6rem_1fr_2rem] items-center gap-3 text-sm"><span className="capitalize">{status.replace("_", " ")}</span><div className="h-7 rounded-md bg-black/5"><div className="h-full rounded-md bg-[#514432]" style={{ width: `${count / rows.length * 100}%` }} /></div><span className="text-right tabular-nums">{count}</span></div>;
+      })}</div>
+      <table className="w-full text-left text-sm"><caption className="sr-only">Event status counts for the current filters</caption><thead><tr className="border-b border-line"><th scope="col" className="py-2">Status</th><th scope="col" className="py-2 text-right">Events</th></tr></thead><tbody>{statuses.map((status) => <tr key={status} className="border-b border-line"><th scope="row" className="py-3 font-normal"><StatusPill status={status} /></th><td className="py-3 text-right tabular-nums">{rows.filter((event) => event.status === status).length}</td></tr>)}</tbody></table>
+    </section>;
+  }
+
+  if (view === "cards") return <div className="grid gap-4 py-4 sm:grid-cols-2 xl:grid-cols-3">{rows.map((event) => {
+    const session = nextSession(event);
+    return <Card key={event.eventId} padding={4} className="h-full"><Link href={withPreview(`${basePath}/events/${event.eventId}`, ctx)} className="group block rounded-xl focus-visible:outline-2 focus-visible:outline-offset-4">
+      <EventArt title={event.title} variant="thumb" className="mb-4 h-32 w-full overflow-hidden rounded-xl" />
+      <StatusPill status={event.status} /><h2 className="serif mt-3 text-2xl group-hover:underline">{event.title}</h2>
+      <p className="mt-2 text-sm text-muted">{session ? venueDate(session.startsAt, event.timeZone ?? timeZone) : "No date set"}</p>
+      {warnEventIds.has(event.eventId) ? <p className="mt-3 text-sm text-warning">Needs attention</p> : null}
+    </Link></Card>;
+  })}</div>;
+
+  if (view === "table") return <div className="overflow-x-auto py-4"><table className="w-full min-w-[35rem] text-left text-sm"><caption className="sr-only">Events matching the current filters</caption><thead><tr className="border-b border-line text-muted">{["Event", "Next date", "Status", "Ticket availability"].map((label) => <th key={label} scope="col" className="px-3 py-3 font-medium">{label}</th>)}</tr></thead><tbody>{rows.map((event) => {
+    const session = nextSession(event); const sc = soldCap(event);
+    return <tr key={event.eventId} className="border-b border-line"><th scope="row" className="px-3 py-4 font-medium"><Link className="link" href={withPreview(`${basePath}/events/${event.eventId}`, ctx)}>{event.title}</Link></th><td className="px-3 py-4">{session ? venueDate(session.startsAt, event.timeZone ?? timeZone) : "No date set"}</td><td className="px-3 py-4"><StatusPill status={event.status} /></td><td className="px-3 py-4 tabular-nums">{sc && sc.capacity > 0 ? counters ? `${sc.sold} of ${sc.capacity} sold` : `${Math.max(0, sc.capacity - sc.sold)} remaining, all releases` : "No releases yet"}</td></tr>;
+  })}</tbody></table></div>;
 
   return (
     /*

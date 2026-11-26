@@ -390,7 +390,7 @@ async function browser() {
     t = await m.text();
     check(P, "H1 events list shows both Venue A events", t.includes(TITLE.e1) && t.includes(TITLE.e2), t.slice(0, 400));
     check(P, `H1 remaining-only figure (${REMAINING_A})`, t.includes(REMAINING_A), t.slice(0, 400));
-    check(P, "C5 strip derives Venue manager from grants", t.includes("Capabilities come from your grants") && t.includes("Venue manager"), t.slice(0, 300));
+    check(P, "C5 strip derives Venue manager from grants", t.includes("Your access:") && t.includes("Venue manager"), t.slice(0, 300));
     check(P, "H1 header shows the signed-in email", t.includes(users.manager.email), t.slice(0, 300));
     check(P, "H1 Sign out offered", await m.evaluate(`!!document.querySelector(${JSON.stringify(SIGN_OUT)})`), "");
     check(P, "H1 no Create event control in database mode", !t.toLowerCase().includes("create event"), "");

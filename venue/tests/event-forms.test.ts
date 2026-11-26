@@ -84,6 +84,16 @@ describe("event details", () => {
     expect(s.problems?.map((p) => p.field)).toContain("reason_code");
     expect(mocks.updateEvent).not.toHaveBeenCalled();
   });
+  it("editing description leaves unread category and genres untouched", async () => {
+    await updateEventForm({ result: null }, fd({ description: "New description", status: "draft" }));
+    expect(mocks.updateEvent).toHaveBeenCalledWith({ eventId: EVENT, patch: { description: "New description" }, commandKey: "k-1" });
+  });
+  it("explicitly clearing a chosen field does not clear the other fields", async () => {
+    await updateEventForm({ result: null }, fd({ description: "", status: "draft" }));
+    expect(mocks.updateEvent).toHaveBeenLastCalledWith({ eventId: EVENT, patch: { description: null }, commandKey: "k-1" });
+    await updateEventForm({ result: null }, fd({ genre_tags: "", status: "draft" }));
+    expect(mocks.updateEvent).toHaveBeenLastCalledWith({ eventId: EVENT, patch: { genre_tags: [] }, commandKey: "k-1" });
+  });
   it("genre tags arrive as a comma list and leave as a trimmed array", async () => {
     await updateEventForm({ result: null }, fd({ genre_tags: " house , techno , ", status: "draft" }));
     expect(mocks.updateEvent).toHaveBeenCalledWith({ eventId: EVENT, patch: { genre_tags: ["house", "techno"] }, commandKey: "k-1" });

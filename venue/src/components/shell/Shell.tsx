@@ -49,7 +49,7 @@ export function Shell({
   const base = dbMode ? (ctx.scope ? `/o/${ctx.scope.orgId}/v/${ctx.scope.venueId}` : null) : `/o/${ORG.orgId}/v/${VENUE.venueId}`;
   const navAllowed = !dbMode || (ctx.verifiedRole === true && base !== null);
   const attention = base && navAllowed ? frameAttention(ctx, base) : null;
-  const navEvent = event ?? attention?.stageEvent ?? null;
+  const navEvent = active === "settings" ? null : event ?? attention?.stageEvent ?? null;
   const evBase = navEvent && base ? `${base}/events/${navEvent.eventId}` : null;
 
   const venueItems: NavItem[] = [
@@ -71,7 +71,7 @@ export function Shell({
   const place = dbMode ? null : VENUE.name;
   const initials = dbMode ? (signedInAs ?? "?").slice(0, 1).toUpperCase() : "SM";
   const SECTION: Record<Active, string> = { overview: "Today", events: "Events", setup: "Event setup", inventory: "Tickets", attendees: "Guest list", door: "Check-in", scan: "Scanner", settings: "Venue settings" };
-  const crumbs = [place, active === "overview" || active === "events" ? null : navEvent?.title, SECTION[active]].filter(Boolean) as string[];
+  const crumbs = [place, active === "overview" || active === "events" || active === "settings" ? null : navEvent?.title, SECTION[active]].filter(Boolean) as string[];
 
   const roleLabel = who ?? "No verified role";
   return (
@@ -332,7 +332,7 @@ function DataPill({ ctx }: { ctx: PreviewContext }) {
   return (
     <span className="context-pill min-h-8 px-2.5 text-[0.75rem]">
       <span aria-hidden="true" className={`inline-block h-2 w-2 rounded-full ${dbMode ? "bg-sky-600" : "bg-[#2f7a3a]"}`} />
-      {dbMode ? "Database" : "Sample data"}
+      {dbMode ? "Venue workspace" : "Sample data"}
     </span>
   );
 }
@@ -345,7 +345,7 @@ function DataPill({ ctx }: { ctx: PreviewContext }) {
 function DataSource({ ctx, surface, where = "sidebar" }: { ctx: PreviewContext; surface: Surface; where?: "sidebar" | "menu" }) {
   const dbMode = ctx.source === "database";
   const info = sourceInfo();
-  const label = dbMode ? (info.source === "database" ? info.label : "Database mode") : info.label;
+  const label = dbMode ? "Venue workspace" : info.label;
   return (
     <div className="rounded-[14px] px-2.5 py-2" role="status" aria-live="polite">
       <p className="flex items-center gap-2 text-[0.8125rem] font-medium">
@@ -356,7 +356,7 @@ function DataSource({ ctx, surface, where = "sidebar" }: { ctx: PreviewContext; 
         <p className="mt-1 text-[0.75rem] leading-relaxed text-muted">
           {ctx.verifiedRole ? (
             <>
-              Capabilities come from your grants: <strong className="text-ink">{PRINCIPAL_LABEL[ctx.role]}</strong>. The server checks your role on every change.
+              Your access: <strong className="text-ink">{PRINCIPAL_LABEL[ctx.role]}</strong>.
             </>
           ) : (
             <>No verified role at this venue, so you cannot make changes here.</>
@@ -365,6 +365,7 @@ function DataSource({ ctx, surface, where = "sidebar" }: { ctx: PreviewContext; 
       ) : (
         <DemoControls ctx={ctx} surface={surface} where={where} />
       )}
+      {dbMode ? <details className="mt-2 text-xs text-muted"><summary className="cursor-pointer py-1">Connection details</summary><p className="mt-1 break-words leading-relaxed">{info.label}</p></details> : null}
     </div>
   );
 }

@@ -1,4 +1,8 @@
+@layer reset, theme, base, astryx-base, astryx-theme, components, utilities;
 @import "tailwindcss";
+@import "@astryxdesign/core/reset.css";
+@import "@astryxdesign/core/astryx.css";
+@import "@astryxdesign/theme-neutral/theme.css";
 
 /*
  * Snatch It dashboards — visual system v4 (venue and admin share this file verbatim).
@@ -1008,3 +1012,24 @@
 }
 
 @import "./globals-preview.css";
+
+/* Meta Astryx retains Snatch It's local fonts, warm canvas and accessible contrast. */
+@layer astryx-theme {
+  [data-astryx-theme="neutral"] {
+    --font-family-body: var(--font-sans);
+    --font-family-heading: var(--font-display);
+    --color-accent: #26211d;
+    --color-on-accent: #fffdfa;
+    --color-text-accent: #26211d;
+    --color-background-body: #f6f1ea;
+    --color-background-card: #fffdfa;
+    --color-background-surface: #fffdfa;
+    --color-text-primary: #231e1a;
+    --color-text-secondary: #62574e;
+    --color-neutral: #eee7de;
+    --color-border: #ded4c8;
+    --radius-element: 10px;
+    --size-element-md: 40px;
+    --size-element-lg: 44px;
+  }
+}

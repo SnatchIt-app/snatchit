@@ -1,9 +1,11 @@
 "use client";
 
-import { useActionState, type ReactNode } from "react";
+import { useActionState, useState, type ReactNode } from "react";
+import { Button } from "@astryxdesign/core/Button";
 import { useRouter } from "next/navigation";
 import type { CommandFormState } from "@/lib/db/command-forms";
 import { createInventoryBatchForm, createTicketTypeForm, setBatchCapacityForm, setTicketTypePriceForm, setTicketTypeRankForm, setTicketTypeSaleWindowForm, setTicketTypeVisibilityForm } from "@/lib/db/command-forms";
+import { createSubmissionGuard } from "@/lib/events/submission";
 import { RELEASE_LABEL, capacityFloor } from "@/lib/inventory";
 import { usd } from "@/lib/format";
 import type { InventoryBatch, TicketType } from "@/lib/types";
@@ -58,21 +60,24 @@ function Hidden({ ids, commandKey, extra }: { ids: TierCommandIds; commandKey: s
 
 function CommandForm({ action, ids, commandKey, extra, label, children }: { action: (prev: CommandFormState, fd: FormData) => Promise<CommandFormState>; ids: TierCommandIds; commandKey: string; extra?: Record<string, string>; label: string; children: ReactNode }) {
   const router = useRouter();
+  const [submission] = useState(createSubmissionGuard);
   const [state, formAction, pending] = useActionState<CommandFormState, FormData>(
     async (prev, fd) => {
-      const next = await action(prev, fd);
-      if (next.result?.kind === "ok") router.refresh();
-      return next;
+      try {
+        const next = await action(prev, fd);
+        if (next.result?.kind === "ok") router.refresh();
+        return next;
+      } finally {
+        submission.release();
+      }
     },
     INITIAL,
   );
   return (
-    <form action={formAction} className="flex flex-wrap items-end gap-2" aria-label={label}>
+    <form action={formAction} onSubmit={submission.onSubmit} aria-busy={pending} className="flex flex-wrap items-end gap-2" aria-label={label}>
       <Hidden ids={ids} commandKey={commandKey} extra={extra} />
       {children}
-      <button type="submit" disabled={pending} className="btn btn-soft btn-sm min-h-11">
-        {pending ? "Sending…" : label}
-      </button>
+      <Button label={pending ? "Saving…" : label} type="submit" isDisabled={pending} isLoading={pending} variant="secondary" size="lg" className="min-h-11" />
       <div className="basis-full">
         <Outcome state={state} />
       </div>
@@ -83,7 +88,7 @@ function CommandForm({ action, ids, commandKey, extra, label, children }: { acti
 const Reason = () => (
   <label className="block text-xs">
     Reason
-    <input name="reasonCode" required maxLength={80} className="field mt-1" placeholder="opening_ga" />
+    <input name="reasonCode" required maxLength={80} className="field mt-1" placeholder="Explain why this is changing" />
   </label>
 );
 
@@ -91,8 +96,8 @@ export function TierCommands({ ids, types, batches, keys, sessionId, timeZone }:
   return (
     <section className="panel space-y-6 px-5 py-5" aria-labelledby="tier-commands-title">
       <div>
-        <h2 id="tier-commands-title" className="text-base font-semibold text-ink">Change ticket types and capacity</h2>
-        <p className="mt-1 text-sm text-dim">The server records each change under your name. If it refuses a change, it says why. Capacity cannot go below what is already held or sold.</p>
+        <h2 id="tier-commands-title" className="text-base font-semibold text-ink">Tickets and availability</h2>
+        <p className="mt-1 text-sm text-dim">Set ticket prices and how many tickets are available. Each change saves separately. Capacity cannot go below tickets already held or sold.</p>
       </div>
       {types.map((t) => (
         <div key={t.ticketTypeId} className="space-y-3 border-t border-line pt-4">
@@ -117,9 +122,9 @@ export function TierCommands({ ids, types, batches, keys, sessionId, timeZone }:
             </label>
             <Reason />
           </CommandForm>
-          <CommandForm action={setTicketTypeRankForm} ids={ids} commandKey={keys.rank[t.ticketTypeId] ?? ""} extra={{ ticketTypeId: t.ticketTypeId }} label="Set rank">
+          <CommandForm action={setTicketTypeRankForm} ids={ids} commandKey={keys.rank[t.ticketTypeId] ?? ""} extra={{ ticketTypeId: t.ticketTypeId }} label="Save display order">
             <label className="block text-xs">
-              Display rank (0 first)
+              Display order (0 first)
               <input name="displayRank" type="number" min="0" max="999" step="1" required className="field mt-1 w-24" />
             </label>
           </CommandForm>
@@ -127,7 +132,7 @@ export function TierCommands({ ids, types, batches, keys, sessionId, timeZone }:
               empty_inventory — the gap D found. No shard control: 081:355 refuses any shard count above 0
               (sharding_deferred), so the only legal value is the one the action sends. */}
           {sessionId ? (
-            <CommandForm action={createInventoryBatchForm} ids={ids} commandKey={keys.release[t.ticketTypeId] ?? ""} extra={{ ticketTypeId: t.ticketTypeId, sessionId }} label="Release inventory">
+            <CommandForm action={createInventoryBatchForm} ids={ids} commandKey={keys.release[t.ticketTypeId] ?? ""} extra={{ ticketTypeId: t.ticketTypeId, sessionId }} label="Add tickets to sell">
               <label className="block text-xs">
                 Release
                 <select name="releaseKind" defaultValue="public_sale" className="field mt-1">

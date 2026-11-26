@@ -52,8 +52,8 @@ export default async function VenueSettingsPage({ params, searchParams }: { para
   const zone = venueTimeZone(DATA_SOURCE, venue?.timezone ?? null);
 
   return (
-    <Shell ctx={ctx} event={null} active="events" signedInAs={p.signedInAs} title="Venue settings">
-      <Page eyebrow="Venue" title="Venue settings" lead="What this venue is called, where it is, and the time zone every night is read in.">
+    <Shell ctx={ctx} event={null} active="settings" signedInAs={p.signedInAs}>
+      <Page eyebrow="Venue" title="Venue settings" lead="Manage your venue details and the time zone used for events.">
         {!entryOpen ? (
           <EntryGate entry={p.entry} loginHref={`/login?next=${encodeURIComponent(withPreview(self, ctx))}`} retryHref={withPreview(self, ctx)} />
         ) : !mayEdit ? (
@@ -69,7 +69,7 @@ export default async function VenueSettingsPage({ params, searchParams }: { para
             <p className="text-xs text-dim">{zoneNote(zone)}</p>
             <section className="panel px-5 py-5" aria-labelledby="venue-details-read">
               <h2 id="venue-details-read" className="text-base font-semibold text-ink">Details</h2>
-              <p className="mt-1 text-sm text-dim">Editing venue settings is turned off for this dashboard. These are the stored values, read from the database.</p>
+              <p className="mt-1 text-sm text-dim">Venue settings are view only right now. Contact Snatch It if these details need to change.</p>
               <dl className="mt-4 space-y-3 text-sm">
                 <div><dt className="eyebrow block text-dim">Name</dt><dd className="mt-0.5">{show(venue?.name ?? null)}</dd></div>
                 <div><dt className="eyebrow block text-dim">Neighborhood</dt><dd className="mt-0.5">{show(venue?.neighborhood ?? null)}</dd></div>

@@ -11,7 +11,7 @@ import { LargerScreenBanner } from "@/components/ui/State";
 import { Action, ArrowLink, Block, Detail, Facts, Row, Rows } from "@/components/ui/Page";
 
 /** Spec §7.3–§7.9 — event detail: header counters, sessions, advance status, resale policy, danger zone. */
-export function EventSetup({ event, types, batches, ctx, basePath, timeZone, openManifestSessionIds, commandsSlot, publishSlot }: { event: Event; types: TicketType[]; batches: InventoryBatch[]; ctx: PreviewContext; basePath: string; timeZone: string; openManifestSessionIds: Set<string> | null; commandsSlot?: ReactNode; publishSlot?: ReactNode }) {
+export function EventSetup({ event, types, batches, ctx, basePath, timeZone, openManifestSessionIds, commandsSlot, publishSlot, ticketsSlot }: { event: Event; types: TicketType[]; batches: InventoryBatch[]; ctx: PreviewContext; basePath: string; timeZone: string; openManifestSessionIds: Set<string> | null; commandsSlot?: ReactNode; publishSlot?: ReactNode; ticketsSlot?: ReactNode }) {
   const editor = canEditEvents(ctx.role);
   const next = nextStatus(event.status);
   const blocker = next === "on_sale" ? publishBlocker(types, batches) : null;
@@ -48,6 +48,14 @@ export function EventSetup({ event, types, batches, ctx, basePath, timeZone, ope
 
   return (
     <>
+      <section className="panel px-5 py-5" aria-labelledby="workspace-heading">
+        <h2 id="workspace-heading" className="text-base font-semibold">Your event workspace</h2>
+        <p className="mt-2 text-sm text-muted">{commandsSlot ? "Edit details and dates, add tickets, then review and publish. Each section saves separately." : "Review your event dates, tickets and publishing status here."}</p>
+        <nav aria-label="Event setup sections" className="mt-4 flex flex-wrap gap-2">
+          {(commandsSlot ? [["#event-details", "Details"], ["#event-dates", "Dates"], ["#types", "Tickets"], ["#event-preview", "Preview"], ["#status", "Publish"]] : [["#sessions", "Dates"], ["#types", "Tickets"], ["#event-preview", "Preview"], ["#status", "Status"]]).map(([href, label]) => <a key={href} className="btn btn-ghost btn-sm" href={href}>{label}</a>)}
+        </nav>
+      </section>
+      {commandsSlot}
       {/* 1. Where this event is, and the single thing to do next. */}
       <Block id="status">
         <p className="eyebrow-accent">{phase === "running" ? "Happening now" : phase === "finished" ? "Finished" : "Getting ready"}</p>
@@ -138,6 +146,13 @@ export function EventSetup({ event, types, batches, ctx, basePath, timeZone, ope
         )}
       </Block>
 
+      {ticketsSlot ? <section id="ticket-editor" aria-label="Edit tickets">{ticketsSlot}</section> : null}
+      <Block title="Event preview" id="event-preview" lead="A review of your saved event details. This is not a public listing.">
+        <h3 className="serif text-2xl">{event.title}</h3>
+        <p className="mt-2 text-sm text-muted">{first ? venueTime(first.startsAt, timeZone, { date: true, zone: true }) : "No date set"}</p>
+        <p className="mt-3 text-sm">{types.length ? types.map((ticket) => `${ticket.name} · ${usd(ticket.priceMinor)} · ${ticket.visibility.replace("_", " ")}`).join(" / ") : "No ticket types yet"}</p>
+        <p className="mt-3 text-sm text-muted">{STATUS_HELP[event.status]}</p>
+      </Block>
       {/* 5. Everything else, out of the way but reachable. */}
       <div className="space-y-4">
         {canReadResalePolicy(ctx.role) ? (
@@ -153,7 +168,6 @@ export function EventSetup({ event, types, batches, ctx, basePath, timeZone, ope
             {editor && ctx.writesEnabled !== false ? <p className="mt-2">A change to the resale setting creates a new version. The old version is kept, so the record always shows which rules a ticket was sold under.</p> : null}
           </Detail>
         ) : null}
-{commandsSlot}
         <Detail summary="Good to know about ticket types">
           <ul className="space-y-1">
             <li>Each price level is its own ticket type. Buyers see only Public ticket types. When one sells out, set the next one to Public on the Tickets page. It also needs a Public sale release for each night.</li>

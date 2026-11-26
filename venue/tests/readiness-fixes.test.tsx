@@ -115,9 +115,13 @@ describe("database mode states only what it read", () => {
 });
 
 describe("small honesty and access fixes", () => {
-  it("V11 — the price field accepts cents", () => {
+  it("the draft editor keeps ticket pricing for the ticket setup step", () => {
     const out = html(<CreateEventWizard ctx={as("venue_manager")} basePath={base} step={2} venueApproved venueName={VENUE.name} />);
-    expect(out).toMatch(/name="price"[^>]*step="0.01"|step="0.01"[^>]*name="price"/);
+    expect(out).toContain('name="title"');
+    expect(out).toContain('name="starts_at"');
+    expect(out).toContain("Save draft (demo)");
+    expect(out).toContain("Add tickets and set availability after saving.");
+    expect(out).not.toContain('name="price"');
   });
   it("V-denied-outside-shell — a whole-page denial has a main landmark and a page heading", () => {
     const out = html(<DeniedState standalone surface="This venue" />);
