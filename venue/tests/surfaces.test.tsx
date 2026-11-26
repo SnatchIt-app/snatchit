@@ -67,7 +67,7 @@ describe("event setup (§7.3–§7.9)", () => {
   });
   it("wizard blocks at step 1 when the venue is not approved", () => {
     const out = html(<CreateEventWizard ctx={vm} basePath={base} step={1} venueApproved={false} venueName="X" />);
-    expect(out).toContain("isn&#x27;t approved to sell yet");
+    expect(out).toContain("needs Snatch It approval");
   });
 });
 

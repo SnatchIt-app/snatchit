@@ -7,6 +7,7 @@ import { withPreview, type SearchParams } from "@/lib/preview";
 import { canReadEvents } from "@/lib/roles";
 import type { InventoryBatch, TicketType } from "@/lib/types";
 import { EventSetup } from "@/components/events/EventSetup";
+import { TierCommands, type TierCommandKeys } from "@/components/inventory/TierCommands";
 import { EventCommandPanel, type EventCommandKeys } from "@/components/events/EventCommandPanel";
 import { PublishEventForm } from "@/components/events/EventCommandForms";
 import { nextPublishTarget, type EventStatusName } from "@/lib/events/command-contract";
@@ -71,10 +72,13 @@ export default async function EventPage({ params, searchParams }: { params: Prom
   }
 
   // The organizer's commands (row 2), only when D's wrappers are exposed and the role may edit.
-  let commands: { ids: { orgId: string; venueId: string; eventId: string }; keys: EventCommandKeys } | null = null;
+  let commands: { ids: { orgId: string; venueId: string; eventId: string }; keys: EventCommandKeys; tierKeys: TierCommandKeys } | null = null;
   if (event && loaded && ctx.source === "database" && p.scope.ok && canEditEvents(ctx.role) && commandsGateOpen()) {
     const perSession = async () => Object.fromEntries(await Promise.all(event.sessions.map(async (s) => [s.sessionId, await mintCommandKey()] as const)));
+    const keyFor = async (ids: string[]) => Object.fromEntries(await Promise.all(ids.map(async (id) => [id, await mintCommandKey()] as const)));
+    const typeIds = loaded.types.map((type) => type.ticketTypeId);
     commands = {
+      tierKeys: { create: await mintCommandKey(), price: await keyFor(typeIds), visibility: await keyFor(typeIds), rank: await keyFor(typeIds), capacity: await keyFor(loaded.batches.map((batch) => batch.batchId)), release: await keyFor(typeIds), saleWindow: await keyFor(typeIds) },
       ids: { orgId: p.scope.orgId, venueId: p.scope.venueId, eventId: event.eventId },
       keys: { details: await mintCommandKey(), publish: await mintCommandKey(), cancel: await mintCommandKey(), sessionNew: await mintCommandKey(), session: await perSession(), capacity: await perSession() },
     };
@@ -115,8 +119,9 @@ export default async function EventPage({ params, searchParams }: { params: Prom
           timeZone={p.timeZone}
           openManifestSessionIds={loaded.open}
           commandsSlot={
-            commands ? <EventCommandPanel ids={commands.ids} event={event} keys={commands.keys} zone={venueTimeZone(DATA_SOURCE, null)} capacities={capacities} /> : undefined
+            commands ? <EventCommandPanel ids={commands.ids} event={event} keys={commands.keys} zone={venueTimeZone(DATA_SOURCE, event.timeZone)} capacities={capacities} /> : undefined
           }
+          ticketsSlot={commands ? <TierCommands ids={commands.ids} types={loaded.types} batches={loaded.batches} keys={commands.tierKeys} sessionId={event.sessions[0]?.sessionId ?? null} timeZone={p.timeZone} /> : undefined}
           publishSlot={commands && publishTarget ? <PublishEventForm ids={commands.ids} commandKey={commands.keys.publish} target={publishTarget} /> : undefined}
         />
       )}

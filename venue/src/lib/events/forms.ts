@@ -25,8 +25,8 @@ import { isUuid } from "@/lib/page";
  * carry ids, mint nothing, and revalidate the pages a receipt changes.
  *
  * The command key travels as a hidden field minted when the form rendered, so
- * pressing "try again" on the same form re-sends the SAME key and the server
- * replays it as a no-op instead of making a second event.
+ * repeat submissions retain the same key. Retry behavior depends on the server verb;
+ * after an uncertain create response, check the event list before creating another draft.
  */
 export type CommandFormState = { result: CommandResult<CommandReceipt> | null; problems?: FieldProblem[]; refusal?: string };
 

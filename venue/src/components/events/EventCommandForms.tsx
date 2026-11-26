@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import { Button } from "@astryxdesign/core/Button";
 import { CommandForm, Field, Select, type CommandIds } from "@/components/commands/CommandForm";
 import { cancelEventForm, createEventForm, createSessionForm, publishEventForm, setSessionCapacityForm, updateEventForm, updateSessionForm } from "@/lib/events/forms";
 import { PUBLISH_TARGETS, type EventStatusName } from "@/lib/events/command-contract";
@@ -25,40 +27,95 @@ export function TimeFields({ timeZone, defaults }: { timeZone: string; defaults?
 }
 
 export function CreateEventForm({ ids, commandKey, timeZone }: { ids: CommandIds; commandKey: string; timeZone: string }) {
+  const [preview, setPreview] = useState(false);
+  const [draft, setDraft] = useState({ title: "", starts: "", doors: "", ends: "", label: "" });
   return (
-    <section className="panel px-5 py-5" aria-labelledby="create-event">
-      <h2 id="create-event" className="text-base font-semibold text-ink">Create an event</h2>
-      <p className="mt-1 text-sm text-dim">It starts as a draft. Buyers cannot see a draft, and it sells nothing. If no answer comes back, check the events list before you send it again. Each send creates a new draft.</p>
-      <div className="mt-4">
-        <CommandForm action={createEventForm} ids={ids} commandKey={commandKey} submitLabel="Create the draft" busyLabel="Creating…">
-          <Field label="Title" name="title" required maxLength={200} placeholder="Snatch It pop-up" />
-          <TimeFields timeZone={timeZone} />
-        </CommandForm>
-      </div>
-    </section>
+    <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_20rem]">
+      <section className="panel px-5 py-6 md:px-7" aria-labelledby="create-event">
+        <p className="eyebrow-caps">Start with the essentials</p>
+        <h2 id="create-event" className="serif mt-2 text-3xl">Make it a night to remember.</h2>
+        <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted">Add your event name and date, then save a draft. Your event workspace opens next, with details, dates, tickets and publishing together.</p>
+        <div className="mt-6" onChange={(event) => {
+          const form = (event.target as HTMLInputElement).form;
+          if (!form) return;
+          const data = new FormData(form);
+          setDraft({ title: String(data.get("title") ?? ""), starts: String(data.get("starts_local") ?? ""), doors: String(data.get("doors_local") ?? ""), ends: String(data.get("ends_local") ?? ""), label: String(data.get("session_label") ?? "") });
+        }}>
+          <CommandForm action={createEventForm} ids={ids} commandKey={commandKey} submitLabel="Save draft" busyLabel="Saving draft…" openCreatedEvent>
+            <Field label="Event name" name="title" required maxLength={200} placeholder="Give your event a name" />
+            <input type="hidden" name="timeZone" value={timeZone} />
+            <fieldset className="grid gap-4 border-t border-line pt-5 sm:grid-cols-2">
+              <legend className="pb-3 pt-6 text-base font-semibold">Date and time</legend>
+              <Field label="Event starts" name="starts_local" type="datetime-local" required />
+              <Field label="Event ends (optional)" name="ends_local" type="datetime-local" />
+              <Field label="Doors open (optional)" name="doors_local" type="datetime-local" />
+              <Field label="Name for this night (optional)" name="session_label" placeholder="Friday night" maxLength={120} />
+            </fieldset>
+            <p className="text-xs text-muted">All times are in {timeZone}. Your draft stays private and cannot sell tickets.</p>
+            <details className="rounded-xl border border-line px-3 py-2 text-xs text-muted">
+              <summary className="cursor-pointer py-1">If saving takes too long</summary>
+              <p className="mt-2 leading-relaxed">If no answer comes back, check your events list before starting again. Each new save can create another draft.</p>
+            </details>
+          </CommandForm>
+        </div>
+      </section>
+      <aside className="panel px-5 py-6">
+        <p className="eyebrow-caps">Your event</p>
+        <div className="mt-4"><Button label={preview ? "Close preview" : "Preview draft"} clickAction={() => setPreview(!preview)} aria-expanded={preview} aria-controls="draft-preview" /></div>
+        {preview ? <div id="draft-preview" className="mt-4 space-y-3 rounded-xl border border-line p-4">
+          <p className="text-xs text-muted">Unsaved preview · only visible to you</p>
+          <h3 className="serif break-words text-2xl">{draft.title || "Your event name"}</h3>
+          <p className="text-sm">{draft.starts ? draft.starts.replace("T", " · ") : "Date and time to be added"}</p>
+          {draft.label ? <p className="text-sm">{draft.label}</p> : null}
+          {draft.doors ? <p className="text-xs text-muted">Doors: {draft.doors.replace("T", " · ")}</p> : null}
+          {draft.ends ? <p className="text-xs text-muted">Ends: {draft.ends.replace("T", " · ")}</p> : null}
+          <p className="text-xs text-muted">{timeZone}</p>
+        </div> : null}
+        <ol className="mt-6 space-y-4 border-t border-line pt-5 text-sm">
+          <li><strong>1. Save draft</strong><p className="mt-1 text-muted">Start with a name and date.</p></li>
+          <li><strong>2. Add tickets</strong><p className="mt-1 text-muted">Set ticket types, prices and availability.</p></li>
+          <li><strong>3. Publish event</strong><p className="mt-1 text-muted">Announce your event when it is ready. Opening sales is a separate step.</p></li>
+        </ol>
+      </aside>
+    </div>
   );
 }
 
 export function EventDetailsForm({ ids, commandKey, status, currentTitle, description, category, genreTags }: { ids: CommandIds; commandKey: string; status: EventStatusName; currentTitle: string; description?: string | null; category?: string | null; genreTags?: string[] }) {
   const needsReason = status !== "draft";
+  const [editing, setEditing] = useState<Record<string, boolean>>({});
   return (
-    <CommandForm action={updateEventForm} ids={ids} commandKey={commandKey} extra={{ status, current_title: currentTitle }} submitLabel="Save the details" busyLabel="Saving…">
+    <CommandForm action={updateEventForm} ids={ids} commandKey={commandKey} extra={{ status, current_title: currentTitle }} submitLabel="Save the details" busyLabel="Saving…" onSettled={() => setEditing({})}>
       <Field label="Title" name="title" defaultValue={currentTitle} maxLength={200} hint={needsReason ? "Changing the title now needs a reason, which is recorded." : undefined} />
-      <Field label="Description" name="description" defaultValue={description ?? ""} maxLength={2000} hint="This form does not show the saved description, category or genres. Saving sets all three from these boxes. An empty box clears what was saved." />
-      <Field label="Category" name="category" defaultValue={category ?? ""} maxLength={60} />
-      <Field label="Genres" name="genre_tags" defaultValue={(genreTags ?? []).join(", ")} hint="Separate with commas." />
-      {needsReason ? <Field label="Reason for this change" name="reason_code" placeholder="renamed_for_promo" maxLength={80} /> : null}
+      <p className="text-sm text-muted">Only the fields you choose to edit will change. Saved description, category and genres are not loaded here.</p>
+      {[
+        { name: "description", label: "Description", value: description ?? "", max: 2000 },
+        { name: "category", label: "Category", value: category ?? "", max: 60 },
+        { name: "genre_tags", label: "Genres", value: (genreTags ?? []).join(", "), max: undefined },
+      ].map((field) => (
+        <section key={field.name} className="rounded-xl border border-line p-3">
+          <label className="flex min-h-8 items-center gap-2 text-sm">
+            <input type="checkbox" checked={!!editing[field.name]} onChange={(event) => setEditing((previous) => ({ ...previous, [field.name]: event.target.checked }))} />
+            Change {field.label.toLowerCase()}
+          </label>
+          <fieldset disabled={!editing[field.name]} className="mt-2 disabled:opacity-50">
+            <legend className="sr-only">Replace {field.label.toLowerCase()}</legend>
+            <Field label={field.label} name={field.name} defaultValue={field.value} maxLength={field.max} hint={field.name === "genre_tags" ? "Separate with commas. Leave empty only to clear saved genres." : `Leave empty only to clear the saved ${field.label.toLowerCase()}.`} />
+          </fieldset>
+        </section>
+      ))}
+      {needsReason ? <Field label="Reason for this change" name="reason_code" placeholder="Explain why the name is changing" maxLength={80} /> : null}
     </CommandForm>
   );
 }
 
 export function PublishEventForm({ ids, commandKey, target }: { ids: CommandIds; commandKey: string; target: (typeof PUBLISH_TARGETS)[number] }) {
   return (
-    <CommandForm action={publishEventForm} ids={ids} commandKey={commandKey} extra={{ target_status: target }} submitLabel={`Move to ${STATUS_WORD[target] ?? target}`} busyLabel="Moving…">
+    <CommandForm action={publishEventForm} ids={ids} commandKey={commandKey} extra={{ target_status: target }} submitLabel={target === "announced" ? "Publish event" : target === "on_sale" ? "Open ticket sales" : target === "live" ? "Start event" : `Mark ${STATUS_WORD[target] ?? target}`} busyLabel="Updating…">
       <p className="text-sm text-muted">
         {target === "on_sale"
-          ? "Before the event can go on sale, the server checks for a ticket type with a release, an organization cleared to sell, a payout account Stripe has confirmed, ticket signing turned on, and the Snatch It fee set. If one is missing, the server names the first one it finds."
-          : "An event moves forward one step at a time, and never backwards."}
+          ? "Opening sales lets buyers purchase available tickets. We check ticket availability and payment setup first. If anything is missing, you will see what needs attention."
+          : target === "announced" ? "Publish the event announcement. This does not open ticket sales. This step cannot be reversed here." : "This moves the event to its next stage and cannot be reversed here."}
       </p>
     </CommandForm>
   );

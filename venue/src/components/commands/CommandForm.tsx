@@ -1,7 +1,9 @@
 "use client";
 
-import { useActionState, type ReactNode } from "react";
+import { useActionState, useState, type ReactNode } from "react";
+import { Button } from "@astryxdesign/core/Button";
 import { useRouter } from "next/navigation";
+import { createSubmissionGuard } from "@/lib/events/submission";
 import type { CommandFormState } from "@/lib/events/forms";
 
 /**
@@ -23,6 +25,8 @@ export function CommandForm({
   submitLabel,
   busyLabel,
   destructive = false,
+  openCreatedEvent = false,
+  onSettled,
   children,
 }: {
   action: (prev: CommandFormState, fd: FormData) => Promise<CommandFormState>;
@@ -32,17 +36,30 @@ export function CommandForm({
   submitLabel: string;
   busyLabel?: string;
   destructive?: boolean;
+  openCreatedEvent?: boolean;
+  onSettled?: () => void;
   children?: ReactNode;
 }) {
   const router = useRouter();
+  const [submission] = useState(createSubmissionGuard);
   const [state, formAction, pending] = useActionState<CommandFormState, FormData>(async (prev, fd) => {
-    const next = await action(prev, fd);
-    if (next.result?.kind === "ok") router.refresh();
-    return next;
+    try {
+      const next = await action(prev, fd);
+      if (next.result?.kind === "ok") {
+        const eventId = next.result.result.event_id;
+        if (openCreatedEvent && typeof eventId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(eventId)) {
+          router.push(`/o/${ids.orgId}/v/${ids.venueId}/events/${eventId}`);
+        } else router.refresh();
+      }
+      return next;
+    } finally {
+      submission.release();
+      onSettled?.();
+    }
   }, INITIAL);
 
   return (
-    <form action={formAction} className="space-y-3">
+    <form action={formAction} onSubmit={submission.onSubmit} aria-busy={pending} className="space-y-3">
       <input type="hidden" name="orgId" value={ids.orgId} />
       <input type="hidden" name="venueId" value={ids.venueId} />
       {ids.eventId ? <input type="hidden" name="eventId" value={ids.eventId} /> : null}
@@ -64,9 +81,7 @@ export function CommandForm({
         </ul>
       ) : null}
       <Outcome state={state} />
-      <button type="submit" disabled={pending} className={`btn min-h-11 ${destructive ? "btn-danger" : "btn-soft"}`}>
-        {pending ? (busyLabel ?? "Sending…") : submitLabel}
-      </button>
+      <Button type="submit" isDisabled={pending} isLoading={pending} variant={destructive ? "destructive" : "primary"} size="lg" className="min-h-11" label={pending ? (busyLabel ?? "Sending…") : submitLabel} />
     </form>
   );
 }

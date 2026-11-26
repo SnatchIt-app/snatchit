@@ -63,7 +63,7 @@ describe("acceptance kit markers match the v2 copy", () => {
       </Shell>,
     );
     expect(t).not.toContain(DENIED);
-    expect(t).toContain("Capabilities come from your grants");
+    expect(t).toContain("Your access:");
     expect(t).toContain("Venue manager");
     expect(t).toContain("not wired to the database yet");
   });

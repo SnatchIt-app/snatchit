@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { Button } from "@astryxdesign/core/Button";
+import { EventViewSwitcher, type EventView } from "@/components/events/EventViewSwitcher";
 import { VENUE } from "@/fixtures/venue";
 import { listBatches, listEvents, listHolds, listTicketTypes, PreviewReadError } from "@/lib/data";
 import { dbListBatches, dbListEvents, dbListTicketTypes } from "@/lib/db/adapters";
@@ -24,6 +26,8 @@ export default async function EventsPage({ params, searchParams }: { params: Pro
   const p = await readPage(params, searchParams);
   if (!p.scope.ok) return <DeniedState standalone surface="This venue" reason="This account holds no role at the venue in this link." />;
   const ctx = p.ctx;
+  const rawView = p.first("view");
+  const view = rawView === "cards" || rawView === "table" || rawView === "chart" ? rawView : "list";
   const { basePath, venueId } = p.scope;
   const readable = ctx.state !== "denied" && canReadEvents(ctx.role);
 
@@ -91,6 +95,12 @@ export default async function EventsPage({ params, searchParams }: { params: Pro
         ) : null}
       </header>
       <section aria-label="Events" className="panel enter-2 px-5 pb-2 pt-4 md:px-6">
+      {readable && entryOpen ? <EventViewSwitcher view={view} hrefs={Object.fromEntries((["list", "cards", "table", "chart"] as const).map((nextView) => {
+        const query = new URLSearchParams({ view: nextView });
+        if (p.first("q")) query.set("q", p.first("q")!);
+        if (p.first("status")) query.set("status", p.first("status")!);
+        return [nextView, withPreview(`${basePath}/events?${query}`, ctx)];
+      })) as Record<EventView, string>} /> : null}
       {readable && entryOpen ? (
         <form method="get" role="search" className="mb-3 flex flex-wrap gap-2">
           <PreviewHidden ctx={ctx} />
@@ -109,9 +119,8 @@ export default async function EventsPage({ params, searchParams }: { params: Pro
               </option>
             ))}
           </select>
-          <button className="btn btn-ghost" type="submit">
-            Filter
-          </button>
+          <input type="hidden" name="view" value={view} />
+          <Button label="Filter" type="submit" variant="secondary" size="lg" className="min-h-11" />
         </form>
       ) : null}
       {!entryOpen ? (
@@ -126,6 +135,7 @@ export default async function EventsPage({ params, searchParams }: { params: Pro
         <ErrorState lost="The events list" read={failedRead ?? "catalog.event"} retryHref={withPreview(`${basePath}/events`, ctx)} />
       ) : (
         <EventsTable
+          view={view}
           events={loaded.events}
           batches={loaded.batches}
           types={loaded.types}

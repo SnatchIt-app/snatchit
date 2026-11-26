@@ -73,7 +73,7 @@ describe("database mode offers no write control", () => {
         <p>x</p>
       </Shell>,
     );
-    expect(out).toContain("Capabilities come from your grants");
+    expect(out).toContain("Your access:");
     expect(out).toContain("Venue finance");
     expect(out).not.toContain('name="role"');
     expect(out).toContain("fin@example.test");

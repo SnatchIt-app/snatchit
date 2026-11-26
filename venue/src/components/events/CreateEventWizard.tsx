@@ -1,130 +1,41 @@
+"use client";
+
+import { useState } from "react";
+import { Button } from "@astryxdesign/core/Button";
 import { withPreview, type PreviewContext } from "@/lib/preview";
-import { AuditNote, Panel } from "@/components/ui/Bits";
 import { PreviewHidden } from "@/components/events/EventSetup";
 
-/**
- * Spec §7.2 — three steps, ends in `draft`:
- *  1 Basics → catalog.create_event (auto-creates the first session)
- *  2 First ticket type → venue.create_ticket_type
- *  3 First inventory release → venue.create_inventory_batch
- * Precondition surfaced at step 1: the venue must be approved.
- */
+/** Sample editor: one reviewable draft, never a real event or ticket write. */
 export function CreateEventWizard({ ctx, basePath, step, venueApproved, venueName }: { ctx: PreviewContext; basePath: string; step: 1 | 2 | 3 | 4; venueApproved: boolean; venueName: string }) {
-  const self = `${basePath}/events/new`;
-  const steps = ["Basics", "First ticket type", "First inventory release"];
-  return (
-    <div className="mx-auto max-w-2xl space-y-6">
-      <header>
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <div>
-            <p className="eyebrow-caps">Create event</p>
-            <h1 className="title-page mt-3">New event</h1>
-          </div>
-          <a className="link inline-flex min-h-6 items-center text-sm" href={withPreview(`${basePath}/events`, ctx)}>
-            Cancel and go back to events
-          </a>
-        </div>
-        <p className="mt-3 text-[0.9375rem] leading-relaxed text-muted">Three steps. The event starts as a draft. Buyers cannot see a draft, and it sells nothing.</p>
-        <ol className="mt-5 grid grid-cols-3 gap-2 text-[0.8125rem]">
-          {steps.map((s, i) => (
-            <li key={s} aria-current={i + 1 === step ? "step" : undefined} className={`border-t-2 pt-2 ${i + 1 === step ? "border-[#26211d] font-medium text-ink" : i + 1 < step ? "border-[#2f6b33] text-success" : "border-line text-dim"}`}>
-              <span className="tabular-nums">{i + 1}</span> · {s}
-            </li>
-          ))}
-        </ol>
-      </header>
-
-      {!venueApproved ? (
-        <p className="panel px-4 py-3 text-sm text-warning">This venue isn&apos;t approved to sell yet. Snatch It has to approve it first.</p>
-      ) : step === 1 ? (
-        <Panel title="Basics" eyebrow="Step 1 of 3">
-          <form method="get" action={withPreview(self, ctx)} className="space-y-3">
-            <input type="hidden" name="step" value="2" />
-            <input type="hidden" name="did" value="catalog.create_event" />
-            <PreviewHidden ctx={ctx} />
-            <Field label="Title" name="title" required placeholder="Saturday Music Night" />
-            <Field label="Venue" name="venue" value={venueName} readOnly />
-            <Field label="First session starts" name="starts_at" type="datetime-local" required />
-            <Field label="Doors (optional)" name="doors_at" type="datetime-local" />
-            <Field label="Session label (optional)" name="label" placeholder="Friday" />
-            <AuditNote />
-            <button className="btn btn-primary" type="submit">
-              Continue
-            </button>
-          </form>
-        </Panel>
-      ) : step === 2 ? (
-        <Panel title="First ticket type" eyebrow="Step 2 of 3">
-          <p className="mb-3 text-sm text-muted">To go on sale, an event needs at least one ticket type with a release. You can add it later.</p>
-          <form method="get" action={withPreview(self, ctx)} className="space-y-3">
-            <input type="hidden" name="step" value="3" />
-            <input type="hidden" name="did" value="venue.create_ticket_type" />
-            <PreviewHidden ctx={ctx} />
-            <label className="block text-sm">
-              Kind
-              <select name="kind" className="field mt-1" defaultValue="admission">
-                <option value="admission">Admission</option>
-                <option value="table">Table (deposit)</option>
-              </select>
-            </label>
-            <Field label="Name (unique per event)" name="name" required placeholder="General admission" />
-            <Field label="Price (USD)" name="price" type="number" step="0.01" min="0.01" required placeholder="25.00" />
-            <label className="block text-sm">
-              Visibility
-              <select name="visibility" className="field mt-1" defaultValue="public">
-                <option value="public">Public</option>
-                <option value="hidden">Hidden</option>
-                <option value="door_only">Door only</option>
-              </select>
-            </label>
-            <AuditNote />
-            <button className="btn btn-primary" type="submit">
-              Continue
-            </button>
-          </form>
-        </Panel>
-      ) : step === 3 ? (
-        <Panel title="First inventory release" eyebrow="Step 3 of 3">
-          <form method="get" action={withPreview(self, ctx)} className="space-y-3">
-            <input type="hidden" name="step" value="4" />
-            <input type="hidden" name="did" value="venue.create_inventory_batch" />
-            <PreviewHidden ctx={ctx} />
-            <label className="block text-sm">
-              Release
-              <select name="release_kind" className="field mt-1" defaultValue="public_sale">
-                <option value="public_sale">Public sale</option>
-                <option value="presale">Presale</option>
-                <option value="promoter_hold">Promoter hold</option>
-                <option value="comp">Comps</option>
-                <option value="door">Door</option>
-              </select>
-            </label>
-            <Field label="Capacity" name="capacity" type="number" required placeholder="300" />
-            <p className="text-xs text-dim">Capacity is set per session. An event has no capacity of its own.</p>
-            <AuditNote />
-            <button className="btn btn-primary" type="submit">
-              Create draft
-            </button>
-          </form>
-        </Panel>
-      ) : (
-        <Panel title="Draft created (preview)" eyebrow="Done">
-          <p className="text-sm">In the real dashboard you would now be on the new event&apos;s setup page in <strong>Draft</strong>. This preview saved nothing.</p>
-          <a className="btn btn-ghost btn-sm mt-3" href={withPreview(`${basePath}/events`, ctx)}>
-            Back to events
-          </a>
-        </Panel>
-      )}
-    </div>
-  );
+  const [preview, setPreview] = useState(false);
+  const [title, setTitle] = useState("");
+  const [starts, setStarts] = useState("");
+  return <div className="space-y-6">
+    <header className="flex flex-wrap items-end justify-between gap-4"><div><p className="eyebrow-caps">{venueName}</p><h1 className="title-page mt-3">New event</h1><p className="mt-3 text-muted">Start with the essentials. Save a private draft, then add tickets and publish when you are ready.</p></div><a className="btn btn-ghost" href={withPreview(`${basePath}/events`, ctx)}>Back to events</a></header>
+    {!venueApproved ? <p className="panel px-5 py-4 text-sm text-warning">This venue needs Snatch It approval before it can sell tickets.</p> : step === 4 ? <section className="panel p-6"><h2 className="serif text-2xl">Draft preview complete</h2><p className="mt-3 text-sm text-muted">This demo saved nothing. In your venue workspace, saving creates a private draft where you can add details, tickets and availability.</p><a className="btn btn-ghost mt-4" href={withPreview(`${basePath}/events`, ctx)}>Back to events</a></section> : <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_20rem]">
+      <form method="get" action={`${basePath}/events/new`} className="panel space-y-5 px-5 py-6 md:px-7">
+        <PreviewHidden ctx={ctx} /><input type="hidden" name="step" value="4" /><input type="hidden" name="did" value="catalog.create_event" />
+        <h2 className="serif text-3xl">Make it a night to remember.</h2>
+        <Field label="Event name" name="title" required placeholder="Give your event a name" onChange={setTitle} />
+        <Field label="Venue" name="venue" value={venueName} readOnly />
+        <fieldset className="grid gap-4 border-t border-line pt-3 sm:grid-cols-2"><legend className="py-3 font-semibold">Date and time</legend>
+          <Field label="Event starts" name="starts_at" type="datetime-local" required onChange={setStarts} />
+          <Field label="Event ends (optional)" name="ends_at" type="datetime-local" />
+          <Field label="Doors open (optional)" name="doors_at" type="datetime-local" />
+          <Field label="Name for this night (optional)" name="label" placeholder="Friday night" />
+        </fieldset>
+        <p className="text-sm text-muted">Your draft stays private and cannot sell tickets. Add tickets and set availability after saving.</p>
+        <p className="text-xs text-muted">Demo — sample data. Nothing will be saved.</p>
+        <Button label="Save draft (demo)" type="submit" variant="primary" size="lg" className="min-h-11" />
+      </form>
+      <aside className="panel px-5 py-6"><p className="eyebrow-caps">Your event</p><div className="mt-4"><Button label={preview ? "Close preview" : "Preview draft"} clickAction={() => setPreview(!preview)} /></div>
+        {preview ? <div className="mt-4 space-y-3 rounded-xl border border-line p-4"><p className="text-xs text-muted">Unsaved preview · only visible to you</p><h2 className="serif break-words text-2xl">{title || "Your event name"}</h2><p className="text-sm">{starts ? starts.replace("T", " · ") : "Date and time to be added"}</p><p className="text-sm text-muted">{venueName}</p></div> : null}
+        <ol className="mt-6 space-y-4 border-t border-line pt-5 text-sm"><li><strong>1. Save draft</strong><p className="mt-1 text-muted">Start with a name and date.</p></li><li><strong>2. Add tickets</strong><p className="mt-1 text-muted">Set ticket types, prices and availability.</p></li><li><strong>3. Publish event</strong><p className="mt-1 text-muted">Announce your event when it is ready. Opening sales is a separate step.</p></li></ol>
+      </aside>
+    </div>}
+  </div>;
 }
 
-function Field({ label, name, type = "text", required, placeholder, value, readOnly, step, min }: { label: string; name: string; type?: string; required?: boolean; placeholder?: string; value?: string; readOnly?: boolean; step?: string; min?: string }) {
-  return (
-    <label className="block text-sm">
-      {label}
-      {required ? " *" : ""}
-      <input className="field mt-1" name={name} type={type} required={required} placeholder={placeholder} defaultValue={value} readOnly={readOnly} step={step} min={min} />
-    </label>
-  );
+function Field({ label, name, type = "text", required, placeholder, value, readOnly, onChange }: { label: string; name: string; type?: string; required?: boolean; placeholder?: string; value?: string; readOnly?: boolean; onChange?: (value: string) => void }) {
+  return <label className="block text-sm"><span className="eyebrow block text-dim">{label}{required ? " *" : ""}</span><input className="field mt-1" name={name} type={type} required={required} placeholder={placeholder} defaultValue={value} readOnly={readOnly} onChange={onChange ? (event) => onChange(event.target.value) : undefined} /></label>;
 }

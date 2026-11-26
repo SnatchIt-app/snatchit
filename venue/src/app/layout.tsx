@@ -3,6 +3,7 @@ import { Inter, Newsreader } from "next/font/google";
 import { DATA_SOURCE } from "@/lib/env";
 import { siteMetadata } from "@/lib/source";
 import "./globals.css";
+import { DashboardProviders } from "./providers";
 
 const inter = Inter({ subsets: ["latin"], display: "swap", variable: "--font-inter" });
 /** Editorial serif for titles, section headings and headline figures (approved concept, 2026-10-09). */
@@ -18,8 +19,8 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${inter.variable} ${newsreader.variable}`}>
-      <body className="min-h-dvh antialiased">{children}</body>
+    <html lang="en" data-theme="light" data-astryx-theme="neutral" className={`${inter.variable} ${newsreader.variable}`}>
+      <body className="min-h-dvh antialiased"><DashboardProviders>{children}</DashboardProviders></body>
     </html>
   );
 }

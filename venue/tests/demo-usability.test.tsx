@@ -206,7 +206,7 @@ describe("no dead ends", () => {
   it("the create-event wizard offers a way out on every step", () => {
     for (const step of [1, 2, 3] as const) {
       const out = html(<CreateEventWizard ctx={vm} basePath={base} step={step} venueApproved venueName={VENUE.name} />);
-      expect(out, `step ${step}`).toContain("Cancel and go back to events");
+      expect(out, `step ${step}`).toContain("Back to events");
       expect(out, `step ${step}`).toContain(`${base}/events`);
     }
   });

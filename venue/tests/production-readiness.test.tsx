@@ -7,6 +7,8 @@ import { existsSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }) }));
+
 const html = (el: React.ReactElement) => renderToStaticMarkup(el);
 
 // Database-mode page harness: the session probe and the venue_api adapters are replaced, so a

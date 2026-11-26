@@ -1,5 +1,5 @@
 import { CancelEventForm, EventDetailsForm, SessionCapacityForm, SessionForm } from "@/components/events/EventCommandForms";
-import { Detail } from "@/components/ui/Page";
+import { Block, Detail } from "@/components/ui/Page";
 import type { CommandIds } from "@/components/commands/CommandForm";
 import { type EventStatusName } from "@/lib/events/command-contract";
 import { formatInZone } from "@/lib/events/instants";
@@ -28,11 +28,11 @@ export function EventCommandPanel({ ids, event, keys, zone, capacities }: { ids:
     <div className="space-y-4">
       <p className="text-xs text-dim">{zoneNote(zone)}</p>
 
-      <Detail summary="Edit the event's details">
+      <Block title="Event details" id="event-details">
         <EventDetailsForm ids={ids} commandKey={keys.details} status={status} currentTitle={event.title} />
-      </Detail>
+      </Block>
 
-      <Detail summary="The nights: times, doors and how many each may sell">
+      <Block title="Dates and capacity" id="event-dates">
         {terminal ? (
           // 203: the server refuses every session change on a completed or cancelled event (event_terminal).
           <p className="text-sm text-dim">This event is {status}. Its nights, times and capacity can no longer change.</p>
@@ -66,7 +66,7 @@ export function EventCommandPanel({ ids, event, keys, zone, capacities }: { ids:
           </div>
         </div>
         )}
-      </Detail>
+      </Block>
 
       {!terminal ? <Detail summary="Cancel this event">
         <CancelEventForm ids={ids} commandKey={keys.cancel} />
