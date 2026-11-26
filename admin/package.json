@@ -9,9 +9,13 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "local:stack": "bash scripts/local-stack.sh"
+    "local:stack": "bash scripts/local-stack.sh",
+    "astryx": "node node_modules/@astryxdesign/cli/clients/cli/bin/astryx.mjs"
   },
   "dependencies": {
+    "@astryxdesign/core": "0.7.17",
+    "@astryxdesign/theme-neutral": "0.7.17",
+    "@stylexjs/stylex": "0.19.2",
     "@supabase/ssr": "^0.12.3",
     "@supabase/supabase-js": "^2.110.9",
     "next": "16.4.5",
@@ -20,6 +24,7 @@
     "server-only": "^0.0.1"
   },
   "devDependencies": {
+    "@astryxdesign/cli": "0.7.17",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
