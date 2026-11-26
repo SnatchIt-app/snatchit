@@ -14,9 +14,9 @@ GRANT ALL ON archive285 TO authenticated;
 INSERT INTO public.payments(id,listing_id,buyer_id,seller_id,amount,buyer_fee,seller_fee,total,mode,status,created_at,paid_at,stripe_livemode)
 VALUES('d0508a55-84de-40d8-b696-9e0ea4396bb3',tap.listing_d(),tap.buyer(),tap.seller(),200,20,20,220,'buy_now','succeeded','2026-11-03T21:26:45.213Z','2026-11-03T21:27:22Z',false),
 ('d44d0d3d-90e0-4e3b-a6bd-2769275ec741',null,tap.buyer(),null,100,10,0,110,'native_primary','succeeded','2026-11-25','2026-11-25',false);
-INSERT INTO public.transfers(id,listing_id,payment_id,seller_id,buyer_id,transfer_method,status,payout_released_at,stripe_transfer_id)
-VALUES('abd8257e-07ee-4718-99d0-d9c8e6dc5c1e',tap.listing_d(),'d0508a55-84de-40d8-b696-9e0ea4396bb3',tap.seller(),tap.buyer(),'mobile_transfer','auto_released',null,null),
-(tap.transfer_b(),tap.listing_b(),tap.payment_b(),tap.seller(),tap.buyer(),'mobile_transfer','buyer_confirmed',now(),'tr_fixture_285');
+INSERT INTO public.transfers(id,listing_id,payment_id,seller_id,buyer_id,transfer_method,status,payout_released_at,stripe_transfer_id,expires_at)
+VALUES('abd8257e-07ee-4718-99d0-d9c8e6dc5c1e',tap.listing_d(),'d0508a55-84de-40d8-b696-9e0ea4396bb3',tap.seller(),tap.buyer(),'mobile_transfer','auto_released',null,null,'2026-11-04'),
+(tap.transfer_b(),tap.listing_b(),tap.payment_b(),tap.seller(),tap.buyer(),'mobile_transfer','buyer_confirmed',now(),'tr_fixture_285','2026-01-02');
 -- Snapshot protected money facts before any cleanup. The native fixture deliberately has
 -- no issuance link, so it remains an actionable native settlement failure after the move.
 UPDATE archive285 SET keep_before=(SELECT jsonb_agg(to_jsonb(p) ORDER BY p.id) FROM public.payments p WHERE p.id NOT IN(SELECT unnest(ids) FROM archive285));
