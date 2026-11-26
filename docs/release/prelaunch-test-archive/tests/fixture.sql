@@ -26,11 +26,13 @@ create table public.payout_decisions(id uuid primary key,payment_id uuid referen
 create table public.seller_flags(id uuid primary key,transfer_id uuid references public.transfers(id) on delete set null);
 create table public.transfer_notifications(id uuid primary key,transfer_id uuid references public.transfers(id) on delete cascade);
 create table public.payout_attempts(id uuid primary key,payment_id uuid references public.payments(id),transfer_id uuid references public.transfers(id));
+create function public.payment_refunds_append_only() returns trigger language plpgsql as $$begin raise exception 'append_only';end$$;
+create function public.payment_refund_state_log_append_only() returns trigger language plpgsql as $$begin raise exception 'append_only';end$$;
 create table public.payment_refunds(id uuid primary key,payment_id uuid references public.payments(id));
-create trigger trg_payment_refunds_append_only before delete or update on public.payment_refunds for each row execute function ops.raise_append_only();
+create trigger trg_payment_refunds_append_only before delete or update on public.payment_refunds for each row execute function public.payment_refunds_append_only();
 create table public.payment_refund_state(id uuid primary key,payment_id uuid references public.payments(id));
 create table public.payment_refund_state_log(id uuid primary key,payment_id uuid references public.payments(id));
-create trigger trg_payment_refund_state_log_append_only before delete or update on public.payment_refund_state_log for each row execute function ops.raise_append_only();
+create trigger trg_payment_refund_state_log_append_only before delete or update on public.payment_refund_state_log for each row execute function public.payment_refund_state_log_append_only();
 create table public.notifications(id uuid primary key,metadata jsonb);
 create table kernel.payment_native(payment_id uuid references public.payments(id) on delete restrict);
 create table kernel.refund(payment_id uuid references public.payments(id) on delete restrict);
@@ -41,3 +43,6 @@ grant usage on schema ops to authenticated;
 create function ops.refresh_metrics() returns jsonb language sql as $$select '{}'::jsonb$$;
 
 create table ops.alert(alert_key text primary key,state text,payload jsonb,notify_request_id bigint,delivered_at timestamptz);
+
+create function public.dispute_resolutions_append_only() returns trigger language plpgsql as $$begin raise exception 'append_only';end$$;
+create trigger trg_dispute_resolutions_append_only before delete or update on public.dispute_resolutions for each row execute function public.dispute_resolutions_append_only();

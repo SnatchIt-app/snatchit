@@ -82,6 +82,7 @@ begin
  select coalesce(array_agg(id),'{}'::uuid[]) into v_cases from ops."case"
  where (subject_kind='payment' and subject_id=any(p_ids)) or(subject_kind='transfer' and subject_id=any(v_transfers));
  if exists(select 1 from ops.alert where payload->>'case_id'=any(v_cases::text[]) and notify_request_id is not null and delivered_at is null) then raise exception 'archive_refused: alert delivery still in flight';end if;
+ if exists(select 1 from public.dispute_resolutions where transfer_id=any(v_transfers)) then raise exception 'archive_refused: immutable dispute resolution needs separate review';end if;
  if exists(select 1 from public.payout_attempts where payment_id=any(p_ids) or transfer_id=any(v_transfers)) then
  raise exception 'archive_refused: provider payout attempt exists'; end if;
  if exists(select 1 from public.transfers where id=any(v_transfers) and
@@ -170,13 +171,31 @@ begin
  'public.seller_flags'::regclass,'public.transfer_notifications'::regclass,
  'public.payment_refunds'::regclass,'public.payment_refund_state'::regclass,
  'public.payment_refund_state_log'::regclass,'public.notifications'::regclass,'ops.alert'::regclass)
- and c.conname not in('dispute_resolutions_transfer_id_fkey','webhook_retries_payment_id_fkey',
- 'transfers_payment_id_fkey','transfer_notifications_transfer_id_fkey','seller_flags_transfer_id_fkey',
- 'disputes_payment_id_fkey','disputes_transfer_id_fkey','payout_decisions_transfer_id_fkey',
- 'payout_decisions_payment_id_fkey','payment_native_payment_id_fkey','refund_payment_id_fkey',
- 'market_sale_payment_id_fkey','dispute_native_payment_id_fkey','case_note_case_id_fkey',
- 'case_event_case_id_fkey','payment_refund_state_payment_id_fkey','payment_refund_state_log_payment_id_fkey',
- 'payout_attempts_transfer_id_fkey','payout_attempts_payment_id_fkey','payment_refunds_payment_id_fkey')) then
+ and not exists(select 1 from(values
+   ('public.dispute_resolutions','public.transfers','dispute_resolutions_transfer_id_fkey','transfer_id','a'),
+   ('public.webhook_retries','public.payments','webhook_retries_payment_id_fkey','payment_id','a'),
+   ('public.transfers','public.payments','transfers_payment_id_fkey','payment_id','a'),
+   ('public.transfer_notifications','public.transfers','transfer_notifications_transfer_id_fkey','transfer_id','c'),
+   ('public.seller_flags','public.transfers','seller_flags_transfer_id_fkey','transfer_id','n'),
+   ('public.disputes','public.payments','disputes_payment_id_fkey','payment_id','a'),
+   ('public.disputes','public.transfers','disputes_transfer_id_fkey','transfer_id','a'),
+   ('public.payout_decisions','public.transfers','payout_decisions_transfer_id_fkey','transfer_id','c'),
+   ('public.payout_decisions','public.payments','payout_decisions_payment_id_fkey','payment_id','n'),
+   ('kernel.payment_native','public.payments','payment_native_payment_id_fkey','payment_id','r'),
+   ('kernel.refund','public.payments','refund_payment_id_fkey','payment_id','r'),
+   ('market.market_sale','public.payments','market_sale_payment_id_fkey','payment_id','r'),
+   ('kernel.dispute_native','public.payments','dispute_native_payment_id_fkey','payment_id','r'),
+   ('ops.case_note','ops.case','case_note_case_id_fkey','case_id','c'),
+   ('ops.case_event','ops.case','case_event_case_id_fkey','case_id','c'),
+   ('public.payment_refund_state','public.payments','payment_refund_state_payment_id_fkey','payment_id','a'),
+   ('public.payment_refund_state_log','public.payments','payment_refund_state_log_payment_id_fkey','payment_id','a'),
+   ('public.payout_attempts','public.transfers','payout_attempts_transfer_id_fkey','transfer_id','a'),
+   ('public.payout_attempts','public.payments','payout_attempts_payment_id_fkey','payment_id','a'),
+   ('public.payment_refunds','public.payments','payment_refunds_payment_id_fkey','payment_id','a')
+ ) a(child,parent,fk,col,del) where c.conrelid=a.child::regclass and c.confrelid=a.parent::regclass
+ and c.conname=a.fk and c.confdeltype=a.del::"char"
+ and c.conkey=array[(select attnum from pg_attribute where attrelid=c.conrelid and attname=a.col)]::smallint[]
+ and c.confkey=array[(select attnum from pg_attribute where attrelid=c.confrelid and attname='id')]::smallint[])) then
  raise exception 'archive_refused: unreviewed dependent foreign key'; end if;
  if exists(select 1 from pg_trigger g where not g.tgisinternal and (g.tgtype::int & 8)=8
  and g.tgrelid in('public.payments'::regclass,'public.transfers'::regclass,'ops.case'::regclass,
@@ -185,8 +204,12 @@ begin
  'public.seller_flags'::regclass,'public.transfer_notifications'::regclass,
  'public.payment_refunds'::regclass,'public.payment_refund_state'::regclass,
  'public.payment_refund_state_log'::regclass,'public.notifications'::regclass,'ops.alert'::regclass)
- and g.tgname not in('tg_case_note_append_only','tg_case_event_append_only',
- 'trg_payment_refunds_append_only','trg_payment_refund_state_log_append_only')) then
+ and not(g.tgtype=27 and g.tgenabled='O' and (
+ (g.tgrelid='public.dispute_resolutions'::regclass and g.tgname='trg_dispute_resolutions_append_only' and g.tgfoid='public.dispute_resolutions_append_only()'::regprocedure)
+ or (g.tgrelid='ops.case_note'::regclass and g.tgname='tg_case_note_append_only' and g.tgfoid='ops.raise_append_only()'::regprocedure)
+ or(g.tgrelid='ops.case_event'::regclass and g.tgname='tg_case_event_append_only' and g.tgfoid='ops.raise_append_only()'::regprocedure)
+ or(g.tgrelid='public.payment_refunds'::regclass and g.tgname='trg_payment_refunds_append_only' and g.tgfoid='public.payment_refunds_append_only()'::regprocedure)
+ or(g.tgrelid='public.payment_refund_state_log'::regclass and g.tgname='trg_payment_refund_state_log_append_only' and g.tgfoid='public.payment_refund_state_log_append_only()'::regprocedure)))) then
  raise exception 'archive_refused: unreviewed delete trigger'; end if;
  if (select md5(prosrc) from pg_proc where oid=to_regprocedure('ops.detect_paid_unsettled()')) is distinct from '157189091779cf6ba5f3541ab0110edc' then raise exception 'archive_refused: reviewed native detector required';end if;
  v_current:=ops.prelaunch_archive_collect(b.payment_ids);
@@ -209,7 +232,6 @@ begin
  delete from public.notifications where id in(select (p->>'id')::uuid from jsonb_array_elements(b.snapshot->'public.notifications') p);
  delete from public.webhook_retries where payment_id=any(b.payment_ids);
  delete from public.disputes where payment_id=any(b.payment_ids) or transfer_id=any(v_transfers);
- delete from public.dispute_resolutions where transfer_id=any(v_transfers);
  delete from public.payout_decisions where payment_id=any(b.payment_ids) or transfer_id=any(v_transfers);
  delete from public.seller_flags where transfer_id=any(v_transfers);
  delete from public.transfer_notifications where transfer_id=any(v_transfers);

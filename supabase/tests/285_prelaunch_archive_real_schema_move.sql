@@ -60,6 +60,6 @@ SELECT is((SELECT count(*)::int FROM ops."case" WHERE subject_id=ANY((SELECT ids
 SELECT is((SELECT count(*)::int FROM ops.alert WHERE alert_key IN('case:refund_pending:'||tap.payment_b()::text,'case:dispute_open:'||tap.transfer_b()::text)),0,'old refund/dispute alerts leave active operations immediately');
 SELECT ok(EXISTS(SELECT FROM ops.alert WHERE alert_key='case:release_stuck:abd8257e-07ee-4718-99d0-d9c8e6dc5c1e' AND state='firing'),'unrelated real alert remains firing');
 SELECT is((SELECT count(*)::int FROM ops.audit WHERE action='prelaunch_tests.archived'),1,'exactly one archive audit entry survives replay');
-SELECT is((SELECT count(*)::int FROM pg_trigger WHERE tgname IN('tg_case_note_append_only','tg_case_event_append_only','trg_payment_refunds_append_only','trg_payment_refund_state_log_append_only') AND tgenabled='O'),4,'all four deletion guards are enabled after the real-schema move');
+SELECT is((SELECT count(*)::int FROM pg_trigger WHERE tgname IN('tg_case_note_append_only','tg_case_event_append_only','trg_payment_refunds_append_only','trg_payment_refund_state_log_append_only','trg_dispute_resolutions_append_only') AND tgenabled='O'),5,'all five history guards remain enabled after the real-schema move');
 SELECT * FROM finish();
 ROLLBACK;
