@@ -24,12 +24,14 @@ export function UserTable({
   basePath,
   searchParams,
   nextCursor,
+  fullEmails,
   filterable = false,
 }: {
   rows: UserListItem[];
   basePath: string;
   searchParams?: SearchParamsLike;
   nextCursor?: string | null;
+  fullEmails?: Record<string,string|null>;
   /** Client-side text filter over the rows on this page. */
   filterable?: boolean;
 }) {
@@ -51,7 +53,7 @@ export function UserTable({
       ),
       sortValue: (u) => u.display_name || u.id || null,
     },
-    { key: "email", header: "Email (masked)", render: (u) => <span className="font-mono text-[0.75rem]">{u.email_masked ?? "—"}</span>, sortValue: (u) => u.email_masked ?? null },
+    { key: "email", header: fullEmails ? "Email" : "Email (masked)", render: (u) => <span className="font-mono text-[0.75rem]">{fullEmails ? (u.id ? fullEmails[u.id.toLowerCase()] ?? "—" : "—") : u.email_masked ?? "—"}</span>, sortValue: (u) => fullEmails ? (u.id ? fullEmails[u.id.toLowerCase()] ?? null : null) : u.email_masked ?? null },
     { key: "verified", header: "Verified seller", render: (u) => <StatusBadge status={String(u.is_verified_seller ?? false)} label={u.is_verified_seller ? "verified" : "no"} />, sortValue: (u) => u.is_verified_seller ?? false },
     {
       key: "onboarding",

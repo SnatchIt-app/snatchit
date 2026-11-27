@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { getAdminUserEmails } from "@/lib/admin-user-emails";
 import { callOps } from "@/lib/ops";
 import { requireOperator } from "@/lib/auth/session";
 import { newIdempotencyKey } from "@/lib/idempotency";
@@ -54,6 +55,8 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
       </>
     );
   }
+  const contacts = await getAdminUserEmails(me.role, [id]);
+  const fullEmail = contacts.state === "ready" ? contacts.emails[id.toLowerCase()] : undefined;
   const risk = u.seller_risk_score;
   const activeRestriction = u.restrictions.find((r) => !r.lifted_at && (r.kind ?? "listing_blocked") === "listing_blocked");
   const activeSuspension = u.restrictions.find((r) => !r.lifted_at && r.kind === "suspended");
@@ -89,13 +92,14 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
         }
       />
 
+      {contacts.state === "unavailable" ? <Alert state="failed" title="Full email address could not be loaded. Masked contact is shown." /> : null}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
-          <Panel eyebrow="Masked" title="Profile">
+          <Panel eyebrow="Contact and account" title="Profile">
             <KeyValue
               columns={3}
               items={[
-                { key: "email_masked", label: "Email (masked)", value: u.email_masked ? <span className="font-mono text-[0.75rem]">{u.email_masked}</span> : null },
+                { key: "email", label: contacts.state === "ready" ? "Email" : "Email (masked)", value: (contacts.state === "ready" ? fullEmail : u.email_masked) ? <span className="font-mono text-[0.75rem]">{contacts.state === "ready" ? fullEmail : u.email_masked}</span> : null },
                 { key: "phone_masked", label: "Phone (masked)", value: u.phone_masked ? <span className="font-mono text-[0.75rem]">{u.phone_masked}</span> : null },
                 { key: "created_at", label: "Profile created", value: <DateTime value={u.profile.created_at} /> },
                 { key: "auth_created", label: "Account created", value: <DateTime value={u.auth.created_at} /> },

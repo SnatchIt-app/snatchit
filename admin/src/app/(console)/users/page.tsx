@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
+import { getAdminUserEmails } from "@/lib/admin-user-emails";
 import { callOps } from "@/lib/ops";
 import { requireOperator } from "@/lib/auth/session";
 import { num, toListPage, toUserListItem, type UserListItem } from "@/lib/types";
 import { cursorOf, first, limitOf, selfHref, type SearchParams } from "@/lib/search-params";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { OpsFailureAlert } from "@/components/ui/Alert";
+import { Alert, OpsFailureAlert } from "@/components/ui/Alert";
 import { FilterField, FilterForm } from "@/components/ui/FilterField";
 import { UserTable } from "@/components/users/UserTable";
 
@@ -13,7 +14,7 @@ export const dynamic = "force-dynamic";
 
 export default async function UsersPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const sp = await searchParams;
-  await requireOperator();
+  const operator = await requireOperator();
 
   const q = (first(sp.q) ?? "").trim().slice(0, 200);
   const isSeller = first(sp.is_seller);
@@ -26,6 +27,7 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
   const res = await callOps<unknown>("list_users", { p_filters: filters, p_cursor: cursorOf(sp), p_limit: limitOf(sp) });
   const page = res.ok ? toListPage(res.data) : null;
   const rows: UserListItem[] = page ? page.items.map(toUserListItem).filter((u): u is UserListItem => u !== null) : [];
+  const contacts = await getAdminUserEmails(operator.role, rows.flatMap(u=>u.id?[u.id]:[]));
   const countHint = res.ok && typeof res.data === "object" && res.data !== null ? num((res.data as Record<string, unknown>).count_hint) : null;
 
   return (
@@ -33,7 +35,7 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
       <PageHeader
         eyebrow="People"
         title="Users"
-        description="Buyers and sellers. Contact details are masked by the database; the console never sees raw email or phone."
+        description={operator.role === "platform_admin" ? "Buyers and sellers. Platform admins can see full email addresses. Phone numbers stay masked." : "Buyers and sellers. Contact details remain masked for your role."}
         meta={countHint !== null ? `${countHint.toLocaleString("en-US")} user${countHint === 1 ? "" : "s"}` : undefined}
       />
       <FilterForm action="/users">
@@ -55,7 +57,8 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
           </select>
         </FilterField>
       </FilterForm>
-      {!res.ok ? <OpsFailureAlert failure={res} fn="list_users" retryHref={selfHref("/users", sp)} /> : <UserTable rows={rows} basePath="/users" searchParams={sp} nextCursor={page?.next_cursor} filterable />}
+      {contacts.state === "unavailable" ? <Alert state="failed" title="Full email addresses could not be loaded. Masked contacts are shown; try again later." /> : null}
+      {!res.ok ? <OpsFailureAlert failure={res} fn="list_users" retryHref={selfHref("/users", sp)} /> : <UserTable fullEmails={contacts.state === "ready" ? contacts.emails : undefined} rows={rows} basePath="/users" searchParams={sp} nextCursor={page?.next_cursor} filterable />}
     </>
   );
 }
