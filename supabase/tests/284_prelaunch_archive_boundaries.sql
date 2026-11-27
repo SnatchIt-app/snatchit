@@ -1,0 +1,27 @@
+-- Full-chain role/ACL checks. Destructive behavior uses a separate isolated contract fixture.
+BEGIN;
+SELECT plan(16);
+SELECT has_table('ops','prelaunch_archive_batch','private archive batch exists');
+SELECT ok((select relrowsecurity from pg_class where oid='ops.prelaunch_archive_batch'::regclass),'archive has RLS enabled');
+SELECT ok(not has_table_privilege('anon','ops.prelaunch_archive_batch','SELECT'),'anon cannot read full snapshots');
+SELECT ok(not has_table_privilege('authenticated','ops.prelaunch_archive_batch','SELECT'),'authenticated cannot read full snapshots directly');
+SELECT ok(not has_table_privilege('service_role','ops.prelaunch_archive_batch','SELECT'),'service role has no snapshot table grant');
+SELECT ok(not has_function_privilege('authenticated','ops.prelaunch_archive_prepare(uuid[])','EXECUTE'),'browser cannot prepare an archive');
+SELECT ok(not has_function_privilege('authenticated','ops.prelaunch_archive_collect(uuid[])','EXECUTE'),'browser cannot export raw snapshots');
+SELECT ok(not has_function_privilege('anon','ops.prelaunch_archive_execute(uuid,text,text,text)','EXECUTE'),'anon cannot execute cleanup');
+SELECT ok(not has_function_privilege('service_role','ops.prelaunch_archive_execute(uuid,text,text,text)','EXECUTE'),'service role cannot bypass admin/MFA execution');
+SELECT ok(has_function_privilege('authenticated','ops.prelaunch_archive_read()','EXECUTE'),'authenticated reaches the role-gated history reader');
+SELECT ok(has_function_privilege('authenticated','ops.prelaunch_archive_execute(uuid,text,text,text)','EXECUTE'),'authenticated reaches the role-gated one-time executor');
+SELECT tap.seed_core();
+SELECT tap.login(tap.admin_user());
+SELECT throws_ok($$SELECT ops.prelaunch_archive_read()$$,'P0001','step_up_unavailable: the session carries no aal claim','even platform admin needs an MFA claim');
+SELECT set_config('request.jwt.claims',(current_setting('request.jwt.claims')::jsonb || '{"aal":"aal2"}'::jsonb)::text,true);
+SELECT is(ops.prelaunch_archive_read()->>'state','not_prepared','real platform-admin/MFA gate can read an unprepared archive');
+SELECT throws_ok($$SELECT ops.prelaunch_archive_execute(gen_random_uuid(),repeat('a',64),'owner-reviewed pre-launch cleanup','yes')$$,'P0001','archive_refused: confirmation and written reason required','server requires exact typed confirmation');
+SELECT throws_ok($$SELECT ops.prelaunch_archive_execute(gen_random_uuid(),repeat('a',64),'owner-reviewed pre-launch cleanup','ARCHIVE 57 TEST ORDERS')$$,'P0001','archive_refused: batch or preview mismatch','unprepared batch cannot execute');
+SELECT tap.logout();
+SELECT tap.login(tap.buyer());
+SELECT set_config('request.jwt.claims',(current_setting('request.jwt.claims')::jsonb || '{"aal":"aal2"}'::jsonb)::text,true);
+SELECT throws_ok($$SELECT ops.prelaunch_archive_read()$$,'42501','insufficient_privilege: operator role required','MFA alone never grants archive access');
+SELECT * FROM finish();
+ROLLBACK;

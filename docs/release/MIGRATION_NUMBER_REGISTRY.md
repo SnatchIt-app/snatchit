@@ -154,3 +154,10 @@ merges **first** and needs no renumber; the unwritten fix costs nothing to move.
 
 **This is sequencing approval only** — not authorization to apply any migration, and not a Build 16 change.
 Claude B owns `121` and `125`; the registry and B's references need to agree before either is merged.
+
+
+## November 26, 2026 — 216 / pgTAP 284 (local candidate)
+
+Reserved by Codex A for owner-approved one-time pre-launch test archive. File `20261126200848_prelaunch_test_archive.sql`; rollback `216_prelaunch_test_archive_rollback.sql`; source base `027ffc15`. No data is seeded or archived by migration. Admin execution remains a separate exact-batch operation with backup verification and role/MFA checks. Hosted apply/execution UNRUN.
+
+Companion pgTAP 285 adds a rollback-only full-schema move rehearsal with synthetic manifest configuration and real admin/MFA/ACLs. No production identifiers beyond the two protected-contract IDs and no private row data are seeded in repository tests.
