@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Starts only a unique local Unix-socket cluster; retains data/evidence; no URLs/credentials."""
-import pathlib,subprocess,tempfile,os,hashlib,json,uuid,sys
+import pathlib,subprocess,tempfile,os,hashlib,json,uuid,sys,time
 HERE=pathlib.Path(__file__).resolve().parent
 if any(k=='DATABASE_URL' or k.startswith('PG') for k in os.environ): raise SystemExit('refusing inherited database settings')
 os.umask(0o077)
@@ -65,6 +65,14 @@ try:
  sql((repo/'supabase/rollbacks/216_prelaunch_test_archive_rollback.sql').read_text())
  sql((HERE.parent/'native-settlement-forward.sql').read_text());sql(source)
  print('PASS empty schema rollback and repeat restore the exact predecessor')
+ if '--heartbeat' in sys.argv:
+  sql('alter table ops."case" add column last_seen_at timestamptz not null default now(),add column updated_at timestamptz not null default now();')
+  heartbeat=(HERE.parent/'heartbeat/forward.sql').read_text()
+  sql(heartbeat)
+  sql((repo/'supabase/rollbacks/217_prelaunch_archive_monitoring_heartbeat_rollback.sql').read_text())
+  sql(heartbeat)
+  print('PASS217 schema apply, safe rollback and reapply')
+
  batch=c('select ops.prelaunch_archive_prepare('+arr+');');sha=c('select snapshot_sha256 from ops.prelaunch_archive_batch;')
  invoke=f"select ops.prelaunch_archive_execute('{batch}','{sha}','Owner approved pre-launch synthetic contract cleanup','ARCHIVE 57 TEST ORDERS');"
  fails('missing-backup',auth+invoke,'unverified backup')
@@ -90,7 +98,58 @@ try:
  assert c('select count(*) from public.payments;')=='59'
  assert c("select count(*) from pg_trigger where tgname in('tg_case_event_append_only','trg_payment_refunds_append_only','trg_payment_refund_state_log_append_only') and tgenabled='O';")=='3'
  sql('drop trigger fixture_fail_delete on ops.prelaunch_archive_batch;')
+
+ if '--heartbeat' in sys.argv:
+  a=source.index('create function ops.prelaunch_archive_execute(');old_executor=source[a:source.index('\ncommit;',a)].replace('create function','create or replace function',1)
+  a=heartbeat.index('create or replace function ops.prelaunch_archive_execute(');new_executor=heartbeat[a:heartbeat.index('\ncommit;',a)]
+  sql(old_executor);fails('queued-old-executor-atomic-refusal',auth+invoke,'prelaunch_execution_required_ck');sql(new_executor)
+  assert c('select count(*) from public.payments;')=='59'
+ if '--heartbeat' in sys.argv:
+  fails('case-business-change',auth+"begin;update ops.\"case\" set status='waiting';"+invoke+'commit;','source changed')
+  sql("update ops.\"case\" set last_seen_at=last_seen_at+interval '1 second',updated_at=updated_at+interval '1 second';")
+  expected=c('select ops.prelaunch_archive_collect(payment_ids) from ops.prelaunch_archive_batch;')
+  a=source.index('create function ops.prelaunch_archive_execute(');old_executor=source[a:source.index('\ncommit;',a)].replace('create function','create or replace function',1)
+  a=heartbeat.index('create or replace function ops.prelaunch_archive_execute(');new_executor=heartbeat[a:heartbeat.index('\ncommit;',a)]
+  sql(old_executor);fails('heartbeat-RED-old-comparison',auth+invoke,'source changed');sql(new_executor)
  receipt=json.loads(c(auth+invoke));assert receipt['status']=='archived'
+
+ if '--heartbeat' in sys.argv:
+  assert json.loads(c('select execution_snapshot from ops.prelaunch_archive_batch;'))==json.loads(expected)
+  assert c("select execution_snapshot_sha256=encode(sha256(convert_to(execution_snapshot::text,'UTF8')),'hex') from ops.prelaunch_archive_batch;")=='t'
+  fails('217-rollback-retains-execution',(repo/'supabase/rollbacks/217_prelaunch_archive_monitoring_heartbeat_rollback.sql').read_text(),'retain execution history')
+  print('PASS217 heartbeat GREEN, full actual before-images and hash retained')
+  # Actual two-connection proof: rollback must wait behind the executor lock,
+  # then inspect committed history. The old unlocked control refuses immediately.
+  lockfile=(root/'217-locker.out').open('w')
+  locker=subprocess.Popen(['psql','-X','-v','ON_ERROR_STOP=1','-At','-c',"begin;select pg_advisory_xact_lock(hashtext('ops.prelaunch_archive_once'));select pg_sleep(20);"],env={**env,'PGAPPNAME':'sn217-owned-locker'},stdout=lockfile,stderr=subprocess.STDOUT)
+  locker_pid=None; blocked=None
+  try:
+   for _ in range(40):
+    locker_pid=c("select coalesce((select pid::text from pg_stat_activity a where application_name='sn217-owned-locker' and exists(select from pg_locks l where l.pid=a.pid and l.locktype='advisory' and l.granted)),'');")
+    if locker_pid:break
+    time.sleep(.05)
+   assert locker_pid and locker_pid.isdigit(),'owned advisory holder not observed'
+   rb=(repo/'supabase/rollbacks/217_prelaunch_archive_monitoring_heartbeat_rollback.sql').read_text()
+   marker="select pg_advisory_xact_lock(hashtext('ops.prelaunch_archive_once'));\n"
+   assert rb.count(marker)==1
+   fails('217-unlocked-rollback-negative-control',rb.replace(marker,'',1),'retain execution history')
+   blocked=subprocess.Popen(['psql','-X','-v','ON_ERROR_STOP=1','-At'],env={**env,'PGAPPNAME':'sn217-owned-rollback'},stdin=subprocess.PIPE,stdout=(root/'217-rollback.out').open('w'),stderr=(root/'217-rollback.err').open('w'),text=True)
+   blocked.stdin.write(rb);blocked.stdin.close()
+   observed=False
+   for _ in range(30):
+    if c("select exists(select from pg_stat_activity where application_name='sn217-owned-rollback' and wait_event='advisory');")=='t':observed=True;break
+    if blocked.poll() is not None:break
+    time.sleep(.05)
+   assert observed,'rollback did not serialize on the executor advisory lock'
+  finally:
+   if locker_pid:sql('select pg_cancel_backend('+locker_pid+');')
+   locker.wait(timeout=5)
+   if blocked is not None:blocked.wait(timeout=5)
+   lockfile.close()
+  assert blocked.returncode!=0 and 'retain execution history' in (root/'217-rollback.err').read_text()
+  assert c('select execution_snapshot is not null from ops.prelaunch_archive_batch;')=='t'
+  print('PASS217 rollback waits behind executor and retains committed execution history')
+
  assert c('select count(*) from public.payments;')=='2'
  assert c('select count(*) from public.transfers;')=='1'
  assert c('select count(*) from ops."case";')=='0'
