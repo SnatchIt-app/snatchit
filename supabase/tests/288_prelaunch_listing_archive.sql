@@ -43,7 +43,7 @@ create table public.catalog_archive_child_test(id uuid primary key,bid_id uuid r
 select throws_ok($$select ops.prelaunch_listing_assert_scope()$$,'P0001','catalog_archive_refused: unknown dependency or delete hook','new cascading dependency of a bid refuses before any move');
 drop table public.catalog_archive_child_test;
 select ops.case_upsert('manual','listing',(ops.prelaunch_listing_ids())[1],null,'Closed archive fixture','Retain historical case','p3',null,'manual');
-update ops."case" set status='dismissed' where subject_kind='listing' and subject_id=(ops.prelaunch_listing_ids())[1];
+update ops."case" set status='dismissed',resolved_at=now(),resolved_by=tap.admin_user() where subject_kind='listing' and subject_id=(ops.prelaunch_listing_ids())[1];
 select tap.login(tap.other_user());
 select set_config('request.jwt.claims',(current_setting('request.jwt.claims')::jsonb||'{"aal":"aal2"}')::text,true);
 select throws_ok($$select ops.prelaunch_listing_execute(digest,'Owner approved listing cleanup','ARCHIVE 113 OLD LISTINGS')from catalog_proof$$,'42501','insufficient_privilege: requires one of {platform_admin} (you are platform_support)','support cannot execute');
