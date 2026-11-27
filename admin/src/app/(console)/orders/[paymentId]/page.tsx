@@ -202,8 +202,12 @@ export default async function OrderPage({ params }: { params: Promise<{ paymentI
             ) : null}
           </Panel>
 
-          <Panel eyebrow="Seller obligation" title="Transfer">
-            {!t ? (
+          <Panel eyebrow={p.mode === "native_primary" ? "Native ticket order" : "Seller obligation"} title={p.mode === "native_primary" ? "Ticket issuance" : "Transfer"}>
+            {p.mode === "native_primary" && !t ? (
+              <Alert state="info" title="Native ticket purchases do not use a resale transfer." compact>
+                Check ticket issuance and refund matching in <Link href="/money" className="underline">Money’s native-order reconciliation</Link>. A missing resale transfer alone is not a settlement failure.
+              </Alert>
+            ) : !t ? (
               <Alert state={p.status === "succeeded" ? "warning" : "info"} title={p.status === "succeeded" ? "Captured payment without a transfer record." : "No transfer obligation (payment not captured)."} compact>
                 {p.status === "succeeded" ? "This is a settlement gap. Escalate with the payment id. Do not mark anything sold by hand." : null}
               </Alert>
