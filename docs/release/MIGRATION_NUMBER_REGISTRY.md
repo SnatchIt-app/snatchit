@@ -161,3 +161,8 @@ Claude B owns `121` and `125`; the registry and B's references need to agree bef
 Reserved by Codex A for owner-approved one-time pre-launch test archive. File `20261126200848_prelaunch_test_archive.sql`; rollback `216_prelaunch_test_archive_rollback.sql`; source base `027ffc15`. No data is seeded or archived by migration. Admin execution remains a separate exact-batch operation with backup verification and role/MFA checks. Hosted apply/execution UNRUN.
 
 Companion pgTAP 285 adds a rollback-only full-schema move rehearsal with synthetic manifest configuration and real admin/MFA/ACLs. No production identifiers beyond the two protected-contract IDs and no private row data are seeded in repository tests.
+
+
+## November27 —217 / pgTAP286 archive heartbeat correction
+
+Reserved by Codex A. `20261127195004_prelaunch_archive_monitoring_heartbeat.sql` tolerates only advancing case last-seen/update timestamps. All other reviewed data stays exact; complete execution rows get a second private snapshot/hash under the existing locks. No preparation or move is performed by migration. Rollback217 refuses any execution history.
