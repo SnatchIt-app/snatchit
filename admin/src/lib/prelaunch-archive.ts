@@ -1,3 +1,4 @@
+import type { OpsFailure } from "@/lib/ops-errors";
 import { isRecord } from "@/lib/types";
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const SHA = /^[0-9a-f]{64}$/;
@@ -52,4 +53,13 @@ export function buildArchiveArgs(form: FormData): Record<string, string> | null 
 }
 export function isArchiveReceipt(value: unknown, args: Record<string, string>): boolean {
   return isRecord(value) && value.status === "archived" && value.batch_id === args.p_batch && value.snapshot_sha256 === args.p_snapshot_sha256 && isRecord(value.counts) && value.counts["public.payments"] === 57;
+}
+
+/** Only known safe errors get specific guidance; request details are never echoed. */
+export function archiveFailureMessage(result: OpsFailure): string {
+  if (result.kind === "mfa") return "Your two-step verification expired. Verify your sign-in again, then return to this page.";
+  if (result.kind === "denied") return "Your sign-in no longer has permission for this cleanup. A platform admin must review it.";
+  if (result.kind === "error" && result.code === "P0001" && result.message === "archive_refused: source changed since backup") return "Records changed after the backup review. A fresh review and verified backup are required; refreshing this page alone will not fix it. No cleanup was confirmed.";
+  if (result.kind === "error" && ["55P03", "40P01"].includes(result.code ?? "")) return "Background work is using these records. Wait a moment, then check the batch before retrying. No cleanup was confirmed.";
+  return "Cleanup was not confirmed. Refresh this page to check the current batch; no success is assumed.";
 }
