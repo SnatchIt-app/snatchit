@@ -98,6 +98,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
         }
       />
 
+      {l.status === "archived" ? <Alert state="info" title="Archived listing — kept for history. This listing is no longer on sale." /> : null}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
           <Panel eyebrow="As recorded — read only" title="Listing">
