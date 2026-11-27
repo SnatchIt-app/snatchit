@@ -701,3 +701,7 @@ Jose explicitly approved one pre-launch cleanup exception in chat, permitting a 
 ## ADMIN-CONTACT-VISIBILITY-1 — owner-approved admin email visibility (November27,2026)
 
 Jose requested full email addresses in the admin Users page. The bounded exception permits existing authenticated platform_admin operators with aal2 to read email addresses for up to200 explicitly selected current-page profile IDs. Existing support/risk readers, venue/consumer scopes, masked APIs, phone masking and authentication-secret exclusions remain intact. No public/direct auth table grant is introduced. No email/auth token or lookup argument is written to application logs. This is not general contact-data exposure or an account-cleanup approval for unidentified users.
+
+## PRELAUNCH-CATALOG-ARCHIVE-1 — owner-approved one-time operational cleanup (2026-11-27)
+
+Owner explicitly approved removal or archival of prelaunch test data, confirmed keep DD plus ANOTR, James Hype + HILLS, Adiel & Yu Su and IDEMI, and instructed completion of the four cleanup tasks. The sealed113 older-listing graph moves to private recoverable storage; IDs/history are never reused or discarded. Existing report/audit links resolve to archived listing detail; no money, custody, Auth identity or storage file is deleted. This is a single manifest exception, not a general production deletion capability. Test identities use existing audited suspension, preserving ledger identity.
