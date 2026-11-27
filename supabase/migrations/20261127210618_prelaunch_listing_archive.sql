@@ -169,8 +169,7 @@ begin
     exists(select from public.reports where target_id=any(ids) and status not in('dismissed','actioned')) or
     exists(select from ops.action where subject_id=any(ids) and state in('requested','awaiting_approval','processing','unknown','succeeded_at_provider'))
  then raise exception 'catalog_archive_refused: a listing has a financial, native or unresolved dependency';end if;
- if exists(select from pg_catalog.pg_constraint where contype='f' and confrelid='public.listings'::regclass and conrelid not in(
- 'public.bids'::regclass,'public.payments'::regclass,'public.webhook_retries'::regclass,'public.transfers'::regclass,'public.seller_flags'::regclass,'public.saved_listings'::regclass,'public.listing_visibility'::regclass)) or
+ if (select encode(sha256(convert_to(coalesce(string_agg(ns.nspname||'.'||rs.relname||'|'||c.conname||'|'||nt.nspname||'.'||rt.relname||'|'||c.conkey::text||'|'||c.confkey::text||'|'||c.confupdtype::text||c.confdeltype::text||c.confmatchtype::text||'|'||c.condeferrable::text||'|'||c.condeferred::text||'|'||c.convalidated::text,E'\n'order by ns.nspname,rs.relname,c.conname),''),'UTF8')),'hex') from pg_constraint c join pg_class rs on rs.oid=c.conrelid join pg_namespace ns on ns.oid=rs.relnamespace join pg_class rt on rt.oid=c.confrelid join pg_namespace nt on nt.oid=rt.relnamespace where c.contype='f' and c.confrelid in('public.listings'::regclass,'public.bids'::regclass,'public.saved_listings'::regclass,'public.listing_visibility'::regclass)) is distinct from '62259adac02352efa132ce77ae7a157470239072ad04e8fc3b0a9873f3b4b76b' or
  exists(select from pg_catalog.pg_trigger where tgrelid in('public.listings'::regclass,'public.bids'::regclass,'public.saved_listings'::regclass,'public.listing_visibility'::regclass) and not tgisinternal and (tgtype::int & 8)<>0)
  then raise exception 'catalog_archive_refused: unknown dependency or delete hook';end if;
 end $scope$;
@@ -259,7 +258,7 @@ begin
        'highest',(select max((j->>'amount')::numeric)from jsonb_array_elements(v_b.snapshot->'public.bids')j where j->>'listing_id'=p_listing_id::text),
        'highest_bidder_id',v_j->>'highest_bidder_id','recent',coalesce((select jsonb_agg(j order by j->>'created_at' desc)from jsonb_array_elements(v_b.snapshot->'public.bids')j where j->>'listing_id'=p_listing_id::text),'[]'::jsonb)),
       'reports',coalesce((select jsonb_agg(to_jsonb(r))from public.reports r where r.target_type='listing' and r.target_id=p_listing_id),'[]'::jsonb),
-      'seller_flags','[]'::jsonb,'cases','[]'::jsonb,'actions',coalesce((select jsonb_agg(ops.action_row(a))from ops.action a where a.subject_kind='listing' and a.subject_id=p_listing_id),'[]'::jsonb),
+      'seller_flags','[]'::jsonb,'cases',coalesce((select jsonb_agg(ops.case_row(k)order by k.created_at desc)from ops."case" k where k.subject_kind='listing' and k.subject_id=p_listing_id),'[]'::jsonb),'actions',coalesce((select jsonb_agg(ops.action_row(a))from ops.action a where a.subject_kind='listing' and a.subject_id=p_listing_id),'[]'::jsonb),
       'evidence',jsonb_build_object('proof_of_ownership_path',jsonb_build_object('bucket','proof-docs','path',v_j->>'proof_of_ownership_path'),'cover_image_path',jsonb_build_object('bucket','auction-media','path',v_j->>'cover_image_path')));
     end if;
     raise exception 'not_found: listing % does not exist'$replacement$);

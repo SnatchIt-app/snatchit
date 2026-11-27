@@ -1,6 +1,6 @@
 --219 full-schema atomic archive controls; no production row content.
 begin;
-select plan(22);
+select plan(24);
 insert into auth.users(id,email,raw_app_meta_data,raw_user_meta_data) values
 (tap.seller(),'catalog-seller@test.local','{"provider":"email"}','{}'),(tap.buyer(),'catalog-buyer@test.local','{"provider":"email"}','{}'),(tap.admin_user(),'catalog-admin@test.local','{"provider":"email"}','{}'),(tap.other_user(),'catalog-support@test.local','{"provider":"email"}','{}')on conflict(id)do nothing;
 insert into public.admin_users(user_id,label)values(tap.admin_user(),'TEST ADMIN')on conflict do nothing;
@@ -39,6 +39,11 @@ alter table ops.prelaunch_listing_archive disable trigger catalog_archive_immuta
 update ops.prelaunch_listing_archive set snapshot=ops.prelaunch_listing_collect(),snapshot_sha256=encode(sha256(convert_to(ops.prelaunch_listing_collect()::text,'UTF8')),'hex'),backup_sha256=encode(sha256(convert_to(ops.prelaunch_listing_collect()::text,'UTF8')),'hex');
 alter table ops.prelaunch_listing_archive enable trigger catalog_archive_immutable;
 update catalog_proof set digest=(select snapshot_sha256 from ops.prelaunch_listing_archive);
+create table public.catalog_archive_child_test(id uuid primary key,bid_id uuid references public.bids(id) on delete cascade);
+select throws_ok($$select ops.prelaunch_listing_assert_scope()$$,'P0001','catalog_archive_refused: unknown dependency or delete hook','new cascading dependency of a bid refuses before any move');
+drop table public.catalog_archive_child_test;
+select ops.case_upsert('manual','listing',(ops.prelaunch_listing_ids())[1],null,'Closed archive fixture','Retain historical case','p3',null,'manual');
+update ops."case" set status='dismissed' where subject_kind='listing' and subject_id=(ops.prelaunch_listing_ids())[1];
 select tap.login(tap.other_user());
 select set_config('request.jwt.claims',(current_setting('request.jwt.claims')::jsonb||'{"aal":"aal2"}')::text,true);
 select throws_ok($$select ops.prelaunch_listing_execute(digest,'Owner approved listing cleanup','ARCHIVE 113 OLD LISTINGS')from catalog_proof$$,'42501','insufficient_privilege: requires one of {platform_admin} (you are platform_support)','support cannot execute');
@@ -69,6 +74,7 @@ select is(jsonb_array_length(ops.prelaunch_listing_read()->'listings'),113,'hist
 select ok(not(ops.prelaunch_listing_read() ? 'snapshot'),'reader never returns private snapshot');
 select is((select ops.prelaunch_listing_execute(digest,'Owner approved listing cleanup','ARCHIVE 113 OLD LISTINGS')from catalog_proof),(select receipt from catalog_proof),'replay is exact no-op');
 select is(ops.listing_detail((ops.prelaunch_listing_read()->'listings'->0->>'id')::uuid)->'listing'->>'status','archived','old report listing link resolves to read-only archive');
+select is(jsonb_array_length(ops.listing_detail((ops.prelaunch_listing_read()->'listings'->0->>'id')::uuid)->'cases'),1,'retained closed case stays visible on archived detail');
 select tap.logout();
 select is((select count(*)::int from public.listings),5,'only five kept listings remain operational');
 select is((select jsonb_agg(to_jsonb(l)order by id)from public.listings l),(select keep from catalog_proof),'all kept listing rows unchanged');
