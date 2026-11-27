@@ -171,3 +171,7 @@ Reserved by Codex A. `20261127195004_prelaunch_archive_monitoring_heartbeat.sql`
 ## November27 —218 / pgTAP287 admin full-email visibility
 
 Owner requested full emails on admin Users. New bounded `ops.admin_user_emails(uuid[])` requires platform_admin plus existing aal2. All current masked reader contracts, phones, venue and consumer access remain unchanged. File20261127204723; rollback218 removes only this read endpoint. No account/data cleanup is performed by this migration.
+
+## November27 —219 / pgTAP288 one-time listing archive
+
+Owner-approved exact113 older public listings, keeping five explicitly named listings and every identity/payment/native record. Private full-row recovery copy includes bids, saved and visibility rows. Existing dismissed report/audit remain; listing_detail resolves archived IDs read-only. Schema migration never moves records; verified private backup and admin+MFA confirmation are separate. Rollback refuses any prepared/history row.
