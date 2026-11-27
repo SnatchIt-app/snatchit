@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Alert, OpsFailureAlert } from "@/components/ui/Alert";
 import { Money } from "@/components/ui/Money";
@@ -18,6 +19,7 @@ export default async function PrelaunchArchivePage() {
   if (!batch) return <>{header}<Alert state="failed" title="The archive response could not be verified. No cleanup is available." /></>;
   if (batch.state === "not_prepared") return <>{header}<Alert state="info" title="No cleanup batch has been prepared.">No records have been moved. The reviewed order list and verified backup must be prepared first.</Alert></>;
   return <>{header}
+    <p className="mb-6"><Link href="/system/listing-archive" className="underline">Open older listing archive</Link></p>
     <section className="panel p-5 mb-6" aria-labelledby="archive-scope"><h2 id="archive-scope" className="title-section">{batch.state === "archived" ? "Archived test records" : "Review this one-time cleanup"}</h2>
       <p className="mt-3">57 old test orders. Daniel’s $2.20 purchase and the latest $1.10 rehearsal stay active, including their linked records. The unpaid $1.80 seller balance stays visible.</p>
       <p className="mt-3">This moves the reviewed records out of active operations. It does not refund a purchase, transfer funds, change a sale’s status, remove an account or open ticket sales.</p>
