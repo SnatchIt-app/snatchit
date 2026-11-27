@@ -166,3 +166,8 @@ Companion pgTAP 285 adds a rollback-only full-schema move rehearsal with synthet
 ## November27 —217 / pgTAP286 archive heartbeat correction
 
 Reserved by Codex A. `20261127195004_prelaunch_archive_monitoring_heartbeat.sql` tolerates only advancing case last-seen/update timestamps. All other reviewed data stays exact; complete execution rows get a second private snapshot/hash under the existing locks. No preparation or move is performed by migration. Rollback217 refuses any execution history.
+
+
+## November27 —218 / pgTAP287 admin full-email visibility
+
+Owner requested full emails on admin Users. New bounded `ops.admin_user_emails(uuid[])` requires platform_admin plus existing aal2. All current masked reader contracts, phones, venue and consumer access remain unchanged. File20261127204723; rollback218 removes only this read endpoint. No account/data cleanup is performed by this migration.
