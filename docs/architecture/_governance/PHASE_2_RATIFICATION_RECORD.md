@@ -696,3 +696,8 @@ total near the top of this record are **not edited here**; whoever performs the 
 ## PRELAUNCH-ARCHIVE-1 — owner-approved one-time historical test cleanup (November 26, 2026)
 
 Jose explicitly approved one pre-launch cleanup exception in chat, permitting a separate archive rather than permanent erasure. The bounded implementation retains full snapshots and existing audit history, physically removes only the exact 57 inventoried legacy test payments and their reviewed linked test records from active tables, and preserves the DD sale plus latest native rehearsal and all native custody. Four named append-only deletion guards may be paused only under transaction/table locks during the reviewed move, with atomic rollback and re-enablement before commit. This does not authorize future cleanup manifests, money movement, account deletion, live-sales activation or general bypasses. Current status: candidate; no hosted apply or data move. See `docs/release/prelaunch-test-archive/README.md`.
+
+
+## ADMIN-CONTACT-VISIBILITY-1 — owner-approved admin email visibility (November27,2026)
+
+Jose requested full email addresses in the admin Users page. The bounded exception permits existing authenticated platform_admin operators with aal2 to read email addresses for up to200 explicitly selected current-page profile IDs. Existing support/risk readers, venue/consumer scopes, masked APIs, phone masking and authentication-secret exclusions remain intact. No public/direct auth table grant is introduced. No email/auth token or lookup argument is written to application logs. This is not general contact-data exposure or an account-cleanup approval for unidentified users.
