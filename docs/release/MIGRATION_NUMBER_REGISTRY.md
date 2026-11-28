@@ -175,3 +175,7 @@ Owner requested full emails on admin Users. New bounded `ops.admin_user_emails(u
 ## November27 —219 / pgTAP288 one-time listing archive
 
 Owner-approved exact113 older public listings, keeping five explicitly named listings and every identity/payment/native record. Private full-row recovery copy includes bids, saved and visibility rows. Existing dismissed report/audit remain; listing_detail resolves archived IDs read-only. Schema migration never moves records; verified private backup and admin+MFA confirmation are separate. Rollback refuses any prepared/history row.
+
+## November28 —220 / pgTAP289 archive request diagnostic
+
+Adds an admin+MFA full executor diagnostic that always forces an inner rollback, verifies exact source equality and returns only diagnostic status/error context. Does not weaken219 or perform a committed cleanup. Rollback220 removes only this diagnostic.
