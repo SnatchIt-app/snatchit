@@ -9,7 +9,7 @@ function failureMessage(r:import("@/lib/ops-errors").OpsFailure):string{
  if(r.kind==="denied")return "Your sign-in does not have permission for this cleanup. A platform admin must review it.";
  if(r.kind==="paused")return "Console changes are paused. The archive has not been confirmed.";
  if(r.kind==="error"&&r.code==="P0001"&&r.message==="catalog_archive_refused: source changed since backup")return "Records changed after the backup. A fresh review is required; refreshing alone will not fix it.";
- if(r.kind==="error"&&r.code==="21000")return "The database refused the archive because a request expected one result. No cleanup was confirmed. Reference: 21000.";
+ if(r.kind==="error"&&r.code==="21000")return "The database safety check refused this request. No cleanup was confirmed. Reference: 21000.";
  return "Cleanup was not confirmed. Refresh to check the archive; no success is assumed.";
 }
 /** The database forces rollback of every attempted move before returning. */
