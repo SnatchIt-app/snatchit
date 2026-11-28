@@ -1,6 +1,6 @@
 --219 full-schema atomic archive controls; no production row content.
 begin;
-select plan(7);
+select plan(9);
 insert into auth.users(id,email,raw_app_meta_data,raw_user_meta_data) values
 (tap.seller(),'catalog-seller@test.local','{"provider":"email"}','{}'),(tap.buyer(),'catalog-buyer@test.local','{"provider":"email"}','{}'),(tap.admin_user(),'catalog-admin@test.local','{"provider":"email"}','{}'),(tap.other_user(),'catalog-support@test.local','{"provider":"email"}','{}')on conflict(id)do nothing;
 insert into public.admin_users(user_id,label)values(tap.admin_user(),'TEST ADMIN')on conflict do nothing;
@@ -17,8 +17,9 @@ create temp table catalog_proof as select ops.prelaunch_listing_prepare()digest,
 grant select,update on catalog_proof to authenticated;
 update ops.prelaunch_listing_archive set backup_sha256=snapshot_sha256;
 create temp table safeupdate_executor as select pg_get_functiondef('ops.prelaunch_listing_execute(text,text,text)'::regprocedure)src;
-LOAD 'safeupdate';
-SET LOCAL safeupdate.enabled = true;
+select ci_test_private.enable_api_safeupdate();
+select ok(not has_schema_privilege('authenticated','ci_test_private','USAGE'),'test-only loader is unavailable to app users');
+select ok(not has_function_privilege('anon','ci_test_private.enable_api_safeupdate()','EXECUTE'),'test-only loader is not public');
 select throws_ok($$update ops.prelaunch_listing_archive set backup_sha256=backup_sha256$$,'21000','UPDATE requires a WHERE clause','actual API safeupdate guard is loaded and rejects unbounded updates');
 select tap.login(tap.admin_user());
 select set_config('request.jwt.claims',(current_setting('request.jwt.claims')::jsonb||'{"aal":"aal2"}')::text,true);

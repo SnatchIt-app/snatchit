@@ -973,6 +973,14 @@ jobs:
       # separate job would mean a second required context that reports nothing
       # until it has run once — the "disappearing required check" deadlock this
       # repo already fixed for the migrations guard. Do NOT rename this job.
+      # Only the disposable CI administrator installs this narrow guard loader.
+      - name: Prepare API safeupdate regression helper (CI only)
+        run: |
+          set -euo pipefail
+          mapfile -t dbs < <(docker ps --filter 'name=supabase_db_' --format '{{.Names}}')
+          [ "${#dbs[@]}" -eq 1 ] || { echo "::error::expected one owned Supabase CI database"; exit 1; }
+          docker exec -i "${dbs[0]}" psql -U supabase_admin -d postgres -X -v ON_ERROR_STOP=1 < supabase/ci/install_api_safeupdate_test_helper.sql
+
       - name: pgTAP database security suite
         run: |
           set -euo pipefail
