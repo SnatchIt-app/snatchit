@@ -12,12 +12,20 @@ function failureMessage(r:import("@/lib/ops-errors").OpsFailure):string{
  if(r.kind==="error"&&r.code==="21000")return "The database refused the archive because a request expected one result. No cleanup was confirmed. Reference: 21000.";
  return "Cleanup was not confirmed. Refresh to check the archive; no success is assumed.";
 }
-/** An impossible digest fails before archive changes and table locks; never a retry of the cleanup. */
+/** The database forces rollback of every attempted move before returning. */
 export async function checkListingArchiveConnection():Promise<ListingArchiveState>{
  const me=await requireOperator();if(me.role!=="platform_admin")return{error:"Only a platform admin can check this cleanup."};
- const r=await callOps<unknown>("prelaunch_listing_execute",{p_digest:"",p_reason:"Connection diagnostic only; never execute archive",p_confirmation:"ARCHIVE 113 OLD LISTINGS"});
- if(!r.ok&&r.kind==="error"&&r.code==="P0001"&&r.message==="catalog_archive_refused: verified backup required")return{checked:true};
- return{error:r.ok?"Unexpected response. No cleanup success is assumed.":failureMessage(r)};
+ const r=await callOps<unknown>("prelaunch_listing_diagnose");
+ if(!r.ok)return{error:failureMessage(r)};
+ if(r.data&&typeof r.data==="object"&&!Array.isArray(r.data)){
+  const d=r.data as Record<string,unknown>;
+  if(d.status==="checked_no_changes")return{checked:true};
+  if(d.status==="refused_no_changes"&&typeof d.code==="string"){
+   console.warn("[ops] archive diagnostic refused",{code:d.code,message:d.message,context:d.context});
+   return{error:"The safety check stopped without moving records. Reference: "+d.code};
+  }
+ }
+ return{error:"The safety-check result could not be verified. No cleanup success is assumed."};
 }
 export async function archiveOldListings(_previous:ListingArchiveState,form:FormData):Promise<ListingArchiveState>{
  const me=await requireOperator();if(me.role!=="platform_admin")return{error:"Only a platform admin can run this cleanup."};
