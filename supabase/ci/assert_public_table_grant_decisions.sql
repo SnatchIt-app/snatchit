@@ -352,6 +352,7 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   ('get_payout_review_queue()',                                      'no-client-execute'),
   ('guard_listing_identity_columns()',                               'no-client-execute'),
   ('guard_listing_insert_columns()',                                 'no-client-execute'),
+  ('guard_listing_seller_not_blocked()',                             'no-client-execute'),   -- 119
   ('guard_listing_state_columns()',                                  'no-client-execute'),
   ('guard_proof_status()',                                           'no-client-execute'),
   ('guard_transfer_state_columns()',                                 'no-client-execute'),

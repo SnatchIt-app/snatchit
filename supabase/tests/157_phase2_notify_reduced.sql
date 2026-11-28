@@ -132,7 +132,7 @@ SELECT is((SELECT count(*)::int FROM pg_proc p WHERE p.pronamespace='notify'::re
              AND 'search_path=""' = ANY(p.proconfig)), 15,
   'A16: all fifteen are SECURITY DEFINER, owned by postgres, search_path = '''' (067 discipline)');
 -- 2026-09-03 (package 099): 19 -> 22 (+monitor-signing-key-invariants, +refund-execute-tick, +payout-execute-tick).
-SELECT is((SELECT count(*)::int FROM cron.job), 22, 'A17: cron census 22 — 18 post-091 + notify-drain-outbox + 099''s three signing/executor jobs (an absolute census)');
+SELECT is((SELECT count(*)::int FROM cron.job), 24, 'A17: cron census 24 — 18 post-091 + notify-drain-outbox + 099''s three signing/executor jobs + 117''s ops-detect-tick and ops-daily-summary (an absolute census)');
 SELECT is((SELECT schedule || ' | ' || command FROM cron.job WHERE jobname='notify-drain-outbox'), '*/2 * * * * | select notify.drain_outbox(200);',
   'A18: the drainer tick is the register''s 2-minute row; the two edge ticks are PARKED deploy artifacts (E-158) — not scheduled here');
 SELECT is((SELECT count(*)::int FROM cron.job WHERE jobname IN ('notify-dispatch','notify-receipts') OR command ILIKE '%net.http_post%notify%'), 0,

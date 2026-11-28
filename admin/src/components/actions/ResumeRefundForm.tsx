@@ -1,0 +1,84 @@
+"use client";
+
+import { useActionState } from "react";
+import { useFormStatus } from "react-dom";
+import { submitResumeRefund, type ResumeRefundState } from "@/lib/actions";
+import { Alert } from "@/components/ui/Alert";
+import { StatusBadge } from "@/components/ui/StatusBadge";
+import { executorRefusalLabel, labelFor, refundStateLabel } from "@/lib/format";
+
+function Submit() {
+  const { pending } = useFormStatus();
+  return (
+    <button type="submit" disabled={pending} aria-busy={pending} className="btn btn-sm btn-primary">
+      {pending ? "Contacting executor…" : "Resume execution"}
+    </button>
+  );
+}
+
+/**
+ * Re-drives a refund_execute action in `processing` / `unknown` through the
+ * ops-refund-execute edge function (action-row driven; the only input is the
+ * action id). The text shown is the executor's answer: 200 terminal, 202
+ * accepted-by-Stripe-not-yet-succeeded, 409 refused with a reason. Stripe is
+ * never called from the console.
+ */
+export function ResumeRefundForm({ actionId, state, refundStatus }: { actionId: string; state: string | undefined; refundStatus?: string | null }) {
+  const [result, formAction] = useActionState<ResumeRefundState, FormData>(submitResumeRefund, {});
+  return (
+    <form action={formAction} className="space-y-3">
+      <input type="hidden" name="action_id" value={actionId} />
+      <p className="text-[0.75rem] text-muted">
+        Current state: <StatusBadge status={state} label={refundStateLabel(state, refundStatus)} />. First the executor checks again: the refund switch, the console pause, and the approval and its terms. It locks the action for a short time. If an earlier run sent this refund to Stripe, it looks for that refund there. If there is no such refund, it can ask Stripe to create one, with idempotency key{" "}
+        <code className="font-mono">ops_action_{actionId.slice(0, 8)}…</code>. Then it records the outcome. Safe to press more than once.
+      </p>
+      <Submit />
+      {result.submitted ? (
+        result.notDeployed ? (
+          <Alert state="warning" title="Executor did not answer." compact>
+            ops-refund-execute did not answer{result.httpStatus ? ` (HTTP ${result.httpStatus})` : ""}. Follow the Stripe Dashboard SOP. Then ask engineering to record the outcome.
+          </Alert>
+        ) : result.refusedReason ? (
+          <Alert state="warning" title={`Executor refused: ${executorRefusalLabel(result.refusedReason)}`} compact>
+            <code className="font-mono text-[0.6875rem]">{result.refusedReason}</code>
+            {result.message ? ` — ${result.message}` : null}
+            {result.state ? (
+              <>
+                {" "}
+                · state <StatusBadge status={result.state} label={refundStateLabel(result.state, result.refundStatus)} />
+              </>
+            ) : null}
+            {result.httpStatus ? <span className="ml-2 font-mono text-[0.6875rem] text-dim">HTTP {result.httpStatus}</span> : null}
+          </Alert>
+        ) : result.error ? (
+          <Alert state="failed" title={`Executor error: ${result.error}`} compact>
+            {result.message}
+            {result.state ? (
+              <>
+                {" "}
+                · state <StatusBadge status={result.state} label={refundStateLabel(result.state, result.refundStatus)} />
+              </>
+            ) : null}
+            {result.httpStatus ? <span className="ml-2 font-mono text-[0.6875rem] text-dim">HTTP {result.httpStatus}</span> : null}
+          </Alert>
+        ) : result.accepted ? (
+          <Alert state="warning" title={result.refundStatus === "requires_action" ? "Requires action at Stripe — not succeeded." : "Accepted by Stripe, not yet succeeded."} compact>
+            State: <StatusBadge status={result.state} label={refundStateLabel(result.state, result.refundStatus)} />
+            {result.message ? ` — ${result.message}` : null}. The action stays in processing until Stripe reports the final outcome. Do not treat this as a completed refund.{" "}
+            <button type="button" className="link" onClick={() => window.location.reload()}>
+              Reload
+            </button>
+          </Alert>
+        ) : (
+          <Alert state={result.state === "succeeded" ? "success" : result.state === "failed" || result.state === "unknown" ? "failed" : "info"} title="Executor answered." compact>
+            State: <StatusBadge status={result.state} label={labelFor("action", result.state)} />
+            {result.message ? ` — ${result.message}` : null}{" "}
+            <button type="button" className="link" onClick={() => window.location.reload()}>
+              Reload to see the recorded outcome
+            </button>
+          </Alert>
+        )
+      ) : null}
+    </form>
+  );
+}

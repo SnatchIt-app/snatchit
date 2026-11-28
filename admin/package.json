@@ -1,0 +1,42 @@
+{
+  "name": "admin",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --port 3200",
+    "build": "next build",
+    "start": "next start --port 3200",
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "local:stack": "bash scripts/local-stack.sh",
+    "astryx": "node node_modules/@astryxdesign/cli/clients/cli/bin/astryx.mjs"
+  },
+  "dependencies": {
+    "@astryxdesign/core": "0.7.17",
+    "@astryxdesign/theme-neutral": "0.7.17",
+    "@stylexjs/stylex": "0.19.2",
+    "@supabase/ssr": "^0.12.3",
+    "@supabase/supabase-js": "^2.110.9",
+    "next": "16.4.5",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "server-only": "^0.0.1"
+  },
+  "devDependencies": {
+    "@astryxdesign/cli": "0.7.17",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.4.1",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "vite": "8.3.8",
+    "vitest": "4.1.12"
+  },
+  "engines": {
+    "node": ">=22.0.0 <25.0.0"
+  }
+}
