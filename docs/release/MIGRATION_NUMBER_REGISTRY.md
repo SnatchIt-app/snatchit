@@ -179,3 +179,7 @@ Owner-approved exact113 older public listings, keeping five explicitly named lis
 ## November28 —220 / pgTAP289 archive request diagnostic
 
 Adds an admin+MFA full executor diagnostic that always forces an inner rollback, verifies exact source equality and returns only diagnostic status/error context. Does not weaken219 or perform a committed cleanup. Rollback220 removes only this diagnostic.
+
+## November28 —221 / pgTAP290 API safeupdate compatibility
+
+Exact bounded completion update for the existing219 batch. Authenticator preloads safeupdate, which rejected its singleton UPDATE without a WHERE clause. Pin predecessor and require exact singleton, unexecuted state, reviewed digest and verified backup; assert exactly one row. Guard remains enabled. Regression loads actual safeupdate, exercises220, and restores old source as a failing negative control. No data moves on apply.
