@@ -25,6 +25,7 @@ export async function callOps<T>(fn: string, args: Record<string, unknown> = {})
     if (error) {
       // Log the shape, never the args (they can carry reasons/notes).
       console.warn("[ops] rpc failed", { fn, code: error.code });
+      if(fn === "prelaunch_listing_execute" && error.code === "21000") console.warn("[ops] listing archive cardinality", { message: error.message.slice(0,500) });
       return mapOpsError(fn, error);
     }
     return { ok: true, data: data as T };
